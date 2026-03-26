@@ -2,7 +2,11 @@ import React, { useEffect, useState, useCallback } from "react";
 import { collection, getDocs, setDoc, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
-import { GRADES, SECTIONS, SUBJECTS_BY_GRADE } from "../constants";
+import {
+  GRADES, SECTIONS, getStudentSubjects,
+  AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3,
+  COMPULSORY_SUBJECTS_10_11, SUBJECTS_BY_GRADE
+} from "../constants";
 import {
   Box, Typography, Grid, FormControl, InputLabel, Select, MenuItem,
   Table, TableHead, TableRow, TableCell, TableBody, Paper, TextField,
@@ -12,7 +16,6 @@ import {
 import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningIcon from "@mui/icons-material/Warning";
-
 
 export default function MarksEntry() {
   const { profile, isAdmin } = useAuth();
@@ -31,9 +34,20 @@ export default function MarksEntry() {
   const [activeTerm, setActiveTerm] = useState(null);
   const [termLoading, setTermLoading] = useState(true);
 
-  const subjects = isAdmin
-    ? (SUBJECTS_BY_GRADE[grade] || [])
-    : (SUBJECTS_BY_GRADE[profile?.grade] || []);
+  // ── Subject dropdown list based on selected grade ──
+  const getSubjectsForGrade = (g) => {
+    if (g >= 6 && g <= 9) {
+      const dummy = { grade: g, religion: "Hindu", aesthetic: "Art" };
+      const compulsory = getStudentSubjects(dummy).slice(0, -1);
+      return [...new Set([...compulsory, ...AESTHETIC_SUBJECTS])];
+    }
+    if (g >= 10 && g <= 11) {
+      return [...COMPULSORY_SUBJECTS_10_11, ...BASKET_1, ...BASKET_2, ...BASKET_3];
+    }
+    return SUBJECTS_BY_GRADE[g] || [];
+  };
+
+  const subjects = getSubjectsForGrade(isAdmin ? grade : (profile?.grade || 6));
 
   useEffect(() => {
     async function fetchActiveTerm() {
@@ -63,20 +77,24 @@ export default function MarksEntry() {
     const snap = await getDocs(collection(db, "students"));
     const list = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(s =>
-        s.grade === grade &&
-        s.section === section &&
-        (s.status || "active") === "active"   // ✅ excludes left students
-      )
+      .filter(s => {
+        if (s.grade !== grade) return false;
+        if (s.section !== section) return false;
+        if ((s.status || "active") !== "active") return false;
+        // ── Only show student if selected subject is in their personal list ──
+        const studentSubjects = getStudentSubjects(s);
+        return studentSubjects.includes(subject);
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
+
     setStudents(list);
 
     const existing = {};
     for (const s of list) {
       const markId = `${s.id}_${subject}_${activeTerm.term}_${activeTerm.year}`;
       const ref = doc(db, "marks", markId);
-      const snap = await getDoc(ref);
-      if (snap.exists()) existing[s.id] = snap.data().mark ?? "";
+      const snap2 = await getDoc(ref);
+      if (snap2.exists()) existing[s.id] = snap2.data().mark ?? "";
     }
     setMarks(existing);
     setLoading(false);
@@ -211,7 +229,7 @@ export default function MarksEntry() {
           <Box display="flex" justifyContent="space-between" alignItems="center"
             mb={1} flexWrap="wrap" gap={1}>
             <Typography variant="body2" color="text.secondary">
-              {students.length} active students — Grade {grade}-{section} |{" "}
+              {students.length} students — Grade {grade}-{section} |{" "}
               {subject} | {activeTerm.term} {activeTerm.year}
             </Typography>
             {!isMobile && (
@@ -223,13 +241,31 @@ export default function MarksEntry() {
             )}
           </Box>
 
+          {/* Info banner for basket subjects */}
+          {(grade >= 10 && grade <= 11) &&
+            ![...COMPULSORY_SUBJECTS_10_11].includes(subject) && (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              Showing only students who selected <strong>{subject}</strong> in their basket.
+            </Alert>
+          )}
+
+          {/* Info banner for aesthetic subjects */}
+          {(grade >= 6 && grade <= 9) &&
+            AESTHETIC_SUBJECTS.includes(subject) && (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              Showing only students who selected <strong>{subject}</strong> as their aesthetic.
+            </Alert>
+          )}
+
           <Paper sx={{ overflowX: "auto" }}>
             <Table size="small">
               <TableHead sx={{ bgcolor: "#1a237e" }}>
                 <TableRow>
                   {["#", "Name", "Marks (0-100)", "Grade"].map(h => (
                     <TableCell key={h} sx={{ color: "white", fontWeight: 600,
-                      fontSize: { xs: 11, sm: 14 }, px: { xs: 1, sm: 2 } }}>{h}</TableCell>
+                      fontSize: { xs: 11, sm: 14 }, px: { xs: 1, sm: 2 } }}>
+                      {h}
+                    </TableCell>
                   ))}
                 </TableRow>
               </TableHead>
@@ -264,7 +300,8 @@ export default function MarksEntry() {
                 {students.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={4} align="center">
-                      No active students found for Grade {grade}-{section}.
+                      No students found for <strong>{subject}</strong> in
+                      Grade {grade}-{section}.
                     </TableCell>
                   </TableRow>
                 )}

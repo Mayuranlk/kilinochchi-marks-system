@@ -1,297 +1,248 @@
 import React, { useEffect, useState } from "react";
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs } from "firebase/firestore";
+import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "../firebase";
 import {
-  Box, Typography, Button, TextField, Select, MenuItem, FormControl, InputLabel,
-  Table, TableHead, TableRow, TableCell, TableBody, Paper, Dialog, DialogTitle,
-  DialogContent, DialogActions, IconButton, Chip, CircularProgress, Grid, Alert,
-  Card, CardContent, CardActions, Tabs, Tab, useMediaQuery, useTheme
+  COMPULSORY_SUBJECTS_6_9, COMPULSORY_SUBJECTS_10_11,
+  AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3
+} from "../constants";
+import {
+  Box, Typography, Button, TextField, Select, MenuItem, FormControl,
+  InputLabel, Table, TableHead, TableRow, TableCell, TableBody, Paper,
+  Dialog, DialogTitle, DialogContent, DialogActions, Chip, CircularProgress,
+  Alert, Tabs, Tab, Tooltip, IconButton
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
-import BookIcon from "@mui/icons-material/Book";
 
-const SUBJECT_TYPES = [
-  { value: "compulsory", label: "Compulsory", color: "primary" },
-  { value: "religion", label: "Religion", color: "secondary" },
-  { value: "aesthetic", label: "Aesthetic", color: "warning" },
-  { value: "stream", label: "A/L Stream", color: "error" },
-];
+// ── Build default subjects list from constants ──
+const buildDefaults = () => {
+  const list = [];
 
-const GRADE_GROUPS = ["6-9", "10-11", "AL"];
-const STREAMS = ["Maths", "Bio", "Technology", "Arts", "Commerce"];
+  COMPULSORY_SUBJECTS_6_9.forEach(s => list.push({
+    id: `default-69-${s}`, code: "—", name: s,
+    type: "Compulsory", gradeGroup: "Grade 6-9", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  COMPULSORY_SUBJECTS_10_11.forEach(s => list.push({
+    id: `default-1011-${s}`, code: "—", name: s,
+    type: "Compulsory", gradeGroup: "Grade 10-11", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  AESTHETIC_SUBJECTS.forEach(s => list.push({
+    id: `default-aes-${s}`, code: "—", name: s,
+    type: "Aesthetic", gradeGroup: "Grade 6-9", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  BASKET_1.forEach(s => list.push({
+    id: `default-b1-${s}`, code: "—", name: s,
+    type: "Basket 1", gradeGroup: "Grade 10-11", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  BASKET_2.forEach(s => list.push({
+    id: `default-b2-${s}`, code: "—", name: s,
+    type: "Basket 2", gradeGroup: "Grade 10-11", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  BASKET_3.forEach(s => list.push({
+    id: `default-b3-${s}`, code: "—", name: s,
+    type: "Basket 3", gradeGroup: "Grade 10-11", stream: "—",
+    status: "active", isDefault: true
+  }));
+
+  return list;
+};
+
+const DEFAULT_SUBJECTS = buildDefaults();
 
 const emptyForm = {
-  name: "", code: "", type: "compulsory",
-  gradesGroup: "6-9", stream: "", isActive: true
+  code: "", name: "", type: "Compulsory",
+  gradeGroup: "Grade 6-9", stream: "", status: "active"
 };
 
 export default function SubjectManagement() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
-  const [subjects, setSubjects] = useState([]);
+  const [customSubjects, setCustomSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
-  const [editId, setEditId] = useState(null);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState(0);
+  const [error, setError] = useState("");
+  const [tabValue, setTabValue] = useState(0);
 
-  useEffect(() => { fetchSubjects(); }, []);
+  const tabs = ["ALL", "GRADE 6-9", "GRADE 10-11", "A/L"];
 
-  const fetchSubjects = async () => {
+  const fetchCustom = async () => {
     const snap = await getDocs(collection(db, "subjects"));
-    setSubjects(
-      snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data(), isDefault: false }));
+    setCustomSubjects(data);
     setLoading(false);
   };
 
-  const handleSave = async () => {
-    if (!form.name || !form.code) return setError("Name and Code are required.");
-    setSaving(true); setError(""); setSuccess("");
-    try {
-      if (editId) {
-        await updateDoc(doc(db, "subjects", editId), form);
-        setSuccess("Subject updated!");
-      } else {
-        await addDoc(collection(db, "subjects"), form);
-        setSuccess("Subject added!");
-      }
-      setOpen(false); setForm(emptyForm); setEditId(null);
-      fetchSubjects();
-    } catch (err) {
-      setError(err.message);
-    }
-    setSaving(false);
-  };
+  useEffect(() => { fetchCustom(); }, []);
 
-  const handleEdit = (s) => {
-    setForm({
-      name: s.name, code: s.code, type: s.type,
-      gradesGroup: s.gradesGroup, stream: s.stream || "", isActive: s.isActive
-    });
-    setEditId(s.id); setError(""); setOpen(true);
-  };
+  // Combine defaults + custom
+  const allSubjects = [...DEFAULT_SUBJECTS, ...customSubjects];
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this subject?")) return;
-    await deleteDoc(doc(db, "subjects", id));
-    setSuccess("Subject deleted.");
-    fetchSubjects();
-  };
-
-  const filtered = subjects.filter((s) => {
-    if (tab === 0) return true;
-    if (tab === 1) return s.gradesGroup === "6-9";
-    if (tab === 2) return s.gradesGroup === "10-11";
-    if (tab === 3) return s.gradesGroup === "AL";
+  const filtered = allSubjects.filter(s => {
+    if (tabValue === 0) return true;
+    if (tabValue === 1) return s.gradeGroup === "Grade 6-9";
+    if (tabValue === 2) return s.gradeGroup === "Grade 10-11";
+    if (tabValue === 3) return s.gradeGroup === "A/L";
     return true;
   });
 
-  const getTypeChip = (type) => {
-    const t = SUBJECT_TYPES.find(st => st.value === type);
-    return t ? <Chip label={t.label} size="small" color={t.color} /> : null;
+  const handleSave = async () => {
+    if (!form.name) return setError("Subject name is required.");
+    setSaving(true); setError("");
+    try {
+      await addDoc(collection(db, "subjects"), {
+        ...form, createdAt: new Date().toISOString()
+      });
+      setOpen(false); setForm(emptyForm);
+      fetchCustom();
+    } catch (err) { setError(err.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this custom subject?")) return;
+    await deleteDoc(doc(db, "subjects", id));
+    fetchCustom();
+  };
+
+  const getTypeColor = (type) => {
+    if (type === "Compulsory") return "primary";
+    if (type === "Aesthetic")  return "secondary";
+    if (type === "Basket 1")   return "success";
+    if (type === "Basket 2")   return "warning";
+    if (type === "Basket 3")   return "info";
+    return "default";
   };
 
   return (
     <Box>
+      {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
-          Subjects
-          <Typography component="span" variant="body2" color="text.secondary" ml={1}>
-            ({subjects.length})
-          </Typography>
+        <Typography variant="h5" fontWeight={700} color="#1a237e">
+          Subjects ({filtered.length})
         </Typography>
-        <Button variant="contained" startIcon={<AddIcon />} size={isMobile ? "small" : "medium"}
-          onClick={() => { setForm(emptyForm); setEditId(null); setError(""); setOpen(true); }}
+        <Button variant="contained" startIcon={<AddIcon />}
+          onClick={() => { setForm(emptyForm); setError(""); setOpen(true); }}
           sx={{ bgcolor: "#1a237e" }}>
-          {isMobile ? "Add" : "Add Subject"}
+          Add Subject
         </Button>
       </Box>
 
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      <Alert severity="info" sx={{ mb: 2 }}>
+        ✅ Default subjects are loaded from the system. Use <strong>Add Subject</strong> to add extra/custom subjects only.
+      </Alert>
 
       {/* Tabs */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs value={tab} onChange={(e, v) => setTab(v)}
-          variant={isMobile ? "scrollable" : "fullWidth"}
-          scrollButtons={isMobile ? "auto" : false}>
-          <Tab label="All" />
-          <Tab label="Grade 6-9" />
-          <Tab label="Grade 10-11" />
-          <Tab label="A/L" />
-        </Tabs>
-      </Paper>
+      <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} sx={{ mb: 2 }}>
+        {tabs.map((t, i) => <Tab key={i} label={t} />)}
+      </Tabs>
 
-      {loading ? (
-        <Box display="flex" justifyContent="center" p={5}><CircularProgress /></Box>
-      ) : (
-        <>
-          {/* Mobile Card View */}
-          {isMobile ? (
-            <Box>
-              {filtered.map((s) => (
-                <Card key={s.id} sx={{ mb: 1.5, boxShadow: 2 }}>
-                  <CardContent sx={{ pb: 0 }}>
-                    <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                      <Box>
-                        <Typography variant="subtitle2" fontWeight={700}>{s.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Code: {s.code} • {s.gradesGroup}
-                        </Typography>
-                      </Box>
-                      <Box display="flex" flexDirection="column" alignItems="flex-end" gap={0.5}>
-                        {getTypeChip(s.type)}
-                        <Chip
-                          label={s.isActive ? "Active" : "Inactive"}
-                          color={s.isActive ? "success" : "default"}
-                          size="small" />
-                      </Box>
-                    </Box>
-                    {s.stream && (
-                      <Chip label={`Stream: ${s.stream}`} size="small"
-                        variant="outlined" sx={{ mt: 0.5 }} />
+      {loading ? <CircularProgress /> : (
+        <Paper sx={{ overflowX: "auto" }}>
+          <Table size="small">
+            <TableHead sx={{ bgcolor: "#1a237e" }}>
+              <TableRow>
+                {["#", "Code", "Subject Name", "Type", "Grade Group", "Stream", "Status", "Actions"].map(h => (
+                  <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>{h}</TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map((s, idx) => (
+                <TableRow key={s.id} hover
+                  sx={{ bgcolor: s.isDefault ? "#f8f9ff" : "white" }}>
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell>{s.code}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={600}>{s.name}</Typography>
+                    {s.isDefault && (
+                      <Chip label="Default" size="small"
+                        sx={{ fontSize: 10, height: 16, ml: 0.5 }} />
                     )}
-                  </CardContent>
-                  <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
-                    <Button size="small" variant="outlined" startIcon={<EditIcon />}
-                      onClick={() => handleEdit(s)}>Edit</Button>
-                    <Button size="small" variant="outlined" color="error"
-                      startIcon={<DeleteIcon />}
-                      onClick={() => handleDelete(s.id)}>Delete</Button>
-                  </CardActions>
-                </Card>
-              ))}
-              {filtered.length === 0 && (
-                <Box textAlign="center" py={4}>
-                  <BookIcon sx={{ fontSize: 48, color: "text.secondary" }} />
-                  <Typography color="text.secondary" mt={1}>
-                    No subjects found. Add your first subject!
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          ) : (
-            /* Desktop Table View */
-            <Paper sx={{ overflowX: "auto" }}>
-              <Table>
-                <TableHead sx={{ bgcolor: "#1a237e" }}>
-                  <TableRow>
-                    {["Code", "Subject Name", "Type", "Grade Group", "Stream", "Status", "Actions"].map((h) => (
-                      <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>{h}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filtered.map((s) => (
-                    <TableRow key={s.id} hover>
-                      <TableCell><strong>{s.code}</strong></TableCell>
-                      <TableCell>{s.name}</TableCell>
-                      <TableCell>{getTypeChip(s.type)}</TableCell>
-                      <TableCell>{s.gradesGroup}</TableCell>
-                      <TableCell>{s.stream || "—"}</TableCell>
-                      <TableCell>
-                        <Chip label={s.isActive ? "Active" : "Inactive"}
-                          color={s.isActive ? "success" : "default"} size="small" />
-                      </TableCell>
-                      <TableCell>
-                        <IconButton size="small" color="primary" onClick={() => handleEdit(s)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small" color="error" onClick={() => handleDelete(s.id)}>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={s.type} size="small" color={getTypeColor(s.type)} />
+                  </TableCell>
+                  <TableCell>{s.gradeGroup}</TableCell>
+                  <TableCell>{s.stream || "—"}</TableCell>
+                  <TableCell>
+                    <Chip label={s.status} size="small"
+                      color={s.status === "active" ? "success" : "default"} />
+                  </TableCell>
+                  <TableCell>
+                    {!s.isDefault ? (
+                      <Tooltip title="Delete custom subject">
+                        <IconButton size="small" color="error"
+                          onClick={() => handleDelete(s.id)}>
                           <DeleteIcon />
                         </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                        <BookIcon sx={{ fontSize: 48, color: "text.secondary", mb: 1 }} />
-                        <Typography color="text.secondary">
-                          No subjects found. Add your first subject!
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </Paper>
-          )}
-        </>
+                      </Tooltip>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">
+                        System
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} align="center">No subjects found.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </Paper>
       )}
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm"
-        fullWidth fullScreen={isMobile}>
-        <DialogTitle>{editId ? "Edit Subject" : "Add New Subject"}</DialogTitle>
+      {/* Add Subject Dialog */}
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
+          Add Custom Subject
+        </DialogTitle>
         <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
-          <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12}>
-              <TextField fullWidth label="Subject Name" value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth label="Subject Code (e.g. MATH)" value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })} required />
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Type</InputLabel>
-                <Select value={form.type} label="Type"
-                  onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                  {SUBJECT_TYPES.map((t) => (
-                    <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Grade Group</InputLabel>
-                <Select value={form.gradesGroup} label="Grade Group"
-                  onChange={(e) => setForm({ ...form, gradesGroup: e.target.value })}>
-                  {GRADE_GROUPS.map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Stream (A/L only)</InputLabel>
-                <Select value={form.stream || ""} label="Stream"
-                  onChange={(e) => setForm({ ...form, stream: e.target.value || "" })}
-                  disabled={form.gradesGroup !== "AL"}>
-                  <MenuItem value="">None</MenuItem>
-                  {STREAMS.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select value={form.isActive} label="Status"
-                  onChange={(e) => setForm({ ...form, isActive: e.target.value })}>
-                  <MenuItem value={true}>Active</MenuItem>
-                  <MenuItem value={false}>Inactive</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
+          {error && <Alert severity="error" sx={{ mt: 1, mb: 1 }}>{error}</Alert>}
+          <Box display="flex" flexDirection="column" gap={2} mt={1.5}>
+            <TextField label="Subject Code" value={form.code}
+              onChange={e => setForm({ ...form, code: e.target.value })}
+              placeholder="e.g. SCI01" />
+            <TextField label="Subject Name *" value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })} />
+            <FormControl fullWidth>
+              <InputLabel>Type</InputLabel>
+              <Select value={form.type} label="Type"
+                onChange={e => setForm({ ...form, type: e.target.value })}>
+                {["Compulsory", "Aesthetic", "Basket 1", "Basket 2", "Basket 3", "Elective", "Other"]
+                  .map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Grade Group</InputLabel>
+              <Select value={form.gradeGroup} label="Grade Group"
+                onChange={e => setForm({ ...form, gradeGroup: e.target.value })}>
+                {["Grade 6-9", "Grade 10-11", "A/L"].map(g =>
+                  <MenuItem key={g} value={g}>{g}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <TextField label="Stream (optional)" value={form.stream}
+              onChange={e => setForm({ ...form, stream: e.target.value })}
+              placeholder="e.g. Science, Arts, Commerce" />
+          </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setOpen(false)} fullWidth={isMobile}>Cancel</Button>
-          <Button onClick={handleSave} variant="contained" disabled={saving}
-            fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
-            {saving ? <CircularProgress size={20} color="inherit" /> :
-              editId ? "Update Subject" : "Add Subject"}
+          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSave}
+            disabled={saving} sx={{ bgcolor: "#1a237e" }}>
+            {saving ? <CircularProgress size={20} /> : "Save Subject"}
           </Button>
         </DialogActions>
       </Dialog>

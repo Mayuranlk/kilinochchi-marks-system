@@ -7,7 +7,7 @@ export const TERMS = ["Term 1", "Term 2", "Term 3"];
 export const ACADEMIC_YEARS = ["2024", "2025", "2026", "2027"];
 
 // ── Religion ──
-export const RELIGIONS = ["Hindu", "Roman Catholic", "Islam", "Buddhist", "Other"];
+export const RELIGIONS = ["Hindu", "Roman Catholic", "Islam", "Catholic", "Other"];
 
 // ── Grade 6-9 Aesthetic ──
 export const AESTHETIC_SUBJECTS = [
