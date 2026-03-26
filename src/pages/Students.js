@@ -1,9 +1,10 @@
+/* eslint-disable no-unused-vars */
 import React, { useEffect, useState } from "react";
 import {
   collection, getDocs, addDoc, deleteDoc, doc, updateDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { GRADES, SECTIONS } from "../constants";
+import { GRADES, SECTIONS, AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3 } from "../constants";
 import * as XLSX from "xlsx";
 import {
   Box, Typography, Button, TextField, Select, MenuItem, FormControl,
@@ -25,13 +26,14 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useNavigate } from "react-router-dom";
 
 const RELIGIONS = ["Hindu", "Roman Catholic", "Islam", "Buddhist", "Other"];
-const AESTHETICS = ["Art", "Music", "Drama", "Dance", "None"];
 
 const empty = {
   name: "", admissionNo: "", grade: 6, section: "A",
   gender: "Male", dob: "",
   phone: "", address: "", parentName: "", parentPhone: "",
-  religion: "Hindu", aesthetic: "None",
+  religion: "Hindu",
+  aesthetic: "Art",
+  basket1: "", basket2: "", basket3: "",
   status: "active", leftDate: "", leftReason: ""
 };
 
@@ -61,7 +63,6 @@ export default function Students() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [formTab, setFormTab] = useState(0);
 
-  // Bulk upload states
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkData, setBulkData] = useState([]);
   const [bulkErrors, setBulkErrors] = useState([]);
@@ -119,7 +120,11 @@ export default function Students() {
       gender: s.gender || "Male", dob: s.dob || "",
       phone: s.phone || "", address: s.address || "",
       parentName: s.parentName || "", parentPhone: s.parentPhone || "",
-      religion: s.religion || "Hindu", aesthetic: s.aesthetic || "None",
+      religion:  s.religion  || "Hindu",
+      aesthetic: s.aesthetic || "Art",
+      basket1:   s.basket1   || "",
+      basket2:   s.basket2   || "",
+      basket3:   s.basket3   || "",
       status: s.status || "active", leftDate: s.leftDate || "",
       leftReason: s.leftReason || ""
     });
@@ -168,10 +173,11 @@ export default function Students() {
         }
         const errors = [];
         const cleaned = raw.map((row, idx) => {
+          const grade = Number(row.grade) || 6;
           const r = {
             admissionNo: String(row.admissionNo || "").trim(),
             name:        String(row.name || "").trim(),
-            grade:       Number(row.grade) || 6,
+            grade,
             section:     String(row.section || "A").trim().toUpperCase(),
             gender:      String(row.gender || "Male").trim(),
             dob:         String(row.dob || "").trim(),
@@ -180,8 +186,11 @@ export default function Students() {
             parentPhone: String(row.parentPhone || "").trim(),
             address:     String(row.address || "").trim(),
             religion:    String(row.religion || "Hindu").trim(),
-            aesthetic:   String(row.aesthetic || "None").trim(),
-            status:      "active",
+            aesthetic:   grade <= 9 ? String(row.aesthetic || "Art").trim() : "",
+            basket1:     grade >= 10 && grade <= 11 ? String(row.basket1 || "").trim() : "",
+            basket2:     grade >= 10 && grade <= 11 ? String(row.basket2 || "").trim() : "",
+            basket3:     grade >= 10 && grade <= 11 ? String(row.basket3 || "").trim() : "",
+            status: "active",
           };
           if (!r.name) errors.push(`Row ${idx + 2}: Name is missing`);
           if (!r.admissionNo) errors.push(`Row ${idx + 2}: Admission No is missing`);
@@ -198,7 +207,6 @@ export default function Students() {
       }
     };
     reader.readAsBinaryString(file);
-    // Reset input so same file can be re-selected
     e.target.value = "";
   };
 
@@ -231,23 +239,25 @@ export default function Students() {
         dob: "2012-05-14", phone: "0771234567",
         parentName: "Kajendran Kumar", parentPhone: "0777654321",
         address: "12, Main St, Kilinochchi",
-        religion: "Hindu", aesthetic: "Music"
+        religion: "Hindu", aesthetic: "Art",
+        basket1: "", basket2: "", basket3: ""
       },
       {
         admissionNo: "2024002", name: "Thamilini Priya",
-        grade: 7, section: "B", gender: "Female",
+        grade: 10, section: "B", gender: "Female",
         dob: "2011-08-20", phone: "0769876543",
         parentName: "Thamilini Rajan", parentPhone: "0761234567",
         address: "45, North Rd, Kilinochchi",
-        religion: "Roman Catholic", aesthetic: "Dance"
+        religion: "Roman Catholic", aesthetic: "",
+        basket1: "Art", basket2: "ICT", basket3: "Geography"
       }
     ];
     const ws = XLSX.utils.json_to_sheet(template);
-    // Set column widths
     ws["!cols"] = [
       { wch: 12 }, { wch: 22 }, { wch: 6 }, { wch: 8 }, { wch: 8 },
       { wch: 12 }, { wch: 13 }, { wch: 22 }, { wch: 13 },
-      { wch: 28 }, { wch: 14 }, { wch: 10 }
+      { wch: 28 }, { wch: 14 }, { wch: 10 },
+      { wch: 20 }, { wch: 20 }, { wch: 25 }
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Students");
@@ -290,6 +300,14 @@ export default function Students() {
       </head><body>${content}</body></html>
     `);
     win.document.close(); win.print();
+  };
+
+  // helper to show extra subject in table
+  const getExtraSubject = (s) => {
+    if (s.grade >= 6 && s.grade <= 9) return s.aesthetic || "—";
+    if (s.grade >= 10 && s.grade <= 11)
+      return [s.basket1, s.basket2, s.basket3].filter(Boolean).join(", ") || "—";
+    return "—";
   };
 
   return (
@@ -461,7 +479,7 @@ export default function Students() {
                 <TableHead sx={{ bgcolor: "#1a237e" }}>
                   <TableRow>
                     {["#", "Adm No", "Name", "Grade", "Phone",
-                      "Parent", "Religion", "Status", "Actions"].map(h => (
+                      "Parent", "Religion", "Extra Subject", "Status", "Actions"].map(h => (
                       <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
                         {h}
                       </TableCell>
@@ -500,6 +518,9 @@ export default function Students() {
                       </TableCell>
                       <TableCell>{s.parentName || "—"}</TableCell>
                       <TableCell>{s.religion || "—"}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption">{getExtraSubject(s)}</Typography>
+                      </TableCell>
                       <TableCell>
                         <Chip label={s.status || "active"} size="small"
                           color={getStatusColor(s.status || "active")} />
@@ -548,7 +569,7 @@ export default function Students() {
                   ))}
                   {filtered.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} align="center">
+                      <TableCell colSpan={10} align="center">
                         No students found.
                       </TableCell>
                     </TableRow>
@@ -583,6 +604,7 @@ export default function Students() {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
 
+          {/* Tab 0 — Basic Info */}
           {formTab === 0 && (
             <Grid container spacing={2} mt={0.5}>
               <Grid item xs={12}>
@@ -598,7 +620,10 @@ export default function Students() {
                 <FormControl fullWidth>
                   <InputLabel>Grade</InputLabel>
                   <Select value={form.grade} label="Grade"
-                    onChange={e => setForm({ ...form, grade: e.target.value })}>
+                    onChange={e => setForm({
+                      ...form, grade: e.target.value,
+                      aesthetic: "Art", basket1: "", basket2: "", basket3: ""
+                    })}>
                     {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
                   </Select>
                 </FormControl>
@@ -631,6 +656,7 @@ export default function Students() {
             </Grid>
           )}
 
+          {/* Tab 1 — Contact */}
           {formTab === 1 && (
             <Grid container spacing={2} mt={0.5}>
               <Grid item xs={12} sm={6}>
@@ -654,8 +680,11 @@ export default function Students() {
             </Grid>
           )}
 
+          {/* Tab 2 — Subjects */}
           {formTab === 2 && (
             <Grid container spacing={2} mt={0.5}>
+
+              {/* Religion — all grades */}
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
                   <InputLabel>Religion Subject</InputLabel>
@@ -665,21 +694,73 @@ export default function Students() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Aesthetic Subject</InputLabel>
-                  <Select value={form.aesthetic} label="Aesthetic Subject"
-                    onChange={e => setForm({ ...form, aesthetic: e.target.value })}>
-                    {AESTHETICS.map(a => <MenuItem key={a} value={a}>{a}</MenuItem>)}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <Alert severity="info">
-                  Religion and Aesthetic subjects will appear in
-                  Marks Entry for this student.
-                </Alert>
-              </Grid>
+
+              {/* Grade 6-9: Aesthetic */}
+              {form.grade >= 6 && form.grade <= 9 && (
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Aesthetic Subject</InputLabel>
+                    <Select value={form.aesthetic} label="Aesthetic Subject"
+                      onChange={e => setForm({ ...form, aesthetic: e.target.value })}>
+                      {AESTHETIC_SUBJECTS.map(a => (
+                        <MenuItem key={a} value={a}>{a}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              )}
+
+              {/* Grade 10-11: Basket 1, 2, 3 */}
+              {form.grade >= 10 && form.grade <= 11 && (
+                <>
+                  <Grid item xs={12}>
+                    <Alert severity="info">
+                      Select one subject from each basket for this student.
+                    </Alert>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>Basket 1</InputLabel>
+                      <Select value={form.basket1} label="Basket 1"
+                        onChange={e => setForm({ ...form, basket1: e.target.value })}>
+                        <MenuItem value="">-- Select --</MenuItem>
+                        {BASKET_1.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>Basket 2</InputLabel>
+                      <Select value={form.basket2} label="Basket 2"
+                        onChange={e => setForm({ ...form, basket2: e.target.value })}>
+                        <MenuItem value="">-- Select --</MenuItem>
+                        {BASKET_2.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>Basket 3</InputLabel>
+                      <Select value={form.basket3} label="Basket 3"
+                        onChange={e => setForm({ ...form, basket3: e.target.value })}>
+                        <MenuItem value="">-- Select --</MenuItem>
+                        {BASKET_3.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </>
+              )}
+
+              {/* Grade 12-13 */}
+              {form.grade >= 12 && form.grade <= 13 && (
+                <Grid item xs={12}>
+                  <Alert severity="success">
+                    Grade {form.grade} — All subjects are compulsory.
+                    No basket or aesthetic selection needed.
+                  </Alert>
+                </Grid>
+              )}
+
             </Grid>
           )}
         </DialogContent>
@@ -755,7 +836,7 @@ export default function Students() {
               textAlign: "center", maxWidth: 320, mx: "auto"
             }}>
               <Typography variant="subtitle2" fontWeight={700} color="#1a237e">
-                Kilinochchi Marks System
+                Kilinochchi Central College
               </Typography>
               <Divider sx={{ my: 1, borderColor: "#1a237e" }} />
               <Box sx={{
@@ -819,8 +900,6 @@ export default function Students() {
         </DialogTitle>
         <DialogContent>
           <Box mt={2}>
-
-            {/* Download Template */}
             <Alert severity="info" sx={{ mb: 2 }}
               action={
                 <Button size="small" color="inherit" variant="outlined"
@@ -829,9 +908,10 @@ export default function Students() {
                 </Button>
               }>
               Download the Excel template, fill student details, then upload here.
+              Grade 6-9: fill <strong>aesthetic</strong> column.
+              Grade 10-11: fill <strong>basket1, basket2, basket3</strong> columns.
             </Alert>
 
-            {/* File Drop Zone */}
             <Box sx={{
               border: "2px dashed #1a237e", borderRadius: 2,
               p: 3, textAlign: "center", bgcolor: "#f8f9ff", mb: 2
@@ -848,7 +928,6 @@ export default function Students() {
               </Button>
             </Box>
 
-            {/* Errors */}
             {bulkErrors.length > 0 && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
@@ -862,24 +941,21 @@ export default function Students() {
               </Alert>
             )}
 
-            {/* Success */}
             {bulkSuccess && (
               <Alert severity="success" sx={{ mb: 2 }}>{bulkSuccess}</Alert>
             )}
 
-            {/* Preview Table */}
             {bulkData.length > 0 && bulkErrors.length === 0 && (
               <>
                 <Alert severity="success" sx={{ mb: 1 }}>
                   ✅ <strong>{bulkData.length} students</strong> ready to upload.
-                  Review below before confirming.
                 </Alert>
                 <Paper sx={{ maxHeight: 280, overflow: "auto" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
-                      <TableRow sx={{ bgcolor: "#1a237e" }}>
-                        {["#", "Adm No", "Name", "Grade",
-                          "Section", "Gender", "Religion", "Aesthetic"].map(h => (
+                      <TableRow>
+                        {["#", "Adm No", "Name", "Grade", "Section",
+                          "Gender", "Religion", "Aesthetic/Baskets"].map(h => (
                           <TableCell key={h} sx={{
                             bgcolor: "#1a237e", color: "white",
                             fontWeight: 600, fontSize: 12
@@ -904,7 +980,12 @@ export default function Students() {
                           <TableCell>{s.section}</TableCell>
                           <TableCell>{s.gender}</TableCell>
                           <TableCell>{s.religion}</TableCell>
-                          <TableCell>{s.aesthetic}</TableCell>
+                          <TableCell>
+                            {s.grade <= 9
+                              ? s.aesthetic
+                              : [s.basket1, s.basket2, s.basket3]
+                                  .filter(Boolean).join(", ") || "—"}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
