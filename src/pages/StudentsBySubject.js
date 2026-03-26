@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
-import { GRADES } from "../constants";
+import { GRADES, SUBJECTS_BY_GRADE } from "../constants";
 import { useNavigate } from "react-router-dom";
 import {
   Box, Typography, FormControl, InputLabel, Select, MenuItem,
