@@ -3,6 +3,7 @@ import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc } from "firebase
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { GRADES, SECTIONS, SUBJECTS_BY_GRADE } from "../constants";
+/* eslint-disable no-unused-vars */
 import {
   Box, Typography, Button, TextField, Select, MenuItem, FormControl, InputLabel,
   Table, TableHead, TableRow, TableCell, TableBody, Paper, Dialog, DialogTitle,
