@@ -4,7 +4,10 @@ import {
   collection, getDocs, addDoc, deleteDoc, doc, updateDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { GRADES, SECTIONS, AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3 } from "../constants";
+import {
+  GRADES, SECTIONS, AESTHETIC_SUBJECTS,
+  BASKET_1, BASKET_2, BASKET_3, RELIGIONS
+} from "../constants";
 import * as XLSX from "xlsx";
 import {
   Box, Typography, Button, TextField, Select, MenuItem, FormControl,
@@ -14,66 +17,69 @@ import {
   useMediaQuery, useTheme, Card, CardContent, CardActions, Tabs, Tab,
   Divider, Tooltip
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
-import SearchIcon from "@mui/icons-material/Search";
+import AddIcon        from "@mui/icons-material/Add";
+import DeleteIcon     from "@mui/icons-material/Delete";
+import EditIcon       from "@mui/icons-material/Edit";
+import SearchIcon     from "@mui/icons-material/Search";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import BadgeIcon from "@mui/icons-material/Badge";
-import ExitToAppIcon from "@mui/icons-material/ExitToApp";
-import PrintIcon from "@mui/icons-material/Print";
+import BadgeIcon      from "@mui/icons-material/Badge";
+import ExitToAppIcon  from "@mui/icons-material/ExitToApp";
+import PrintIcon      from "@mui/icons-material/Print";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useNavigate } from "react-router-dom";
-
-const RELIGIONS = ["Hindu", "Roman Catholic", "Islam", "Buddhist", "Other"];
 
 const empty = {
   name: "", admissionNo: "", grade: 6, section: "A",
   gender: "Male", dob: "",
   phone: "", address: "", parentName: "", parentPhone: "",
-  religion: "Hindu",
+  religion: "Hinduism",
   aesthetic: "Art",
   basket1: "", basket2: "", basket3: "",
   status: "active", leftDate: "", leftReason: ""
 };
 
 export default function Students() {
-  const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const navigate  = useNavigate();
+  const theme     = useTheme();
+  const isMobile  = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [students, setStudents] = useState([]);
-  const [filtered, setFiltered] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [idCardOpen, setIdCardOpen] = useState(false);
-  const [leftDialog, setLeftDialog] = useState(false);
+  const [students,      setStudents]      = useState([]);
+  const [filtered,      setFiltered]      = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [open,          setOpen]          = useState(false);
+  const [idCardOpen,    setIdCardOpen]    = useState(false);
+  const [leftDialog,    setLeftDialog]    = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [leftReason, setLeftReason] = useState("");
-  const [leftDate, setLeftDate] = useState("");
-  const [form, setForm] = useState(empty);
-  const [editId, setEditId] = useState(null);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filterGrade, setFilterGrade] = useState("All");
+  const [leftReason,    setLeftReason]    = useState("");
+  const [leftDate,      setLeftDate]      = useState("");
+  const [form,          setForm]          = useState(empty);
+  const [editId,        setEditId]        = useState(null);
+  const [error,         setError]         = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [search,        setSearch]        = useState("");
+  const [filterGrade,   setFilterGrade]   = useState("All");
   const [filterSection, setFilterSection] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("active");
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [formTab, setFormTab] = useState(0);
+  const [filterStatus,  setFilterStatus]  = useState("active");
+  const [page,          setPage]          = useState(0);
+  const [rowsPerPage,   setRowsPerPage]   = useState(10);
+  const [formTab,       setFormTab]       = useState(0);
 
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkData, setBulkData] = useState([]);
-  const [bulkErrors, setBulkErrors] = useState([]);
+  const [bulkOpen,      setBulkOpen]      = useState(false);
+  const [bulkData,      setBulkData]      = useState([]);
+  const [bulkErrors,    setBulkErrors]    = useState([]);
   const [bulkUploading, setBulkUploading] = useState(false);
-  const [bulkSuccess, setBulkSuccess] = useState("");
+  const [bulkSuccess,   setBulkSuccess]   = useState("");
 
+  // ── Fetch ──
   const fetchStudents = async () => {
     const snap = await getDocs(collection(db, "students"));
     const data = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => {
+        if (a.grade !== b.grade) return a.grade - b.grade;
+        if (a.section !== b.section) return a.section.localeCompare(b.section);
+        return a.name.localeCompare(b.name);
+      });
     setStudents(data);
     setLoading(false);
   };
@@ -88,13 +94,14 @@ export default function Students() {
       s.phone?.includes(search) ||
       s.parentPhone?.includes(search)
     );
-    if (filterGrade !== "All") data = data.filter(s => s.grade === filterGrade);
+    if (filterGrade   !== "All") data = data.filter(s => s.grade === filterGrade);
     if (filterSection !== "All") data = data.filter(s => s.section === filterSection);
-    if (filterStatus !== "All") data = data.filter(s => (s.status || "active") === filterStatus);
+    if (filterStatus  !== "All") data = data.filter(s => (s.status || "active") === filterStatus);
     setFiltered(data);
     setPage(0);
   }, [search, filterGrade, filterSection, filterStatus, students]);
 
+  // ── CRUD ──
   const handleSave = async () => {
     if (!form.name || !form.admissionNo)
       return setError("Name and Admission No are required.");
@@ -120,13 +127,11 @@ export default function Students() {
       gender: s.gender || "Male", dob: s.dob || "",
       phone: s.phone || "", address: s.address || "",
       parentName: s.parentName || "", parentPhone: s.parentPhone || "",
-      religion:  s.religion  || "Hindu",
+      religion:  s.religion  || "Hinduism",
       aesthetic: s.aesthetic || "Art",
-      basket1:   s.basket1   || "",
-      basket2:   s.basket2   || "",
-      basket3:   s.basket3   || "",
-      status: s.status || "active", leftDate: s.leftDate || "",
-      leftReason: s.leftReason || ""
+      basket1: s.basket1 || "", basket2: s.basket2 || "", basket3: s.basket3 || "",
+      status: s.status || "active",
+      leftDate: s.leftDate || "", leftReason: s.leftReason || ""
     });
     setEditId(s.id); setError(""); setFormTab(0); setOpen(true);
   };
@@ -153,10 +158,10 @@ export default function Students() {
     fetchStudents();
   };
 
-  const openIdCard = (s) => { setSelectedStudent(s); setIdCardOpen(true); };
+  const openIdCard    = (s) => { setSelectedStudent(s); setIdCardOpen(true); };
   const openLeftDialog = (s) => { setSelectedStudent(s); setLeftDialog(true); };
 
-  // ── Bulk Upload Functions ──
+  // ── Bulk Upload ──
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -164,35 +169,39 @@ export default function Students() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target.result, { type: "binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
+        const wb  = XLSX.read(evt.target.result, { type: "binary" });
+        const ws  = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
         if (raw.length === 0) {
           setBulkErrors(["Excel file is empty or has no data rows."]);
           return;
         }
-        const errors = [];
+        const errors  = [];
         const cleaned = raw.map((row, idx) => {
           const grade = Number(row.grade) || 6;
           const r = {
             admissionNo: String(row.admissionNo || "").trim(),
-            name:        String(row.name || "").trim(),
+            name:        String(row.name        || "").trim(),
             grade,
-            section:     String(row.section || "A").trim().toUpperCase(),
-            gender:      String(row.gender || "Male").trim(),
-            dob:         String(row.dob || "").trim(),
-            phone:       String(row.phone || "").trim(),
-            parentName:  String(row.parentName || "").trim(),
+            section:     String(row.section  || "A").trim().toUpperCase(),
+            gender:      String(row.gender   || "Male").trim(),
+            dob:         String(row.dob      || "").trim(),
+            phone:       String(row.phone    || "").trim(),
+            parentName:  String(row.parentName  || "").trim(),
             parentPhone: String(row.parentPhone || "").trim(),
-            address:     String(row.address || "").trim(),
-            religion:    String(row.religion || "Hindu").trim(),
-            aesthetic:   grade <= 9 ? String(row.aesthetic || "Art").trim() : "",
-            basket1:     grade >= 10 && grade <= 11 ? String(row.basket1 || "").trim() : "",
-            basket2:     grade >= 10 && grade <= 11 ? String(row.basket2 || "").trim() : "",
-            basket3:     grade >= 10 && grade <= 11 ? String(row.basket3 || "").trim() : "",
+            address:     String(row.address  || "").trim(),
+            religion:    String(row.religion || "Hinduism").trim(),
+            aesthetic:   grade <= 9
+              ? String(row.aesthetic || "Art").trim() : "",
+            basket1: grade >= 10 && grade <= 11
+              ? String(row.basket1 || "").trim() : "",
+            basket2: grade >= 10 && grade <= 11
+              ? String(row.basket2 || "").trim() : "",
+            basket3: grade >= 10 && grade <= 11
+              ? String(row.basket3 || "").trim() : "",
             status: "active",
           };
-          if (!r.name) errors.push(`Row ${idx + 2}: Name is missing`);
+          if (!r.name)        errors.push(`Row ${idx + 2}: Name is missing`);
           if (!r.admissionNo) errors.push(`Row ${idx + 2}: Admission No is missing`);
           if (!GRADES.includes(r.grade))
             errors.push(`Row ${idx + 2}: Invalid grade "${r.grade}"`);
@@ -217,8 +226,7 @@ export default function Students() {
     try {
       for (const student of bulkData) {
         await addDoc(collection(db, "students"), {
-          ...student,
-          createdAt: new Date().toISOString(),
+          ...student, createdAt: new Date().toISOString(),
         });
         count++;
       }
@@ -239,7 +247,7 @@ export default function Students() {
         dob: "2012-05-14", phone: "0771234567",
         parentName: "Kajendran Kumar", parentPhone: "0777654321",
         address: "12, Main St, Kilinochchi",
-        religion: "Hindu", aesthetic: "Art",
+        religion: "Hinduism", aesthetic: "Art",
         basket1: "", basket2: "", basket3: ""
       },
       {
@@ -248,34 +256,34 @@ export default function Students() {
         dob: "2011-08-20", phone: "0769876543",
         parentName: "Thamilini Rajan", parentPhone: "0761234567",
         address: "45, North Rd, Kilinochchi",
-        religion: "Roman Catholic", aesthetic: "",
+        religion: "Catholicism", aesthetic: "",
         basket1: "Art", basket2: "ICT", basket3: "Geography"
       }
     ];
     const ws = XLSX.utils.json_to_sheet(template);
     ws["!cols"] = [
-      { wch: 12 }, { wch: 22 }, { wch: 6 }, { wch: 8 }, { wch: 8 },
-      { wch: 12 }, { wch: 13 }, { wch: 22 }, { wch: 13 },
-      { wch: 28 }, { wch: 14 }, { wch: 10 },
-      { wch: 20 }, { wch: 20 }, { wch: 25 }
+      {wch:12},{wch:22},{wch:6},{wch:8},{wch:8},
+      {wch:12},{wch:13},{wch:22},{wch:13},
+      {wch:28},{wch:14},{wch:10},
+      {wch:20},{wch:20},{wch:25}
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Students");
     XLSX.writeFile(wb, "students_template.xlsx");
   };
 
+  // ── Helpers ──
   const getStatusColor = (status) => {
-    if (status === "left") return "error";
+    if (status === "left")      return "error";
     if (status === "completed") return "success";
-    return "default";
+    return "success"; // active → green
   };
 
-  const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-
+  const paginated   = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
   const statusCounts = {
-    all: students.length,
-    active: students.filter(s => (s.status || "active") === "active").length,
-    left: students.filter(s => s.status === "left").length,
+    all:       students.length,
+    active:    students.filter(s => (s.status || "active") === "active").length,
+    left:      students.filter(s => s.status === "left").length,
     completed: students.filter(s => s.status === "completed").length,
   };
 
@@ -289,12 +297,6 @@ export default function Students() {
                justify-content:center; padding:20px; }
         .card { border: 2px solid #1a237e; border-radius: 12px;
                 padding: 20px; width: 320px; text-align: center; }
-        .school { color: #1a237e; font-weight: bold; font-size: 16px; }
-        .name { font-size: 18px; font-weight: bold; margin: 8px 0; }
-        .info { font-size: 13px; color: #333; margin: 4px 0; }
-        .chip { background: #1a237e; color: white; padding: 3px 10px;
-                border-radius: 20px; font-size: 12px;
-                display:inline-block; margin:4px; }
         hr { border-color: #1a237e; }
       </style>
       </head><body>${content}</body></html>
@@ -302,112 +304,146 @@ export default function Students() {
     win.document.close(); win.print();
   };
 
-  // helper to show extra subject in table
-  const getExtraSubject = (s) => {
-    if (s.grade >= 6 && s.grade <= 9) return s.aesthetic || "—";
-    if (s.grade >= 10 && s.grade <= 11)
-      return [s.basket1, s.basket2, s.basket3].filter(Boolean).join(", ") || "—";
-    return "—";
-  };
-
+  // ════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════
   return (
     <Box>
-      {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Box>
-          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
-            Students
-          </Typography>
-          <Box display="flex" gap={0.5} mt={0.5} flexWrap="wrap">
-            <Chip label={`Active: ${statusCounts.active}`} size="small" color="success" />
-            <Chip label={`Left: ${statusCounts.left}`} size="small" color="error" />
-            <Chip label={`Total: ${statusCounts.all}`} size="small" color="primary" />
+
+      {/* ── Header Card (Fix 1: Better UI) ── */}
+      <Box sx={{
+        bgcolor: "white", borderRadius: 3, p: { xs: 2, sm: 2.5 },
+        mb: 2, boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
+        border: "1px solid #e8eaf6"
+      }}>
+        {/* Title + Buttons Row */}
+        <Box display="flex" justifyContent="space-between"
+          alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+          <Box>
+            <Typography variant={isMobile ? "h6" : "h5"}
+              fontWeight={800} color="#1a237e">
+              Students
+            </Typography>
+            <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
+              <Chip label={`Active: ${statusCounts.active}`}
+                size="small" color="success"
+                sx={{ fontWeight: 700 }} />
+              <Chip label={`Left: ${statusCounts.left}`}
+                size="small" color="error"
+                sx={{ fontWeight: 700 }} />
+              <Chip label={`Total: ${statusCounts.all}`}
+                size="small" color="primary"
+                sx={{ fontWeight: 700 }} />
+            </Box>
+          </Box>
+          <Box display="flex" gap={1} flexWrap="wrap">
+            <Button variant="outlined" startIcon={<UploadFileIcon />}
+              size="small"
+              onClick={() => {
+                setBulkOpen(true); setBulkData([]);
+                setBulkErrors([]); setBulkSuccess("");
+              }}
+              sx={{ borderColor: "#1a237e", color: "#1a237e",
+                fontWeight: 600, borderRadius: 2 }}>
+              {isMobile ? "Bulk" : "Bulk Upload"}
+            </Button>
+            <Button variant="contained" startIcon={<AddIcon />}
+              size="small"
+              onClick={() => {
+                setForm(empty); setEditId(null);
+                setError(""); setFormTab(0); setOpen(true);
+              }}
+              sx={{ bgcolor: "#1a237e", fontWeight: 600, borderRadius: 2 }}>
+              {isMobile ? "Add" : "Add Student"}
+            </Button>
           </Box>
         </Box>
-        <Box display="flex" gap={1} flexWrap="wrap" justifyContent="flex-end">
-          <Button variant="outlined" startIcon={<UploadFileIcon />}
-            onClick={() => {
-              setBulkOpen(true); setBulkData([]);
-              setBulkErrors([]); setBulkSuccess("");
-            }}
-            size={isMobile ? "small" : "medium"}
-            sx={{ borderColor: "#1a237e", color: "#1a237e" }}>
-            {isMobile ? "Bulk" : "Bulk Upload"}
-          </Button>
-          <Button variant="contained" startIcon={<AddIcon />}
-            onClick={() => { setForm(empty); setEditId(null);
-              setError(""); setFormTab(0); setOpen(true); }}
-            sx={{ bgcolor: "#1a237e" }} size={isMobile ? "small" : "medium"}>
-            {isMobile ? "Add" : "Add Student"}
-          </Button>
-        </Box>
+
+        {/* Filters Row */}
+        <Grid container spacing={1} alignItems="center">
+          <Grid item xs={12} sm={4}>
+            <TextField fullWidth size="small"
+              placeholder="Search name, adm no, phone..."
+              value={search} onChange={e => setSearch(e.target.value)}
+              sx={{ bgcolor: "#f8f9ff" }}
+              InputProps={{
+                sx: { borderRadius: 2 },
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" sx={{ color: "#1a237e" }} />
+                  </InputAdornment>
+                )
+              }} />
+          </Grid>
+          <Grid item xs={4} sm={2}>
+            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
+              <InputLabel>Grade</InputLabel>
+              <Select value={filterGrade} label="Grade"
+                sx={{ borderRadius: 2 }}
+                onChange={e => setFilterGrade(e.target.value)}>
+                <MenuItem value="All">All Grades</MenuItem>
+                {GRADES.map(g => (
+                  <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={4} sm={2}>
+            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
+              <InputLabel>Section</InputLabel>
+              <Select value={filterSection} label="Section"
+                sx={{ borderRadius: 2 }}
+                onChange={e => setFilterSection(e.target.value)}>
+                <MenuItem value="All">All Sections</MenuItem>
+                {SECTIONS.map(s => (
+                  <MenuItem key={s} value={s}>Section {s}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={4} sm={2}>
+            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
+              <InputLabel>Status</InputLabel>
+              <Select value={filterStatus} label="Status"
+                sx={{ borderRadius: 2 }}
+                onChange={e => setFilterStatus(e.target.value)}>
+                <MenuItem value="All">All</MenuItem>
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="left">Left</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={2}>
+            <Button fullWidth variant="outlined" size="small"
+              onClick={() => navigate("/students/by-subject")}
+              sx={{
+                height: 40, borderColor: "#1a237e",
+                color: "#1a237e", fontWeight: 600, borderRadius: 2
+              }}>
+              By Subject
+            </Button>
+          </Grid>
+        </Grid>
       </Box>
 
-      {/* Filters */}
-      <Grid container spacing={1.5} mb={2}>
-        <Grid item xs={12} sm={4}>
-          <TextField fullWidth size="small"
-            placeholder="Search name, adm no, phone..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              )
-            }} />
-        </Grid>
-        <Grid item xs={4} sm={2}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Grade</InputLabel>
-            <Select value={filterGrade} label="Grade"
-              onChange={e => setFilterGrade(e.target.value)}>
-              <MenuItem value="All">All</MenuItem>
-              {GRADES.map(g => <MenuItem key={g} value={g}>G{g}</MenuItem>)}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={4} sm={2}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Section</InputLabel>
-            <Select value={filterSection} label="Section"
-              onChange={e => setFilterSection(e.target.value)}>
-              <MenuItem value="All">All</MenuItem>
-              {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={4} sm={2}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Status</InputLabel>
-            <Select value={filterStatus} label="Status"
-              onChange={e => setFilterStatus(e.target.value)}>
-              <MenuItem value="All">All</MenuItem>
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="left">Left</MenuItem>
-              <MenuItem value="completed">Completed</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} sm={2}>
-          <Button fullWidth variant="outlined" size="small"
-            onClick={() => navigate("/students/by-subject")}
-            sx={{ height: "40px" }}>
-            By Subject
-          </Button>
-        </Grid>
-      </Grid>
-
-      {loading ? <CircularProgress /> : (
+      {/* ── Table / Cards ── */}
+      {loading ? (
+        <Box display="flex" justifyContent="center" mt={4}>
+          <CircularProgress />
+        </Box>
+      ) : (
         <>
           {isMobile ? (
+            // ── Mobile Cards ──
             <Box>
               {paginated.map(s => (
                 <Card key={s.id} sx={{
                   mb: 1.5, boxShadow: 2,
                   opacity: s.status === "left" ? 0.7 : 1,
                   border: s.status === "left"
-                    ? "1px solid #ef9a9a" : "1px solid #e0e0e0"
+                    ? "1px solid #ef9a9a" : "1px solid #e0e0e0",
+                  borderRadius: 3
                 }}>
                   <CardContent sx={{ pb: 0 }}>
                     <Box display="flex" justifyContent="space-between"
@@ -438,19 +474,25 @@ export default function Students() {
                     </Box>
                     {s.status === "left" && s.leftDate && (
                       <Typography variant="caption" color="error">
-                        Left: {s.leftDate}{s.leftReason ? ` — ${s.leftReason}` : ""}
+                        Left: {s.leftDate}
+                        {s.leftReason ? ` — ${s.leftReason}` : ""}
                       </Typography>
                     )}
                   </CardContent>
-                  <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 0.5, flexWrap: "wrap" }}>
-                    <Button size="small" variant="outlined" startIcon={<EditIcon />}
+                  <CardActions sx={{
+                    pt: 0.5, pb: 1, px: 2, gap: 0.5, flexWrap: "wrap"
+                  }}>
+                    <Button size="small" variant="outlined"
+                      startIcon={<EditIcon />}
                       onClick={() => handleEdit(s)}>Edit</Button>
                     <Button size="small" variant="outlined" color="info"
                       startIcon={<BadgeIcon />}
                       onClick={() => openIdCard(s)}>ID</Button>
                     <Button size="small" variant="outlined" color="success"
                       startIcon={<AssessmentIcon />}
-                      onClick={() => navigate(`/report/${s.id}`)}>Report</Button>
+                      onClick={() => navigate(`/report/${s.id}`)}>
+                      Report
+                    </Button>
                     {s.status === "active" && (
                       <Button size="small" variant="outlined" color="warning"
                         startIcon={<ExitToAppIcon />}
@@ -458,7 +500,9 @@ export default function Students() {
                     )}
                     {s.status === "left" && (
                       <Button size="small" variant="outlined" color="success"
-                        onClick={() => handleRestoreStudent(s)}>Restore</Button>
+                        onClick={() => handleRestoreStudent(s)}>
+                        Restore
+                      </Button>
                     )}
                     <IconButton size="small" color="error"
                       onClick={() => handleDelete(s.id)}>
@@ -474,13 +518,18 @@ export default function Students() {
               )}
             </Box>
           ) : (
-            <Paper sx={{ overflowX: "auto" }}>
+            // ── Desktop Table (Fix 2: removed Religion & Extra Subject cols) ──
+            <Paper sx={{
+              overflowX: "auto", borderRadius: 3,
+              boxShadow: "0 2px 12px rgba(26,35,126,0.08)"
+            }}>
               <Table size="small">
                 <TableHead sx={{ bgcolor: "#1a237e" }}>
                   <TableRow>
-                    {["#", "Adm No", "Name", "Grade", "Phone",
-                      "Parent", "Religion", "Extra Subject", "Status", "Actions"].map(h => (
-                      <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
+                    {["#", "Adm No", "Name", "Grade",
+                      "Phone", "Parent", "Status", "Actions"].map(h => (
+                      <TableCell key={h}
+                        sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
                         {h}
                       </TableCell>
                     ))}
@@ -490,12 +539,20 @@ export default function Students() {
                   {paginated.map((s, idx) => (
                     <TableRow key={s.id} hover sx={{
                       opacity: s.status === "left" ? 0.65 : 1,
-                      bgcolor: s.status === "left" ? "#fff8f8" : "inherit"
+                      bgcolor: s.status === "left" ? "#fff8f8" : "inherit",
+                      "&:hover": { bgcolor: "#f5f7ff" }
                     }}>
-                      <TableCell>{page * rowsPerPage + idx + 1}</TableCell>
-                      <TableCell>{s.admissionNo}</TableCell>
+                      <TableCell sx={{ color: "#666", fontSize: 13 }}>
+                        {page * rowsPerPage + idx + 1}
+                      </TableCell>
                       <TableCell>
-                        <Typography variant="body2" fontWeight={600}>
+                        <Typography variant="body2" fontWeight={600}
+                          color="#1a237e">
+                          {s.admissionNo}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
                           {s.name}
                         </Typography>
                         {s.address && (
@@ -506,26 +563,33 @@ export default function Students() {
                       </TableCell>
                       <TableCell>
                         <Chip label={`G${s.grade}-${s.section}`}
-                          size="small" color="primary" />
+                          size="small" color="primary"
+                          sx={{ fontWeight: 700 }} />
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">{s.phone || "—"}</Typography>
+                        <Typography variant="body2">
+                          {s.phone || "—"}
+                        </Typography>
                         {s.parentPhone && (
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption"
+                            color="text.secondary">
                             P: {s.parentPhone}
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell>{s.parentName || "—"}</TableCell>
-                      <TableCell>{s.religion || "—"}</TableCell>
                       <TableCell>
-                        <Typography variant="caption">{getExtraSubject(s)}</Typography>
+                        {s.parentName || "—"}
                       </TableCell>
                       <TableCell>
-                        <Chip label={s.status || "active"} size="small"
-                          color={getStatusColor(s.status || "active")} />
+                        <Chip
+                          label={s.status || "active"}
+                          size="small"
+                          color={getStatusColor(s.status || "active")}
+                          sx={{ fontWeight: 700, textTransform: "capitalize" }}
+                        />
                         {s.status === "left" && s.leftDate && (
-                          <Typography variant="caption" display="block" color="error">
+                          <Typography variant="caption"
+                            display="block" color="error">
                             {s.leftDate}
                           </Typography>
                         )}
@@ -533,27 +597,34 @@ export default function Students() {
                       <TableCell>
                         <Tooltip title="Edit">
                           <IconButton size="small" color="primary"
-                            onClick={() => handleEdit(s)}><EditIcon /></IconButton>
+                            onClick={() => handleEdit(s)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
                         </Tooltip>
                         <Tooltip title="ID Card">
                           <IconButton size="small" color="info"
-                            onClick={() => openIdCard(s)}><BadgeIcon /></IconButton>
+                            onClick={() => openIdCard(s)}>
+                            <BadgeIcon fontSize="small" />
+                          </IconButton>
                         </Tooltip>
                         <Tooltip title="Report Card">
                           <IconButton size="small" color="success"
                             onClick={() => navigate(`/report/${s.id}`)}>
-                            <AssessmentIcon /></IconButton>
+                            <AssessmentIcon fontSize="small" />
+                          </IconButton>
                         </Tooltip>
                         {s.status === "active" && (
                           <Tooltip title="Mark as Left">
                             <IconButton size="small" color="warning"
                               onClick={() => openLeftDialog(s)}>
-                              <ExitToAppIcon /></IconButton>
+                              <ExitToAppIcon fontSize="small" />
+                            </IconButton>
                           </Tooltip>
                         )}
                         {s.status === "left" && (
                           <Tooltip title="Restore Student">
-                            <Button size="small" variant="text" color="success"
+                            <Button size="small" variant="text"
+                              color="success"
                               onClick={() => handleRestoreStudent(s)}>
                               Restore
                             </Button>
@@ -562,14 +633,16 @@ export default function Students() {
                         <Tooltip title="Delete">
                           <IconButton size="small" color="error"
                             onClick={() => handleDelete(s.id)}>
-                            <DeleteIcon /></IconButton>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
                         </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))}
                   {filtered.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={10} align="center">
+                      <TableCell colSpan={8} align="center"
+                        sx={{ py: 4, color: "text.secondary" }}>
                         No students found.
                       </TableCell>
                     </TableRow>
@@ -590,31 +663,43 @@ export default function Students() {
         </>
       )}
 
-      {/* ── Add / Edit Dialog ── */}
+      {/* ══════════════════════════════
+          ADD / EDIT DIALOG
+          Fix 3: Subjects tab has Religion,
+          Aesthetic, Baskets — NOT personal tab
+      ══════════════════════════════ */}
       <Dialog open={open} onClose={() => setOpen(false)}
         maxWidth="md" fullWidth fullScreen={isMobile}>
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
-          {editId ? "Edit Student" : "Add New Student"}
+        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
+          {editId ? "✏️ Edit Student" : "➕ Add New Student"}
         </DialogTitle>
-        <Tabs value={formTab} onChange={(e, v) => setFormTab(v)} sx={{ px: 2 }}>
+        <Tabs value={formTab} onChange={(e, v) => setFormTab(v)}
+          sx={{ px: 2, borderBottom: "1px solid #e8eaf6" }}>
           <Tab label="Basic Info" />
           <Tab label="Contact" />
           <Tab label="Subjects" />
         </Tabs>
         <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
+              {error}
+            </Alert>
+          )}
 
-          {/* Tab 0 — Basic Info */}
+          {/* ── Tab 0: Basic Info ── */}
           {formTab === 0 && (
             <Grid container spacing={2} mt={0.5}>
               <Grid item xs={12}>
-                <TextField fullWidth label="Full Name *" value={form.name}
+                <TextField fullWidth label="Full Name *"
+                  value={form.name}
                   onChange={e => setForm({ ...form, name: e.target.value })} />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField fullWidth label="Admission Number *"
                   value={form.admissionNo}
-                  onChange={e => setForm({ ...form, admissionNo: e.target.value })} />
+                  onChange={e => setForm({
+                    ...form, admissionNo: e.target.value
+                  })} />
               </Grid>
               <Grid item xs={6} sm={3}>
                 <FormControl fullWidth>
@@ -622,9 +707,12 @@ export default function Students() {
                   <Select value={form.grade} label="Grade"
                     onChange={e => setForm({
                       ...form, grade: e.target.value,
-                      aesthetic: "Art", basket1: "", basket2: "", basket3: ""
+                      aesthetic: "Art",
+                      basket1: "", basket2: "", basket3: ""
                     })}>
-                    {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
+                    {GRADES.map(g => (
+                      <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -632,8 +720,12 @@ export default function Students() {
                 <FormControl fullWidth>
                   <InputLabel>Section</InputLabel>
                   <Select value={form.section} label="Section"
-                    onChange={e => setForm({ ...form, section: e.target.value })}>
-                    {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                    onChange={e => setForm({
+                      ...form, section: e.target.value
+                    })}>
+                    {SECTIONS.map(s => (
+                      <MenuItem key={s} value={s}>{s}</MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -641,7 +733,9 @@ export default function Students() {
                 <FormControl fullWidth>
                   <InputLabel>Gender</InputLabel>
                   <Select value={form.gender} label="Gender"
-                    onChange={e => setForm({ ...form, gender: e.target.value })}>
+                    onChange={e => setForm({
+                      ...form, gender: e.target.value
+                    })}>
                     <MenuItem value="Male">Male</MenuItem>
                     <MenuItem value="Female">Female</MenuItem>
                   </Select>
@@ -656,52 +750,75 @@ export default function Students() {
             </Grid>
           )}
 
-          {/* Tab 1 — Contact */}
+          {/* ── Tab 1: Contact ── */}
           {formTab === 1 && (
             <Grid container spacing={2} mt={0.5}>
               <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Student Phone" value={form.phone}
-                  onChange={e => setForm({ ...form, phone: e.target.value })} />
+                <TextField fullWidth label="Student Phone"
+                  value={form.phone}
+                  onChange={e => setForm({
+                    ...form, phone: e.target.value
+                  })} />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField fullWidth label="Parent/Guardian Name"
                   value={form.parentName}
-                  onChange={e => setForm({ ...form, parentName: e.target.value })} />
+                  onChange={e => setForm({
+                    ...form, parentName: e.target.value
+                  })} />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Parent Phone" value={form.parentPhone}
-                  onChange={e => setForm({ ...form, parentPhone: e.target.value })} />
+                <TextField fullWidth label="Parent Phone"
+                  value={form.parentPhone}
+                  onChange={e => setForm({
+                    ...form, parentPhone: e.target.value
+                  })} />
               </Grid>
               <Grid item xs={12}>
                 <TextField fullWidth label="Address" multiline rows={2}
                   value={form.address}
-                  onChange={e => setForm({ ...form, address: e.target.value })} />
+                  onChange={e => setForm({
+                    ...form, address: e.target.value
+                  })} />
               </Grid>
             </Grid>
           )}
 
-          {/* Tab 2 — Subjects */}
+          {/* ── Tab 2: Subjects (Fix 3: Religion here, not personal) ── */}
           {formTab === 2 && (
             <Grid container spacing={2} mt={0.5}>
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  Select the subjects for <strong>{form.name || "this student"}</strong>
+                  {" "}— Grade {form.grade}
+                </Alert>
+              </Grid>
 
               {/* Religion — all grades */}
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Religion Subject</InputLabel>
-                  <Select value={form.religion} label="Religion Subject"
-                    onChange={e => setForm({ ...form, religion: e.target.value })}>
-                    {RELIGIONS.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                  <InputLabel>Religion Subject *</InputLabel>
+                  <Select value={form.religion} label="Religion Subject *"
+                    onChange={e => setForm({
+                      ...form, religion: e.target.value
+                    })}>
+                    {RELIGIONS.map(r => (
+                      <MenuItem key={r} value={r}>{r}</MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
 
-              {/* Grade 6-9: Aesthetic */}
+              {/* Grade 6–9: Aesthetic */}
               {form.grade >= 6 && form.grade <= 9 && (
                 <Grid item xs={12} sm={6}>
                   <FormControl fullWidth>
-                    <InputLabel>Aesthetic Subject</InputLabel>
-                    <Select value={form.aesthetic} label="Aesthetic Subject"
-                      onChange={e => setForm({ ...form, aesthetic: e.target.value })}>
+                    <InputLabel>Aesthetic Subject *</InputLabel>
+                    <Select value={form.aesthetic}
+                      label="Aesthetic Subject *"
+                      onChange={e => setForm({
+                        ...form, aesthetic: e.target.value
+                      })}>
                       {AESTHETIC_SUBJECTS.map(a => (
                         <MenuItem key={a} value={a}>{a}</MenuItem>
                       ))}
@@ -710,21 +827,25 @@ export default function Students() {
                 </Grid>
               )}
 
-              {/* Grade 10-11: Basket 1, 2, 3 */}
+              {/* Grade 10–11: Baskets */}
               {form.grade >= 10 && form.grade <= 11 && (
                 <>
                   <Grid item xs={12}>
-                    <Alert severity="info">
-                      Select one subject from each basket for this student.
+                    <Alert severity="warning">
+                      Select one subject from each basket.
                     </Alert>
                   </Grid>
                   <Grid item xs={12} sm={4}>
                     <FormControl fullWidth>
                       <InputLabel>Basket 1</InputLabel>
                       <Select value={form.basket1} label="Basket 1"
-                        onChange={e => setForm({ ...form, basket1: e.target.value })}>
+                        onChange={e => setForm({
+                          ...form, basket1: e.target.value
+                        })}>
                         <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_1.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                        {BASKET_1.map(s => (
+                          <MenuItem key={s} value={s}>{s}</MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   </Grid>
@@ -732,9 +853,13 @@ export default function Students() {
                     <FormControl fullWidth>
                       <InputLabel>Basket 2</InputLabel>
                       <Select value={form.basket2} label="Basket 2"
-                        onChange={e => setForm({ ...form, basket2: e.target.value })}>
+                        onChange={e => setForm({
+                          ...form, basket2: e.target.value
+                        })}>
                         <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_2.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                        {BASKET_2.map(s => (
+                          <MenuItem key={s} value={s}>{s}</MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   </Grid>
@@ -742,16 +867,20 @@ export default function Students() {
                     <FormControl fullWidth>
                       <InputLabel>Basket 3</InputLabel>
                       <Select value={form.basket3} label="Basket 3"
-                        onChange={e => setForm({ ...form, basket3: e.target.value })}>
+                        onChange={e => setForm({
+                          ...form, basket3: e.target.value
+                        })}>
                         <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_3.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                        {BASKET_3.map(s => (
+                          <MenuItem key={s} value={s}>{s}</MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   </Grid>
                 </>
               )}
 
-              {/* Grade 12-13 */}
+              {/* Grade 12–13 */}
               {form.grade >= 12 && form.grade <= 13 && (
                 <Grid item xs={12}>
                   <Alert severity="success">
@@ -760,25 +889,34 @@ export default function Students() {
                   </Alert>
                 </Grid>
               )}
-
             </Grid>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2, flexWrap: "wrap", gap: 1 }}>
-          <Button onClick={() => setOpen(false)} fullWidth={isMobile}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}
+            fullWidth={isMobile}>
+            Cancel
+          </Button>
           {formTab > 0 && (
             <Button onClick={() => setFormTab(f => f - 1)}
-              fullWidth={isMobile}>← Back</Button>
+              fullWidth={isMobile}>
+              ← Back
+            </Button>
           )}
           {formTab < 2 ? (
-            <Button variant="contained" onClick={() => setFormTab(f => f + 1)}
-              fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
+            <Button variant="contained"
+              onClick={() => setFormTab(f => f + 1)}
+              fullWidth={isMobile}
+              sx={{ bgcolor: "#1a237e" }}>
               Next →
             </Button>
           ) : (
-            <Button onClick={handleSave} variant="contained" disabled={saving}
-              fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
-              {saving ? <CircularProgress size={20} /> : editId ? "Update" : "Add Student"}
+            <Button onClick={handleSave} variant="contained"
+              disabled={saving} fullWidth={isMobile}
+              sx={{ bgcolor: "#1a237e" }}>
+              {saving
+                ? <CircularProgress size={20} color="inherit" />
+                : editId ? "Update Student" : "Add Student"}
             </Button>
           )}
         </DialogActions>
@@ -792,8 +930,8 @@ export default function Students() {
         </DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2, mt: 1 }}>
-            <strong>{selectedStudent?.name}</strong> will be excluded from
-            future marks entry and promotions. Records will be kept.
+            <strong>{selectedStudent?.name}</strong> will be excluded
+            from future marks entry. Records will be kept.
           </Alert>
           <Grid container spacing={2}>
             <Grid item xs={12}>
@@ -803,8 +941,8 @@ export default function Students() {
                 InputLabelProps={{ shrink: true }} />
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth label="Reason (optional)" multiline rows={2}
-                value={leftReason}
+              <TextField fullWidth label="Reason (optional)"
+                multiline rows={2} value={leftReason}
                 onChange={e => setLeftReason(e.target.value)}
                 placeholder="e.g. Transferred to another school..." />
             </Grid>
@@ -813,8 +951,9 @@ export default function Students() {
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setLeftDialog(false)}
             fullWidth={isMobile}>Cancel</Button>
-          <Button onClick={handleMarkLeft} variant="contained" color="warning"
-            disabled={!leftDate} fullWidth={isMobile}>
+          <Button onClick={handleMarkLeft} variant="contained"
+            color="warning" disabled={!leftDate}
+            fullWidth={isMobile}>
             Confirm Left
           </Button>
         </DialogActions>
@@ -835,14 +974,16 @@ export default function Students() {
               border: "3px solid #1a237e", borderRadius: 3, p: 2.5,
               textAlign: "center", maxWidth: 320, mx: "auto"
             }}>
-              <Typography variant="subtitle2" fontWeight={700} color="#1a237e">
+              <Typography variant="subtitle2" fontWeight={700}
+                color="#1a237e">
                 Kilinochchi Central College
               </Typography>
               <Divider sx={{ my: 1, borderColor: "#1a237e" }} />
               <Box sx={{
                 width: 70, height: 70, borderRadius: "50%",
                 bgcolor: "#1a237e", mx: "auto", mb: 1,
-                display: "flex", alignItems: "center", justifyContent: "center"
+                display: "flex", alignItems: "center",
+                justifyContent: "center"
               }}>
                 <Typography variant="h4" color="white" fontWeight={700}>
                   {selectedStudent?.name?.charAt(0)}
@@ -854,20 +995,22 @@ export default function Students() {
               <Divider sx={{ my: 1 }} />
               <Grid container spacing={1} textAlign="left">
                 {[
-                  ["Adm No",  selectedStudent?.admissionNo],
-                  ["Grade",   `${selectedStudent?.grade}-${selectedStudent?.section}`],
-                  ["Gender",  selectedStudent?.gender],
-                  ["DOB",     selectedStudent?.dob || "—"],
-                  ["Religion",selectedStudent?.religion || "—"],
-                  ["Phone",   selectedStudent?.phone || "—"],
-                  ["Parent",  selectedStudent?.parentName || "—"],
-                  ["P.Phone", selectedStudent?.parentPhone || "—"],
+                  ["Adm No",   selectedStudent?.admissionNo],
+                  ["Grade",    `${selectedStudent?.grade}-${selectedStudent?.section}`],
+                  ["Gender",   selectedStudent?.gender],
+                  ["DOB",      selectedStudent?.dob || "—"],
+                  ["Religion", selectedStudent?.religion || "—"],
+                  ["Phone",    selectedStudent?.phone || "—"],
+                  ["Parent",   selectedStudent?.parentName || "—"],
+                  ["P.Phone",  selectedStudent?.parentPhone || "—"],
                 ].map(([label, value]) => (
                   <Grid item xs={6} key={label}>
                     <Typography variant="caption" color="text.secondary">
                       {label}
                     </Typography>
-                    <Typography variant="body2" fontWeight={600}>{value}</Typography>
+                    <Typography variant="body2" fontWeight={600}>
+                      {value}
+                    </Typography>
                   </Grid>
                 ))}
               </Grid>
@@ -907,9 +1050,9 @@ export default function Students() {
                   ⬇ Template
                 </Button>
               }>
-              Download the Excel template, fill student details, then upload here.
-              Grade 6-9: fill <strong>aesthetic</strong> column.
-              Grade 10-11: fill <strong>basket1, basket2, basket3</strong> columns.
+              Download the Excel template, fill details, then upload.
+              Grade 6-9: fill <strong>aesthetic</strong>.
+              Grade 10-11: fill <strong>basket1, basket2, basket3</strong>.
             </Alert>
 
             <Box sx={{
@@ -942,7 +1085,9 @@ export default function Students() {
             )}
 
             {bulkSuccess && (
-              <Alert severity="success" sx={{ mb: 2 }}>{bulkSuccess}</Alert>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {bulkSuccess}
+              </Alert>
             )}
 
             {bulkData.length > 0 && bulkErrors.length === 0 && (
@@ -954,11 +1099,11 @@ export default function Students() {
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
-                        {["#", "Adm No", "Name", "Grade", "Section",
-                          "Gender", "Religion", "Aesthetic/Baskets"].map(h => (
+                        {["#","Adm No","Name","Grade","Section",
+                          "Gender","Religion","Aesthetic/Baskets"].map(h => (
                           <TableCell key={h} sx={{
                             bgcolor: "#1a237e", color: "white",
-                            fontWeight: 600, fontSize: 12
+                            fontWeight: 700, fontSize: 12
                           }}>
                             {h}
                           </TableCell>
@@ -1002,12 +1147,10 @@ export default function Students() {
           }} fullWidth={isMobile}>
             Close
           </Button>
-          <Button variant="contained"
-            onClick={handleBulkUpload}
+          <Button variant="contained" onClick={handleBulkUpload}
             disabled={bulkData.length === 0 ||
               bulkErrors.length > 0 || bulkUploading}
-            fullWidth={isMobile}
-            sx={{ bgcolor: "#1a237e" }}>
+            fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
             {bulkUploading
               ? <CircularProgress size={20} color="inherit" />
               : `Upload ${bulkData.length} Students`}
