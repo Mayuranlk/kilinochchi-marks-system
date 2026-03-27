@@ -33,20 +33,18 @@ export default function MarksEntry() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [grade, setGrade] = useState(6);
-  const [section, setSection] = useState("A");
-  const [subject, setSubject] = useState("");
+  const [grade, setGrade]       = useState(6);
+  const [section, setSection]   = useState("A");
+  const [subject, setSubject]   = useState("");
   const [students, setStudents] = useState([]);
-  const [marks, setMarks] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
-  const [activeTerm, setActiveTerm] = useState(null);
-  const [termLoading, setTermLoading] = useState(true);
-
-  // ── Teacher assignment states ──
-  const [myAssignments, setMyAssignments] = useState([]);
+  const [marks, setMarks]       = useState({});
+  const [loading, setLoading]   = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [success, setSuccess]   = useState("");
+  const [error, setError]       = useState("");
+  const [activeTerm, setActiveTerm]           = useState(null);
+  const [termLoading, setTermLoading]         = useState(true);
+  const [myAssignments, setMyAssignments]     = useState([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
 
   // ── Fetch active term ──
@@ -64,7 +62,6 @@ export default function MarksEntry() {
   }, []);
 
   // ── Fetch assignments ──
-  // Admin sees all, teacher sees only their assigned ones
   useEffect(() => {
     async function fetchAssignments() {
       setAssignmentsLoading(true);
@@ -73,10 +70,8 @@ export default function MarksEntry() {
       if (isAdmin) {
         setMyAssignments(all);
       } else {
-        // filter to only this teacher's assignments
         const mine = all.filter(a => a.teacherId === profile?.uid);
         setMyAssignments(mine);
-        // Auto-select first assignment for teacher
         if (mine.length > 0) {
           setGrade(mine[0].grade);
           setSection(mine[0].section);
@@ -90,10 +85,8 @@ export default function MarksEntry() {
 
   useEffect(() => { setSubject(""); }, [grade, section]);
 
-  // ── For admin: subjects dropdown based on grade ──
+  // ── Dropdowns ──
   const adminSubjects = getSubjectsForGrade(grade);
-
-  // ── For teacher: derive available grade/section/subject from assignments ──
   const teacherGrades = [...new Set(myAssignments.map(a => a.grade))].sort();
   const teacherSections = [...new Set(
     myAssignments.filter(a => a.grade === grade).map(a => a.section)
@@ -102,6 +95,7 @@ export default function MarksEntry() {
     .filter(a => a.grade === grade && a.section === section)
     .map(a => a.subject);
 
+  // ── Fetch students for selected grade/section/subject ──
   const fetchStudents = useCallback(async () => {
     if (!subject || !activeTerm) return;
     setLoading(true); setSuccess(""); setError("");
@@ -112,18 +106,16 @@ export default function MarksEntry() {
         if (s.grade !== grade) return false;
         if (s.section !== section) return false;
         if ((s.status || "active") !== "active") return false;
-        const studentSubjects = getStudentSubjects(s);
-        return studentSubjects.includes(subject);
+        return getStudentSubjects(s).includes(subject);
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-
     setStudents(list);
 
+    // Load existing marks
     const existing = {};
     for (const s of list) {
       const markId = `${s.id}_${subject}_${activeTerm.term}_${activeTerm.year}`;
-      const ref = doc(db, "marks", markId);
-      const snap2 = await getDoc(ref);
+      const snap2 = await getDoc(doc(db, "marks", markId));
       if (snap2.exists()) existing[s.id] = snap2.data().mark ?? "";
     }
     setMarks(existing);
@@ -138,8 +130,9 @@ export default function MarksEntry() {
     }
   };
 
+  // ── Save marks with updatedBy ──
   const handleSave = async () => {
-    if (!subject) return setError("Please select a subject.");
+    if (!subject)    return setError("Please select a subject.");
     if (!activeTerm) return setError("No active term! Admin must activate a term first.");
     setSaving(true); setSuccess(""); setError("");
     try {
@@ -148,13 +141,15 @@ export default function MarksEntry() {
         if (mark !== undefined && mark !== "") {
           const markId = `${s.id}_${subject}_${activeTerm.term}_${activeTerm.year}`;
           await setDoc(doc(db, "marks", markId), {
-            studentId: s.id,
+            studentId:   s.id,
             studentName: s.name,
             grade, section, subject,
-            term: activeTerm.term,
-            year: activeTerm.year,
-            mark: Number(mark),
-            updatedAt: new Date().toISOString(),
+            term:        activeTerm.term,
+            year:        activeTerm.year,
+            mark:        Number(mark),
+            updatedBy:   profile?.name  || "Unknown",
+            updatedById: profile?.uid   || "",
+            updatedAt:   new Date().toISOString(),
           });
         }
       }
@@ -179,7 +174,6 @@ export default function MarksEntry() {
     <Box display="flex" justifyContent="center" mt={5}><CircularProgress /></Box>
   );
 
-  // ── Teacher has no assignments yet ──
   if (!isAdmin && myAssignments.length === 0) return (
     <Box mt={4}>
       <Alert severity="warning" icon={<WarningIcon />}>
@@ -219,8 +213,6 @@ export default function MarksEntry() {
 
       {/* ── Filters ── */}
       <Grid container spacing={1.5} mb={2}>
-
-        {/* Grade — Admin: all grades | Teacher: only assigned grades */}
         <Grid item xs={6} sm={3}>
           <FormControl fullWidth size="small">
             <InputLabel>Grade</InputLabel>
@@ -237,7 +229,6 @@ export default function MarksEntry() {
           </FormControl>
         </Grid>
 
-        {/* Section — Admin: all sections | Teacher: only assigned sections */}
         <Grid item xs={6} sm={3}>
           <FormControl fullWidth size="small">
             <InputLabel>Section</InputLabel>
@@ -250,7 +241,6 @@ export default function MarksEntry() {
           </FormControl>
         </Grid>
 
-        {/* Subject — Admin: full list | Teacher: only assigned subjects */}
         <Grid item xs={12} sm={6}>
           <FormControl fullWidth size="small">
             <InputLabel>Subject</InputLabel>
@@ -263,7 +253,6 @@ export default function MarksEntry() {
             </Select>
           </FormControl>
         </Grid>
-
       </Grid>
 
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
@@ -275,8 +264,8 @@ export default function MarksEntry() {
         <Box display="flex" justifyContent="center" mt={3}><CircularProgress /></Box>
       ) : (
         <>
-          <Box display="flex" justifyContent="space-between" alignItems="center"
-            mb={1} flexWrap="wrap" gap={1}>
+          <Box display="flex" justifyContent="space-between"
+            alignItems="center" mb={1} flexWrap="wrap" gap={1}>
             <Typography variant="body2" color="text.secondary">
               {students.length} students — Grade {grade}-{section} |{" "}
               {subject} | {activeTerm.term} {activeTerm.year}
@@ -285,22 +274,25 @@ export default function MarksEntry() {
               <Button variant="contained" startIcon={<SaveIcon />}
                 onClick={handleSave} disabled={saving}
                 sx={{ bgcolor: "#1a237e" }}>
-                {saving ? <CircularProgress size={20} color="inherit" /> : "Save All Marks"}
+                {saving
+                  ? <CircularProgress size={20} color="inherit" />
+                  : "Save All Marks"}
               </Button>
             )}
           </Box>
 
-          {/* Info banners */}
           {grade >= 10 && grade <= 11 &&
             !COMPULSORY_SUBJECTS_10_11.includes(subject) && (
             <Alert severity="info" sx={{ mb: 1 }}>
-              Showing only students who selected <strong>{subject}</strong> in their basket.
+              Showing only students who selected <strong>{subject}</strong> in
+              their basket.
             </Alert>
           )}
           {grade >= 6 && grade <= 9 &&
             AESTHETIC_SUBJECTS.includes(subject) && (
             <Alert severity="info" sx={{ mb: 1 }}>
-              Showing only students who selected <strong>{subject}</strong> as aesthetic.
+              Showing only students who selected <strong>{subject}</strong> as
+              aesthetic.
             </Alert>
           )}
 
@@ -309,8 +301,11 @@ export default function MarksEntry() {
               <TableHead sx={{ bgcolor: "#1a237e" }}>
                 <TableRow>
                   {["#", "Name", "Marks (0-100)", "Grade"].map(h => (
-                    <TableCell key={h} sx={{ color: "white", fontWeight: 600,
-                      fontSize: { xs: 11, sm: 14 }, px: { xs: 1, sm: 2 } }}>
+                    <TableCell key={h} sx={{
+                      color: "white", fontWeight: 600,
+                      fontSize: { xs: 11, sm: 14 },
+                      px: { xs: 1, sm: 2 }
+                    }}>
                       {h}
                     </TableCell>
                   ))}
@@ -321,10 +316,16 @@ export default function MarksEntry() {
                   const gradeInfo = getGrade(marks[s.id]);
                   return (
                     <TableRow key={s.id} hover>
-                      <TableCell sx={{ px: { xs: 1, sm: 2 }, fontSize: { xs: 12, sm: 14 } }}>
+                      <TableCell sx={{
+                        px: { xs: 1, sm: 2 },
+                        fontSize: { xs: 12, sm: 14 }
+                      }}>
                         {idx + 1}
                       </TableCell>
-                      <TableCell sx={{ px: { xs: 1, sm: 2 }, fontSize: { xs: 12, sm: 14 } }}>
+                      <TableCell sx={{
+                        px: { xs: 1, sm: 2 },
+                        fontSize: { xs: 12, sm: 14 }
+                      }}>
                         {isMobile ? s.name.split(" ")[0] : s.name}
                       </TableCell>
                       <TableCell sx={{ px: { xs: 0.5, sm: 2 } }}>
@@ -359,7 +360,9 @@ export default function MarksEntry() {
           <Button variant="contained" startIcon={<SaveIcon />}
             onClick={handleSave} disabled={saving}
             fullWidth sx={{ bgcolor: "#1a237e", mt: 2 }}>
-            {saving ? <CircularProgress size={20} color="inherit" /> : "Save All Marks"}
+            {saving
+              ? <CircularProgress size={20} color="inherit" />
+              : "Save All Marks"}
           </Button>
         </>
       )}
