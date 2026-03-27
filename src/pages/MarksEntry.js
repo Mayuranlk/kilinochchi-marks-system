@@ -2,8 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { collection, getDocs, setDoc, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
-import {
-  GRADES, SECTIONS, getStudentSubjects,
+import { GRADES, SECTIONS, getStudentSubjects,
   AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3,
   COMPULSORY_SUBJECTS_10_11, SUBJECTS_BY_GRADE
 } from "../constants";
@@ -17,13 +16,25 @@ import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningIcon from "@mui/icons-material/Warning";
 
+const getSubjectsForGrade = (g) => {
+  if (g >= 6 && g <= 9) {
+    const dummy = { grade: g, religion: "Hindu", aesthetic: "Art" };
+    const compulsory = getStudentSubjects(dummy).slice(0, -1);
+    return [...new Set([...compulsory, ...AESTHETIC_SUBJECTS])];
+  }
+  if (g >= 10 && g <= 11) {
+    return [...COMPULSORY_SUBJECTS_10_11, ...BASKET_1, ...BASKET_2, ...BASKET_3];
+  }
+  return SUBJECTS_BY_GRADE[g] || [];
+};
+
 export default function MarksEntry() {
   const { profile, isAdmin } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [grade, setGrade] = useState(isAdmin ? 6 : profile?.grade || 6);
-  const [section, setSection] = useState(isAdmin ? "A" : profile?.section || "A");
+  const [grade, setGrade] = useState(6);
+  const [section, setSection] = useState("A");
   const [subject, setSubject] = useState("");
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState({});
@@ -34,21 +45,11 @@ export default function MarksEntry() {
   const [activeTerm, setActiveTerm] = useState(null);
   const [termLoading, setTermLoading] = useState(true);
 
-  // ── Subject dropdown list based on selected grade ──
-  const getSubjectsForGrade = (g) => {
-    if (g >= 6 && g <= 9) {
-      const dummy = { grade: g, religion: "Hindu", aesthetic: "Art" };
-      const compulsory = getStudentSubjects(dummy).slice(0, -1);
-      return [...new Set([...compulsory, ...AESTHETIC_SUBJECTS])];
-    }
-    if (g >= 10 && g <= 11) {
-      return [...COMPULSORY_SUBJECTS_10_11, ...BASKET_1, ...BASKET_2, ...BASKET_3];
-    }
-    return SUBJECTS_BY_GRADE[g] || [];
-  };
+  // ── Teacher assignment states ──
+  const [myAssignments, setMyAssignments] = useState([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
 
-  const subjects = getSubjectsForGrade(isAdmin ? grade : (profile?.grade || 6));
-
+  // ── Fetch active term ──
   useEffect(() => {
     async function fetchActiveTerm() {
       setTermLoading(true);
@@ -62,14 +63,44 @@ export default function MarksEntry() {
     fetchActiveTerm();
   }, []);
 
+  // ── Fetch assignments ──
+  // Admin sees all, teacher sees only their assigned ones
   useEffect(() => {
-    if (!isAdmin && profile) {
-      setGrade(profile.grade);
-      setSection(profile.section);
+    async function fetchAssignments() {
+      setAssignmentsLoading(true);
+      const snap = await getDocs(collection(db, "assignments"));
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (isAdmin) {
+        setMyAssignments(all);
+      } else {
+        // filter to only this teacher's assignments
+        const mine = all.filter(a => a.teacherId === profile?.uid);
+        setMyAssignments(mine);
+        // Auto-select first assignment for teacher
+        if (mine.length > 0) {
+          setGrade(mine[0].grade);
+          setSection(mine[0].section);
+          setSubject(mine[0].subject);
+        }
+      }
+      setAssignmentsLoading(false);
     }
+    if (profile || isAdmin) fetchAssignments();
   }, [profile, isAdmin]);
 
-  useEffect(() => { setSubject(""); }, [grade]);
+  useEffect(() => { setSubject(""); }, [grade, section]);
+
+  // ── For admin: subjects dropdown based on grade ──
+  const adminSubjects = getSubjectsForGrade(grade);
+
+  // ── For teacher: derive available grade/section/subject from assignments ──
+  const teacherGrades = [...new Set(myAssignments.map(a => a.grade))].sort();
+  const teacherSections = [...new Set(
+    myAssignments.filter(a => a.grade === grade).map(a => a.section)
+  )].sort();
+  const teacherSubjects = myAssignments
+    .filter(a => a.grade === grade && a.section === section)
+    .map(a => a.subject);
 
   const fetchStudents = useCallback(async () => {
     if (!subject || !activeTerm) return;
@@ -81,7 +112,6 @@ export default function MarksEntry() {
         if (s.grade !== grade) return false;
         if (s.section !== section) return false;
         if ((s.status || "active") !== "active") return false;
-        // ── Only show student if selected subject is in their personal list ──
         const studentSubjects = getStudentSubjects(s);
         return studentSubjects.includes(subject);
       })
@@ -145,9 +175,17 @@ export default function MarksEntry() {
     return { label: "F", color: "error" };
   };
 
-  if (termLoading) return (
-    <Box display="flex" justifyContent="center" mt={5}>
-      <CircularProgress />
+  if (termLoading || assignmentsLoading) return (
+    <Box display="flex" justifyContent="center" mt={5}><CircularProgress /></Box>
+  );
+
+  // ── Teacher has no assignments yet ──
+  if (!isAdmin && myAssignments.length === 0) return (
+    <Box mt={4}>
+      <Alert severity="warning" icon={<WarningIcon />}>
+        You have no subject assignments yet. Please contact the admin to
+        assign you to a subject and class.
+      </Alert>
     </Box>
   );
 
@@ -179,51 +217,62 @@ export default function MarksEntry() {
         </Alert>
       )}
 
-      {/* Filters */}
+      {/* ── Filters ── */}
       <Grid container spacing={1.5} mb={2}>
-        {isAdmin && (
-          <>
-            <Grid item xs={6} sm={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Grade</InputLabel>
-                <Select value={grade} label="Grade"
-                  onChange={(e) => setGrade(e.target.value)}>
-                  {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6} sm={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Section</InputLabel>
-                <Select value={section} label="Section"
-                  onChange={(e) => setSection(e.target.value)}>
-                  {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-          </>
-        )}
-        <Grid item xs={12} sm={isAdmin ? 6 : 12}>
+
+        {/* Grade — Admin: all grades | Teacher: only assigned grades */}
+        <Grid item xs={6} sm={3}>
           <FormControl fullWidth size="small">
-            <InputLabel>Subject</InputLabel>
-            <Select value={subject} label="Subject"
-              onChange={(e) => setSubject(e.target.value)}
-              disabled={!activeTerm}>
-              {subjects.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+            <InputLabel>Grade</InputLabel>
+            <Select value={grade} label="Grade"
+              onChange={e => {
+                setGrade(Number(e.target.value));
+                setSection("A");
+                setSubject("");
+              }}>
+              {(isAdmin ? GRADES : teacherGrades).map(g => (
+                <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Grid>
+
+        {/* Section — Admin: all sections | Teacher: only assigned sections */}
+        <Grid item xs={6} sm={3}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Section</InputLabel>
+            <Select value={section} label="Section"
+              onChange={e => { setSection(e.target.value); setSubject(""); }}>
+              {(isAdmin ? SECTIONS : teacherSections).map(s => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
+        {/* Subject — Admin: full list | Teacher: only assigned subjects */}
+        <Grid item xs={12} sm={6}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Subject</InputLabel>
+            <Select value={subject} label="Subject"
+              onChange={e => setSubject(e.target.value)}
+              disabled={!activeTerm}>
+              {(isAdmin ? adminSubjects : teacherSubjects).map(s => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+
       </Grid>
 
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error   && <Alert severity="error"   sx={{ mb: 2 }}>{error}</Alert>}
 
       {!activeTerm ? null : !subject ? (
         <Alert severity="info">Select a subject to load students.</Alert>
       ) : loading ? (
-        <Box display="flex" justifyContent="center" mt={3}>
-          <CircularProgress />
-        </Box>
+        <Box display="flex" justifyContent="center" mt={3}><CircularProgress /></Box>
       ) : (
         <>
           <Box display="flex" justifyContent="space-between" alignItems="center"
@@ -241,19 +290,17 @@ export default function MarksEntry() {
             )}
           </Box>
 
-          {/* Info banner for basket subjects */}
-          {(grade >= 10 && grade <= 11) &&
-            ![...COMPULSORY_SUBJECTS_10_11].includes(subject) && (
+          {/* Info banners */}
+          {grade >= 10 && grade <= 11 &&
+            !COMPULSORY_SUBJECTS_10_11.includes(subject) && (
             <Alert severity="info" sx={{ mb: 1 }}>
               Showing only students who selected <strong>{subject}</strong> in their basket.
             </Alert>
           )}
-
-          {/* Info banner for aesthetic subjects */}
-          {(grade >= 6 && grade <= 9) &&
+          {grade >= 6 && grade <= 9 &&
             AESTHETIC_SUBJECTS.includes(subject) && (
             <Alert severity="info" sx={{ mb: 1 }}>
-              Showing only students who selected <strong>{subject}</strong> as their aesthetic.
+              Showing only students who selected <strong>{subject}</strong> as aesthetic.
             </Alert>
           )}
 
@@ -284,7 +331,7 @@ export default function MarksEntry() {
                         <TextField size="small" type="number"
                           inputProps={{ min: 0, max: 100 }}
                           value={marks[s.id] ?? ""}
-                          onChange={(e) => handleMarkChange(s.id, e.target.value)}
+                          onChange={e => handleMarkChange(s.id, e.target.value)}
                           sx={{ width: { xs: 65, sm: 100 } }}
                           placeholder="0–100" disabled={!activeTerm} />
                       </TableCell>
