@@ -10,12 +10,12 @@ import {
   ToggleButtonGroup, Card, CardContent, TextField, InputAdornment,
   useMediaQuery, useTheme, Avatar
 } from "@mui/material";
-import ArrowBackIcon    from "@mui/icons-material/ArrowBack";
-import SearchIcon       from "@mui/icons-material/Search";
-import AssessmentIcon   from "@mui/icons-material/Assessment";
-import PeopleIcon       from "@mui/icons-material/People";
-import GradeIcon        from "@mui/icons-material/Grade";
-import MenuBookIcon     from "@mui/icons-material/MenuBook";
+import ArrowBackIcon  from "@mui/icons-material/ArrowBack";
+import SearchIcon     from "@mui/icons-material/Search";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import PeopleIcon     from "@mui/icons-material/People";
+import GradeIcon      from "@mui/icons-material/Grade";
+import MenuBookIcon   from "@mui/icons-material/MenuBook";
 
 export default function StudentsBySubject() {
   const navigate = useNavigate();
@@ -31,77 +31,54 @@ export default function StudentsBySubject() {
   const [loading,  setLoading]  = useState(false);
   const [search,   setSearch]   = useState("");
 
-  // ── Build subject list, replacing "Religion" placeholder
-  //    with individual religion values from enrolled students ──
   const rawSubjects = SUBJECTS_BY_GRADE[grade] || [];
-
-  // We keep the raw list for the dropdown but render the label properly
-  const getSubjectLabel = (s) => s; // labels are already real names from constants
 
   useEffect(() => { setSubject(""); setStudents([]); }, [grade]);
 
-  // ── Determine if a student is enrolled in the selected subject ──
-  const studentHasSubject = (s, subj) => {
-    // Religion subject — match against student's actual religion value
-    if (["Hinduism", "Buddhism", "Catholicism", "Christianity", "Islam"]
-        .includes(subj)) {
-      return s.religion === subj;
-    }
-    // Aesthetic subjects (Grade 6–9)
-    if (s.grade >= 6 && s.grade <= 9) {
-      if (s.aesthetic === subj) return true;
-    }
-    // Basket subjects (Grade 10–11)
-    if (s.grade >= 10 && s.grade <= 11) {
-      if ([s.basket1, s.basket2, s.basket3].includes(subj)) return true;
-    }
-    // Core subjects — all students of that grade have them
-    return true;
-  };
+  const RELIGION_VALUES  = ["Buddhism","Hinduism","Islam","Catholicism","Christianity"];
+  const AESTHETIC_VALUES = ["Art","Music","Dancing","Drama & Theatre"];
+
+  const isReligionSub  = RELIGION_VALUES.includes(subject);
+  const isAestheticSub = AESTHETIC_VALUES.includes(subject);
+  const isBasketSub    = grade >= 10 && grade <= 11
+    && !isReligionSub && !isAestheticSub
+    && !["Tamil","Mathematics","Science","History","English"].includes(subject);
+
+  const subjectTypeBadge = isReligionSub
+    ? { label: "Religion",  color: "#7b1fa2" }
+    : isAestheticSub
+    ? { label: "Aesthetic", color: "#1565c0" }
+    : isBasketSub
+    ? { label: "Basket",    color: "#e65100" }
+    : { label: "Core",      color: "#2e7d32" };
 
   const handleSearch = async () => {
     if (!subject) return;
     setLoading(true); setStudents([]);
 
-    const studSnap   = await getDocs(collection(db, "students"));
+    const studSnap    = await getDocs(collection(db, "students"));
     const allStudents = studSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(s => (s.status || "active") === "active");
 
     if (mode === "assigned") {
-      const RELIGION_VALUES = [
-        "Hinduism", "Buddhism", "Catholicism", "Christianity", "Islam"
-      ];
-      const AESTHETIC_VALUES = ["Art", "Music", "Dancing", "Drama"];
-      const isReligionSubject  = RELIGION_VALUES.includes(subject);
-      const isAestheticSubject = AESTHETIC_VALUES.includes(subject);
-      const isBasketSubject    = !isReligionSubject && !isAestheticSubject &&
-        ![ /* add your core subject names here if needed */ ].includes(subject);
-
       const result = allStudents
         .filter(s => {
           if (s.grade !== grade) return false;
-          // Religion filter — match student's own religion
-          if (isReligionSubject) return s.religion === subject;
-          // Aesthetic filter
-          if (isAestheticSubject) {
-            if (s.grade >= 6 && s.grade <= 9) return s.aesthetic === subject;
-            return false;
-          }
-          // Basket filter (Grade 10–11)
-          if (s.grade >= 10 && s.grade <= 11) {
-            if ([s.basket1, s.basket2, s.basket3].includes(subject)) return true;
-          }
-          // Core subject — all students in grade
-          return true;
+          if (isReligionSub)  return s.religion  === subject;
+          if (isAestheticSub) return s.grade >= 6 && s.grade <= 9
+            && s.aesthetic === subject;
+          if (isBasketSub)    return [s.basket1, s.basket2, s.basket3]
+            .includes(subject);
+          return true; // core subject — all students in grade
         })
-        .sort((a, b) => a.section.localeCompare(b.section) ||
-          a.name.localeCompare(b.name))
+        .sort((a, b) =>
+          a.section.localeCompare(b.section) || a.name.localeCompare(b.name)
+        )
         .map(s => ({ ...s, mark: null }));
-
       setStudents(result);
+
     } else {
-      // Marks mode
       const marksSnap = await getDocs(collection(db, "marks"));
       const marksList = marksSnap.docs
         .map(d => d.data())
@@ -110,12 +87,10 @@ export default function StudentsBySubject() {
           m.term    === term &&
           (m.year   === year || !m.year)
         );
-
       const result = marksList.map(m => {
         const student = allStudents.find(s => s.id === m.studentId);
         return student ? { ...student, mark: m.mark, hasMarks: true } : null;
       }).filter(Boolean).sort((a, b) => b.mark - a.mark);
-
       setStudents(result);
     }
     setLoading(false);
@@ -141,22 +116,9 @@ export default function StudentsBySubject() {
        students.filter(s => s.mark !== null).length).toFixed(1)
     : null;
 
-  // Detect subject type for column display
-  const RELIGION_VALUES  = ["Hinduism","Buddhism","Catholicism","Christianity","Islam"];
-  const AESTHETIC_VALUES = ["Art","Music","Dancing","Drama"];
-  const isReligionSub    = RELIGION_VALUES.includes(subject);
-  const isAestheticSub   = AESTHETIC_VALUES.includes(subject);
-  const isBasketSub      = grade >= 10 && grade <= 11 &&
-    !isReligionSub && !isAestheticSub;
-
-  // Label for subject type badge
-  const subjectTypeBadge = isReligionSub  ? { label: "Religion",  color: "#7b1fa2" }
-    : isAestheticSub ? { label: "Aesthetic", color: "#1565c0" }
-    : isBasketSub    ? { label: "Basket",    color: "#e65100" }
-    : { label: "Core", color: "#2e7d32" };
-
   return (
     <Box>
+
       {/* ── Header ── */}
       <Box sx={{
         display: "flex", alignItems: "center", gap: 1, mb: 2,
@@ -166,8 +128,8 @@ export default function StudentsBySubject() {
       }}>
         <Button startIcon={<ArrowBackIcon />}
           onClick={() => navigate("/students")}
-          size="small" sx={{ color: "#1a237e", borderColor: "#1a237e" }}
-          variant="outlined">
+          size="small" variant="outlined"
+          sx={{ color: "#1a237e", borderColor: "#1a237e" }}>
           Back
         </Button>
         <MenuBookIcon sx={{ color: "#1a237e", ml: 1 }} />
@@ -275,8 +237,8 @@ export default function StudentsBySubject() {
               <Button variant="contained" fullWidth
                 onClick={handleSearch}
                 disabled={!subject || loading}
-                sx={{ bgcolor: "#1a237e", height: 40, fontWeight: 700,
-                  borderRadius: 2 }}>
+                sx={{ bgcolor: "#1a237e", height: 40,
+                  fontWeight: 700, borderRadius: 2 }}>
                 {loading
                   ? <CircularProgress size={20} color="inherit" />
                   : "Search →"}
@@ -292,14 +254,9 @@ export default function StudentsBySubject() {
           {/* Subject type badge */}
           {subject && (
             <Box display="flex" alignItems="center" gap={1} mb={1.5}>
-              <Chip
-                label={subjectTypeBadge.label}
-                size="small"
-                sx={{
-                  bgcolor: subjectTypeBadge.color,
-                  color: "white", fontWeight: 700
-                }}
-              />
+              <Chip label={subjectTypeBadge.label} size="small"
+                sx={{ bgcolor: subjectTypeBadge.color,
+                  color: "white", fontWeight: 700 }} />
               <Typography variant="body2" fontWeight={700} color="#1a237e">
                 {subject}
               </Typography>
@@ -369,7 +326,7 @@ export default function StudentsBySubject() {
             )}
           </Grid>
 
-          {/* Search */}
+          {/* Search bar */}
           <TextField fullWidth size="small" sx={{ mb: 2 }}
             placeholder="Search student name or admission no..."
             value={search} onChange={e => setSearch(e.target.value)}
@@ -382,7 +339,7 @@ export default function StudentsBySubject() {
               )
             }} />
 
-          {/* Table */}
+          {/* ── Table ── */}
           <Paper sx={{
             overflowX: "auto", borderRadius: 3,
             boxShadow: "0 2px 12px rgba(26,35,126,0.08)"
@@ -392,18 +349,9 @@ export default function StudentsBySubject() {
                 <TableRow sx={{ bgcolor: "#1a237e" }}>
                   {[
                     "#", "Student", "Grade",
-                    ...(mode === "marks"
-                      ? ["Marks", "Grade", "Rank"]
-                      // Fix 4: removed "Religion" column from assigned view
-                      // show subject-type relevant column instead
-                      : isReligionSub
-                        ? ["Religion"]
-                        : isAestheticSub
-                          ? ["Aesthetic"]
-                          : isBasketSub
-                            ? ["Baskets"]
-                            : []
-                    ),
+                    // ✅ Only show Marks/Grade/Rank in marks mode
+                    // No extra column in assigned mode
+                    ...(mode === "marks" ? ["Marks", "Grade", "Rank"] : []),
                     "Action"
                   ].map(h => (
                     <TableCell key={h} sx={{
@@ -421,6 +369,8 @@ export default function StudentsBySubject() {
                   return (
                     <TableRow key={s.id} hover
                       sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+
+                      {/* # */}
                       <TableCell sx={{ fontSize: { xs: 12, sm: 14 } }}>
                         {mode === "marks" ? (
                           <Avatar sx={{
@@ -434,6 +384,8 @@ export default function StudentsBySubject() {
                           </Avatar>
                         ) : idx + 1}
                       </TableCell>
+
+                      {/* Student */}
                       <TableCell>
                         <Typography variant="body2" fontWeight={700}>
                           {isMobile ? s.name.split(" ")[0] : s.name}
@@ -442,13 +394,16 @@ export default function StudentsBySubject() {
                           {s.admissionNo}
                         </Typography>
                       </TableCell>
+
+                      {/* Grade chip */}
                       <TableCell>
                         <Chip label={`G${s.grade}-${s.section}`}
                           size="small" color="primary"
                           sx={{ fontWeight: 700, fontSize: 11 }} />
                       </TableCell>
 
-                      {mode === "marks" ? (
+                      {/* Marks mode columns only */}
+                      {mode === "marks" && (
                         <>
                           <TableCell>
                             <Typography fontWeight={700}>
@@ -468,49 +423,9 @@ export default function StudentsBySubject() {
                             </Typography>
                           </TableCell>
                         </>
-                      ) : (
-                        <>
-                          {/* Fix 4: show actual values, not "Religion" label */}
-                          {isReligionSub && (
-                            <TableCell>
-                              <Chip
-                                label={s.religion || "—"}
-                                size="small"
-                                variant="outlined"
-                                sx={{ color: "#7b1fa2",
-                                  borderColor: "#7b1fa2" }}
-                              />
-                            </TableCell>
-                          )}
-                          {isAestheticSub && (
-                            <TableCell>
-                              <Chip
-                                label={s.aesthetic || "—"}
-                                size="small"
-                                variant="outlined"
-                                sx={{ color: "#1565c0",
-                                  borderColor: "#1565c0" }}
-                              />
-                            </TableCell>
-                          )}
-                          {isBasketSub && (
-                            <TableCell>
-                              <Box display="flex" gap={0.5} flexWrap="wrap">
-                                {[s.basket1, s.basket2, s.basket3]
-                                  .filter(Boolean)
-                                  .map((b, i) => (
-                                    <Chip key={i} label={b} size="small"
-                                      variant="outlined"
-                                      sx={{ color: "#e65100",
-                                        borderColor: "#e65100",
-                                        fontSize: 11 }} />
-                                  ))}
-                              </Box>
-                            </TableCell>
-                          )}
-                        </>
                       )}
 
+                      {/* Action */}
                       <TableCell>
                         <Button size="small" variant="outlined"
                           startIcon={!isMobile && <AssessmentIcon />}
@@ -523,6 +438,7 @@ export default function StudentsBySubject() {
                           {isMobile ? "📊" : "Report"}
                         </Button>
                       </TableCell>
+
                     </TableRow>
                   );
                 })}
@@ -532,6 +448,7 @@ export default function StudentsBySubject() {
         </>
       )}
 
+      {/* No results */}
       {!loading && subject && students.length === 0 && (
         <Alert severity="info" sx={{ mt: 2, borderRadius: 3 }}>
           No students found for <strong>{subject}</strong> in Grade {grade}.
@@ -539,6 +456,7 @@ export default function StudentsBySubject() {
         </Alert>
       )}
 
+      {/* Empty state */}
       {!subject && (
         <Box textAlign="center" py={6}>
           <GradeIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
@@ -551,6 +469,7 @@ export default function StudentsBySubject() {
           </Typography>
         </Box>
       )}
+
     </Box>
   );
 }
