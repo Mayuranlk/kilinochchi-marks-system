@@ -3,6 +3,7 @@ import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc } from "firebase
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { GRADES, SECTIONS, SUBJECTS_BY_GRADE } from "../constants";
+import * as XLSX from "xlsx";
 /* eslint-disable no-unused-vars */
 import {
   Box, Typography, Button, TextField, Select, MenuItem, FormControl, InputLabel,
@@ -17,6 +18,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 
 const empty = {
   name: "", email: "", password: "",
@@ -44,6 +46,14 @@ export default function AdminTeachers() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Bulk Upload States ──
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkData, setBulkData] = useState([]);
+  const [bulkErrors, setBulkErrors] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkSuccess, setBulkSuccess] = useState("");
+  const [bulkProgress, setBulkProgress] = useState(0);
 
   const fetchTeachers = async () => {
     const snap = await getDocs(collection(db, "users"));
@@ -181,7 +191,139 @@ export default function AdminTeachers() {
     return colors[Math.abs(hash) % colors.length];
   };
 
-  const addSubjects = SUBJECTS_BY_GRADE[form.grade] || [];
+  // ── Bulk Upload Functions ──
+  const downloadTeacherTemplate = () => {
+    const template = [
+      {
+        name: "Kumaran Selvam", email: "kumaran@school.lk", password: "teacher123",
+        grade: 6, section: "A", phone: "0771234567",
+        signatureNo: "T-001",
+        subjects: "Tamil,Mathematics"
+      },
+      {
+        name: "Priya Nanthini", email: "priya@school.lk", password: "teacher123",
+        grade: 7, section: "B", phone: "0769876543",
+        signatureNo: "T-002",
+        subjects: "English,Science"
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    ws["!cols"] = [
+      { wch: 22 }, { wch: 25 }, { wch: 14 }, { wch: 7 }, { wch: 9 },
+      { wch: 13 }, { wch: 10 }, { wch: 30 }
+    ];
+    // Add note row
+    XLSX.utils.sheet_add_aoa(ws, [
+      ["NOTE: subjects column = comma-separated list e.g. Tamil,Mathematics,Science"]
+    ], { origin: "A5" });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Teachers");
+    XLSX.writeFile(wb, "teachers_template.xlsx");
+  };
+
+  const handleTeacherFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setBulkErrors([]); setBulkData([]); setBulkSuccess("");
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target.result, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (raw.length === 0) {
+          setBulkErrors(["Excel file is empty or has no data rows."]);
+          return;
+        }
+        const errors = [];
+        const cleaned = raw.map((row, idx) => {
+          // parse subjects — comma separated string or array
+          const subjRaw = String(row.subjects || "");
+          const subjects = subjRaw
+            .split(",")
+            .map(s => s.trim())
+            .filter(Boolean);
+
+          const grade = Number(row.grade) || 6;
+          const section = String(row.section || "A").trim().toUpperCase();
+          const email = String(row.email || "").trim().toLowerCase();
+          const password = String(row.password || "").trim();
+          const name = String(row.name || "").trim();
+
+          if (!name)     errors.push(`Row ${idx + 2}: Name is missing`);
+          if (!email)    errors.push(`Row ${idx + 2}: Email is missing`);
+          if (!password) errors.push(`Row ${idx + 2}: Password is missing`);
+          if (password && password.length < 6)
+            errors.push(`Row ${idx + 2}: Password must be at least 6 characters`);
+          if (!GRADES.includes(grade))
+            errors.push(`Row ${idx + 2}: Invalid grade "${grade}"`);
+          if (!SECTIONS.includes(section))
+            errors.push(`Row ${idx + 2}: Invalid section "${section}"`);
+          if (subjects.length === 0)
+            errors.push(`Row ${idx + 2}: At least one subject is required`);
+
+          return {
+            name, email, password,
+            grade, section,
+            phone:       String(row.phone       || "").trim(),
+            signatureNo: String(row.signatureNo || "").trim(),
+            subjects,
+            status: "active",
+          };
+        });
+        setBulkErrors(errors);
+        setBulkData(cleaned);
+      } catch (err) {
+        setBulkErrors(["Failed to read file. Make sure it's a valid .xlsx file."]);
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
+  const handleBulkTeacherUpload = async () => {
+    if (bulkErrors.length > 0 || bulkData.length === 0) return;
+    setBulkUploading(true); setBulkProgress(0);
+    let count = 0;
+    const failed = [];
+    for (const teacher of bulkData) {
+      try {
+        const cred = await createUserWithEmailAndPassword(
+          auth, teacher.email, teacher.password
+        );
+        await setDoc(doc(db, "users", cred.user.uid), {
+          name:        teacher.name,
+          email:       teacher.email,
+          role:        "teacher",
+          grade:       teacher.grade,
+          section:     teacher.section,
+          subjects:    teacher.subjects,
+          phone:       teacher.phone,
+          signatureNo: teacher.signatureNo,
+          status:      "active",
+          createdAt:   new Date().toISOString(),
+        });
+        count++;
+      } catch (err) {
+        const msg = err.message.includes("email-already-in-use")
+          ? `${teacher.email}: Email already registered`
+          : `${teacher.email}: ${err.message}`;
+        failed.push(msg);
+      }
+      setBulkProgress(Math.round(((count + failed.length) / bulkData.length) * 100));
+    }
+    if (failed.length > 0) {
+      setBulkErrors(failed);
+      setBulkSuccess(count > 0 ? `✅ ${count} teachers uploaded. See errors above.` : "");
+    } else {
+      setBulkSuccess(`✅ ${count} teachers uploaded successfully!`);
+      setBulkData([]);
+    }
+    setBulkUploading(false);
+    fetchTeachers();
+  };
+
+  const addSubjects  = SUBJECTS_BY_GRADE[form.grade]     || [];
   const editSubjects = SUBJECTS_BY_GRADE[editForm.grade] || [];
 
   return (
@@ -200,12 +342,23 @@ export default function AdminTeachers() {
             )}
           </Box>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />}
-          onClick={() => { setOpen(true); setError(""); setSuccess(""); setForm(empty); }}
-          sx={{ bgcolor: "#1a237e", borderRadius: 2 }}
-          size={isMobile ? "small" : "medium"}>
-          {isMobile ? "Add" : "Add Teacher"}
-        </Button>
+        <Box display="flex" gap={1} flexWrap="wrap" justifyContent="flex-end">
+          <Button variant="outlined" startIcon={<UploadFileIcon />}
+            onClick={() => {
+              setBulkOpen(true); setBulkData([]);
+              setBulkErrors([]); setBulkSuccess("");
+            }}
+            size={isMobile ? "small" : "medium"}
+            sx={{ borderColor: "#1a237e", color: "#1a237e" }}>
+            {isMobile ? "Bulk" : "Bulk Upload"}
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />}
+            onClick={() => { setOpen(true); setError(""); setSuccess(""); setForm(empty); }}
+            sx={{ bgcolor: "#1a237e", borderRadius: 2 }}
+            size={isMobile ? "small" : "medium"}>
+            {isMobile ? "Add" : "Add Teacher"}
+          </Button>
+        </Box>
       </Box>
 
       {success && (
@@ -294,7 +447,6 @@ export default function AdminTeachers() {
               )}
             </Box>
           ) : (
-            /* Desktop Table */
             <Paper sx={{
               borderRadius: 3, overflow: "hidden",
               boxShadow: "0 2px 16px rgba(26,35,126,0.10)"
@@ -434,8 +586,6 @@ export default function AdminTeachers() {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
           <Grid container spacing={2} mt={0.5}>
-
-            {/* Row 1 — Name + Email */}
             <Grid item xs={12} sm={6}>
               <TextField fullWidth label="Full Name *" value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -444,8 +594,6 @@ export default function AdminTeachers() {
               <TextField fullWidth label="Email Address *" type="email" value={form.email}
                 onChange={e => setForm({ ...form, email: e.target.value })} />
             </Grid>
-
-            {/* Row 2 — Password + Phone */}
             <Grid item xs={12} sm={6}>
               <TextField fullWidth label="Password (min 6 chars) *" type="password"
                 value={form.password}
@@ -455,8 +603,6 @@ export default function AdminTeachers() {
               <TextField fullWidth label="Phone Number" value={form.phone}
                 onChange={e => setForm({ ...form, phone: e.target.value })} />
             </Grid>
-
-            {/* Row 3 — Signature + Grade + Section */}
             <Grid item xs={12} sm={4}>
               <TextField fullWidth label="Signature No." value={form.signatureNo}
                 placeholder="e.g. T-001"
@@ -480,8 +626,6 @@ export default function AdminTeachers() {
                 </Select>
               </FormControl>
             </Grid>
-
-            {/* Row 4 — Subjects */}
             <Grid item xs={12}>
               <FormControl fullWidth>
                 <InputLabel>Assigned Subjects</InputLabel>
@@ -496,7 +640,6 @@ export default function AdminTeachers() {
                 </Select>
               </FormControl>
             </Grid>
-
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -517,7 +660,6 @@ export default function AdminTeachers() {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
           <Grid container spacing={2} mt={0.5}>
-
             <Grid item xs={12} sm={6}>
               <TextField fullWidth label="Full Name *" value={editForm.name || ""}
                 onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
@@ -526,7 +668,6 @@ export default function AdminTeachers() {
               <TextField fullWidth label="Phone Number" value={editForm.phone || ""}
                 onChange={e => setEditForm({ ...editForm, phone: e.target.value })} />
             </Grid>
-
             <Grid item xs={12} sm={4}>
               <TextField fullWidth label="Signature No." value={editForm.signatureNo || ""}
                 onChange={e => setEditForm({ ...editForm, signatureNo: e.target.value })} />
@@ -549,7 +690,6 @@ export default function AdminTeachers() {
                 </Select>
               </FormControl>
             </Grid>
-
             <Grid item xs={12}>
               <FormControl fullWidth>
                 <InputLabel>Assigned Subjects</InputLabel>
@@ -564,7 +704,6 @@ export default function AdminTeachers() {
                 </Select>
               </FormControl>
             </Grid>
-
           </Grid>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -661,6 +800,160 @@ export default function AdminTeachers() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Bulk Upload Dialog ── */}
+      <Dialog open={bulkOpen} onClose={() => {
+        if (!bulkUploading) {
+          setBulkOpen(false); setBulkData([]);
+          setBulkErrors([]); setBulkSuccess("");
+        }
+      }} maxWidth="md" fullWidth fullScreen={isMobile}>
+        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
+          <UploadFileIcon sx={{ mr: 1, verticalAlign: "middle" }} />
+          Bulk Upload Teachers
+        </DialogTitle>
+        <DialogContent>
+          <Box mt={2}>
+
+            {/* Template Download */}
+            <Alert severity="info" sx={{ mb: 2 }}
+              action={
+                <Button size="small" color="inherit" variant="outlined"
+                  onClick={downloadTeacherTemplate}>
+                  ⬇ Template
+                </Button>
+              }>
+              Download the Excel template, fill teacher details, then upload.
+              Use <strong>comma-separated</strong> subjects e.g. <em>Tamil,Mathematics</em>
+            </Alert>
+
+            {/* File Upload Zone */}
+            <Box sx={{
+              border: "2px dashed #1a237e", borderRadius: 2,
+              p: 3, textAlign: "center", bgcolor: "#f8f9ff", mb: 2
+            }}>
+              <UploadFileIcon sx={{ fontSize: 40, color: "#1a237e", mb: 1 }} />
+              <Typography variant="body2" color="text.secondary" mb={1.5}>
+                Select your filled Excel file (.xlsx / .xls)
+              </Typography>
+              <Button variant="contained" component="label"
+                sx={{ bgcolor: "#1a237e" }} disabled={bulkUploading}>
+                Choose File
+                <input type="file" hidden accept=".xlsx,.xls"
+                  onChange={handleTeacherFileUpload} />
+              </Button>
+            </Box>
+
+            {/* Errors */}
+            {bulkErrors.length > 0 && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
+                  ❌ Errors:
+                </Typography>
+                {bulkErrors.map((e, i) => (
+                  <Typography key={i} variant="caption" display="block">• {e}</Typography>
+                ))}
+              </Alert>
+            )}
+
+            {/* Success */}
+            {bulkSuccess && (
+              <Alert severity="success" sx={{ mb: 2 }}>{bulkSuccess}</Alert>
+            )}
+
+            {/* Progress */}
+            {bulkUploading && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary" mb={1}>
+                  Uploading... {bulkProgress}%
+                </Typography>
+                <Box sx={{
+                  width: "100%", height: 8, bgcolor: "#e0e0e0", borderRadius: 4
+                }}>
+                  <Box sx={{
+                    width: `${bulkProgress}%`, height: 8,
+                    bgcolor: "#1a237e", borderRadius: 4,
+                    transition: "width 0.3s ease"
+                  }} />
+                </Box>
+              </Box>
+            )}
+
+            {/* Preview Table */}
+            {bulkData.length > 0 && bulkErrors.length === 0 && !bulkSuccess && (
+              <>
+                <Alert severity="success" sx={{ mb: 1 }}>
+                  ✅ <strong>{bulkData.length} teachers</strong> ready to upload.
+                  Review below before confirming.
+                </Alert>
+                <Paper sx={{ maxHeight: 280, overflow: "auto" }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        {["#", "Name", "Email", "Grade", "Section",
+                          "Phone", "Sig No", "Subjects"].map(h => (
+                          <TableCell key={h} sx={{
+                            bgcolor: "#1a237e", color: "white",
+                            fontWeight: 600, fontSize: 12
+                          }}>
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {bulkData.map((t, i) => (
+                        <TableRow key={i} hover
+                          sx={{ bgcolor: i % 2 === 0 ? "white" : "#f8f9ff" }}>
+                          <TableCell>{i + 1}</TableCell>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={600}>{t.name}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption">{t.email}</Typography>
+                          </TableCell>
+                          <TableCell>{t.grade}</TableCell>
+                          <TableCell>{t.section}</TableCell>
+                          <TableCell>{t.phone || "—"}</TableCell>
+                          <TableCell>{t.signatureNo || "—"}</TableCell>
+                          <TableCell>
+                            <Box display="flex" flexWrap="wrap" gap={0.3}>
+                              {t.subjects.map(s => (
+                                <Chip key={s} label={s} size="small"
+                                  sx={{ fontSize: 10 }} />
+                              ))}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Paper>
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button onClick={() => {
+            if (!bulkUploading) {
+              setBulkOpen(false); setBulkData([]);
+              setBulkErrors([]); setBulkSuccess("");
+            }
+          }} fullWidth={isMobile} disabled={bulkUploading}>
+            Close
+          </Button>
+          <Button variant="contained"
+            onClick={handleBulkTeacherUpload}
+            disabled={bulkData.length === 0 || bulkErrors.length > 0 || bulkUploading}
+            fullWidth={isMobile}
+            sx={{ bgcolor: "#1a237e" }}>
+            {bulkUploading
+              ? <CircularProgress size={20} color="inherit" />
+              : `Upload ${bulkData.length} Teachers`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Box>
   );
 }
