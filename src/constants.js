@@ -1,13 +1,15 @@
 export const SCHOOL_NAME = "Kilinochchi Central College";
 export const SCHOOL_SUBTITLE = "Provincial Department of Education - Northern Province";
 
-export const GRADES = [6, 7, 8, 9, 10, 11, 12, 13];
+export const GRADES   = [6, 7, 8, 9, 10, 11, 12, 13];
 export const SECTIONS = ["A", "B", "C", "D"];
-export const TERMS = ["Term 1", "Term 2", "Term 3"];
+export const TERMS    = ["Term 1", "Term 2", "Term 3"];
 export const ACADEMIC_YEARS = ["2024", "2025", "2026", "2027"];
 
 // ── Religion ──
-export const RELIGIONS = ["Hindu", "Roman Catholic", "Islam", "Catholic", "Other"];
+export const RELIGIONS = [
+  "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity"
+];
 
 // ── Grade 6-9 Aesthetic ──
 export const AESTHETIC_SUBJECTS = [
@@ -18,64 +20,79 @@ export const AESTHETIC_SUBJECTS = [
 export const BASKET_1 = [
   "Art", "Music (Oriental)", "Music (Western)", "Dancing", "Drama & Theatre"
 ];
-
 export const BASKET_2 = [
   "ICT", "Design & Technology", "Home Economics", "Agriculture"
 ];
-
 export const BASKET_3 = [
   "Business & Accounting Studies", "Geography",
   "Civics Education", "Entrepreneurship Studies",
   "Communication & Media Studies"
 ];
 
-// ── Compulsory Subjects ──
-export const COMPULSORY_SUBJECTS_6_9 = [
+// ── Compulsory core (without Religion placeholder) ──
+export const COMPULSORY_CORE_6_9 = [
   "Tamil", "Mathematics", "Science", "History", "English",
-  "Religion", "Geography", "Civics",
-  "Health & Physical Education", "ICT", "Sinhala", "PTS"
+  "Geography", "Civics", "Health & Physical Education",
+  "ICT", "Sinhala", "PTS"
 ];
 
+export const COMPULSORY_CORE_10_11 = [
+  "Tamil", "Mathematics", "Science", "History", "English"
+];
+
+// ── Keep these for backward compatibility ──
+export const COMPULSORY_SUBJECTS_6_9 = [
+  ...COMPULSORY_CORE_6_9, "Religion"
+];
 export const COMPULSORY_SUBJECTS_10_11 = [
-  "Tamil", "Mathematics", "Science", "History", "English", "Religion"
+  ...COMPULSORY_CORE_10_11, "Religion"
 ];
 
-// ── Subjects by Grade (for Marks Entry) ──
-// Grade 6-9: compulsory + aesthetic (stored per student)
-// Grade 10-11: compulsory + basket1, basket2, basket3 (stored per student)
-// Grade 12-13: all compulsory (no extras)
+// ── Subjects by Grade ──
+// ✅ Religion and Aesthetic expanded into real values
+//    so the By Subject dropdown shows actual names
 export const SUBJECTS_BY_GRADE = {
-  6:  [
+  6: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Geography", "Civics",
-    "Health & Physical Education", "ICT", "Sinhala", "PTS",
-    "Aesthetic"
+    "Geography", "Civics", "Health & Physical Education",
+    "ICT", "Sinhala", "PTS",
+    // Religion — real values
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    // Aesthetic — real values
+    "Art", "Music", "Dancing", "Drama & Theatre"
   ],
-  7:  [
+  7: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Geography", "Civics",
-    "Health & Physical Education", "ICT", "Sinhala", "PTS",
-    "Aesthetic"
+    "Geography", "Civics", "Health & Physical Education",
+    "ICT", "Sinhala", "PTS",
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    "Art", "Music", "Dancing", "Drama & Theatre"
   ],
-  8:  [
+  8: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Geography", "Civics",
-    "Health & Physical Education", "ICT", "Sinhala", "PTS",
-    "Aesthetic"
+    "Geography", "Civics", "Health & Physical Education",
+    "ICT", "Sinhala", "PTS",
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    "Art", "Music", "Dancing", "Drama & Theatre"
   ],
-  9:  [
+  9: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Geography", "Civics",
-    "Health & Physical Education", "ICT", "Sinhala", "PTS",
-    "Aesthetic"
+    "Geography", "Civics", "Health & Physical Education",
+    "ICT", "Sinhala", "PTS",
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    "Art", "Music", "Dancing", "Drama & Theatre"
   ],
   10: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Basket 1", "Basket 2", "Basket 3"
+    // Religion
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    // Baskets — all options
+    ...BASKET_1, ...BASKET_2, ...BASKET_3
   ],
   11: [
     "Tamil", "Mathematics", "Science", "History", "English",
-    "Religion", "Basket 1", "Basket 2", "Basket 3"
+    "Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity",
+    ...BASKET_1, ...BASKET_2, ...BASKET_3
   ],
   12: [
     "Tamil", "English", "General English",
@@ -111,24 +128,22 @@ export const getStudentSubjects = (student) => {
 
   if (grade >= 6 && grade <= 9) {
     return [
-      ...COMPULSORY_SUBJECTS_6_9.map(s =>
-        s === "Religion" ? (student.religion || "Religion") : s
-      ),
-      student.aesthetic || "Aesthetic"
+      ...COMPULSORY_CORE_6_9,
+      student.religion  || "Hinduism",   // actual religion name
+      student.aesthetic || "Art",        // actual aesthetic subject
     ];
   }
 
   if (grade >= 10 && grade <= 11) {
     return [
-      ...COMPULSORY_SUBJECTS_10_11.map(s =>
-        s === "Religion" ? (student.religion || "Religion") : s
-      ),
-      student.basket1 || "Basket 1",
-      student.basket2 || "Basket 2",
-      student.basket3 || "Basket 3",
+      ...COMPULSORY_CORE_10_11,
+      student.religion || "Hinduism",
+      student.basket1  || "Basket 1",
+      student.basket2  || "Basket 2",
+      student.basket3  || "Basket 3",
     ];
   }
 
-  // Grade 12-13
+  // Grade 12–13
   return SUBJECTS_BY_GRADE[grade] || [];
 };
