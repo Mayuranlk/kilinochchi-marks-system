@@ -19,7 +19,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 const getSubjectsForGrade = (g) => {
   if (g >= 6 && g <= 9) {
-    const dummy = { grade: g, religion: "Hindu", aesthetic: "Art" };
+    const dummy = { grade: g, religion: "Hinduism", aesthetic: "Art" };
     const compulsory = getStudentSubjects(dummy).slice(0, -1);
     return [...new Set([...compulsory, ...AESTHETIC_SUBJECTS])];
   }
