@@ -14,6 +14,7 @@ import Layout from "./components/Layout";
 import YearEndPromotion from "./pages/YearEndPromotion";
 import TeacherAssignments from "./pages/TeacherAssignments";
 import StudentsBySubject from "./pages/StudentsBySubject";
+import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
 import AcademicTerms from "./pages/AcademicTerms";
 import { CircularProgress, Box } from "@mui/material";
 
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="assignments"    element={<AdminRoute><TeacherAssignments /></AdminRoute>} />
             <Route path="students/by-subject" element={<AdminRoute><StudentsBySubject /></AdminRoute>} />
             <Route path="terms"          element={<AdminRoute><AcademicTerms /></AdminRoute>} />
+            <Route path="class-teachers" element={<AdminRoute><ClassTeacherAssignments /></AdminRoute>} />
             <Route path="promotion"      element={<AdminRoute><YearEndPromotion /></AdminRoute>} />
           </Route>
 
