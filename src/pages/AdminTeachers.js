@@ -2,30 +2,26 @@ import React, { useEffect, useState } from "react";
 import { collection, getDocs, deleteDoc, doc, setDoc, updateDoc } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "../firebase";
-import { GRADES, SECTIONS, SUBJECTS_BY_GRADE } from "../constants";
 import * as XLSX from "xlsx";
 /* eslint-disable no-unused-vars */
 import {
-  Box, Typography, Button, TextField, Select, MenuItem, FormControl, InputLabel,
+  Box, Typography, Button, TextField, FormControl, InputLabel,
   Table, TableHead, TableRow, TableCell, TableBody, Paper, Dialog, DialogTitle,
   DialogContent, DialogActions, IconButton, Chip, CircularProgress, Grid, Alert,
   Card, CardContent, CardActions, useMediaQuery, useTheme, Tooltip, Avatar,
-  Divider, Accordion, AccordionSummary, AccordionDetails
+  Accordion, AccordionSummary, AccordionDetails
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 
 const empty = {
   name: "", email: "", password: "",
-  grade: 6, section: "A", subjects: [],
-  phone: "", signatureNo: "",
-  status: "active", transferredDate: "",
-  transferredReason: "", transferredTo: ""
+  phone: "", signatureNo: "", status: "active",
+  transferredDate: "", transferredReason: "", transferredTo: ""
 };
 
 export default function AdminTeachers() {
@@ -37,12 +33,10 @@ export default function AdminTeachers() {
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  const [reassignOpen, setReassignOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [form, setForm] = useState(empty);
   const [editForm, setEditForm] = useState({});
   const [transferForm, setTransferForm] = useState({ date: "", reason: "", school: "" });
-  const [reassignForm, setReassignForm] = useState({ grade: 6, section: "A" });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
@@ -70,18 +64,9 @@ export default function AdminTeachers() {
   const activeTeachers = teachers.filter(t => (t.status || "active") === "active");
   const transferredTeachers = teachers.filter(t => t.status === "transferred");
 
-  const allClasses = [];
-  GRADES.forEach(g => SECTIONS.forEach(s => allClasses.push({ grade: g, section: s })));
-  const assignedClasses = activeTeachers.map(t => `${t.grade}-${t.section}`);
-  const unassignedClasses = allClasses.filter(c =>
-    !assignedClasses.includes(`${c.grade}-${c.section}`)
-  );
-
   const handleAdd = async () => {
     if (!form.name || !form.email || !form.password)
       return setError("Name, email and password are required.");
-    if (form.subjects.length === 0)
-      return setError("Please select at least one subject.");
     if (form.password.length < 6)
       return setError("Password must be at least 6 characters.");
     setSaving(true); setError("");
@@ -89,10 +74,8 @@ export default function AdminTeachers() {
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
       await setDoc(doc(db, "users", cred.user.uid), {
         name: form.name, email: form.email, role: "teacher",
-        grade: form.grade, section: form.section,
-        subjects: form.subjects, phone: form.phone,
-        signatureNo: form.signatureNo, status: "active",
-        createdAt: new Date().toISOString(),
+        phone: form.phone, signatureNo: form.signatureNo,
+        status: "active", createdAt: new Date().toISOString(),
       });
       setSuccess(`Teacher ${form.name} added!`);
       setOpen(false); setForm(empty); fetchTeachers();
@@ -108,9 +91,9 @@ export default function AdminTeachers() {
     setSaving(true); setError("");
     try {
       await updateDoc(doc(db, "users", selectedTeacher.id), {
-        name: editForm.name, grade: editForm.grade,
-        section: editForm.section, subjects: editForm.subjects,
-        phone: editForm.phone || "", signatureNo: editForm.signatureNo || "",
+        name: editForm.name,
+        phone: editForm.phone || "",
+        signatureNo: editForm.signatureNo || "",
       });
       setSuccess("Teacher updated!");
       setEditOpen(false); fetchTeachers();
@@ -136,19 +119,6 @@ export default function AdminTeachers() {
     setSaving(false);
   };
 
-  const handleReassign = async () => {
-    setSaving(true); setError("");
-    try {
-      await updateDoc(doc(db, "users", selectedTeacher.id), {
-        grade: reassignForm.grade,
-        section: reassignForm.section,
-      });
-      setSuccess(`${selectedTeacher.name} moved to G${reassignForm.grade}-${reassignForm.section}!`);
-      setReassignOpen(false); fetchTeachers();
-    } catch (err) { setError(err.message); }
-    setSaving(false);
-  };
-
   const handleRestoreTeacher = async (t) => {
     await updateDoc(doc(db, "users", t.id), {
       status: "active", transferredDate: "",
@@ -166,8 +136,7 @@ export default function AdminTeachers() {
   const openEdit = (t) => {
     setSelectedTeacher(t);
     setEditForm({
-      name: t.name, grade: t.grade, section: t.section,
-      subjects: t.subjects || [], phone: t.phone || "",
+      name: t.name, phone: t.phone || "",
       signatureNo: t.signatureNo || ""
     });
     setError(""); setEditOpen(true);
@@ -175,12 +144,6 @@ export default function AdminTeachers() {
 
   const openTransfer = (t) => {
     setSelectedTeacher(t); setError(""); setTransferOpen(true);
-  };
-
-  const openReassign = (t) => {
-    setSelectedTeacher(t);
-    setReassignForm({ grade: t.grade, section: t.section });
-    setError(""); setReassignOpen(true);
   };
 
   const getAvatarColor = (name) => {
@@ -191,31 +154,22 @@ export default function AdminTeachers() {
     return colors[Math.abs(hash) % colors.length];
   };
 
-  // ── Bulk Upload Functions ──
+  // ── Bulk Upload ──
   const downloadTeacherTemplate = () => {
     const template = [
       {
-        name: "Kumaran Selvam", email: "kumaran@school.lk", password: "teacher123",
-        grade: 6, section: "A", phone: "0771234567",
-        signatureNo: "T-001",
-        subjects: "Tamil,Mathematics"
+        name: "Kumaran Selvam", email: "kumaran@school.lk",
+        password: "teacher123", phone: "0771234567", signatureNo: "T-001"
       },
       {
-        name: "Priya Nanthini", email: "priya@school.lk", password: "teacher123",
-        grade: 7, section: "B", phone: "0769876543",
-        signatureNo: "T-002",
-        subjects: "English,Science"
+        name: "Priya Nanthini", email: "priya@school.lk",
+        password: "teacher123", phone: "0769876543", signatureNo: "T-002"
       }
     ];
     const ws = XLSX.utils.json_to_sheet(template);
     ws["!cols"] = [
-      { wch: 22 }, { wch: 25 }, { wch: 14 }, { wch: 7 }, { wch: 9 },
-      { wch: 13 }, { wch: 10 }, { wch: 30 }
+      { wch: 22 }, { wch: 25 }, { wch: 14 }, { wch: 13 }, { wch: 10 }
     ];
-    // Add note row
-    XLSX.utils.sheet_add_aoa(ws, [
-      ["NOTE: subjects column = comma-separated list e.g. Tamil,Mathematics,Science"]
-    ], { origin: "A5" });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Teachers");
     XLSX.writeFile(wb, "teachers_template.xlsx");
@@ -232,48 +186,29 @@ export default function AdminTeachers() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
         if (raw.length === 0) {
-          setBulkErrors(["Excel file is empty or has no data rows."]);
+          setBulkErrors(["Excel file is empty."]);
           return;
         }
         const errors = [];
         const cleaned = raw.map((row, idx) => {
-          // parse subjects — comma separated string or array
-          const subjRaw = String(row.subjects || "");
-          const subjects = subjRaw
-            .split(",")
-            .map(s => s.trim())
-            .filter(Boolean);
-
-          const grade = Number(row.grade) || 6;
-          const section = String(row.section || "A").trim().toUpperCase();
-          const email = String(row.email || "").trim().toLowerCase();
+          const name     = String(row.name     || "").trim();
+          const email    = String(row.email    || "").trim().toLowerCase();
           const password = String(row.password || "").trim();
-          const name = String(row.name || "").trim();
-
           if (!name)     errors.push(`Row ${idx + 2}: Name is missing`);
           if (!email)    errors.push(`Row ${idx + 2}: Email is missing`);
           if (!password) errors.push(`Row ${idx + 2}: Password is missing`);
           if (password && password.length < 6)
             errors.push(`Row ${idx + 2}: Password must be at least 6 characters`);
-          if (!GRADES.includes(grade))
-            errors.push(`Row ${idx + 2}: Invalid grade "${grade}"`);
-          if (!SECTIONS.includes(section))
-            errors.push(`Row ${idx + 2}: Invalid section "${section}"`);
-          if (subjects.length === 0)
-            errors.push(`Row ${idx + 2}: At least one subject is required`);
-
           return {
             name, email, password,
-            grade, section,
             phone:       String(row.phone       || "").trim(),
             signatureNo: String(row.signatureNo || "").trim(),
-            subjects,
             status: "active",
           };
         });
         setBulkErrors(errors);
         setBulkData(cleaned);
-      } catch (err) {
+      } catch {
         setBulkErrors(["Failed to read file. Make sure it's a valid .xlsx file."]);
       }
     };
@@ -292,25 +227,19 @@ export default function AdminTeachers() {
           auth, teacher.email, teacher.password
         );
         await setDoc(doc(db, "users", cred.user.uid), {
-          name:        teacher.name,
-          email:       teacher.email,
-          role:        "teacher",
-          grade:       teacher.grade,
-          section:     teacher.section,
-          subjects:    teacher.subjects,
-          phone:       teacher.phone,
-          signatureNo: teacher.signatureNo,
-          status:      "active",
-          createdAt:   new Date().toISOString(),
+          name: teacher.name, email: teacher.email, role: "teacher",
+          phone: teacher.phone, signatureNo: teacher.signatureNo,
+          status: "active", createdAt: new Date().toISOString(),
         });
         count++;
       } catch (err) {
-        const msg = err.message.includes("email-already-in-use")
-          ? `${teacher.email}: Email already registered`
-          : `${teacher.email}: ${err.message}`;
-        failed.push(msg);
+        failed.push(err.message.includes("email-already-in-use")
+          ? `${teacher.email}: Already registered`
+          : `${teacher.email}: ${err.message}`);
       }
-      setBulkProgress(Math.round(((count + failed.length) / bulkData.length) * 100));
+      setBulkProgress(
+        Math.round(((count + failed.length) / bulkData.length) * 100)
+      );
     }
     if (failed.length > 0) {
       setBulkErrors(failed);
@@ -323,9 +252,6 @@ export default function AdminTeachers() {
     fetchTeachers();
   };
 
-  const addSubjects  = SUBJECTS_BY_GRADE[form.grade]     || [];
-  const editSubjects = SUBJECTS_BY_GRADE[editForm.grade] || [];
-
   return (
     <Box>
       {/* Header */}
@@ -337,9 +263,6 @@ export default function AdminTeachers() {
           <Box display="flex" gap={0.5} mt={0.5} flexWrap="wrap">
             <Chip label={`Active: ${activeTeachers.length}`} size="small" color="success" />
             <Chip label={`Transferred: ${transferredTeachers.length}`} size="small" color="warning" />
-            {unassignedClasses.length > 0 && (
-              <Chip label={`Unassigned: ${unassignedClasses.length}`} size="small" color="error" />
-            )}
           </Box>
         </Box>
         <Box display="flex" gap={1} flexWrap="wrap" justifyContent="flex-end">
@@ -367,21 +290,6 @@ export default function AdminTeachers() {
         </Alert>
       )}
 
-      {/* Unassigned Classes Warning */}
-      {unassignedClasses.length > 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" fontWeight={700}>
-            ⚠️ Classes without a teacher:
-          </Typography>
-          <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
-            {unassignedClasses.map(c => (
-              <Chip key={`${c.grade}-${c.section}`}
-                label={`G${c.grade}-${c.section}`} size="small" color="warning" />
-            ))}
-          </Box>
-        </Alert>
-      )}
-
       {loading ? <CircularProgress /> : (
         <>
           {/* Mobile Cards */}
@@ -402,11 +310,10 @@ export default function AdminTeachers() {
                         {t.name?.charAt(0)}
                       </Avatar>
                       <Box flex={1}>
-                        <Box display="flex" justifyContent="space-between">
-                          <Typography variant="subtitle2" fontWeight={700}>{t.name}</Typography>
-                          <Chip label={`G${t.grade}-${t.section}`} size="small" color="primary" />
-                        </Box>
-                        <Typography variant="caption" color="text.secondary">{t.email}</Typography>
+                        <Typography variant="subtitle2" fontWeight={700}>{t.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {t.email}
+                        </Typography>
                         {t.phone && (
                           <Typography variant="caption" color="text.secondary" display="block">
                             📞 {t.phone}
@@ -417,21 +324,12 @@ export default function AdminTeachers() {
                             ✍️ {t.signatureNo}
                           </Typography>
                         )}
-                        <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
-                          {(t.subjects || []).map(s => (
-                            <Chip key={s} label={s} size="small" variant="outlined"
-                              sx={{ fontSize: 10 }} />
-                          ))}
-                        </Box>
                       </Box>
                     </Box>
                   </CardContent>
-                  <CardActions sx={{ px: 2, pb: 1.5, pt: 0.5, gap: 0.5, flexWrap: "wrap" }}>
+                  <CardActions sx={{ px: 2, pb: 1.5, pt: 0.5, gap: 0.5 }}>
                     <Button size="small" variant="outlined" startIcon={<EditIcon />}
                       onClick={() => openEdit(t)}>Edit</Button>
-                    <Button size="small" variant="outlined" color="info"
-                      startIcon={<SwapHorizIcon />}
-                      onClick={() => openReassign(t)}>Move</Button>
                     <Button size="small" variant="outlined" color="warning"
                       startIcon={<FlightTakeoffIcon />}
                       onClick={() => openTransfer(t)}>Transfer</Button>
@@ -447,6 +345,7 @@ export default function AdminTeachers() {
               )}
             </Box>
           ) : (
+            /* Desktop Table */
             <Paper sx={{
               borderRadius: 3, overflow: "hidden",
               boxShadow: "0 2px 16px rgba(26,35,126,0.10)"
@@ -454,14 +353,15 @@ export default function AdminTeachers() {
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: "#1a237e" }}>
-                    {["Teacher", "Phone", "Class", "Subjects", "Sig No", "Actions"].map(h => (
+                    {["#", "Teacher", "Phone", "Signature No", "Status", "Actions"].map(h => (
                       <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>{h}</TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {activeTeachers.map(t => (
+                  {activeTeachers.map((t, idx) => (
                     <TableRow key={t.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+                      <TableCell>{idx + 1}</TableCell>
                       <TableCell>
                         <Box display="flex" alignItems="center" gap={1.5}>
                           <Avatar sx={{
@@ -478,32 +378,19 @@ export default function AdminTeachers() {
                           </Box>
                         </Box>
                       </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">{t.phone || "—"}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={`G${t.grade}-${t.section}`} size="small" color="primary" />
-                      </TableCell>
-                      <TableCell>
-                        <Box display="flex" flexWrap="wrap" gap={0.5}>
-                          {(t.subjects || []).map(s => (
-                            <Chip key={s} label={s} size="small" variant="outlined" />
-                          ))}
-                        </Box>
-                      </TableCell>
+                      <TableCell>{t.phone || "—"}</TableCell>
                       <TableCell>
                         <Typography variant="body2" fontWeight={600}>
                           {t.signatureNo || "—"}
                         </Typography>
                       </TableCell>
                       <TableCell>
+                        <Chip label="Active" size="small" color="success" />
+                      </TableCell>
+                      <TableCell>
                         <Tooltip title="Edit">
                           <IconButton size="small" color="primary"
                             onClick={() => openEdit(t)}><EditIcon /></IconButton>
-                        </Tooltip>
-                        <Tooltip title="Move to Another Class">
-                          <IconButton size="small" color="info"
-                            onClick={() => openReassign(t)}><SwapHorizIcon /></IconButton>
                         </Tooltip>
                         <Tooltip title="Mark as Transferred">
                           <IconButton size="small" color="warning"
@@ -526,7 +413,7 @@ export default function AdminTeachers() {
             </Paper>
           )}
 
-          {/* Transferred Teachers Accordion */}
+          {/* Transferred Accordion */}
           {transferredTeachers.length > 0 && (
             <Accordion sx={{
               mt: 2, borderRadius: "12px !important",
@@ -543,7 +430,7 @@ export default function AdminTeachers() {
                 <Table size="small">
                   <TableHead sx={{ bgcolor: "#fff3e0" }}>
                     <TableRow>
-                      {["Name", "Email", "Was", "Date", "To School", "Actions"].map(h => (
+                      {["Name", "Email", "Phone", "Date", "To School", "Actions"].map(h => (
                         <TableCell key={h} sx={{ fontWeight: 600, fontSize: 13 }}>{h}</TableCell>
                       ))}
                     </TableRow>
@@ -555,15 +442,14 @@ export default function AdminTeachers() {
                           <Typography variant="body2" fontWeight={600}>{t.name}</Typography>
                         </TableCell>
                         <TableCell>{t.email}</TableCell>
-                        <TableCell>
-                          <Chip label={`G${t.grade}-${t.section}`} size="small" />
-                        </TableCell>
+                        <TableCell>{t.phone || "—"}</TableCell>
                         <TableCell>{t.transferredDate || "—"}</TableCell>
                         <TableCell>{t.transferredTo || "—"}</TableCell>
                         <TableCell>
                           <Button size="small" variant="outlined" color="success"
-                            onClick={() => handleRestoreTeacher(t)}
-                            sx={{ mr: 0.5 }}>Restore</Button>
+                            onClick={() => handleRestoreTeacher(t)} sx={{ mr: 0.5 }}>
+                            Restore
+                          </Button>
                           <IconButton size="small" color="error"
                             onClick={() => handleDelete(t.id)}><DeleteIcon /></IconButton>
                         </TableCell>
@@ -591,7 +477,8 @@ export default function AdminTeachers() {
                 onChange={e => setForm({ ...form, name: e.target.value })} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth label="Email Address *" type="email" value={form.email}
+              <TextField fullWidth label="Email Address *" type="email"
+                value={form.email}
                 onChange={e => setForm({ ...form, email: e.target.value })} />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -600,45 +487,14 @@ export default function AdminTeachers() {
                 onChange={e => setForm({ ...form, password: e.target.value })} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth label="Phone Number" value={form.phone}
+              <TextField fullWidth label="Phone Number"
+                value={form.phone}
                 onChange={e => setForm({ ...form, phone: e.target.value })} />
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth label="Signature No." value={form.signatureNo}
-                placeholder="e.g. T-001"
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Signature No." placeholder="e.g. T-001"
+                value={form.signatureNo}
                 onChange={e => setForm({ ...form, signatureNo: e.target.value })} />
-            </Grid>
-            <Grid item xs={6} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Grade</InputLabel>
-                <Select value={form.grade} label="Grade"
-                  onChange={e => setForm({ ...form, grade: e.target.value, subjects: [] })}>
-                  {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Section</InputLabel>
-                <Select value={form.section} label="Section"
-                  onChange={e => setForm({ ...form, section: e.target.value })}>
-                  {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Assigned Subjects</InputLabel>
-                <Select multiple value={form.subjects} label="Assigned Subjects"
-                  onChange={e => setForm({ ...form, subjects: e.target.value })}
-                  renderValue={selected => (
-                    <Box display="flex" flexWrap="wrap" gap={0.5}>
-                      {selected.map(s => <Chip key={s} label={s} size="small" />)}
-                    </Box>
-                  )}>
-                  {addSubjects.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
             </Grid>
           </Grid>
         </DialogContent>
@@ -668,41 +524,9 @@ export default function AdminTeachers() {
               <TextField fullWidth label="Phone Number" value={editForm.phone || ""}
                 onChange={e => setEditForm({ ...editForm, phone: e.target.value })} />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <TextField fullWidth label="Signature No." value={editForm.signatureNo || ""}
                 onChange={e => setEditForm({ ...editForm, signatureNo: e.target.value })} />
-            </Grid>
-            <Grid item xs={6} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Grade</InputLabel>
-                <Select value={editForm.grade || 6} label="Grade"
-                  onChange={e => setEditForm({ ...editForm, grade: e.target.value, subjects: [] })}>
-                  {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Section</InputLabel>
-                <Select value={editForm.section || "A"} label="Section"
-                  onChange={e => setEditForm({ ...editForm, section: e.target.value })}>
-                  {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Assigned Subjects</InputLabel>
-                <Select multiple value={editForm.subjects || []} label="Assigned Subjects"
-                  onChange={e => setEditForm({ ...editForm, subjects: e.target.value })}
-                  renderValue={selected => (
-                    <Box display="flex" flexWrap="wrap" gap={0.5}>
-                      {selected.map(s => <Chip key={s} label={s} size="small" />)}
-                    </Box>
-                  )}>
-                  {editSubjects.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
             </Grid>
           </Grid>
         </DialogContent>
@@ -711,49 +535,6 @@ export default function AdminTeachers() {
           <Button onClick={handleEdit} variant="contained" disabled={saving}
             fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
             {saving ? <CircularProgress size={20} /> : "Save Changes"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Move to Another Class Dialog ── */}
-      <Dialog open={reassignOpen} onClose={() => setReassignOpen(false)}
-        maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ bgcolor: "#0277bd", color: "white" }}>
-          <SwapHorizIcon sx={{ mr: 1, verticalAlign: "middle" }} />
-          Move to Another Class
-        </DialogTitle>
-        <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
-          <Alert severity="info" sx={{ mb: 2, mt: 1 }}>
-            Moving <strong>{selectedTeacher?.name}</strong> from{" "}
-            <strong>G{selectedTeacher?.grade}-{selectedTeacher?.section}</strong> to:
-          </Alert>
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>New Grade</InputLabel>
-                <Select value={reassignForm.grade} label="New Grade"
-                  onChange={e => setReassignForm({ ...reassignForm, grade: e.target.value })}>
-                  {GRADES.map(g => <MenuItem key={g} value={g}>Grade {g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>New Section</InputLabel>
-                <Select value={reassignForm.section} label="New Section"
-                  onChange={e => setReassignForm({ ...reassignForm, section: e.target.value })}>
-                  {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setReassignOpen(false)}>Cancel</Button>
-          <Button onClick={handleReassign} variant="contained"
-            disabled={saving} sx={{ bgcolor: "#0277bd" }}>
-            {saving ? <CircularProgress size={20} /> : "Confirm Move"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -768,9 +549,8 @@ export default function AdminTeachers() {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
           <Alert severity="warning" sx={{ mb: 2, mt: 1 }}>
-            <strong>{selectedTeacher?.name}</strong> will be removed from{" "}
-            <strong>G{selectedTeacher?.grade}-{selectedTeacher?.section}</strong>.
-            The class will become unassigned.
+            <strong>{selectedTeacher?.name}</strong> will be marked as transferred
+            and lose access to the system.
           </Alert>
           <Grid container spacing={2}>
             <Grid item xs={12}>
@@ -814,8 +594,6 @@ export default function AdminTeachers() {
         </DialogTitle>
         <DialogContent>
           <Box mt={2}>
-
-            {/* Template Download */}
             <Alert severity="info" sx={{ mb: 2 }}
               action={
                 <Button size="small" color="inherit" variant="outlined"
@@ -823,11 +601,9 @@ export default function AdminTeachers() {
                   ⬇ Template
                 </Button>
               }>
-              Download the Excel template, fill teacher details, then upload.
-              Use <strong>comma-separated</strong> subjects e.g. <em>Tamil,Mathematics</em>
+              Download the Excel template, fill teacher details, then upload here.
             </Alert>
 
-            {/* File Upload Zone */}
             <Box sx={{
               border: "2px dashed #1a237e", borderRadius: 2,
               p: 3, textAlign: "center", bgcolor: "#f8f9ff", mb: 2
@@ -844,7 +620,6 @@ export default function AdminTeachers() {
               </Button>
             </Box>
 
-            {/* Errors */}
             {bulkErrors.length > 0 && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
@@ -856,20 +631,16 @@ export default function AdminTeachers() {
               </Alert>
             )}
 
-            {/* Success */}
             {bulkSuccess && (
               <Alert severity="success" sx={{ mb: 2 }}>{bulkSuccess}</Alert>
             )}
 
-            {/* Progress */}
             {bulkUploading && (
               <Box sx={{ mb: 2 }}>
                 <Typography variant="body2" color="text.secondary" mb={1}>
                   Uploading... {bulkProgress}%
                 </Typography>
-                <Box sx={{
-                  width: "100%", height: 8, bgcolor: "#e0e0e0", borderRadius: 4
-                }}>
+                <Box sx={{ width: "100%", height: 8, bgcolor: "#e0e0e0", borderRadius: 4 }}>
                   <Box sx={{
                     width: `${bulkProgress}%`, height: 8,
                     bgcolor: "#1a237e", borderRadius: 4,
@@ -879,25 +650,20 @@ export default function AdminTeachers() {
               </Box>
             )}
 
-            {/* Preview Table */}
             {bulkData.length > 0 && bulkErrors.length === 0 && !bulkSuccess && (
               <>
                 <Alert severity="success" sx={{ mb: 1 }}>
                   ✅ <strong>{bulkData.length} teachers</strong> ready to upload.
-                  Review below before confirming.
                 </Alert>
                 <Paper sx={{ maxHeight: 280, overflow: "auto" }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
-                        {["#", "Name", "Email", "Grade", "Section",
-                          "Phone", "Sig No", "Subjects"].map(h => (
+                        {["#", "Name", "Email", "Phone", "Sig No"].map(h => (
                           <TableCell key={h} sx={{
                             bgcolor: "#1a237e", color: "white",
                             fontWeight: 600, fontSize: 12
-                          }}>
-                            {h}
-                          </TableCell>
+                          }}>{h}</TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
@@ -912,18 +678,8 @@ export default function AdminTeachers() {
                           <TableCell>
                             <Typography variant="caption">{t.email}</Typography>
                           </TableCell>
-                          <TableCell>{t.grade}</TableCell>
-                          <TableCell>{t.section}</TableCell>
                           <TableCell>{t.phone || "—"}</TableCell>
                           <TableCell>{t.signatureNo || "—"}</TableCell>
-                          <TableCell>
-                            <Box display="flex" flexWrap="wrap" gap={0.3}>
-                              {t.subjects.map(s => (
-                                <Chip key={s} label={s} size="small"
-                                  sx={{ fontSize: 10 }} />
-                              ))}
-                            </Box>
-                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -939,14 +695,13 @@ export default function AdminTeachers() {
               setBulkOpen(false); setBulkData([]);
               setBulkErrors([]); setBulkSuccess("");
             }
-          }} fullWidth={isMobile} disabled={bulkUploading}>
+          }} disabled={bulkUploading} fullWidth={isMobile}>
             Close
           </Button>
           <Button variant="contained"
             onClick={handleBulkTeacherUpload}
             disabled={bulkData.length === 0 || bulkErrors.length > 0 || bulkUploading}
-            fullWidth={isMobile}
-            sx={{ bgcolor: "#1a237e" }}>
+            fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
             {bulkUploading
               ? <CircularProgress size={20} color="inherit" />
               : `Upload ${bulkData.length} Teachers`}
