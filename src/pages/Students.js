@@ -43,6 +43,7 @@ import {
   Checkbox,
   ListItemText,
   OutlinedInput,
+  FormHelperText,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -68,17 +69,13 @@ const emptyForm = {
   dob: "",
   status: "Active",
   joinDate: "",
-
   religion: "",
   aestheticChoice: "",
-
   basketAChoice: "",
   basketBChoice: "",
   basketCChoice: "",
-
   stream: "",
   alSubjectChoices: [],
-
   medium: "",
 };
 
@@ -103,7 +100,7 @@ const sortStudentsClientSide = (list) => {
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
     const nameA = String(a.name || "").toLowerCase();
-    const nameB = String(b.name || "").toLowerCase();
+    const nameB = String(a.name || "").toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
 
     const admA = String(a.admissionNo || "").toLowerCase();
@@ -138,6 +135,13 @@ const shouldShowReligion = (grade) => {
 const shouldShowAesthetic = (grade) => isJuniorGrade(grade);
 const shouldShowBasketChoices = (grade) => isOLGrade(grade);
 const shouldShowALFields = (grade) => isALGrade(grade);
+
+const sectionCardSx = {
+  border: "1px solid #e8eaf6",
+  borderRadius: 3,
+  boxShadow: "none",
+  height: "100%",
+};
 
 export default function Students() {
   const theme = useTheme();
@@ -273,6 +277,33 @@ export default function Students() {
       .sort((a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name)));
   }, [activeSubjects, form.grade, form.stream]);
 
+  const enrollmentWarnings = useMemo(() => {
+    const grade = Number(form.grade);
+    const warnings = [];
+
+    if (shouldShowAesthetic(grade) && aestheticOptions.length === 0) {
+      warnings.push("No active aesthetic subjects found for this grade.");
+    }
+
+    if (shouldShowBasketChoices(grade)) {
+      if (basketOptions.A.length === 0) {
+        warnings.push("No active Basket A subjects found for this grade.");
+      }
+      if (basketOptions.B.length === 0) {
+        warnings.push("No active Basket B subjects found for this grade.");
+      }
+      if (basketOptions.C.length === 0) {
+        warnings.push("No active Basket C subjects found for this grade.");
+      }
+    }
+
+    if (shouldShowALFields(grade) && normalizeText(form.stream) && alMainSubjectOptions.length === 0) {
+      warnings.push("No active A/L main subjects found for the selected stream and grade.");
+    }
+
+    return warnings;
+  }, [form.grade, form.stream, aestheticOptions, basketOptions, alMainSubjectOptions]);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -350,24 +381,19 @@ export default function Students() {
       grade: Number(cleaned.grade),
       section: normalizeSectionValue(cleaned.section),
       className: `${Number(cleaned.grade)}${normalizeSectionValue(cleaned.section)}`,
-
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
-
       religion: normalizeText(cleaned.religion),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
-
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
-
       stream: normalizeText(cleaned.stream),
       alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
         ? cleaned.alSubjectChoices
         : [],
-
       medium: normalizeText(cleaned.medium),
       updatedAt: new Date().toISOString(),
     };
@@ -408,11 +434,19 @@ export default function Students() {
       return "Religion is required for Grades 6 to 11.";
     }
 
-    if (shouldShowAesthetic(grade) && !normalizeText(form.aestheticChoice)) {
-      return "Aesthetic choice is required for Grades 6 to 9.";
+    if (shouldShowAesthetic(grade)) {
+      if (aestheticOptions.length === 0) {
+        return "No aesthetic subjects are defined for this grade. Create them in Subject Definitions first.";
+      }
+      if (!normalizeText(form.aestheticChoice)) {
+        return "Aesthetic choice is required for Grades 6 to 9.";
+      }
     }
 
     if (shouldShowBasketChoices(grade)) {
+      if (basketOptions.A.length === 0 || basketOptions.B.length === 0 || basketOptions.C.length === 0) {
+        return "Basket subject definitions are incomplete for this grade. Create Basket A, B, and C subjects first.";
+      }
       if (!normalizeText(form.basketAChoice)) return "Basket A choice is required.";
       if (!normalizeText(form.basketBChoice)) return "Basket B choice is required.";
       if (!normalizeText(form.basketCChoice)) return "Basket C choice is required.";
@@ -420,6 +454,9 @@ export default function Students() {
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
+      if (alMainSubjectOptions.length === 0) {
+        return "No A/L main subjects are defined for the selected stream and grade.";
+      }
 
       const choices = [...new Set((Array.isArray(form.alSubjectChoices) ? form.alSubjectChoices : []).map(normalizeText).filter(Boolean))];
       if (choices.length !== 3) {
@@ -497,17 +534,13 @@ export default function Students() {
       dob: s.dob || "",
       status: s.status || "Active",
       joinDate: s.joinDate || "",
-
       religion: s.religion || "",
       aestheticChoice: s.aestheticChoice || "",
-
       basketAChoice: s.basketAChoice || "",
       basketBChoice: s.basketBChoice || "",
       basketCChoice: s.basketCChoice || "",
-
       stream: s.stream || "",
       alSubjectChoices: Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices : [],
-
       medium: s.medium || "",
     });
 
@@ -548,7 +581,6 @@ export default function Students() {
       dob: normalizeText(row["DOB"] || row["dob"]),
       status: normalizeText(row["Status"] || row["status"]) || "Active",
       joinDate: normalizeText(row["Join Date"] || row["joinDate"]),
-
       religion: normalizeText(row["Religion"] || row["religion"]),
       aestheticChoice: normalizeText(row["Aesthetic Choice"] || row["aestheticChoice"]),
       basketAChoice: normalizeText(row["Basket A Choice"] || row["basketAChoice"]),
@@ -630,24 +662,19 @@ export default function Students() {
       grade: Number(cleaned.grade),
       section: normalizeSectionValue(cleaned.section),
       className: `${Number(cleaned.grade)}${normalizeSectionValue(cleaned.section)}`,
-
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
-
       religion: normalizeText(cleaned.religion),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
-
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
-
       stream: normalizeText(cleaned.stream),
       alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
         ? cleaned.alSubjectChoices
         : [],
-
       medium: normalizeText(cleaned.medium),
       updatedAt: new Date().toISOString(),
     };
@@ -839,13 +866,6 @@ export default function Students() {
       .map((w) => w[0])
       .join("")
       .toUpperCase();
-
-  const gradeBandLabel = (grade) => {
-    if (isJuniorGrade(grade)) return "6–9";
-    if (isOLGrade(grade)) return "10–11";
-    if (isALGrade(grade)) return "12–13";
-    return "—";
-  };
 
   return (
     <Box>
@@ -1178,9 +1198,6 @@ export default function Students() {
                 </Box>
 
                 <Box mt={0.8}>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Enrollment Band: {gradeBandLabel(s.grade)}
-                  </Typography>
                   {s.religion && (
                     <Typography variant="caption" color="text.secondary" display="block">
                       Religion: {s.religion}
@@ -1375,7 +1392,7 @@ export default function Students() {
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
         fullScreen={isMobile}
       >
@@ -1383,377 +1400,453 @@ export default function Students() {
           {editId ? "Edit Student" : "Add Student"}
         </DialogTitle>
 
-        <DialogContent>
+        <DialogContent sx={{ pt: 2 }}>
           {error && (
             <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
               {error}
             </Alert>
           )}
 
-          <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Basic Details
-                </Typography>
-              </Divider>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Full Name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Admission No."
-                value={form.admissionNo}
-                onChange={(e) => setForm({ ...form, admissionNo: e.target.value })}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Class
-                </Typography>
-              </Divider>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required>
-                <InputLabel>Grade</InputLabel>
-                <Select
-                  value={form.grade}
-                  label="Grade"
-                  onChange={(e) =>
-                    setForm(
-                      cleanFormByGrade({
-                        ...form,
-                        grade: e.target.value,
-                        section: "",
-                      })
-                    )
-                  }
-                >
-                  <MenuItem value="">
-                    <em>Select Grade</em>
-                  </MenuItem>
-                  {gradeOptions.map((g) => (
-                    <MenuItem key={g} value={g}>
-                      Grade {g}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {gradeOptions.length === 0 && (
-                <Typography
-                  variant="caption"
-                  color="error"
-                  mt={0.5}
-                  display="block"
-                >
-                  No classrooms found. Please create classrooms first.
-                </Typography>
-              )}
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required disabled={!form.grade}>
-                <InputLabel>Section</InputLabel>
-                <Select
-                  value={form.section}
-                  label="Section"
-                  onChange={(e) =>
-                    setForm({ ...form, section: e.target.value })
-                  }
-                >
-                  <MenuItem value="">
-                    <em>Select Section</em>
-                  </MenuItem>
-                  {sectionOptionsForForm.map((s) => (
-                    <MenuItem key={s} value={s}>
-                      {s}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {form.grade && sectionOptionsForForm.length === 0 && (
-                <Typography
-                  variant="caption"
-                  color="error"
-                  mt={0.5}
-                  display="block"
-                >
-                  No sections for Grade {form.grade}. Add in Classroom Management.
-                </Typography>
-              )}
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={form.status}
-                  label="Status"
-                  onChange={(e) =>
-                    setForm({ ...form, status: e.target.value })
-                  }
-                >
-                  {STUDENT_STATUSES.map((s) => (
-                    <MenuItem key={s} value={s}>
-                      {s}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Personal
-                </Typography>
-              </Divider>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Gender</InputLabel>
-                <Select
-                  value={form.gender}
-                  label="Gender"
-                  onChange={(e) =>
-                    setForm({ ...form, gender: e.target.value })
-                  }
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {GENDERS.map((g) => (
-                    <MenuItem key={g} value={g}>
-                      {g}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Date of Birth"
-                type="date"
-                value={form.dob}
-                onChange={(e) => setForm({ ...form, dob: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Join Date"
-                type="date"
-                value={form.joinDate}
-                onChange={(e) =>
-                  setForm({ ...form, joinDate: e.target.value })
-                }
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Enrollment-Driving Fields
-                </Typography>
-              </Divider>
-            </Grid>
-
-            {shouldShowReligion(form.grade) && (
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth required>
-                  <InputLabel>Religion</InputLabel>
-                  <Select
-                    value={form.religion}
-                    label="Religion"
-                    onChange={(e) => setForm({ ...form, religion: e.target.value })}
-                  >
-                    {RELIGION_OPTIONS.map((item) => (
-                      <MenuItem key={item} value={item}>
-                        {item}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            {shouldShowAesthetic(form.grade) && (
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth required>
-                  <InputLabel>Aesthetic Choice</InputLabel>
-                  <Select
-                    value={form.aestheticChoice}
-                    label="Aesthetic Choice"
-                    onChange={(e) =>
-                      setForm({ ...form, aestheticChoice: e.target.value })
-                    }
-                  >
-                    {aestheticOptions.map((subject) => (
-                      <MenuItem key={subject.id} value={subject.name}>
-                        {subject.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            {shouldShowBasketChoices(form.grade) && (
-              <>
-                <Grid item xs={12} sm={4}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Basket A Choice</InputLabel>
-                    <Select
-                      value={form.basketAChoice}
-                      label="Basket A Choice"
-                      onChange={(e) =>
-                        setForm({ ...form, basketAChoice: e.target.value })
-                      }
-                    >
-                      {basketOptions.A.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.name}>
-                          {subject.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={4}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Basket B Choice</InputLabel>
-                    <Select
-                      value={form.basketBChoice}
-                      label="Basket B Choice"
-                      onChange={(e) =>
-                        setForm({ ...form, basketBChoice: e.target.value })
-                      }
-                    >
-                      {basketOptions.B.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.name}>
-                          {subject.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={4}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Basket C Choice</InputLabel>
-                    <Select
-                      value={form.basketCChoice}
-                      label="Basket C Choice"
-                      onChange={(e) =>
-                        setForm({ ...form, basketCChoice: e.target.value })
-                      }
-                    >
-                      {basketOptions.C.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.name}>
-                          {subject.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </>
-            )}
-
-            {shouldShowALFields(form.grade) && (
-              <>
-                <Grid item xs={12} sm={4}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Stream</InputLabel>
-                    <Select
-                      value={form.stream}
-                      label="Stream"
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          stream: e.target.value,
-                          alSubjectChoices: [],
-                        })
-                      }
-                    >
-                      {STREAM_OPTIONS.map((item) => (
-                        <MenuItem key={item} value={item}>
-                          {item}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12} sm={8}>
-                  <FormControl fullWidth required>
-                    <InputLabel>A/L Subject Choices</InputLabel>
-                    <Select
-                      multiple
-                      value={form.alSubjectChoices}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          alSubjectChoices:
-                            typeof e.target.value === "string"
-                              ? e.target.value.split(",")
-                              : e.target.value,
-                        })
-                      }
-                      input={<OutlinedInput label="A/L Subject Choices" />}
-                      renderValue={(selected) => selected.join(", ")}
-                    >
-                      {alMainSubjectOptions.map((subject) => (
-                        <MenuItem key={subject.id} value={subject.name}>
-                          <Checkbox checked={form.alSubjectChoices.indexOf(subject.name) > -1} />
-                          <ListItemText primary={subject.name} />
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                    Select exactly 3 subjects.
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Card sx={sectionCardSx}>
+                <CardContent>
+                  <Typography variant="subtitle1" fontWeight={800} mb={2}>
+                    Basic Details
                   </Typography>
-                </Grid>
-              </>
-            )}
 
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Medium</InputLabel>
-                <Select
-                  value={form.medium}
-                  label="Medium"
-                  onChange={(e) => setForm({ ...form, medium: e.target.value })}
-                >
-                  <MenuItem value="">—</MenuItem>
-                  {MEDIUM_OPTIONS.map((item) => (
-                    <MenuItem key={item} value={item}>
-                      {item}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        required
+                        label="Full Name"
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        required
+                        label="Admission No."
+                        value={form.admissionNo}
+                        onChange={(e) =>
+                          setForm({ ...form, admissionNo: e.target.value })
+                        }
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} sm={4}>
+                      <FormControl fullWidth required>
+                        <InputLabel>Grade</InputLabel>
+                        <Select
+                          value={form.grade}
+                          label="Grade"
+                          onChange={(e) =>
+                            setForm(
+                              cleanFormByGrade({
+                                ...form,
+                                grade: e.target.value,
+                                section: "",
+                              })
+                            )
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Select Grade</em>
+                          </MenuItem>
+                          {gradeOptions.map((g) => (
+                            <MenuItem key={g} value={g}>
+                              Grade {g}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={12} sm={4}>
+                      <FormControl fullWidth required disabled={!form.grade}>
+                        <InputLabel>Section</InputLabel>
+                        <Select
+                          value={form.section}
+                          label="Section"
+                          onChange={(e) =>
+                            setForm({ ...form, section: e.target.value })
+                          }
+                        >
+                          <MenuItem value="">
+                            <em>Select Section</em>
+                          </MenuItem>
+                          {sectionOptionsForForm.map((s) => (
+                            <MenuItem key={s} value={s}>
+                              {s}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                        {form.grade && sectionOptionsForForm.length === 0 && (
+                          <FormHelperText error>
+                            No sections found for this grade.
+                          </FormHelperText>
+                        )}
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={12} sm={4}>
+                      <FormControl fullWidth>
+                        <InputLabel>Status</InputLabel>
+                        <Select
+                          value={form.status}
+                          label="Status"
+                          onChange={(e) =>
+                            setForm({ ...form, status: e.target.value })
+                          }
+                        >
+                          {STUDENT_STATUSES.map((s) => (
+                            <MenuItem key={s} value={s}>
+                              {s}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <Card sx={sectionCardSx}>
+                <CardContent>
+                  <Typography variant="subtitle1" fontWeight={800} mb={2}>
+                    Personal
+                  </Typography>
+
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={4}>
+                      <FormControl fullWidth>
+                        <InputLabel>Gender</InputLabel>
+                        <Select
+                          value={form.gender}
+                          label="Gender"
+                          onChange={(e) =>
+                            setForm({ ...form, gender: e.target.value })
+                          }
+                        >
+                          <MenuItem value="">—</MenuItem>
+                          {GENDERS.map((g) => (
+                            <MenuItem key={g} value={g}>
+                              {g}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        fullWidth
+                        label="Date of Birth"
+                        type="date"
+                        value={form.dob}
+                        onChange={(e) => setForm({ ...form, dob: e.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        fullWidth
+                        label="Join Date"
+                        type="date"
+                        value={form.joinDate}
+                        onChange={(e) =>
+                          setForm({ ...form, joinDate: e.target.value })
+                        }
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12} sm={6}>
+                      <FormControl fullWidth>
+                        <InputLabel>Medium</InputLabel>
+                        <Select
+                          value={form.medium}
+                          label="Medium"
+                          onChange={(e) => setForm({ ...form, medium: e.target.value })}
+                        >
+                          <MenuItem value="">—</MenuItem>
+                          {MEDIUM_OPTIONS.map((item) => (
+                            <MenuItem key={item} value={item}>
+                              {item}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+
+                    <Grid item xs={12} sm={6}>
+                      <Box
+                        sx={{
+                          height: "100%",
+                          border: "1px dashed #c5cae9",
+                          borderRadius: 2,
+                          px: 2,
+                          py: 1.5,
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Grade band controls which enrollment-driving fields appear.
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Card sx={sectionCardSx}>
+                <CardContent>
+                  <Typography variant="subtitle1" fontWeight={800} mb={2}>
+                    Enrollment-Driving Fields
+                  </Typography>
+
+                  {!form.grade ? (
+                    <Alert severity="info">
+                      Select the student grade first to load the correct enrollment fields.
+                    </Alert>
+                  ) : (
+                    <>
+                      {enrollmentWarnings.length > 0 && (
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                          {enrollmentWarnings.map((warning, idx) => (
+                            <Typography key={idx} variant="body2">
+                              {warning}
+                            </Typography>
+                          ))}
+                        </Alert>
+                      )}
+
+                      <Grid container spacing={2}>
+                        {shouldShowReligion(form.grade) && (
+                          <Grid item xs={12} sm={6} md={4}>
+                            <FormControl fullWidth required>
+                              <InputLabel>Religion</InputLabel>
+                              <Select
+                                value={form.religion}
+                                label="Religion"
+                                onChange={(e) =>
+                                  setForm({ ...form, religion: e.target.value })
+                                }
+                              >
+                                {RELIGION_OPTIONS.map((item) => (
+                                  <MenuItem key={item} value={item}>
+                                    {item}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                        )}
+
+                        {shouldShowAesthetic(form.grade) && (
+                          <Grid item xs={12} sm={6} md={4}>
+                            <FormControl
+                              fullWidth
+                              required
+                              disabled={aestheticOptions.length === 0}
+                            >
+                              <InputLabel>Aesthetic Choice</InputLabel>
+                              <Select
+                                value={form.aestheticChoice}
+                                label="Aesthetic Choice"
+                                onChange={(e) =>
+                                  setForm({ ...form, aestheticChoice: e.target.value })
+                                }
+                              >
+                                {aestheticOptions.map((subject) => (
+                                  <MenuItem key={subject.id} value={subject.name}>
+                                    {subject.name}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                              {aestheticOptions.length === 0 && (
+                                <FormHelperText error>
+                                  No active aesthetic subjects found for this grade.
+                                </FormHelperText>
+                              )}
+                            </FormControl>
+                          </Grid>
+                        )}
+
+                        {shouldShowBasketChoices(form.grade) && (
+                          <>
+                            <Grid item xs={12} md={4}>
+                              <FormControl
+                                fullWidth
+                                required
+                                disabled={basketOptions.A.length === 0}
+                              >
+                                <InputLabel>Basket A Choice</InputLabel>
+                                <Select
+                                  value={form.basketAChoice}
+                                  label="Basket A Choice"
+                                  onChange={(e) =>
+                                    setForm({ ...form, basketAChoice: e.target.value })
+                                  }
+                                >
+                                  {basketOptions.A.map((subject) => (
+                                    <MenuItem key={subject.id} value={subject.name}>
+                                      {subject.name}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                {basketOptions.A.length === 0 && (
+                                  <FormHelperText error>
+                                    No Basket A subjects found.
+                                  </FormHelperText>
+                                )}
+                              </FormControl>
+                            </Grid>
+
+                            <Grid item xs={12} md={4}>
+                              <FormControl
+                                fullWidth
+                                required
+                                disabled={basketOptions.B.length === 0}
+                              >
+                                <InputLabel>Basket B Choice</InputLabel>
+                                <Select
+                                  value={form.basketBChoice}
+                                  label="Basket B Choice"
+                                  onChange={(e) =>
+                                    setForm({ ...form, basketBChoice: e.target.value })
+                                  }
+                                >
+                                  {basketOptions.B.map((subject) => (
+                                    <MenuItem key={subject.id} value={subject.name}>
+                                      {subject.name}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                {basketOptions.B.length === 0 && (
+                                  <FormHelperText error>
+                                    No Basket B subjects found.
+                                  </FormHelperText>
+                                )}
+                              </FormControl>
+                            </Grid>
+
+                            <Grid item xs={12} md={4}>
+                              <FormControl
+                                fullWidth
+                                required
+                                disabled={basketOptions.C.length === 0}
+                              >
+                                <InputLabel>Basket C Choice</InputLabel>
+                                <Select
+                                  value={form.basketCChoice}
+                                  label="Basket C Choice"
+                                  onChange={(e) =>
+                                    setForm({ ...form, basketCChoice: e.target.value })
+                                  }
+                                >
+                                  {basketOptions.C.map((subject) => (
+                                    <MenuItem key={subject.id} value={subject.name}>
+                                      {subject.name}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                {basketOptions.C.length === 0 && (
+                                  <FormHelperText error>
+                                    No Basket C subjects found.
+                                  </FormHelperText>
+                                )}
+                              </FormControl>
+                            </Grid>
+                          </>
+                        )}
+
+                        {shouldShowALFields(form.grade) && (
+                          <>
+                            <Grid item xs={12} md={4}>
+                              <FormControl fullWidth required>
+                                <InputLabel>Stream</InputLabel>
+                                <Select
+                                  value={form.stream}
+                                  label="Stream"
+                                  onChange={(e) =>
+                                    setForm({
+                                      ...form,
+                                      stream: e.target.value,
+                                      alSubjectChoices: [],
+                                    })
+                                  }
+                                >
+                                  {STREAM_OPTIONS.map((item) => (
+                                    <MenuItem key={item} value={item}>
+                                      {item}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            </Grid>
+
+                            <Grid item xs={12} md={8}>
+                              <FormControl
+                                fullWidth
+                                required
+                                disabled={!form.stream || alMainSubjectOptions.length === 0}
+                              >
+                                <InputLabel>A/L Subject Choices</InputLabel>
+                                <Select
+                                  multiple
+                                  value={form.alSubjectChoices}
+                                  onChange={(e) =>
+                                    setForm({
+                                      ...form,
+                                      alSubjectChoices:
+                                        typeof e.target.value === "string"
+                                          ? e.target.value.split(",")
+                                          : e.target.value,
+                                    })
+                                  }
+                                  input={<OutlinedInput label="A/L Subject Choices" />}
+                                  renderValue={(selected) => selected.join(", ")}
+                                >
+                                  {alMainSubjectOptions.map((subject) => (
+                                    <MenuItem key={subject.id} value={subject.name}>
+                                      <Checkbox checked={form.alSubjectChoices.indexOf(subject.name) > -1} />
+                                      <ListItemText primary={subject.name} />
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                {!form.stream ? (
+                                  <FormHelperText>
+                                    Select stream first.
+                                  </FormHelperText>
+                                ) : alMainSubjectOptions.length === 0 ? (
+                                  <FormHelperText error>
+                                    No active A/L main subjects found for this stream and grade.
+                                  </FormHelperText>
+                                ) : (
+                                  <FormHelperText>
+                                    Select exactly 3 subjects.
+                                  </FormHelperText>
+                                )}
+                              </FormControl>
+                            </Grid>
+                          </>
+                        )}
+                      </Grid>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </Grid>
           </Grid>
         </DialogContent>
