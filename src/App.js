@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
+import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments";
 import MarksEntry from "./pages/MarksEntry";
 import ReportCard from "./pages/ReportCard";
 import AdminTeachers from "./pages/AdminTeachers";
@@ -17,6 +18,7 @@ import StudentsBySubject from "./pages/StudentsBySubject";
 import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
 import AcademicTerms from "./pages/AcademicTerms";
 import { CircularProgress, Box } from "@mui/material";
+import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -53,6 +55,8 @@ export default function App() {
             <Route path="classrooms"     element={<AdminRoute><ClassroomManagement /></AdminRoute>} />
             <Route path="subjects"       element={<AdminRoute><SubjectManagement /></AdminRoute>} />
             <Route path="students"       element={<AdminRoute><Students /></AdminRoute>} />
+            <Route path="/student-subject-enrollments" element={<StudentSubjectEnrollments />} />
+            <Route path="/migrate-student-subjects" element={<MigrateStudentSubjects />} />
             <Route path="marks"          element={<AdminRoute><MarksEntry /></AdminRoute>} />
             <Route path="report/:studentId" element={<AdminRoute><ReportCard /></AdminRoute>} />
             <Route path="teachers"       element={<AdminRoute><AdminTeachers /></AdminRoute>} />

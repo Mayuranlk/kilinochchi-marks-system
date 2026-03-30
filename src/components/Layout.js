@@ -21,6 +21,7 @@ import CalendarMonthIcon  from "@mui/icons-material/CalendarMonth";
 import AssignmentIndIcon  from "@mui/icons-material/AssignmentInd";
 import HomeWorkIcon       from "@mui/icons-material/HomeWork";
 import BarChartIcon       from "@mui/icons-material/BarChart";
+import MenuBookIcon       from "@mui/icons-material/MenuBook";
 
 const DRAWER_WIDTH = 240;
 
@@ -44,6 +45,7 @@ export default function Layout() {
     { label: "Class Teachers",     icon: <HomeWorkIcon />,      path: "/class-teachers" },
     { label: "Promotion",          icon: <UpgradeIcon />,       path: "/promotion" },
     { label: "Academic Terms",     icon: <CalendarMonthIcon />, path: "/terms" },
+    { label: "Subject Enrollments", icon: <MenuBookIcon />, path: "/student-subject-enrollments" },
   ];
 
   // ── Teacher Menu ──
