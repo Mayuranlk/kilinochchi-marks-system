@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
-  getDocs,
-  setDoc,
   doc,
-  getDoc,
+  getDocs,
+  query,
+  where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -40,44 +40,56 @@ import WarningIcon from "@mui/icons-material/Warning";
 const ENTRY_STATUSES = ["Present", "Absent", "Medical Absent"];
 
 const normalizeText = (value) => String(value || "").trim();
+const normalizeLower = (value) => normalizeText(value).toLowerCase();
 
 const normalizeGrade = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
 const normalizeSection = (value) => normalizeText(value);
 
-const getAssignmentSubject = (assignment) =>
-  normalizeText(assignment?.subject || assignment?.subjectName);
-
 const getAcademicYearValue = (term) =>
   normalizeText(term?.year || term?.academicYear || "");
 
-const isStudentActive = (student) => {
-  const status = normalizeText(student?.status);
-  return status === "" || status.toLowerCase() === "active";
+const isActiveLike = (value) => {
+  const status = normalizeLower(value);
+  return status === "" || status === "active";
 };
 
-const sortStudentsClientSide = (list) => {
-  return [...list].sort((a, b) => {
-    const gradeA = normalizeGrade(a.grade);
-    const gradeB = normalizeGrade(b.grade);
-    if (gradeA !== gradeB) return gradeA - gradeB;
+const getAssignmentSubjectId = (assignment) =>
+  normalizeText(assignment?.subjectId);
 
-    const sectionA = normalizeSection(a.section).toUpperCase();
-    const sectionB = normalizeSection(b.section).toUpperCase();
-    if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
+const getAssignmentSubjectName = (assignment) =>
+  normalizeText(
+    assignment?.subjectName || assignment?.subject || assignment?.name || ""
+  );
 
-    const nameA = normalizeText(a.name).toLowerCase();
-    const nameB = normalizeText(b.name).toLowerCase();
-    if (nameA !== nameB) return nameA.localeCompare(nameB);
+const getSubjectName = (subject) =>
+  normalizeText(subject?.name || subject?.subjectName || subject?.subject || "");
 
-    return normalizeText(a.admissionNo)
-      .toLowerCase()
-      .localeCompare(normalizeText(b.admissionNo).toLowerCase());
-  });
-};
+const getSubjectId = (subject) => normalizeText(subject?.id || subject?.subjectId);
+
+const getEnrollmentSubjectId = (enrollment) =>
+  normalizeText(enrollment?.subjectId);
+
+const getEnrollmentSubjectName = (enrollment) =>
+  normalizeText(
+    enrollment?.subjectName || enrollment?.subject || enrollment?.name || ""
+  );
+
+const getEnrollmentAcademicYear = (enrollment) =>
+  normalizeText(enrollment?.academicYear || enrollment?.year || "");
+
+const getEnrollmentStudentName = (enrollment) =>
+  normalizeText(
+    enrollment?.studentName || enrollment?.name || enrollment?.studentFullName || ""
+  );
+
+const getEnrollmentAdmissionNo = (enrollment) =>
+  normalizeText(
+    enrollment?.admissionNo || enrollment?.indexNumber || enrollment?.studentAdmissionNo || ""
+  );
 
 const getGradeChip = (mark) => {
   if (mark === "" || mark === undefined || mark === null) return null;
@@ -90,98 +102,125 @@ const getGradeChip = (mark) => {
   return { label: "F", color: "error" };
 };
 
+const sortEnrollmentRows = (rows) => {
+  return [...rows].sort((a, b) => {
+    const aAdmission = normalizeText(a.admissionNo).toLowerCase();
+    const bAdmission = normalizeText(b.admissionNo).toLowerCase();
+
+    if (aAdmission && bAdmission && aAdmission !== bAdmission) {
+      return aAdmission.localeCompare(bAdmission, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    }
+
+    const aName = normalizeText(a.studentName).toLowerCase();
+    const bName = normalizeText(b.studentName).toLowerCase();
+    if (aName !== bName) return aName.localeCompare(bName);
+
+    return normalizeText(a.studentId).localeCompare(normalizeText(b.studentId));
+  });
+};
+
+const buildMarkDocId = ({ studentId, subjectId, subjectName, term, year }) => {
+  const safeSubjectKey = subjectId || normalizeText(subjectName);
+  return `${studentId}_${safeSubjectKey}_${term}_${year}`;
+};
+
+const subjectMatchesAssignment = (subject, assignment) => {
+  const subjectId = getSubjectId(subject);
+  const subjectName = getSubjectName(subject);
+
+  const assignmentSubjectId = getAssignmentSubjectId(assignment);
+  const assignmentSubjectName = getAssignmentSubjectName(assignment);
+
+  if (assignmentSubjectId && subjectId) {
+    return assignmentSubjectId === subjectId;
+  }
+
+  return normalizeLower(subjectName) === normalizeLower(assignmentSubjectName);
+};
+
+const enrollmentMatchesSubject = (enrollment, subject) => {
+  const enrollmentSubjectId = getEnrollmentSubjectId(enrollment);
+  const enrollmentSubjectName = getEnrollmentSubjectName(enrollment);
+  const subjectId = getSubjectId(subject);
+  const subjectName = getSubjectName(subject);
+
+  if (subjectId && enrollmentSubjectId) {
+    return enrollmentSubjectId === subjectId;
+  }
+
+  return normalizeLower(enrollmentSubjectName) === normalizeLower(subjectName);
+};
+
 export default function MarksEntry() {
   const { profile, isAdmin } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [students, setStudents] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
-  const [subjectEnrollments, setSubjectEnrollments] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [assignments, setAssignments] = useState([]);
 
   const [selectedGrade, setSelectedGrade] = useState("");
   const [selectedSection, setSelectedSection] = useState("");
-  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
 
   const [activeTerm, setActiveTerm] = useState(null);
-  const [termLoading, setTermLoading] = useState(true);
-  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
-  const [initialDataLoading, setInitialDataLoading] = useState(true);
 
-  const [filteredStudents, setFilteredStudents] = useState([]);
-  const [marksByStudent, setMarksByStudent] = useState({});
-  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [baseLoading, setBaseLoading] = useState(true);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [rowsLoading, setRowsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [allEnrollmentsForClass, setAllEnrollmentsForClass] = useState([]);
+  const [filteredRows, setFilteredRows] = useState([]);
+  const [marksByStudent, setMarksByStudent] = useState({});
 
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchActiveTerm();
-  }, []);
+  const currentAcademicYear = getAcademicYearValue(activeTerm);
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  useEffect(() => {
-    if (profile || isAdmin) {
-      fetchAssignments();
-    }
-  }, [profile, isAdmin]);
-
-  const fetchActiveTerm = async () => {
-    setTermLoading(true);
+  const loadBaseData = useCallback(async () => {
+    setBaseLoading(true);
     try {
-      const snap = await getDocs(collection(db, "academicTerms"));
-      const active = snap.docs
+      const [termSnap, classroomSnap, subjectSnap] = await Promise.all([
+        getDocs(collection(db, "academicTerms")),
+        getDocs(collection(db, "classrooms")),
+        getDocs(collection(db, "subjects")),
+      ]);
+
+      const active = termSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .find((t) => t.isActive === true);
 
       setActiveTerm(active || null);
+
+      setClassrooms(
+        classroomSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }))
+      );
+
+      setSubjects(
+        subjectSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }))
+      );
     } catch (err) {
-      setError("Failed to load active term: " + err.message);
+      setError("Failed to load initial marks entry data: " + err.message);
     } finally {
-      setTermLoading(false);
+      setBaseLoading(false);
     }
-  };
+  }, []);
 
-  const fetchInitialData = async () => {
-    setInitialDataLoading(true);
-    try {
-      const [studentSnap, classroomSnap, enrollmentSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-      ]);
+  const loadAssignments = useCallback(async () => {
+    if (!profile && !isAdmin) return;
 
-      const loadedStudents = studentSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      const loadedClassrooms = classroomSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      const loadedEnrollments = enrollmentSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      setStudents(sortStudentsClientSide(loadedStudents));
-      setClassrooms(loadedClassrooms);
-      setSubjectEnrollments(loadedEnrollments);
-    } catch (err) {
-      setError("Failed to load marks entry data: " + err.message);
-    } finally {
-      setInitialDataLoading(false);
-    }
-  };
-
-  const fetchAssignments = async () => {
     setAssignmentsLoading(true);
     try {
       const snap = await getDocs(collection(db, "assignments"));
@@ -200,18 +239,24 @@ export default function MarksEntry() {
         const first = myAssignments[0];
         const firstGrade = normalizeGrade(first.grade);
         const firstSection = normalizeSection(first.section);
-        const firstSubject = getAssignmentSubject(first);
 
         setSelectedGrade(firstGrade || "");
         setSelectedSection(firstSection || "");
-        setSelectedSubject(firstSubject || "");
       }
     } catch (err) {
       setError("Failed to load teacher assignments: " + err.message);
     } finally {
       setAssignmentsLoading(false);
     }
-  };
+  }, [profile, isAdmin]);
+
+  useEffect(() => {
+    loadBaseData();
+  }, [loadBaseData]);
+
+  useEffect(() => {
+    loadAssignments();
+  }, [loadAssignments]);
 
   const adminGradeOptions = useMemo(() => {
     return [...new Set(classrooms.map((c) => normalizeGrade(c.grade)).filter(Boolean))].sort(
@@ -253,179 +298,237 @@ export default function MarksEntry() {
 
   const sectionOptions = isAdmin ? adminSectionOptions : teacherSectionOptions;
 
-  const currentAcademicYear = getAcademicYearValue(activeTerm);
-
-  const matchingEnrollmentsForSelection = useMemo(() => {
-    const grade = Number(selectedGrade);
-    const section = normalizeSection(selectedSection);
-    const subject = normalizeText(selectedSubject);
-
-    if (!grade || !section) return [];
-
-    const baseMatches = subjectEnrollments.filter((item) => {
-      return (
-        normalizeGrade(item.grade) === grade &&
-        normalizeSection(item.section) === section &&
-        (!subject || normalizeText(item.subjectName) === subject)
-      );
-    });
-
-    if (!currentAcademicYear) {
-      return baseMatches;
-    }
-
-    const sameYear = baseMatches.filter(
-      (item) => normalizeText(item.academicYear) === currentAcademicYear
-    );
-
-    return sameYear.length > 0 ? sameYear : baseMatches;
-  }, [subjectEnrollments, selectedGrade, selectedSection, selectedSubject, currentAcademicYear]);
-
-  const adminSubjectOptions = useMemo(() => {
-    const grade = Number(selectedGrade);
-    const section = normalizeSection(selectedSection);
-
-    if (!grade || !section) return [];
-
-    const baseMatches = subjectEnrollments.filter((item) => {
-      return (
-        normalizeGrade(item.grade) === grade &&
-        normalizeSection(item.section) === section
-      );
-    });
-
-    const relevantMatches = currentAcademicYear
-      ? (() => {
-          const sameYear = baseMatches.filter(
-            (item) => normalizeText(item.academicYear) === currentAcademicYear
-          );
-          return sameYear.length > 0 ? sameYear : baseMatches;
-        })()
-      : baseMatches;
-
-    return [...new Set(relevantMatches.map((item) => normalizeText(item.subjectName)).filter(Boolean))].sort();
-  }, [subjectEnrollments, selectedGrade, selectedSection, currentAcademicYear]);
-
-  const teacherSubjectOptions = useMemo(() => {
-    if (!selectedGrade || !selectedSection) return [];
-    return [
-      ...new Set(
-        assignments
-          .filter(
-            (a) =>
-              normalizeGrade(a.grade) === Number(selectedGrade) &&
-              normalizeSection(a.section) === normalizeSection(selectedSection)
-          )
-          .map((a) => getAssignmentSubject(a))
-          .filter(Boolean)
-      ),
-    ].sort();
-  }, [assignments, selectedGrade, selectedSection]);
-
-  const subjectOptions = isAdmin ? adminSubjectOptions : teacherSubjectOptions;
-
   useEffect(() => {
     if (
       selectedSection &&
       !sectionOptions.includes(normalizeSection(selectedSection))
     ) {
       setSelectedSection("");
+      setSelectedSubjectId("");
     }
   }, [sectionOptions, selectedSection]);
 
-  useEffect(() => {
-    if (
-      selectedSubject &&
-      !subjectOptions.includes(normalizeText(selectedSubject))
-    ) {
-      setSelectedSubject("");
-    }
-  }, [subjectOptions, selectedSubject]);
-
-  const fetchStudentsForSelection = useCallback(async () => {
-    if (!selectedGrade || !selectedSection || !selectedSubject || !activeTerm) {
-      setFilteredStudents([]);
-      setMarksByStudent({});
+  const loadClassEnrollments = useCallback(async () => {
+    if (!selectedGrade || !selectedSection) {
+      setAllEnrollmentsForClass([]);
       return;
     }
-
-    setLoadingStudents(true);
-    setSuccess("");
-    setError("");
 
     try {
       const grade = Number(selectedGrade);
       const section = normalizeSection(selectedSection);
-      const subject = normalizeText(selectedSubject);
 
-      const eligibleStudentIds = new Set(
-        matchingEnrollmentsForSelection.map((item) => item.studentId)
+      const enrollmentQuery = query(
+        collection(db, "studentSubjectEnrollments"),
+        where("grade", "==", grade),
+        where("section", "==", section)
       );
 
-      const selectedStudents = students
-        .filter((student) => {
-          return (
-            normalizeGrade(student.grade) === grade &&
-            normalizeSection(student.section) === section &&
-            isStudentActive(student) &&
-            eligibleStudentIds.has(student.id)
-          );
-        })
-        .sort((a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name)));
+      const snap = await getDocs(enrollmentQuery);
 
-      setFilteredStudents(selectedStudents);
+      let loaded = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
 
-      const markReads = await Promise.all(
-        selectedStudents.map(async (student) => {
-          const markId = `${student.id}_${subject}_${activeTerm.term}_${activeTerm.year}`;
-          const snap = await getDoc(doc(db, "marks", markId));
-          return { student, snap, markId };
-        })
+      loaded = loaded.filter((item) => isActiveLike(item.status));
+
+      if (currentAcademicYear) {
+        const sameYear = loaded.filter(
+          (item) => getEnrollmentAcademicYear(item) === currentAcademicYear
+        );
+        if (sameYear.length > 0) {
+          loaded = sameYear;
+        }
+      }
+
+      setAllEnrollmentsForClass(loaded);
+    } catch (err) {
+      setError("Failed to load subject enrollments: " + err.message);
+      setAllEnrollmentsForClass([]);
+    }
+  }, [selectedGrade, selectedSection, currentAcademicYear]);
+
+  useEffect(() => {
+    loadClassEnrollments();
+  }, [loadClassEnrollments]);
+
+  const availableSubjectsFromEnrollments = useMemo(() => {
+    if (!selectedGrade || !selectedSection) return [];
+
+    const matchedSubjects = subjects.filter((subject) =>
+      allEnrollmentsForClass.some((enrollment) =>
+        enrollmentMatchesSubject(enrollment, subject)
+      )
+    );
+
+    return matchedSubjects.sort((a, b) =>
+      getSubjectName(a).localeCompare(getSubjectName(b))
+    );
+  }, [subjects, allEnrollmentsForClass, selectedGrade, selectedSection]);
+
+  const teacherSubjectOptions = useMemo(() => {
+    if (!selectedGrade || !selectedSection) return [];
+
+    return availableSubjectsFromEnrollments.filter((subject) =>
+      assignments.some((assignment) => {
+        return (
+          normalizeGrade(assignment.grade) === Number(selectedGrade) &&
+          normalizeSection(assignment.section) === normalizeSection(selectedSection) &&
+          subjectMatchesAssignment(subject, assignment)
+        );
+      })
+    );
+  }, [
+    availableSubjectsFromEnrollments,
+    assignments,
+    selectedGrade,
+    selectedSection,
+  ]);
+
+  const subjectOptions = isAdmin
+    ? availableSubjectsFromEnrollments
+    : teacherSubjectOptions;
+
+  useEffect(() => {
+    if (!selectedSubjectId) return;
+
+    const stillValid = subjectOptions.some(
+      (subject) => getSubjectId(subject) === selectedSubjectId
+    );
+
+    if (!stillValid) {
+      setSelectedSubjectId("");
+    }
+  }, [subjectOptions, selectedSubjectId]);
+
+  useEffect(() => {
+    if (!selectedGrade || !selectedSection) {
+      setSelectedSubjectId("");
+      setFilteredRows([]);
+      setMarksByStudent({});
+    }
+  }, [selectedGrade, selectedSection]);
+
+  const selectedSubject = useMemo(() => {
+    return (
+      subjectOptions.find((subject) => getSubjectId(subject) === selectedSubjectId) ||
+      null
+    );
+  }, [subjectOptions, selectedSubjectId]);
+
+  const loadRowsAndMarks = useCallback(async () => {
+    if (!selectedGrade || !selectedSection || !selectedSubject || !activeTerm) {
+      setFilteredRows([]);
+      setMarksByStudent({});
+      return;
+    }
+
+    setRowsLoading(true);
+    setSuccess("");
+    setError("");
+
+    try {
+      const relevantEnrollments = allEnrollmentsForClass.filter((enrollment) =>
+        enrollmentMatchesSubject(enrollment, selectedSubject)
       );
+
+      const rows = sortEnrollmentRows(
+        relevantEnrollments.map((enrollment) => ({
+          enrollmentId: enrollment.id,
+          studentId: normalizeText(enrollment.studentId),
+          studentName: getEnrollmentStudentName(enrollment) || "Unnamed Student",
+          admissionNo: getEnrollmentAdmissionNo(enrollment),
+          grade: normalizeGrade(enrollment.grade),
+          section: normalizeSection(enrollment.section),
+          subjectId:
+            getEnrollmentSubjectId(enrollment) || getSubjectId(selectedSubject),
+          subjectName:
+            getEnrollmentSubjectName(enrollment) || getSubjectName(selectedSubject),
+          academicYear:
+            getEnrollmentAcademicYear(enrollment) || currentAcademicYear,
+          rawEnrollment: enrollment,
+        }))
+      );
+
+      setFilteredRows(rows);
+
+      if (rows.length === 0) {
+        setMarksByStudent({});
+        setRowsLoading(false);
+        return;
+      }
+
+      const marksQuery = query(
+        collection(db, "marks"),
+        where("grade", "==", Number(selectedGrade)),
+        where("section", "==", normalizeSection(selectedSection)),
+        where("term", "==", activeTerm.term),
+        where("year", "==", activeTerm.year)
+      );
+
+      const marksSnap = await getDocs(marksQuery);
+      const selectedSubjectIdValue = getSubjectId(selectedSubject);
+      const selectedSubjectNameValue = getSubjectName(selectedSubject);
+
+      const relevantMarks = marksSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((mark) => {
+          const sameStudent = rows.some((row) => row.studentId === mark.studentId);
+          if (!sameStudent) return false;
+
+          const markSubjectId = normalizeText(mark.subjectId);
+          const markSubjectName = normalizeText(mark.subjectName || mark.subject);
+
+          if (selectedSubjectIdValue && markSubjectId) {
+            return markSubjectId === selectedSubjectIdValue;
+          }
+
+          return normalizeLower(markSubjectName) === normalizeLower(selectedSubjectNameValue);
+        });
 
       const loadedMarks = {};
-      markReads.forEach(({ student, snap }) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          loadedMarks[student.id] = {
-            mark:
-              data.mark !== undefined && data.mark !== null
-                ? String(data.mark)
-                : "",
-            entryStatus: data.isMedicalAbsent
-              ? "Medical Absent"
-              : data.isAbsent
-              ? "Absent"
-              : "Present",
-            absentReason: data.absentReason || "",
-          };
-        } else {
-          loadedMarks[student.id] = {
-            mark: "",
-            entryStatus: "Present",
-            absentReason: "",
-          };
-        }
+      rows.forEach((row) => {
+        loadedMarks[row.studentId] = {
+          mark: "",
+          entryStatus: "Present",
+          absentReason: "",
+        };
+      });
+
+      relevantMarks.forEach((mark) => {
+        loadedMarks[mark.studentId] = {
+          mark:
+            mark.mark !== undefined && mark.mark !== null ? String(mark.mark) : "",
+          entryStatus: mark.isMedicalAbsent
+            ? "Medical Absent"
+            : mark.isAbsent
+            ? "Absent"
+            : "Present",
+          absentReason: mark.absentReason || "",
+        };
       });
 
       setMarksByStudent(loadedMarks);
     } catch (err) {
-      setError("Failed to load students and marks: " + err.message);
+      setError("Failed to load enrollment rows and marks: " + err.message);
+      setFilteredRows([]);
+      setMarksByStudent({});
     } finally {
-      setLoadingStudents(false);
+      setRowsLoading(false);
     }
   }, [
     selectedGrade,
     selectedSection,
     selectedSubject,
     activeTerm,
-    students,
-    matchingEnrollmentsForSelection,
+    allEnrollmentsForClass,
+    currentAcademicYear,
   ]);
 
   useEffect(() => {
-    fetchStudentsForSelection();
-  }, [fetchStudentsForSelection]);
+    loadRowsAndMarks();
+  }, [loadRowsAndMarks]);
 
   const handleMarkChange = (studentId, value) => {
     if (value === "" || (Number(value) >= 0 && Number(value) <= 100)) {
@@ -457,8 +560,7 @@ export default function MarksEntry() {
           ...current,
           entryStatus,
           mark: entryStatus === "Present" ? current.mark : "",
-          absentReason:
-            entryStatus === "Present" ? "" : current.absentReason || "",
+          absentReason: entryStatus === "Present" ? "" : current.absentReason || "",
         },
       };
     });
@@ -489,6 +591,11 @@ export default function MarksEntry() {
       return;
     }
 
+    if (filteredRows.length === 0) {
+      setError("No enrolled students found for this class and subject.");
+      return;
+    }
+
     setSaving(true);
     setSuccess("");
     setError("");
@@ -497,8 +604,8 @@ export default function MarksEntry() {
       const batch = writeBatch(db);
       let recordsToSave = 0;
 
-      filteredStudents.forEach((student) => {
-        const entry = marksByStudent[student.id] || {
+      filteredRows.forEach((row) => {
+        const entry = marksByStudent[row.studentId] || {
           mark: "",
           entryStatus: "Present",
           absentReason: "",
@@ -516,28 +623,50 @@ export default function MarksEntry() {
           return;
         }
 
-        const markId = `${student.id}_${normalizeText(selectedSubject)}_${activeTerm.term}_${activeTerm.year}`;
-        const ref = doc(db, "marks", markId);
+        const subjectId = row.subjectId || getSubjectId(selectedSubject);
+        const subjectName = row.subjectName || getSubjectName(selectedSubject);
 
-        batch.set(ref, {
-          studentId: student.id,
-          studentName: student.name || "",
-          admissionNo: student.admissionNo || "",
-          grade: Number(selectedGrade),
-          section: normalizeSection(selectedSection),
-          subject: normalizeText(selectedSubject),
+        const markId = buildMarkDocId({
+          studentId: row.studentId,
+          subjectId,
+          subjectName,
           term: activeTerm.term,
           year: activeTerm.year,
-          academicYear: currentAcademicYear,
-          mark: hasNumericMark ? Number(entry.mark) : null,
-          isAbsent,
-          isMedicalAbsent,
-          absentReason: isAbsent || isMedicalAbsent ? normalizeText(entry.absentReason) : "",
-          approvalStatus: "approved",
-          updatedBy: profile?.name || profile?.displayName || "Unknown",
-          updatedById: profile?.uid || "",
-          updatedAt: new Date().toISOString(),
         });
+
+        const ref = doc(db, "marks", markId);
+
+        batch.set(
+          ref,
+          {
+            enrollmentId: row.enrollmentId,
+            studentId: row.studentId,
+            studentName: row.studentName,
+            admissionNo: row.admissionNo || "",
+            grade: Number(selectedGrade),
+            section: normalizeSection(selectedSection),
+
+            subjectId: subjectId || "",
+            subjectName: subjectName || "",
+            subject: subjectName || "",
+
+            term: activeTerm.term,
+            year: activeTerm.year,
+            academicYear: row.academicYear || currentAcademicYear || "",
+
+            mark: hasNumericMark ? Number(entry.mark) : null,
+            isAbsent,
+            isMedicalAbsent,
+            absentReason:
+              isAbsent || isMedicalAbsent ? normalizeText(entry.absentReason) : "",
+
+            approvalStatus: "approved",
+            updatedBy: profile?.name || profile?.displayName || "Unknown",
+            updatedById: profile?.uid || "",
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
 
         recordsToSave++;
       });
@@ -549,8 +678,11 @@ export default function MarksEntry() {
       }
 
       await batch.commit();
+
       setSuccess(
-        `Saved ${recordsToSave} mark record${recordsToSave !== 1 ? "s" : ""} for ${activeTerm.term} ${activeTerm.year}.`
+        `Saved ${recordsToSave} mark record${
+          recordsToSave !== 1 ? "s" : ""
+        } for ${activeTerm.term} ${activeTerm.year}.`
       );
     } catch (err) {
       setError("Failed to save marks: " + err.message);
@@ -559,7 +691,7 @@ export default function MarksEntry() {
     }
   };
 
-  if (termLoading || assignmentsLoading || initialDataLoading) {
+  if (baseLoading || assignmentsLoading) {
     return (
       <Box display="flex" justifyContent="center" mt={5}>
         <CircularProgress />
@@ -571,8 +703,8 @@ export default function MarksEntry() {
     return (
       <Box mt={4}>
         <Alert severity="warning" icon={<WarningIcon />}>
-          You have no subject assignments yet. Please contact the admin to
-          assign you to a subject and class.
+          You have no subject assignments yet. Please contact the admin to assign
+          you to a subject and class.
         </Alert>
       </Box>
     );
@@ -620,7 +752,7 @@ export default function MarksEntry() {
               onChange={(e) => {
                 setSelectedGrade(Number(e.target.value));
                 setSelectedSection("");
-                setSelectedSubject("");
+                setSelectedSubjectId("");
               }}
             >
               {gradeOptions.map((g) => (
@@ -640,7 +772,7 @@ export default function MarksEntry() {
               label="Section"
               onChange={(e) => {
                 setSelectedSection(e.target.value);
-                setSelectedSubject("");
+                setSelectedSubjectId("");
               }}
             >
               {sectionOptions.map((s) => (
@@ -660,13 +792,13 @@ export default function MarksEntry() {
           >
             <InputLabel>Subject</InputLabel>
             <Select
-              value={selectedSubject}
+              value={selectedSubjectId}
               label="Subject"
-              onChange={(e) => setSelectedSubject(e.target.value)}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
             >
-              {subjectOptions.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
+              {subjectOptions.map((subject) => (
+                <MenuItem key={getSubjectId(subject)} value={getSubjectId(subject)}>
+                  {getSubjectName(subject)}
                 </MenuItem>
               ))}
             </Select>
@@ -685,9 +817,9 @@ export default function MarksEntry() {
 
       {!activeTerm ? null : !selectedSubject ? (
         <Alert severity="info">
-          Select grade, section, and subject to load students.
+          Select grade, section, and subject to load enrolled students.
         </Alert>
-      ) : loadingStudents ? (
+      ) : rowsLoading ? (
         <Box display="flex" justifyContent="center" mt={3}>
           <CircularProgress />
         </Box>
@@ -702,8 +834,8 @@ export default function MarksEntry() {
             gap={1}
           >
             <Typography variant="body2" color="text.secondary">
-              {filteredStudents.length} students — Grade {selectedGrade}-{selectedSection} |{" "}
-              {selectedSubject} | {activeTerm.term} {activeTerm.year}
+              {filteredRows.length} students — Grade {selectedGrade}-{selectedSection} |{" "}
+              {getSubjectName(selectedSubject)} | {activeTerm.term} {activeTerm.year}
             </Typography>
 
             {!isMobile && (
@@ -727,32 +859,27 @@ export default function MarksEntry() {
             <Table size="small">
               <TableHead sx={{ bgcolor: "#1a237e" }}>
                 <TableRow>
-                  {[
-                    "#",
-                    "Admission No",
-                    "Name",
-                    "Entry Status",
-                    "Mark / Reason",
-                    "Grade",
-                  ].map((header) => (
-                    <TableCell
-                      key={header}
-                      sx={{
-                        color: "white",
-                        fontWeight: 600,
-                        fontSize: { xs: 11, sm: 14 },
-                        px: { xs: 1, sm: 2 },
-                      }}
-                    >
-                      {header}
-                    </TableCell>
-                  ))}
+                  {["#", "Admission No", "Name", "Entry Status", "Mark / Reason", "Grade"].map(
+                    (header) => (
+                      <TableCell
+                        key={header}
+                        sx={{
+                          color: "white",
+                          fontWeight: 600,
+                          fontSize: { xs: 11, sm: 14 },
+                          px: { xs: 1, sm: 2 },
+                        }}
+                      >
+                        {header}
+                      </TableCell>
+                    )
+                  )}
                 </TableRow>
               </TableHead>
 
               <TableBody>
-                {filteredStudents.map((student, idx) => {
-                  const entry = marksByStudent[student.id] || {
+                {filteredRows.map((row, idx) => {
+                  const entry = marksByStudent[row.studentId] || {
                     mark: "",
                     entryStatus: "Present",
                     absentReason: "",
@@ -764,19 +891,19 @@ export default function MarksEntry() {
                       : null;
 
                   return (
-                    <TableRow key={student.id} hover>
+                    <TableRow key={row.enrollmentId} hover>
                       <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
                         {idx + 1}
                       </TableCell>
 
                       <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
-                        {student.admissionNo || "—"}
+                        {row.admissionNo || "—"}
                       </TableCell>
 
                       <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
                         {isMobile
-                          ? normalizeText(student.name).split(" ")[0]
-                          : student.name}
+                          ? normalizeText(row.studentName).split(" ")[0]
+                          : row.studentName}
                       </TableCell>
 
                       <TableCell sx={{ px: { xs: 0.5, sm: 2 }, minWidth: 170 }}>
@@ -784,7 +911,7 @@ export default function MarksEntry() {
                           <Select
                             value={entry.entryStatus}
                             onChange={(e) =>
-                              handleStatusChange(student.id, e.target.value)
+                              handleStatusChange(row.studentId, e.target.value)
                             }
                           >
                             {ENTRY_STATUSES.map((status) => (
@@ -804,7 +931,7 @@ export default function MarksEntry() {
                             inputProps={{ min: 0, max: 100 }}
                             value={entry.mark ?? ""}
                             onChange={(e) =>
-                              handleMarkChange(student.id, e.target.value)
+                              handleMarkChange(row.studentId, e.target.value)
                             }
                             sx={{ width: { xs: 90, sm: 120 } }}
                             placeholder="0–100"
@@ -815,7 +942,7 @@ export default function MarksEntry() {
                             size="small"
                             value={entry.absentReason || ""}
                             onChange={(e) =>
-                              handleReasonChange(student.id, e.target.value)
+                              handleReasonChange(row.studentId, e.target.value)
                             }
                             sx={{ width: { xs: 120, sm: 180 } }}
                             placeholder={
@@ -852,12 +979,13 @@ export default function MarksEntry() {
                   );
                 })}
 
-                {filteredStudents.length === 0 && (
+                {filteredRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} align="center">
-                      No active students found with subject enrollment for{" "}
-                      <strong>{selectedSubject}</strong> in Grade {selectedGrade}-
-                      {selectedSection}.
+                      No student subject enrollments found for{" "}
+                      <strong>{getSubjectName(selectedSubject)}</strong> in Grade{" "}
+                      {selectedGrade}-{selectedSection}. Run subject enrollment
+                      generation first.
                     </TableCell>
                   </TableRow>
                 )}

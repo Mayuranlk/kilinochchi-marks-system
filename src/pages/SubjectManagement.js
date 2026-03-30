@@ -4,7 +4,6 @@ import {
   getDocs,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -46,8 +45,8 @@ import {
   Tab,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import BlockIcon from "@mui/icons-material/Block";
 
 const SUBJECT_CATEGORIES = [
   { value: "compulsory", label: "Compulsory" },
@@ -66,14 +65,12 @@ const BASKET_GROUPS = ["A", "B", "C"];
 const STREAM_OPTIONS = ["Maths", "Bio", "Commerce", "Technology", "Arts"];
 const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
 const GRADE_OPTIONS = [6, 7, 8, 9, 10, 11, 12, 13];
-const TAB_VALUES = ["all", "junior", "ol", "al"];
 
 const emptyForm = {
   code: "",
   name: "",
   category: "",
   grades: [],
-  isCompulsory: false,
   religionKey: "",
   basketGroup: "",
   stream: "",
@@ -84,9 +81,33 @@ const emptyForm = {
 };
 
 const normalizeText = (value) => String(value || "").trim();
-
+const normalizeLower = (value) => normalizeText(value).toLowerCase();
+const normalizeUpper = (value) => normalizeText(value).toUpperCase();
+const normalizeStatus = (value) => normalizeLower(value);
 const normalizeCategory = (value) => normalizeText(value);
-const normalizeStatus = (value) => normalizeText(value).toLowerCase();
+
+const normalizeGradeList = (grades) => {
+  return [...new Set((Array.isArray(grades) ? grades : []).map(Number).filter(Boolean))].sort(
+    (a, b) => a - b
+  );
+};
+
+const getCategoryLabel = (value) =>
+  SUBJECT_CATEGORIES.find((item) => item.value === value)?.label || value || "—";
+
+const getStageFromGrades = (grades = []) => {
+  const numbers = normalizeGradeList(grades);
+  if (numbers.some((g) => g >= 12 && g <= 13)) return "al";
+  if (numbers.some((g) => g >= 10 && g <= 11)) return "ol";
+  if (numbers.some((g) => g >= 6 && g <= 9)) return "junior";
+  return "all";
+};
+
+const shouldShowReligionKey = (category) => category === "religion";
+const shouldShowBasketGroup = (category) => category === "basket";
+const shouldShowStream = (category) => category === "al_main";
+const shouldShowMediums = (category) =>
+  ["al_main", "general_english", "common_compulsory", "other"].includes(category);
 
 const sortSubjects = (list) => {
   return [...list].sort((a, b) => {
@@ -101,33 +122,21 @@ const sortSubjects = (list) => {
 
     if (orderA !== orderB) return orderA - orderB;
 
-    const categoryA = normalizeCategory(a.category).toLowerCase();
-    const categoryB = normalizeCategory(b.category).toLowerCase();
+    const categoryA = normalizeLower(a.category);
+    const categoryB = normalizeLower(b.category);
     if (categoryA !== categoryB) return categoryA.localeCompare(categoryB);
 
-    return normalizeText(a.name).toLowerCase().localeCompare(normalizeText(b.name).toLowerCase());
+    return normalizeLower(a.name).localeCompare(normalizeLower(b.name));
   });
 };
 
-const getCategoryLabel = (value) =>
-  SUBJECT_CATEGORIES.find((item) => item.value === value)?.label || value || "—";
-
-const getStageFromGrades = (grades = []) => {
-  const numbers = (Array.isArray(grades) ? grades : [])
-    .map((g) => Number(g))
-    .filter(Boolean);
-
-  if (numbers.some((g) => g >= 12 && g <= 13)) return "al";
-  if (numbers.some((g) => g >= 10 && g <= 11)) return "ol";
-  if (numbers.some((g) => g >= 6 && g <= 9)) return "junior";
-  return "all";
+const sharesAnyGrade = (gradesA, gradesB) => {
+  const a = new Set(normalizeGradeList(gradesA));
+  return normalizeGradeList(gradesB).some((g) => a.has(g));
 };
 
-const shouldShowReligionKey = (category) => category === "religion";
-const shouldShowBasketGroup = (category) => category === "basket";
-const shouldShowStream = (category) => category === "al_main";
-const shouldShowMediums = (category) =>
-  ["compulsory", "general_english", "common_compulsory", "other", "al_main"].includes(category);
+const hasGradeOutside = (grades, min, max) =>
+  normalizeGradeList(grades).some((g) => g < min || g > max);
 
 export default function SubjectManagement() {
   const theme = useTheme();
@@ -160,7 +169,7 @@ export default function SubjectManagement() {
       const loaded = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        grades: Array.isArray(d.data().grades) ? d.data().grades.map((g) => Number(g)) : [],
+        grades: normalizeGradeList(d.data().grades),
         mediums: Array.isArray(d.data().mediums) ? d.data().mediums : [],
       }));
       setSubjects(sortSubjects(loaded));
@@ -172,7 +181,7 @@ export default function SubjectManagement() {
   };
 
   const filteredSubjects = useMemo(() => {
-    const q = search.toLowerCase();
+    const q = normalizeLower(search);
 
     return subjects.filter((subject) => {
       const stage = getStageFromGrades(subject.grades);
@@ -180,23 +189,18 @@ export default function SubjectManagement() {
       const matchTab =
         tab === "all" ||
         stage === tab ||
-        (tab === "junior" &&
-          Array.isArray(subject.grades) &&
-          subject.grades.some((g) => Number(g) >= 6 && Number(g) <= 9)) ||
-        (tab === "ol" &&
-          Array.isArray(subject.grades) &&
-          subject.grades.some((g) => Number(g) >= 10 && Number(g) <= 11)) ||
-        (tab === "al" &&
-          Array.isArray(subject.grades) &&
-          subject.grades.some((g) => Number(g) >= 12 && Number(g) <= 13));
+        (tab === "junior" && subject.grades.some((g) => g >= 6 && g <= 9)) ||
+        (tab === "ol" && subject.grades.some((g) => g >= 10 && g <= 11)) ||
+        (tab === "al" && subject.grades.some((g) => g >= 12 && g <= 13));
 
       const matchSearch =
         !q ||
-        normalizeText(subject.name).toLowerCase().includes(q) ||
-        normalizeText(subject.code).toLowerCase().includes(q) ||
-        normalizeText(subject.category).toLowerCase().includes(q) ||
-        normalizeText(subject.religionKey).toLowerCase().includes(q) ||
-        normalizeText(subject.stream).toLowerCase().includes(q);
+        normalizeLower(subject.name).includes(q) ||
+        normalizeLower(subject.code).includes(q) ||
+        normalizeLower(subject.category).includes(q) ||
+        normalizeLower(subject.religionKey).includes(q) ||
+        normalizeLower(subject.stream).includes(q) ||
+        normalizeLower(subject.basketGroup).includes(q);
 
       const matchCategory = !filterCategory || subject.category === filterCategory;
       const matchStatus = !filterStatus || normalizeStatus(subject.status) === filterStatus;
@@ -228,84 +232,12 @@ export default function SubjectManagement() {
     return {
       ...data,
       religionKey: shouldShowReligionKey(category) ? normalizeText(data.religionKey) : "",
-      basketGroup: shouldShowBasketGroup(category) ? normalizeText(data.basketGroup) : "",
+      basketGroup: shouldShowBasketGroup(category) ? normalizeUpper(data.basketGroup) : "",
       stream: shouldShowStream(category) ? normalizeText(data.stream) : "",
-      mediums: shouldShowMediums(category) ? data.mediums : [],
-      isCompulsory:
-        category === "compulsory" || category === "general_english" || category === "common_compulsory"
-          ? Boolean(data.isCompulsory)
-          : Boolean(data.isCompulsory),
+      mediums: shouldShowMediums(category)
+        ? [...new Set((Array.isArray(data.mediums) ? data.mediums : []).map(normalizeText).filter(Boolean))]
+        : [],
     };
-  };
-
-  const validateForm = () => {
-    if (!normalizeText(form.code)) return "Subject code is required.";
-    if (!normalizeText(form.name)) return "Subject name is required.";
-    if (!normalizeText(form.category)) return "Category is required.";
-    if (!Array.isArray(form.grades) || form.grades.length === 0) return "Select at least one grade.";
-
-    if (form.category === "religion" && !normalizeText(form.religionKey)) {
-      return "Religion key is required for religion subjects.";
-    }
-
-    if (form.category === "basket" && !normalizeText(form.basketGroup)) {
-      return "Basket group is required for basket subjects.";
-    }
-
-    if (form.category === "al_main" && !normalizeText(form.stream)) {
-      return "Stream is required for A/L main subjects.";
-    }
-
-    if (
-      form.category === "religion" &&
-      !form.grades.every((g) => Number(g) >= 6 && Number(g) <= 11)
-    ) {
-      return "Religion subjects should only be assigned to Grades 6 to 11.";
-    }
-
-    if (
-      form.category === "aesthetic" &&
-      !form.grades.every((g) => Number(g) >= 6 && Number(g) <= 9)
-    ) {
-      return "Aesthetic subjects should only be assigned to Grades 6 to 9.";
-    }
-
-    if (
-      form.category === "basket" &&
-      !form.grades.every((g) => Number(g) >= 10 && Number(g) <= 11)
-    ) {
-      return "Basket subjects should only be assigned to Grades 10 to 11.";
-    }
-
-    if (
-      form.category === "al_main" &&
-      !form.grades.every((g) => Number(g) >= 12 && Number(g) <= 13)
-    ) {
-      return "A/L main subjects should only be assigned to Grades 12 to 13.";
-    }
-
-    if (
-      form.category === "general_english" &&
-      !form.grades.every((g) => Number(g) >= 12 && Number(g) <= 13)
-    ) {
-      return "General English should only be assigned to Grades 12 to 13.";
-    }
-
-    if (
-      form.category === "compulsory" &&
-      form.grades.some((g) => Number(g) >= 12)
-    ) {
-      return "Use A/L Main, General English, or Common Compulsory categories for Grades 12 to 13.";
-    }
-
-    const duplicate = subjects.find((item) => {
-      if (editId && item.id === editId) return false;
-      return normalizeText(item.code).toLowerCase() === normalizeText(form.code).toLowerCase();
-    });
-
-    if (duplicate) return "A subject with this code already exists.";
-
-    return "";
   };
 
   const buildPayload = () => {
@@ -315,10 +247,9 @@ export default function SubjectManagement() {
       code: normalizeText(cleaned.code),
       name: normalizeText(cleaned.name),
       category: normalizeCategory(cleaned.category),
-      grades: [...cleaned.grades].map((g) => Number(g)).sort((a, b) => a - b),
-      isCompulsory: Boolean(cleaned.isCompulsory),
+      grades: normalizeGradeList(cleaned.grades),
       religionKey: normalizeText(cleaned.religionKey),
-      basketGroup: normalizeText(cleaned.basketGroup),
+      basketGroup: normalizeUpper(cleaned.basketGroup),
       stream: normalizeText(cleaned.stream),
       mediums: Array.isArray(cleaned.mediums) ? cleaned.mediums : [],
       status: normalizeStatus(cleaned.status) || "active",
@@ -329,6 +260,125 @@ export default function SubjectManagement() {
           : Number(cleaned.displayOrder),
       updatedAt: new Date().toISOString(),
     };
+  };
+
+  const validateForm = () => {
+    const payload = buildPayload();
+
+    if (!payload.code) return "Subject code is required.";
+    if (!payload.name) return "Subject name is required.";
+    if (!payload.category) return "Category is required.";
+    if (!Array.isArray(payload.grades) || payload.grades.length === 0) {
+      return "Select at least one grade.";
+    }
+
+    if (payload.category === "religion" && !payload.religionKey) {
+      return "Religion key is required for religion subjects.";
+    }
+
+    if (payload.category === "basket" && !payload.basketGroup) {
+      return "Basket group is required for basket subjects.";
+    }
+
+    if (payload.category === "al_main" && !payload.stream) {
+      return "Stream is required for A/L main subjects.";
+    }
+
+    if (payload.category === "religion" && hasGradeOutside(payload.grades, 6, 11)) {
+      return "Religion subjects can only be assigned to Grades 6 to 11.";
+    }
+
+    if (payload.category === "aesthetic" && hasGradeOutside(payload.grades, 6, 9)) {
+      return "Aesthetic subjects can only be assigned to Grades 6 to 9.";
+    }
+
+    if (payload.category === "basket" && hasGradeOutside(payload.grades, 10, 11)) {
+      return "Basket subjects can only be assigned to Grades 10 to 11.";
+    }
+
+    if (payload.category === "al_main" && hasGradeOutside(payload.grades, 12, 13)) {
+      return "A/L main subjects can only be assigned to Grades 12 to 13.";
+    }
+
+    if (payload.category === "general_english" && hasGradeOutside(payload.grades, 12, 13)) {
+      return "General English can only be assigned to Grades 12 to 13.";
+    }
+
+    if (payload.category === "common_compulsory" && hasGradeOutside(payload.grades, 12, 13)) {
+      return "Common Compulsory subjects can only be assigned to Grades 12 to 13.";
+    }
+
+    if (payload.category === "compulsory" && payload.grades.some((g) => g >= 12)) {
+      return "Use A/L Main, General English, or Common Compulsory for Grades 12 to 13.";
+    }
+
+    const duplicateCode = subjects.find((item) => {
+      if (editId && item.id === editId) return false;
+      return normalizeLower(item.code) === normalizeLower(payload.code);
+    });
+
+    if (duplicateCode) {
+      return "A subject with this code already exists.";
+    }
+
+    const conflictingCategoryRule = subjects.find((item) => {
+      if (editId && item.id === editId) return false;
+      if (!sharesAnyGrade(item.grades, payload.grades)) return false;
+
+      const sameCategory = normalizeLower(item.category) === normalizeLower(payload.category);
+      if (!sameCategory) return false;
+
+      if (payload.category === "religion") {
+        return normalizeLower(item.religionKey) === normalizeLower(payload.religionKey);
+      }
+
+      if (payload.category === "basket") {
+        return normalizeUpper(item.basketGroup) === normalizeUpper(payload.basketGroup);
+      }
+
+      if (payload.category === "general_english") {
+        return true;
+      }
+
+      if (payload.category === "common_compulsory") {
+        return normalizeLower(item.name) === normalizeLower(payload.name);
+      }
+
+      if (payload.category === "al_main") {
+        return (
+          normalizeLower(item.name) === normalizeLower(payload.name) &&
+          normalizeLower(item.stream) === normalizeLower(payload.stream)
+        );
+      }
+
+      if (payload.category === "aesthetic") {
+        return normalizeLower(item.name) === normalizeLower(payload.name);
+      }
+
+      if (payload.category === "compulsory") {
+        return normalizeLower(item.name) === normalizeLower(payload.name);
+      }
+
+      return normalizeLower(item.name) === normalizeLower(payload.name);
+    });
+
+    if (conflictingCategoryRule) {
+      if (payload.category === "religion") {
+        return "A religion subject with the same religion key already exists for one or more selected grades.";
+      }
+      if (payload.category === "basket") {
+        return "A basket subject with the same basket group already exists for one or more selected grades.";
+      }
+      if (payload.category === "general_english") {
+        return "General English already exists for one or more selected grades.";
+      }
+      if (payload.category === "al_main") {
+        return "An A/L main subject with the same subject name and stream already exists for one or more selected grades.";
+      }
+      return "A conflicting subject definition already exists for one or more selected grades.";
+    }
+
+    return "";
   };
 
   const handleSave = async () => {
@@ -371,8 +421,7 @@ export default function SubjectManagement() {
       code: subject.code || "",
       name: subject.name || "",
       category: subject.category || "",
-      grades: Array.isArray(subject.grades) ? subject.grades.map((g) => Number(g)) : [],
-      isCompulsory: Boolean(subject.isCompulsory),
+      grades: normalizeGradeList(subject.grades),
       religionKey: subject.religionKey || "",
       basketGroup: subject.basketGroup || "",
       stream: subject.stream || "",
@@ -390,33 +439,31 @@ export default function SubjectManagement() {
     setOpen(true);
   };
 
-  const handleDelete = async (subject) => {
-    if (subject.isSystem) {
-      setError("System subjects should not be deleted. Set them inactive instead.");
-      return;
-    }
-
-    if (!window.confirm(`Delete subject "${subject.name}"? This cannot be undone.`)) return;
+  const handleDeactivate = async (subject) => {
+    if (!window.confirm(`Set subject "${subject.name}" inactive?`)) return;
 
     try {
-      await deleteDoc(doc(db, "subjects", subject.id));
-      setSuccess("Subject deleted.");
+      await updateDoc(doc(db, "subjects", subject.id), {
+        status: "inactive",
+        updatedAt: new Date().toISOString(),
+      });
+      setSuccess("Subject set to inactive.");
       await fetchSubjects();
     } catch (err) {
-      setError("Failed to delete subject: " + err.message);
+      setError("Failed to update subject status: " + err.message);
     }
   };
 
   const juniorSubjects = subjects.filter((s) =>
-    Array.isArray(s.grades) && s.grades.some((g) => Number(g) >= 6 && Number(g) <= 9)
+    s.grades.some((g) => g >= 6 && g <= 9)
   ).length;
 
   const olSubjects = subjects.filter((s) =>
-    Array.isArray(s.grades) && s.grades.some((g) => Number(g) >= 10 && Number(g) <= 11)
+    s.grades.some((g) => g >= 10 && g <= 11)
   ).length;
 
   const alSubjects = subjects.filter((s) =>
-    Array.isArray(s.grades) && s.grades.some((g) => Number(g) >= 12 && Number(g) <= 13)
+    s.grades.some((g) => g >= 12 && g <= 13)
   ).length;
 
   return (
@@ -447,7 +494,7 @@ export default function SubjectManagement() {
               Subject Definitions
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.5}>
-              Manage real subject definitions for compulsory, religion, aesthetic, basket, and A/L structures.
+              Strict subject master for enrollment generation, marks entry, and reporting.
             </Typography>
 
             <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
@@ -509,7 +556,7 @@ export default function SubjectManagement() {
                   Grades 12–13
                 </Typography>
                 <Typography variant="body2" color="text.secondary" mt={0.5}>
-                  A/L main subjects, General English, and common compulsory subjects.
+                  A/L main, General English, and Common Compulsory subjects.
                 </Typography>
                 <Chip label={`${alSubjects} subjects`} size="small" color="success" sx={{ mt: 1, fontWeight: 700 }} />
               </CardContent>
@@ -657,14 +704,13 @@ export default function SubjectManagement() {
 
                 <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
                   <Chip label={getCategoryLabel(subject.category)} size="small" color="primary" />
-                  {subject.isCompulsory && <Chip label="Compulsory" size="small" color="secondary" />}
                   {subject.religionKey && <Chip label={`Religion: ${subject.religionKey}`} size="small" />}
                   {subject.basketGroup && <Chip label={`Basket ${subject.basketGroup}`} size="small" color="warning" />}
                   {subject.stream && <Chip label={`Stream: ${subject.stream}`} size="small" color="success" />}
                 </Box>
 
                 <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Grades: {Array.isArray(subject.grades) && subject.grades.length > 0 ? subject.grades.join(", ") : "—"}
+                  Grades: {subject.grades.length > 0 ? subject.grades.join(", ") : "—"}
                 </Typography>
 
                 {Array.isArray(subject.mediums) && subject.mediums.length > 0 && (
@@ -687,12 +733,12 @@ export default function SubjectManagement() {
                 <Button
                   size="small"
                   variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={() => handleDelete(subject)}
-                  disabled={subject.isSystem}
+                  color="warning"
+                  startIcon={<BlockIcon />}
+                  onClick={() => handleDeactivate(subject)}
+                  disabled={normalizeStatus(subject.status) === "inactive"}
                 >
-                  Delete
+                  Inactivate
                 </Button>
               </CardActions>
             </Card>
@@ -744,17 +790,10 @@ export default function SubjectManagement() {
                     <Typography variant="body2" fontWeight={700}>
                       {subject.name || "—"}
                     </Typography>
-                    {subject.isCompulsory && (
-                      <Typography variant="caption" color="text.secondary">
-                        Compulsory
-                      </Typography>
-                    )}
                   </TableCell>
                   <TableCell>{getCategoryLabel(subject.category)}</TableCell>
                   <TableCell>
-                    {Array.isArray(subject.grades) && subject.grades.length > 0
-                      ? subject.grades.join(", ")
-                      : "—"}
+                    {subject.grades.length > 0 ? subject.grades.join(", ") : "—"}
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={0.5} flexWrap="wrap">
@@ -782,15 +821,15 @@ export default function SubjectManagement() {
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={subject.isSystem ? "System subjects should not be deleted" : "Delete"}>
+                    <Tooltip title="Set inactive">
                       <span>
                         <IconButton
                           size="small"
-                          color="error"
-                          onClick={() => handleDelete(subject)}
-                          disabled={subject.isSystem}
+                          color="warning"
+                          onClick={() => handleDeactivate(subject)}
+                          disabled={normalizeStatus(subject.status) === "inactive"}
                         >
-                          <DeleteIcon fontSize="small" />
+                          <BlockIcon fontSize="small" />
                         </IconButton>
                       </span>
                     </Tooltip>
@@ -810,7 +849,7 @@ export default function SubjectManagement() {
         fullScreen={isMobile}
       >
         <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "✏️ Edit Subject Definition" : "➕ Add Subject Definition"}
+          {editId ? "Edit Subject Definition" : "Add Subject Definition"}
         </DialogTitle>
 
         <DialogContent>
@@ -884,7 +923,10 @@ export default function SubjectManagement() {
                   onChange={(e) =>
                     setForm({
                       ...form,
-                      grades: typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value,
+                      grades:
+                        typeof e.target.value === "string"
+                          ? e.target.value.split(",")
+                          : e.target.value,
                     })
                   }
                   input={<OutlinedInput label="Grades" />}
@@ -986,7 +1028,10 @@ export default function SubjectManagement() {
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        mediums: typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value,
+                        mediums:
+                          typeof e.target.value === "string"
+                            ? e.target.value.split(",")
+                            : e.target.value,
                       })
                     }
                     input={<OutlinedInput label="Supported Mediums" />}
@@ -1011,7 +1056,7 @@ export default function SubjectManagement() {
               </Divider>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
                 <Select
@@ -1028,21 +1073,7 @@ export default function SubjectManagement() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Compulsory Flag</InputLabel>
-                <Select
-                  value={String(form.isCompulsory)}
-                  label="Compulsory Flag"
-                  onChange={(e) => setForm({ ...form, isCompulsory: e.target.value === "true" })}
-                >
-                  <MenuItem value="true">True</MenuItem>
-                  <MenuItem value="false">False</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>System Subject</InputLabel>
                 <Select
