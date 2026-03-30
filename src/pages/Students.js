@@ -1,1163 +1,825 @@
-/* eslint-disable no-unused-vars */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
-  collection, getDocs, addDoc, deleteDoc, doc, updateDoc
+  collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
-  GRADES, SECTIONS, AESTHETIC_SUBJECTS,
-  BASKET_1, BASKET_2, BASKET_3, RELIGIONS
-} from "../constants";
-import * as XLSX from "xlsx";
-import {
-  Box, Typography, Button, TextField, Select, MenuItem, FormControl,
-  InputLabel, Table, TableHead, TableRow, TableCell, TableBody, Paper,
-  Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Chip,
-  CircularProgress, Grid, Alert, TablePagination, InputAdornment,
-  useMediaQuery, useTheme, Card, CardContent, CardActions, Tabs, Tab,
-  Divider, Tooltip
+  Box, Typography, Button, TextField, Select, MenuItem,
+  FormControl, InputLabel, Table, TableHead, TableRow, TableCell,
+  TableBody, Paper, Dialog, DialogTitle, DialogContent, DialogActions,
+  IconButton, Chip, CircularProgress, Grid, Alert, Card, CardContent,
+  CardActions, useMediaQuery, useTheme, Tooltip, Avatar, Divider,
+  InputAdornment, ToggleButton, ToggleButtonGroup
 } from "@mui/material";
-import AddIcon        from "@mui/icons-material/Add";
-import DeleteIcon     from "@mui/icons-material/Delete";
-import EditIcon       from "@mui/icons-material/Edit";
-import SearchIcon     from "@mui/icons-material/Search";
-import AssessmentIcon from "@mui/icons-material/Assessment";
-import BadgeIcon      from "@mui/icons-material/Badge";
-import ExitToAppIcon  from "@mui/icons-material/ExitToApp";
-import PrintIcon      from "@mui/icons-material/Print";
-import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { useNavigate } from "react-router-dom";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import SearchIcon from "@mui/icons-material/Search";
+import PersonIcon from "@mui/icons-material/Person";
+import SchoolIcon from "@mui/icons-material/School";
+import SubjectIcon from "@mui/icons-material/Subject";
 
-const empty = {
-  name: "", admissionNo: "", grade: 6, section: "A",
-  gender: "Male", dob: "",
-  phone: "", address: "", parentName: "", parentPhone: "",
-  religion: "Hinduism",
-  aesthetic: "Art",
-  basket1: "", basket2: "", basket3: "",
-  status: "active", leftDate: "", leftReason: ""
+const STATUS_OPTIONS = ["Active", "Left", "Graduated", "Suspended"];
+
+const emptyForm = {
+  name: "",
+  admissionNo: "",
+  phone: "",
+  parentPhone: "",
+  grade: "",
+  section: "",
+  status: "Active",
+  address: "",
+  birthday: "",
+  gender: "",
+  notes: ""
 };
 
 export default function Students() {
-  const navigate  = useNavigate();
-  const theme     = useTheme();
-  const isMobile  = useMediaQuery(theme.breakpoints.down("sm"));
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [students,      setStudents]      = useState([]);
-  const [filtered,      setFiltered]      = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [open,          setOpen]          = useState(false);
-  const [idCardOpen,    setIdCardOpen]    = useState(false);
-  const [leftDialog,    setLeftDialog]    = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [leftReason,    setLeftReason]    = useState("");
-  const [leftDate,      setLeftDate]      = useState("");
-  const [form,          setForm]          = useState(empty);
-  const [editId,        setEditId]        = useState(null);
-  const [error,         setError]         = useState("");
-  const [saving,        setSaving]        = useState(false);
-  const [search,        setSearch]        = useState("");
-  const [filterGrade,   setFilterGrade]   = useState("All");
-  const [filterSection, setFilterSection] = useState("All");
-  const [filterStatus,  setFilterStatus]  = useState("active");
-  const [page,          setPage]          = useState(0);
-  const [rowsPerPage,   setRowsPerPage]   = useState(10);
-  const [formTab,       setFormTab]       = useState(0);
+  // ── data state ──────────────────────────────────────────────────
+  const [students, setStudents] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [bulkOpen,      setBulkOpen]      = useState(false);
-  const [bulkData,      setBulkData]      = useState([]);
-  const [bulkErrors,    setBulkErrors]    = useState([]);
-  const [bulkUploading, setBulkUploading] = useState(false);
-  const [bulkSuccess,   setBulkSuccess]   = useState("");
+  // ── filter state ─────────────────────────────────────────────────
+  const [search, setSearch] = useState("");
+  const [filterGrade, setFilterGrade] = useState("");
+  const [filterSection, setFilterSection] = useState("");
+  const [filterStatus, setFilterStatus] = useState("Active");
+  const [viewMode, setViewMode] = useState("table"); // "table" | "subject"
 
-  // ── Fetch ──
-  const fetchStudents = async () => {
-    const snap = await getDocs(collection(db, "students"));
-    const data = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => {
-        if (a.grade !== b.grade) return a.grade - b.grade;
-        if (a.section !== b.section) return a.section.localeCompare(b.section);
-        return a.name.localeCompare(b.name);
-      });
-    setStudents(data);
-    setLoading(false);
-  };
+  // ── form / dialog state ──────────────────────────────────────────
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  useEffect(() => { fetchStudents(); }, []);
+  // ── derived: unique grades from classrooms ───────────────────────
+  const gradeOptions = [...new Set(classrooms.map(c => c.grade))]
+    .sort((a, b) => a - b);
 
-  useEffect(() => {
-    let data = [...students];
-    if (search) data = data.filter(s =>
-      s.name?.toLowerCase().includes(search.toLowerCase()) ||
-      s.admissionNo?.toLowerCase().includes(search.toLowerCase()) ||
-      s.phone?.includes(search) ||
-      s.parentPhone?.includes(search)
-    );
-    if (filterGrade   !== "All") data = data.filter(s => s.grade === filterGrade);
-    if (filterSection !== "All") data = data.filter(s => s.section === filterSection);
-    if (filterStatus  !== "All") data = data.filter(s => (s.status || "active") === filterStatus);
-    setFiltered(data);
-    setPage(0);
-  }, [search, filterGrade, filterSection, filterStatus, students]);
+  // ── derived: sections for selected grade (filter) ────────────────
+  const sectionOptionsForFilter = filterGrade
+    ? [...new Set(
+        classrooms
+          .filter(c => c.grade === Number(filterGrade))
+          .map(c => c.section)
+      )].sort()
+    : [...new Set(classrooms.map(c => c.section))].sort();
 
-  // ── CRUD ──
-  const handleSave = async () => {
-    if (!form.name || !form.admissionNo)
-      return setError("Name and Admission No are required.");
-    setSaving(true); setError("");
+  // ── derived: sections for selected grade (form) ──────────────────
+  const sectionOptionsForForm = form.grade
+    ? [...new Set(
+        classrooms
+          .filter(c => c.grade === Number(form.grade))
+          .map(c => c.section)
+      )].sort()
+    : [];
+
+  // ── fetch ─────────────────────────────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
     try {
+      const [studSnap, classSnap] = await Promise.all([
+        getDocs(query(collection(db, "students"), orderBy("name"))),
+        getDocs(collection(db, "classrooms"))
+      ]);
+
+      setStudents(studSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setClassrooms(classSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      setError("Failed to load data: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ── reset section filter when grade changes ───────────────────────
+  useEffect(() => { setFilterSection(""); }, [filterGrade]);
+
+  // ── reset form section when form grade changes ────────────────────
+  useEffect(() => {
+    setForm(prev => ({ ...prev, section: "" }));
+  }, [form.grade]);
+
+  // ── filtered students ─────────────────────────────────────────────
+  const filtered = students.filter(s => {
+    const q = search.toLowerCase();
+    const matchSearch =
+      !q ||
+      (s.name || "").toLowerCase().includes(q) ||
+      (s.admissionNo || "").toLowerCase().includes(q) ||
+      (s.phone || "").includes(q);
+
+    const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
+    const matchSection = !filterSection || s.section === filterSection;
+    const matchStatus = !filterStatus || s.status === filterStatus;
+
+    return matchSearch && matchGrade && matchSection && matchStatus;
+  });
+
+  // ── stats ─────────────────────────────────────────────────────────
+  const activeCount = students.filter(s => s.status === "Active").length;
+  const leftCount = students.filter(s => s.status === "Left").length;
+  const totalCount = students.length;
+
+  // ── save ──────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!form.name.trim()) { setError("Name is required."); return; }
+    if (!form.grade) { setError("Grade is required."); return; }
+    if (!form.section) { setError("Section is required."); return; }
+    if (!form.admissionNo.trim()) { setError("Admission No. is required."); return; }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const payload = {
+        name: form.name.trim(),
+        admissionNo: form.admissionNo.trim(),
+        phone: form.phone.trim(),
+        parentPhone: form.parentPhone.trim(),
+        grade: Number(form.grade),
+        section: form.section,
+        status: form.status,
+        address: form.address.trim(),
+        birthday: form.birthday,
+        gender: form.gender,
+        notes: form.notes.trim(),
+        updatedAt: new Date().toISOString()
+      };
+
       if (editId) {
-        await updateDoc(doc(db, "students", editId), form);
+        await updateDoc(doc(db, "students", editId), payload);
+        setSuccess("Student updated successfully!");
       } else {
         await addDoc(collection(db, "students"), {
-          ...form, status: "active", createdAt: new Date().toISOString()
+          ...payload,
+          createdAt: new Date().toISOString()
         });
+        setSuccess("Student added successfully!");
       }
-      setOpen(false); setForm(empty); setEditId(null);
-      fetchStudents();
-    } catch (err) { setError(err.message); }
-    setSaving(false);
+
+      setOpen(false);
+      setForm(emptyForm);
+      setEditId(null);
+      await fetchAll();
+    } catch (err) {
+      setError("Save failed: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // ── edit ──────────────────────────────────────────────────────────
   const handleEdit = (s) => {
     setForm({
-      name: s.name || "", admissionNo: s.admissionNo || "",
-      grade: s.grade || 6, section: s.section || "A",
-      gender: s.gender || "Male", dob: s.dob || "",
-      phone: s.phone || "", address: s.address || "",
-      parentName: s.parentName || "", parentPhone: s.parentPhone || "",
-      religion:  s.religion  || "Hinduism",
-      aesthetic: s.aesthetic || "Art",
-      basket1: s.basket1 || "", basket2: s.basket2 || "", basket3: s.basket3 || "",
-      status: s.status || "active",
-      leftDate: s.leftDate || "", leftReason: s.leftReason || ""
+      name: s.name || "",
+      admissionNo: s.admissionNo || "",
+      phone: s.phone || "",
+      parentPhone: s.parentPhone || "",
+      grade: s.grade || "",
+      section: s.section || "",
+      status: s.status || "Active",
+      address: s.address || "",
+      birthday: s.birthday || "",
+      gender: s.gender || "",
+      notes: s.notes || ""
     });
-    setEditId(s.id); setError(""); setFormTab(0); setOpen(true);
+    setEditId(s.id);
+    setError("");
+    setSuccess("");
+    setOpen(true);
   };
 
+  // ── delete ────────────────────────────────────────────────────────
   const handleDelete = async (id) => {
-    if (!window.confirm("Permanently delete this student?")) return;
-    await deleteDoc(doc(db, "students", id));
-    fetchStudents();
-  };
-
-  const handleMarkLeft = async () => {
-    if (!leftDate) return;
-    await updateDoc(doc(db, "students", selectedStudent.id), {
-      status: "left", leftDate, leftReason
-    });
-    setLeftDialog(false); setLeftReason(""); setLeftDate("");
-    fetchStudents();
-  };
-
-  const handleRestoreStudent = async (s) => {
-    await updateDoc(doc(db, "students", s.id), {
-      status: "active", leftDate: "", leftReason: ""
-    });
-    fetchStudents();
-  };
-
-  const openIdCard    = (s) => { setSelectedStudent(s); setIdCardOpen(true); };
-  const openLeftDialog = (s) => { setSelectedStudent(s); setLeftDialog(true); };
-
-  // ── Bulk Upload ──
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setBulkErrors([]); setBulkData([]); setBulkSuccess("");
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const wb  = XLSX.read(evt.target.result, { type: "binary" });
-        const ws  = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
-        if (raw.length === 0) {
-          setBulkErrors(["Excel file is empty or has no data rows."]);
-          return;
-        }
-        const errors  = [];
-        const cleaned = raw.map((row, idx) => {
-          const grade = Number(row.grade) || 6;
-          const r = {
-            admissionNo: String(row.admissionNo || "").trim(),
-            name:        String(row.name        || "").trim(),
-            grade,
-            section:     String(row.section  || "A").trim().toUpperCase(),
-            gender:      String(row.gender   || "Male").trim(),
-            dob:         String(row.dob      || "").trim(),
-            phone:       String(row.phone    || "").trim(),
-            parentName:  String(row.parentName  || "").trim(),
-            parentPhone: String(row.parentPhone || "").trim(),
-            address:     String(row.address  || "").trim(),
-            religion:    String(row.religion || "Hinduism").trim(),
-            aesthetic:   grade <= 9
-              ? String(row.aesthetic || "Art").trim() : "",
-            basket1: grade >= 10 && grade <= 11
-              ? String(row.basket1 || "").trim() : "",
-            basket2: grade >= 10 && grade <= 11
-              ? String(row.basket2 || "").trim() : "",
-            basket3: grade >= 10 && grade <= 11
-              ? String(row.basket3 || "").trim() : "",
-            status: "active",
-          };
-          if (!r.name)        errors.push(`Row ${idx + 2}: Name is missing`);
-          if (!r.admissionNo) errors.push(`Row ${idx + 2}: Admission No is missing`);
-          if (!GRADES.includes(r.grade))
-            errors.push(`Row ${idx + 2}: Invalid grade "${r.grade}"`);
-          if (!SECTIONS.includes(r.section))
-            errors.push(`Row ${idx + 2}: Invalid section "${r.section}"`);
-          return r;
-        });
-        setBulkErrors(errors);
-        setBulkData(cleaned);
-      } catch (err) {
-        setBulkErrors(["Failed to read file. Make sure it's a valid .xlsx file."]);
-      }
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = "";
-  };
-
-  const handleBulkUpload = async () => {
-    if (bulkErrors.length > 0 || bulkData.length === 0) return;
-    setBulkUploading(true);
-    let count = 0;
+    if (!window.confirm("Delete this student permanently?")) return;
     try {
-      for (const student of bulkData) {
-        await addDoc(collection(db, "students"), {
-          ...student, createdAt: new Date().toISOString(),
-        });
-        count++;
-      }
-      setBulkSuccess(`✅ ${count} students uploaded successfully!`);
-      setBulkData([]); setBulkErrors([]);
-      fetchStudents();
+      await deleteDoc(doc(db, "students", id));
+      setSuccess("Student deleted.");
+      await fetchAll();
     } catch (err) {
-      setBulkErrors([`Upload failed: ${err.message}`]);
+      setError("Delete failed: " + err.message);
     }
-    setBulkUploading(false);
   };
 
-  const downloadTemplate = () => {
-    const template = [
-      {
-        admissionNo: "2024001", name: "Kajendran Mayuran",
-        grade: 6, section: "A", gender: "Male",
-        dob: "2012-05-14", phone: "0771234567",
-        parentName: "Kajendran Kumar", parentPhone: "0777654321",
-        address: "12, Main St, Kilinochchi",
-        religion: "Hinduism", aesthetic: "Art",
-        basket1: "", basket2: "", basket3: ""
-      },
-      {
-        admissionNo: "2024002", name: "Thamilini Priya",
-        grade: 10, section: "B", gender: "Female",
-        dob: "2011-08-20", phone: "0769876543",
-        parentName: "Thamilini Rajan", parentPhone: "0761234567",
-        address: "45, North Rd, Kilinochchi",
-        religion: "Catholicism", aesthetic: "",
-        basket1: "Art", basket2: "ICT", basket3: "Geography"
-      }
-    ];
-    const ws = XLSX.utils.json_to_sheet(template);
-    ws["!cols"] = [
-      {wch:12},{wch:22},{wch:6},{wch:8},{wch:8},
-      {wch:12},{wch:13},{wch:22},{wch:13},
-      {wch:28},{wch:14},{wch:10},
-      {wch:20},{wch:20},{wch:25}
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Students");
-    XLSX.writeFile(wb, "students_template.xlsx");
+  // ── status chip color ─────────────────────────────────────────────
+  const statusColor = (s) => {
+    if (s === "Active") return "success";
+    if (s === "Left") return "error";
+    if (s === "Graduated") return "primary";
+    return "warning";
   };
 
-  // ── Helpers ──
-  const getStatusColor = (status) => {
-    if (status === "left")      return "error";
-    if (status === "completed") return "success";
-    return "success"; // active → green
-  };
+  // ── avatar initials ───────────────────────────────────────────────
+  const initials = (name = "") =>
+    name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
 
-  const paginated   = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const statusCounts = {
-    all:       students.length,
-    active:    students.filter(s => (s.status || "active") === "active").length,
-    left:      students.filter(s => s.status === "left").length,
-    completed: students.filter(s => s.status === "completed").length,
-  };
+  // ── grouped by subject (view mode) ───────────────────────────────
+  const groupedByGradeSection = filtered.reduce((acc, s) => {
+    const key = `Grade ${s.grade} - ${s.section}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(s);
+    return acc;
+  }, {});
 
-  const printIdCard = () => {
-    const content = document.getElementById("id-card-print").innerHTML;
-    const win = window.open("", "_blank");
-    win.document.write(`
-      <html><head><title>Student ID - ${selectedStudent?.name}</title>
-      <style>
-        body { font-family: Arial, sans-serif; display:flex;
-               justify-content:center; padding:20px; }
-        .card { border: 2px solid #1a237e; border-radius: 12px;
-                padding: 20px; width: 320px; text-align: center; }
-        hr { border-color: #1a237e; }
-      </style>
-      </head><body>${content}</body></html>
-    `);
-    win.document.close(); win.print();
-  };
-
-  // ════════════════════════════════════════
-  // RENDER
-  // ════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────
   return (
     <Box>
-
-      {/* ── Header Card (Fix 1: Better UI) ── */}
-      <Box sx={{
-        bgcolor: "white", borderRadius: 3, p: { xs: 2, sm: 2.5 },
-        mb: 2, boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-        border: "1px solid #e8eaf6"
-      }}>
-        {/* Title + Buttons Row */}
-        <Box display="flex" justifyContent="space-between"
-          alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+      {/* ── Header ── */}
+      <Box
+        sx={{
+          bgcolor: "white",
+          borderRadius: 3,
+          p: { xs: 2, sm: 2.5 },
+          mb: 2,
+          boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
+          border: "1px solid #e8eaf6"
+        }}
+      >
+        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1.5}>
           <Box>
-            <Typography variant={isMobile ? "h6" : "h5"}
-              fontWeight={800} color="#1a237e">
+            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={800} color="#1a237e">
               Students
             </Typography>
             <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip label={`Active: ${statusCounts.active}`}
-                size="small" color="success"
-                sx={{ fontWeight: 700 }} />
-              <Chip label={`Left: ${statusCounts.left}`}
-                size="small" color="error"
-                sx={{ fontWeight: 700 }} />
-              <Chip label={`Total: ${statusCounts.all}`}
-                size="small" color="primary"
-                sx={{ fontWeight: 700 }} />
+              <Chip label={`Active: ${activeCount}`} size="small" color="success" sx={{ fontWeight: 700 }} />
+              <Chip label={`Left: ${leftCount}`} size="small" color="error" sx={{ fontWeight: 700 }} />
+              <Chip label={`Total: ${totalCount}`} size="small" color="primary" sx={{ fontWeight: 700 }} />
             </Box>
           </Box>
-          <Box display="flex" gap={1} flexWrap="wrap">
-            <Button variant="outlined" startIcon={<UploadFileIcon />}
-              size="small"
-              onClick={() => {
-                setBulkOpen(true); setBulkData([]);
-                setBulkErrors([]); setBulkSuccess("");
-              }}
-              sx={{ borderColor: "#1a237e", color: "#1a237e",
-                fontWeight: 600, borderRadius: 2 }}>
-              {isMobile ? "Bulk" : "Bulk Upload"}
-            </Button>
-            <Button variant="contained" startIcon={<AddIcon />}
-              size="small"
-              onClick={() => {
-                setForm(empty); setEditId(null);
-                setError(""); setFormTab(0); setOpen(true);
-              }}
-              sx={{ bgcolor: "#1a237e", fontWeight: 600, borderRadius: 2 }}>
-              {isMobile ? "Add" : "Add Student"}
-            </Button>
-          </Box>
+
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            size={isMobile ? "small" : "medium"}
+            onClick={() => {
+              setForm(emptyForm);
+              setEditId(null);
+              setError("");
+              setSuccess("");
+              setOpen(true);
+            }}
+            sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+          >
+            {isMobile ? "Add" : "Add Student"}
+          </Button>
         </Box>
 
-        {/* Filters Row */}
-        <Grid container spacing={1} alignItems="center">
-          <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small"
-              placeholder="Search name, adm no, phone..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              sx={{ bgcolor: "#f8f9ff" }}
-              InputProps={{
-                sx: { borderRadius: 2 },
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" sx={{ color: "#1a237e" }} />
-                  </InputAdornment>
-                )
-              }} />
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
-              <InputLabel>Grade</InputLabel>
-              <Select value={filterGrade} label="Grade"
-                sx={{ borderRadius: 2 }}
-                onChange={e => setFilterGrade(e.target.value)}>
-                <MenuItem value="All">All Grades</MenuItem>
-                {GRADES.map(g => (
-                  <MenuItem key={g} value={g}>Grade {g}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
-              <InputLabel>Section</InputLabel>
-              <Select value={filterSection} label="Section"
-                sx={{ borderRadius: 2 }}
-                onChange={e => setFilterSection(e.target.value)}>
-                <MenuItem value="All">All Sections</MenuItem>
-                {SECTIONS.map(s => (
-                  <MenuItem key={s} value={s}>Section {s}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={4} sm={2}>
-            <FormControl fullWidth size="small" sx={{ bgcolor: "#f8f9ff" }}>
-              <InputLabel>Status</InputLabel>
-              <Select value={filterStatus} label="Status"
-                sx={{ borderRadius: 2 }}
-                onChange={e => setFilterStatus(e.target.value)}>
-                <MenuItem value="All">All</MenuItem>
-                <MenuItem value="active">Active</MenuItem>
-                <MenuItem value="left">Left</MenuItem>
-                <MenuItem value="completed">Completed</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} sm={2}>
-            <Button fullWidth variant="outlined" size="small"
-              onClick={() => navigate("/students/by-subject")}
-              sx={{
-                height: 40, borderColor: "#1a237e",
-                color: "#1a237e", fontWeight: 600, borderRadius: 2
-              }}>
-              By Subject
-            </Button>
-          </Grid>
-        </Grid>
+        {/* ── Filters ── */}
+        <Box
+          display="flex"
+          flexWrap="wrap"
+          gap={1.5}
+          mt={2}
+          alignItems="center"
+        >
+          {/* Search */}
+          <TextField
+            size="small"
+            placeholder="Search name, adm no, phone"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            sx={{ minWidth: 200, flex: 1 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              )
+            }}
+          />
+
+          {/* Grade — from classrooms */}
+          <FormControl size="small" sx={{ minWidth: 130 }}>
+            <InputLabel>Grade</InputLabel>
+            <Select
+              value={filterGrade}
+              label="Grade"
+              onChange={e => setFilterGrade(e.target.value)}
+            >
+              <MenuItem value="">All Grades</MenuItem>
+              {gradeOptions.map(g => (
+                <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Section — from classrooms (filtered by grade if selected) */}
+          <FormControl size="small" sx={{ minWidth: 130 }}>
+            <InputLabel>Section</InputLabel>
+            <Select
+              value={filterSection}
+              label="Section"
+              onChange={e => setFilterSection(e.target.value)}
+              disabled={sectionOptionsForFilter.length === 0}
+            >
+              <MenuItem value="">All Sections</MenuItem>
+              {sectionOptionsForFilter.map(s => (
+                <MenuItem key={s} value={s}>Section {s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Status */}
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={filterStatus}
+              label="Status"
+              onChange={e => setFilterStatus(e.target.value)}
+            >
+              <MenuItem value="">All</MenuItem>
+              {STATUS_OPTIONS.map(s => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* View Toggle */}
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(_, v) => v && setViewMode(v)}
+            size="small"
+          >
+            <ToggleButton value="table" sx={{ fontWeight: 700, fontSize: 11 }}>
+              <SchoolIcon sx={{ fontSize: 16, mr: 0.5 }} /> TABLE
+            </ToggleButton>
+            <ToggleButton value="subject" sx={{ fontWeight: 700, fontSize: 11 }}>
+              <SubjectIcon sx={{ fontSize: 16, mr: 0.5 }} /> BY SUBJECT
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
       </Box>
 
-      {/* ── Table / Cards ── */}
-      {loading ? (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          {isMobile ? (
-            // ── Mobile Cards ──
-            <Box>
-              {paginated.map(s => (
-                <Card key={s.id} sx={{
-                  mb: 1.5, boxShadow: 2,
-                  opacity: s.status === "left" ? 0.7 : 1,
-                  border: s.status === "left"
-                    ? "1px solid #ef9a9a" : "1px solid #e0e0e0",
-                  borderRadius: 3
-                }}>
-                  <CardContent sx={{ pb: 0 }}>
-                    <Box display="flex" justifyContent="space-between"
-                      alignItems="flex-start">
-                      <Box>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          {s.name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Adm: {s.admissionNo} • {s.gender}
-                        </Typography>
-                        {s.phone && (
-                          <Typography variant="caption" color="text.secondary"
-                            display="block">
-                            📞 {s.phone}
-                          </Typography>
-                        )}
-                      </Box>
-                      <Box display="flex" flexDirection="column"
-                        alignItems="flex-end" gap={0.5}>
-                        <Chip label={`G${s.grade}-${s.section}`}
-                          size="small" color="primary" />
-                        {s.status && s.status !== "active" && (
-                          <Chip label={s.status} size="small"
-                            color={getStatusColor(s.status)} />
-                        )}
-                      </Box>
-                    </Box>
-                    {s.status === "left" && s.leftDate && (
-                      <Typography variant="caption" color="error">
-                        Left: {s.leftDate}
-                        {s.leftReason ? ` — ${s.leftReason}` : ""}
-                      </Typography>
-                    )}
-                  </CardContent>
-                  <CardActions sx={{
-                    pt: 0.5, pb: 1, px: 2, gap: 0.5, flexWrap: "wrap"
-                  }}>
-                    <Button size="small" variant="outlined"
-                      startIcon={<EditIcon />}
-                      onClick={() => handleEdit(s)}>Edit</Button>
-                    <Button size="small" variant="outlined" color="info"
-                      startIcon={<BadgeIcon />}
-                      onClick={() => openIdCard(s)}>ID</Button>
-                    <Button size="small" variant="outlined" color="success"
-                      startIcon={<AssessmentIcon />}
-                      onClick={() => navigate(`/report/${s.id}`)}>
-                      Report
-                    </Button>
-                    {s.status === "active" && (
-                      <Button size="small" variant="outlined" color="warning"
-                        startIcon={<ExitToAppIcon />}
-                        onClick={() => openLeftDialog(s)}>Left</Button>
-                    )}
-                    {s.status === "left" && (
-                      <Button size="small" variant="outlined" color="success"
-                        onClick={() => handleRestoreStudent(s)}>
-                        Restore
-                      </Button>
-                    )}
-                    <IconButton size="small" color="error"
-                      onClick={() => handleDelete(s.id)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </CardActions>
-                </Card>
-              ))}
-              {filtered.length === 0 && (
-                <Typography align="center" color="text.secondary" mt={3}>
-                  No students found.
-                </Typography>
-              )}
-            </Box>
-          ) : (
-            // ── Desktop Table (Fix 2: removed Religion & Extra Subject cols) ──
-            <Paper sx={{
-              overflowX: "auto", borderRadius: 3,
-              boxShadow: "0 2px 12px rgba(26,35,126,0.08)"
-            }}>
-              <Table size="small">
-                <TableHead sx={{ bgcolor: "#1a237e" }}>
-                  <TableRow>
-                    {["#", "Adm No", "Name", "Grade",
-                      "Phone", "Parent", "Status", "Actions"].map(h => (
-                      <TableCell key={h}
-                        sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
-                        {h}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {paginated.map((s, idx) => (
-                    <TableRow key={s.id} hover sx={{
-                      opacity: s.status === "left" ? 0.65 : 1,
-                      bgcolor: s.status === "left" ? "#fff8f8" : "inherit",
-                      "&:hover": { bgcolor: "#f5f7ff" }
-                    }}>
-                      <TableCell sx={{ color: "#666", fontSize: 13 }}>
-                        {page * rowsPerPage + idx + 1}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={600}
-                          color="#1a237e">
-                          {s.admissionNo}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={700}>
-                          {s.name}
-                        </Typography>
-                        {s.address && (
-                          <Typography variant="caption" color="text.secondary">
-                            {s.address}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={`G${s.grade}-${s.section}`}
-                          size="small" color="primary"
-                          sx={{ fontWeight: 700 }} />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {s.phone || "—"}
-                        </Typography>
-                        {s.parentPhone && (
-                          <Typography variant="caption"
-                            color="text.secondary">
-                            P: {s.parentPhone}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {s.parentName || "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={s.status || "active"}
-                          size="small"
-                          color={getStatusColor(s.status || "active")}
-                          sx={{ fontWeight: 700, textTransform: "capitalize" }}
-                        />
-                        {s.status === "left" && s.leftDate && (
-                          <Typography variant="caption"
-                            display="block" color="error">
-                            {s.leftDate}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" color="primary"
-                            onClick={() => handleEdit(s)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="ID Card">
-                          <IconButton size="small" color="info"
-                            onClick={() => openIdCard(s)}>
-                            <BadgeIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Report Card">
-                          <IconButton size="small" color="success"
-                            onClick={() => navigate(`/report/${s.id}`)}>
-                            <AssessmentIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        {s.status === "active" && (
-                          <Tooltip title="Mark as Left">
-                            <IconButton size="small" color="warning"
-                              onClick={() => openLeftDialog(s)}>
-                              <ExitToAppIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {s.status === "left" && (
-                          <Tooltip title="Restore Student">
-                            <Button size="small" variant="text"
-                              color="success"
-                              onClick={() => handleRestoreStudent(s)}>
-                              Restore
-                            </Button>
-                          </Tooltip>
-                        )}
-                        <Tooltip title="Delete">
-                          <IconButton size="small" color="error"
-                            onClick={() => handleDelete(s.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} align="center"
-                        sx={{ py: 4, color: "text.secondary" }}>
-                        No students found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </Paper>
-          )}
-
-          <TablePagination
-            component="div" count={filtered.length} page={page}
-            onPageChange={(e, p) => setPage(p)}
-            rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={e => {
-              setRowsPerPage(+e.target.value); setPage(0);
-            }}
-            rowsPerPageOptions={isMobile ? [5, 10] : [10, 25, 50]} />
-        </>
+      {/* ── Alerts ── */}
+      {success && (
+        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
+          {success}
+        </Alert>
+      )}
+      {error && !open && (
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
+          {error}
+        </Alert>
       )}
 
-      {/* ══════════════════════════════
-          ADD / EDIT DIALOG
-          Fix 3: Subjects tab has Religion,
-          Aesthetic, Baskets — NOT personal tab
-      ══════════════════════════════ */}
-      <Dialog open={open} onClose={() => setOpen(false)}
-        maxWidth="md" fullWidth fullScreen={isMobile}>
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "✏️ Edit Student" : "➕ Add New Student"}
-        </DialogTitle>
-        <Tabs value={formTab} onChange={(e, v) => setFormTab(v)}
-          sx={{ px: 2, borderBottom: "1px solid #e8eaf6" }}>
-          <Tab label="Basic Info" />
-          <Tab label="Contact" />
-          <Tab label="Subjects" />
-        </Tabs>
-        <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-              {error}
-            </Alert>
-          )}
-
-          {/* ── Tab 0: Basic Info ── */}
-          {formTab === 0 && (
-            <Grid container spacing={2} mt={0.5}>
-              <Grid item xs={12}>
-                <TextField fullWidth label="Full Name *"
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Admission Number *"
-                  value={form.admissionNo}
-                  onChange={e => setForm({
-                    ...form, admissionNo: e.target.value
-                  })} />
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <FormControl fullWidth>
-                  <InputLabel>Grade</InputLabel>
-                  <Select value={form.grade} label="Grade"
-                    onChange={e => setForm({
-                      ...form, grade: e.target.value,
-                      aesthetic: "Art",
-                      basket1: "", basket2: "", basket3: ""
-                    })}>
-                    {GRADES.map(g => (
-                      <MenuItem key={g} value={g}>Grade {g}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <FormControl fullWidth>
-                  <InputLabel>Section</InputLabel>
-                  <Select value={form.section} label="Section"
-                    onChange={e => setForm({
-                      ...form, section: e.target.value
-                    })}>
-                    {SECTIONS.map(s => (
-                      <MenuItem key={s} value={s}>{s}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Gender</InputLabel>
-                  <Select value={form.gender} label="Gender"
-                    onChange={e => setForm({
-                      ...form, gender: e.target.value
-                    })}>
-                    <MenuItem value="Male">Male</MenuItem>
-                    <MenuItem value="Female">Female</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <TextField fullWidth label="Date of Birth" type="date"
-                  value={form.dob}
-                  onChange={e => setForm({ ...form, dob: e.target.value })}
-                  InputLabelProps={{ shrink: true }} />
-              </Grid>
-            </Grid>
-          )}
-
-          {/* ── Tab 1: Contact ── */}
-          {formTab === 1 && (
-            <Grid container spacing={2} mt={0.5}>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Student Phone"
-                  value={form.phone}
-                  onChange={e => setForm({
-                    ...form, phone: e.target.value
-                  })} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Parent/Guardian Name"
-                  value={form.parentName}
-                  onChange={e => setForm({
-                    ...form, parentName: e.target.value
-                  })} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField fullWidth label="Parent Phone"
-                  value={form.parentPhone}
-                  onChange={e => setForm({
-                    ...form, parentPhone: e.target.value
-                  })} />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField fullWidth label="Address" multiline rows={2}
-                  value={form.address}
-                  onChange={e => setForm({
-                    ...form, address: e.target.value
-                  })} />
-              </Grid>
-            </Grid>
-          )}
-
-          {/* ── Tab 2: Subjects (Fix 3: Religion here, not personal) ── */}
-          {formTab === 2 && (
-            <Grid container spacing={2} mt={0.5}>
-              <Grid item xs={12}>
-                <Alert severity="info" sx={{ mb: 1 }}>
-                  Select the subjects for <strong>{form.name || "this student"}</strong>
-                  {" "}— Grade {form.grade}
-                </Alert>
-              </Grid>
-
-              {/* Religion — all grades */}
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Religion Subject *</InputLabel>
-                  <Select value={form.religion} label="Religion Subject *"
-                    onChange={e => setForm({
-                      ...form, religion: e.target.value
-                    })}>
-                    {RELIGIONS.map(r => (
-                      <MenuItem key={r} value={r}>{r}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Grade 6–9: Aesthetic */}
-              {form.grade >= 6 && form.grade <= 9 && (
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Aesthetic Subject *</InputLabel>
-                    <Select value={form.aesthetic}
-                      label="Aesthetic Subject *"
-                      onChange={e => setForm({
-                        ...form, aesthetic: e.target.value
-                      })}>
-                      {AESTHETIC_SUBJECTS.map(a => (
-                        <MenuItem key={a} value={a}>{a}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-              )}
-
-              {/* Grade 10–11: Baskets */}
-              {form.grade >= 10 && form.grade <= 11 && (
-                <>
-                  <Grid item xs={12}>
-                    <Alert severity="warning">
-                      Select one subject from each basket.
-                    </Alert>
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Basket 1</InputLabel>
-                      <Select value={form.basket1} label="Basket 1"
-                        onChange={e => setForm({
-                          ...form, basket1: e.target.value
-                        })}>
-                        <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_1.map(s => (
-                          <MenuItem key={s} value={s}>{s}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Basket 2</InputLabel>
-                      <Select value={form.basket2} label="Basket 2"
-                        onChange={e => setForm({
-                          ...form, basket2: e.target.value
-                        })}>
-                        <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_2.map(s => (
-                          <MenuItem key={s} value={s}>{s}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Basket 3</InputLabel>
-                      <Select value={form.basket3} label="Basket 3"
-                        onChange={e => setForm({
-                          ...form, basket3: e.target.value
-                        })}>
-                        <MenuItem value="">-- Select --</MenuItem>
-                        {BASKET_3.map(s => (
-                          <MenuItem key={s} value={s}>{s}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </>
-              )}
-
-              {/* Grade 12–13 */}
-              {form.grade >= 12 && form.grade <= 13 && (
-                <Grid item xs={12}>
-                  <Alert severity="success">
-                    Grade {form.grade} — All subjects are compulsory.
-                    No basket or aesthetic selection needed.
-                  </Alert>
-                </Grid>
-              )}
-            </Grid>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2, flexWrap: "wrap", gap: 1 }}>
-          <Button onClick={() => setOpen(false)}
-            fullWidth={isMobile}>
-            Cancel
-          </Button>
-          {formTab > 0 && (
-            <Button onClick={() => setFormTab(f => f - 1)}
-              fullWidth={isMobile}>
-              ← Back
-            </Button>
-          )}
-          {formTab < 2 ? (
-            <Button variant="contained"
-              onClick={() => setFormTab(f => f + 1)}
-              fullWidth={isMobile}
-              sx={{ bgcolor: "#1a237e" }}>
-              Next →
-            </Button>
-          ) : (
-            <Button onClick={handleSave} variant="contained"
-              disabled={saving} fullWidth={isMobile}
-              sx={{ bgcolor: "#1a237e" }}>
-              {saving
-                ? <CircularProgress size={20} color="inherit" />
-                : editId ? "Update Student" : "Add Student"}
-            </Button>
-          )}
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Mark as Left Dialog ── */}
-      <Dialog open={leftDialog} onClose={() => setLeftDialog(false)}
-        maxWidth="xs" fullWidth fullScreen={isMobile}>
-        <DialogTitle sx={{ bgcolor: "#e65100", color: "white" }}>
-          Mark Student as Left
-        </DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2, mt: 1 }}>
-            <strong>{selectedStudent?.name}</strong> will be excluded
-            from future marks entry. Records will be kept.
-          </Alert>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField fullWidth label="Left Date *" type="date"
-                value={leftDate}
-                onChange={e => setLeftDate(e.target.value)}
-                InputLabelProps={{ shrink: true }} />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth label="Reason (optional)"
-                multiline rows={2} value={leftReason}
-                onChange={e => setLeftReason(e.target.value)}
-                placeholder="e.g. Transferred to another school..." />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setLeftDialog(false)}
-            fullWidth={isMobile}>Cancel</Button>
-          <Button onClick={handleMarkLeft} variant="contained"
-            color="warning" disabled={!leftDate}
-            fullWidth={isMobile}>
-            Confirm Left
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── ID Card Dialog ── */}
-      <Dialog open={idCardOpen} onClose={() => setIdCardOpen(false)}
-        maxWidth="xs" fullWidth>
-        <DialogTitle>
-          Student ID Card
-          <IconButton onClick={printIdCard} sx={{ float: "right" }}>
-            <PrintIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent>
-          <Box id="id-card-print">
-            <Box sx={{
-              border: "3px solid #1a237e", borderRadius: 3, p: 2.5,
-              textAlign: "center", maxWidth: 320, mx: "auto"
-            }}>
-              <Typography variant="subtitle2" fontWeight={700}
-                color="#1a237e">
-                Kilinochchi Central College
-              </Typography>
-              <Divider sx={{ my: 1, borderColor: "#1a237e" }} />
-              <Box sx={{
-                width: 70, height: 70, borderRadius: "50%",
-                bgcolor: "#1a237e", mx: "auto", mb: 1,
-                display: "flex", alignItems: "center",
-                justifyContent: "center"
-              }}>
-                <Typography variant="h4" color="white" fontWeight={700}>
-                  {selectedStudent?.name?.charAt(0)}
-                </Typography>
-              </Box>
-              <Typography variant="h6" fontWeight={700}>
-                {selectedStudent?.name}
-              </Typography>
-              <Divider sx={{ my: 1 }} />
-              <Grid container spacing={1} textAlign="left">
-                {[
-                  ["Adm No",   selectedStudent?.admissionNo],
-                  ["Grade",    `${selectedStudent?.grade}-${selectedStudent?.section}`],
-                  ["Gender",   selectedStudent?.gender],
-                  ["DOB",      selectedStudent?.dob || "—"],
-                  ["Religion", selectedStudent?.religion || "—"],
-                  ["Phone",    selectedStudent?.phone || "—"],
-                  ["Parent",   selectedStudent?.parentName || "—"],
-                  ["P.Phone",  selectedStudent?.parentPhone || "—"],
-                ].map(([label, value]) => (
-                  <Grid item xs={6} key={label}>
-                    <Typography variant="caption" color="text.secondary">
-                      {label}
-                    </Typography>
-                    <Typography variant="body2" fontWeight={600}>
-                      {value}
-                    </Typography>
-                  </Grid>
-                ))}
-              </Grid>
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ bgcolor: "#1a237e", borderRadius: 1, py: 0.5 }}>
-                <Typography variant="caption" color="white">
-                  Academic Year 2026
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIdCardOpen(false)}>Close</Button>
-          <Button variant="contained" startIcon={<PrintIcon />}
-            onClick={printIdCard} sx={{ bgcolor: "#1a237e" }}>
-            Print ID Card
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Bulk Upload Dialog ── */}
-      <Dialog open={bulkOpen} onClose={() => {
-        setBulkOpen(false); setBulkData([]);
-        setBulkErrors([]); setBulkSuccess("");
-      }} maxWidth="md" fullWidth fullScreen={isMobile}>
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
-          <UploadFileIcon sx={{ mr: 1, verticalAlign: "middle" }} />
-          Bulk Upload Students
-        </DialogTitle>
-        <DialogContent>
-          <Box mt={2}>
-            <Alert severity="info" sx={{ mb: 2 }}
-              action={
-                <Button size="small" color="inherit" variant="outlined"
-                  onClick={downloadTemplate}>
-                  ⬇ Template
-                </Button>
-              }>
-              Download the Excel template, fill details, then upload.
-              Grade 6-9: fill <strong>aesthetic</strong>.
-              Grade 10-11: fill <strong>basket1, basket2, basket3</strong>.
-            </Alert>
-
-            <Box sx={{
-              border: "2px dashed #1a237e", borderRadius: 2,
-              p: 3, textAlign: "center", bgcolor: "#f8f9ff", mb: 2
-            }}>
-              <UploadFileIcon sx={{ fontSize: 40, color: "#1a237e", mb: 1 }} />
-              <Typography variant="body2" color="text.secondary" mb={1.5}>
-                Select your filled Excel file (.xlsx / .xls)
-              </Typography>
-              <Button variant="contained" component="label"
-                sx={{ bgcolor: "#1a237e" }}>
-                Choose File
-                <input type="file" hidden accept=".xlsx,.xls"
-                  onChange={handleFileUpload} />
-              </Button>
-            </Box>
-
-            {bulkErrors.length > 0 && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" fontWeight={700} mb={0.5}>
-                  ❌ Fix these errors before uploading:
-                </Typography>
-                {bulkErrors.map((e, i) => (
-                  <Typography key={i} variant="caption" display="block">
-                    • {e}
+      {/* ── Loading ── */}
+      {loading ? (
+        <Box display="flex" justifyContent="center" p={5}>
+          <CircularProgress />
+        </Box>
+      ) : filtered.length === 0 ? (
+        <Box
+          textAlign="center"
+          py={8}
+          sx={{ bgcolor: "white", borderRadius: 3, border: "1px solid #e8eaf6" }}
+        >
+          <PersonIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
+          <Typography variant="h6" color="text.secondary" mt={1} fontWeight={600}>
+            No students found
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {students.length === 0
+              ? 'Click "Add Student" to get started'
+              : "Try adjusting your filters"}
+          </Typography>
+        </Box>
+      ) : viewMode === "subject" ? (
+        /* ── BY SUBJECT / GROUP VIEW ── */
+        <Box>
+          {Object.entries(groupedByGradeSection)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([groupKey, groupStudents]) => (
+              <Box key={groupKey} mb={3}>
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                  <SchoolIcon sx={{ color: "#1a237e", fontSize: 20 }} />
+                  <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+                    {groupKey}
                   </Typography>
-                ))}
-              </Alert>
-            )}
+                  <Chip
+                    label={`${groupStudents.length} student${groupStudents.length > 1 ? "s" : ""}`}
+                    size="small"
+                    color="primary"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Box>
 
-            {bulkSuccess && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                {bulkSuccess}
-              </Alert>
-            )}
-
-            {bulkData.length > 0 && bulkErrors.length === 0 && (
-              <>
-                <Alert severity="success" sx={{ mb: 1 }}>
-                  ✅ <strong>{bulkData.length} students</strong> ready to upload.
-                </Alert>
-                <Paper sx={{ maxHeight: 280, overflow: "auto" }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
+                <Paper sx={{ borderRadius: 3, border: "1px solid #e8eaf6", overflow: "hidden" }}>
+                  <Table size="small">
+                    <TableHead sx={{ bgcolor: "#1a237e" }}>
                       <TableRow>
-                        {["#","Adm No","Name","Grade","Section",
-                          "Gender","Religion","Aesthetic/Baskets"].map(h => (
-                          <TableCell key={h} sx={{
-                            bgcolor: "#1a237e", color: "white",
-                            fontWeight: 700, fontSize: 12
-                          }}>
+                        {["#", "Name", "Adm No", "Status", "Phone", "Actions"].map(h => (
+                          <TableCell key={h} sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
                             {h}
                           </TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {bulkData.map((s, i) => (
-                        <TableRow key={i} hover
-                          sx={{ bgcolor: i % 2 === 0 ? "white" : "#f8f9ff" }}>
-                          <TableCell>{i + 1}</TableCell>
-                          <TableCell>{s.admissionNo}</TableCell>
+                      {groupStudents.map((s, idx) => (
+                        <TableRow key={s.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+                          <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>{idx + 1}</TableCell>
                           <TableCell>
-                            <Typography variant="body2" fontWeight={600}>
-                              {s.name}
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <Avatar sx={{ width: 28, height: 28, bgcolor: "#1a237e", fontSize: 11 }}>
+                                {initials(s.name)}
+                              </Avatar>
+                              <Typography variant="body2" fontWeight={600}>{s.name}</Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" fontWeight={600} color="#1a237e">
+                              {s.admissionNo || "—"}
                             </Typography>
                           </TableCell>
-                          <TableCell>{s.grade}</TableCell>
-                          <TableCell>{s.section}</TableCell>
-                          <TableCell>{s.gender}</TableCell>
-                          <TableCell>{s.religion}</TableCell>
                           <TableCell>
-                            {s.grade <= 9
-                              ? s.aesthetic
-                              : [s.basket1, s.basket2, s.basket3]
-                                  .filter(Boolean).join(", ") || "—"}
+                            <Chip label={s.status} size="small" color={statusColor(s.status)} sx={{ fontWeight: 600 }} />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">{s.phone || "—"}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="Edit">
+                              <IconButton size="small" color="primary" onClick={() => handleEdit(s)}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton size="small" color="error" onClick={() => handleDelete(s.id)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
                 </Paper>
-              </>
-            )}
-          </Box>
+              </Box>
+            ))}
+        </Box>
+      ) : isMobile ? (
+        /* ── MOBILE CARD VIEW ── */
+        <Box>
+          {filtered.map(s => (
+            <Card
+              key={s.id}
+              sx={{
+                mb: 1.5,
+                borderRadius: 3,
+                border: "1px solid #e8eaf6",
+                boxShadow: "0 2px 8px rgba(26,35,126,0.07)"
+              }}
+            >
+              <CardContent sx={{ pb: 0 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                  <Box display="flex" alignItems="center" gap={1.5}>
+                    <Avatar sx={{ bgcolor: "#1a237e", width: 38, height: 38, fontSize: 14, fontWeight: 800 }}>
+                      {initials(s.name)}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={800}>{s.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {s.admissionNo || "No Adm#"}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Chip label={s.status} size="small" color={statusColor(s.status)} sx={{ fontWeight: 600 }} />
+                </Box>
+
+                <Box display="flex" gap={1} mt={1} flexWrap="wrap">
+                  <Chip
+                    label={`Grade ${s.grade} - ${s.section}`}
+                    size="small"
+                    color="primary"
+                    sx={{ fontWeight: 600 }}
+                  />
+                  {s.phone && (
+                    <Typography variant="caption" color="text.secondary" sx={{ alignSelf: "center" }}>
+                      📞 {s.phone}
+                    </Typography>
+                  )}
+                </Box>
+              </CardContent>
+
+              <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  onClick={() => handleEdit(s)}
+                  sx={{ borderColor: "#1a237e", color: "#1a237e" }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteIcon />}
+                  onClick={() => handleDelete(s.id)}
+                >
+                  Delete
+                </Button>
+              </CardActions>
+            </Card>
+          ))}
+        </Box>
+      ) : (
+        /* ── DESKTOP TABLE VIEW ── */
+        <Paper
+          sx={{
+            borderRadius: 3,
+            boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
+            border: "1px solid #e8eaf6",
+            overflow: "hidden"
+          }}
+        >
+          <Table size="small">
+            <TableHead sx={{ bgcolor: "#1a237e" }}>
+              <TableRow>
+                {["#", "Name", "Adm No", "Grade / Section", "Status", "Phone", "Parent Phone", "Actions"].map(h => (
+                  <TableCell key={h} sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
+                    {h}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map((s, idx) => (
+                <TableRow key={s.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+                  <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>{idx + 1}</TableCell>
+
+                  <TableCell>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Avatar sx={{ width: 30, height: 30, bgcolor: "#1a237e", fontSize: 11, fontWeight: 800 }}>
+                        {initials(s.name)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="body2" fontWeight={700}>{s.name}</Typography>
+                        {s.gender && (
+                          <Typography variant="caption" color="text.secondary">{s.gender}</Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  </TableCell>
+
+                  <TableCell>
+                    <Typography variant="caption" fontWeight={700} color="#1a237e">
+                      {s.admissionNo || "—"}
+                    </Typography>
+                  </TableCell>
+
+                  <TableCell>
+                    <Chip
+                      label={`G${s.grade} - ${s.section}`}
+                      size="small"
+                      color="primary"
+                      sx={{ fontWeight: 700, fontSize: 12 }}
+                    />
+                  </TableCell>
+
+                  <TableCell>
+                    <Chip label={s.status} size="small" color={statusColor(s.status)} sx={{ fontWeight: 600 }} />
+                  </TableCell>
+
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">{s.phone || "—"}</Typography>
+                  </TableCell>
+
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">{s.parentPhone || "—"}</Typography>
+                  </TableCell>
+
+                  <TableCell>
+                    <Tooltip title="Edit">
+                      <IconButton size="small" color="primary" onClick={() => handleEdit(s)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                      <IconButton size="small" color="error" onClick={() => handleDelete(s.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      {/* ── Add / Edit Dialog ── */}
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
+        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
+          {editId ? "✏️ Edit Student" : "➕ Add Student"}
+        </DialogTitle>
+
+        <DialogContent>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>
+          )}
+
+          <Grid container spacing={2} mt={0.5}>
+            {/* Name */}
+            <Grid item xs={12} sm={8}>
+              <TextField
+                fullWidth
+                required
+                label="Full Name"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+              />
+            </Grid>
+
+            {/* Gender */}
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth>
+                <InputLabel>Gender</InputLabel>
+                <Select
+                  value={form.gender}
+                  label="Gender"
+                  onChange={e => setForm({ ...form, gender: e.target.value })}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  <MenuItem value="Male">Male</MenuItem>
+                  <MenuItem value="Female">Female</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Admission No */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                required
+                label="Admission No."
+                value={form.admissionNo}
+                onChange={e => setForm({ ...form, admissionNo: e.target.value })}
+              />
+            </Grid>
+
+            {/* Birthday */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Birthday"
+                type="date"
+                value={form.birthday}
+                onChange={e => setForm({ ...form, birthday: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider>
+                <Typography variant="caption" color="text.secondary">
+                  Class Assignment
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Grade — from classrooms */}
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>Grade</InputLabel>
+                <Select
+                  value={form.grade}
+                  label="Grade"
+                  onChange={e => setForm({ ...form, grade: e.target.value })}
+                >
+                  <MenuItem value=""><em>Select Grade</em></MenuItem>
+                  {gradeOptions.map(g => (
+                    <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {gradeOptions.length === 0 && (
+                <Typography variant="caption" color="error">
+                  No classrooms found — create them in Classroom Management first.
+                </Typography>
+              )}
+            </Grid>
+
+            {/* Section — filtered by grade, from classrooms */}
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required disabled={!form.grade}>
+                <InputLabel>Section</InputLabel>
+                <Select
+                  value={form.section}
+                  label="Section"
+                  onChange={e => setForm({ ...form, section: e.target.value })}
+                >
+                  <MenuItem value=""><em>Select Section</em></MenuItem>
+                  {sectionOptionsForForm.map(s => (
+                    <MenuItem key={s} value={s}>Section {s}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {form.grade && sectionOptionsForForm.length === 0 && (
+                <Typography variant="caption" color="error">
+                  No sections for Grade {form.grade} — create them in Classroom Management.
+                </Typography>
+              )}
+            </Grid>
+
+            {/* Status */}
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={form.status}
+                  label="Status"
+                  onChange={e => setForm({ ...form, status: e.target.value })}
+                >
+                  {STATUS_OPTIONS.map(s => (
+                    <MenuItem key={s} value={s}>{s}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider>
+                <Typography variant="caption" color="text.secondary">
+                  Contact
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Phone */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Student Phone"
+                value={form.phone}
+                onChange={e => setForm({ ...form, phone: e.target.value })}
+              />
+            </Grid>
+
+            {/* Parent Phone */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Parent Phone"
+                value={form.parentPhone}
+                onChange={e => setForm({ ...form, parentPhone: e.target.value })}
+              />
+            </Grid>
+
+            {/* Address */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Address"
+                value={form.address}
+                onChange={e => setForm({ ...form, address: e.target.value })}
+              />
+            </Grid>
+
+            {/* Notes */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes (optional)"
+                multiline
+                rows={2}
+                value={form.notes}
+                onChange={e => setForm({ ...form, notes: e.target.value })}
+              />
+            </Grid>
+          </Grid>
         </DialogContent>
+
         <DialogActions sx={{ p: 2, gap: 1 }}>
-          <Button onClick={() => {
-            setBulkOpen(false); setBulkData([]);
-            setBulkErrors([]); setBulkSuccess("");
-          }} fullWidth={isMobile}>
-            Close
+          <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
+            Cancel
           </Button>
-          <Button variant="contained" onClick={handleBulkUpload}
-            disabled={bulkData.length === 0 ||
-              bulkErrors.length > 0 || bulkUploading}
-            fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
-            {bulkUploading
+          <Button
+            onClick={handleSave}
+            variant="contained"
+            disabled={saving}
+            fullWidth={isMobile}
+            sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
+          >
+            {saving
               ? <CircularProgress size={20} color="inherit" />
-              : `Upload ${bulkData.length} Students`}
+              : editId ? "Update Student" : "Save Student"}
           </Button>
         </DialogActions>
       </Dialog>
-
     </Box>
   );
 }
