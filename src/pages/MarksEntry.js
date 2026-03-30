@@ -105,7 +105,7 @@ export default function MarksEntry() {
       .filter(s => {
         if (s.grade !== grade) return false;
         if (s.section !== section) return false;
-        if ((s.status || "active") !== "active") return false;
+        if ((s.status || "Active") !== "Active") return false;
         return getStudentSubjects(s).includes(subject);
       })
       .sort((a, b) => a.name.localeCompare(b.name));
