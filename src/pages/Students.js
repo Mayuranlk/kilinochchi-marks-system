@@ -51,8 +51,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import * as XLSX from "xlsx";
 
-// Grades and sections come from Firestore classrooms collection
-
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
 
@@ -70,13 +68,6 @@ const emptyForm = {
   status: "Active",
   joinDate: "",
   notes: "",
-  aestheticSubject: "",
-  religionSubject: "",
-  basketA: "",
-  basketB: "",
-  basketC: "",
-  alSubjects: [],
-  alSubjectsInput: "",
 };
 
 const normalizeText = (value) => String(value || "").trim();
@@ -87,15 +78,6 @@ const normalizeGradeValue = (value) => {
 };
 
 const normalizeSectionValue = (value) => normalizeText(value);
-
-const parseALSubjectsInput = (value) =>
-  String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-const formatALSubjectsForInput = (subjects) =>
-  Array.isArray(subjects) ? subjects.join(", ") : "";
 
 const sortStudentsClientSide = (list) => {
   return [...list].sort((a, b) => {
@@ -122,7 +104,6 @@ export default function Students() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const fileInputRef = useRef();
 
-  // state
   const [students, setStudents] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -133,13 +114,11 @@ export default function Students() {
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // filters
   const [search, setSearch] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterSection, setFilterSection] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
-  // bulk upload
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [bulkResults, setBulkResults] = useState(null);
@@ -175,6 +154,7 @@ export default function Students() {
         ),
       ].sort();
     }
+
     return [
       ...new Set(
         classrooms.map((c) => normalizeSectionValue(c.section)).filter(Boolean)
@@ -184,6 +164,7 @@ export default function Students() {
 
   const sectionOptionsForForm = useMemo(() => {
     if (!form.grade) return [];
+
     return [
       ...new Set(
         classrooms
@@ -193,12 +174,6 @@ export default function Students() {
       ),
     ].sort();
   }, [classrooms, form.grade]);
-
-  const selectedGradeNumber = Number(form.grade) || 0;
-  const isJuniorGrade = selectedGradeNumber >= 6 && selectedGradeNumber <= 9;
-  const isOrdinaryLevelGrade =
-    selectedGradeNumber >= 10 && selectedGradeNumber <= 11;
-  const isALGrade = selectedGradeNumber >= 12 && selectedGradeNumber <= 13;
 
   useEffect(() => {
     fetchData();
@@ -219,7 +194,6 @@ export default function Students() {
       const loadedStudents = studSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        alSubjects: Array.isArray(d.data().alSubjects) ? d.data().alSubjects : [],
       }));
 
       setStudents(sortStudentsClientSide(loadedStudents));
@@ -241,11 +215,10 @@ export default function Students() {
   const getStudentName = (student) => student.name || "";
 
   const buildPayloadFromForm = () => {
-    const grade = Number(form.grade);
-    const basePayload = {
+    return {
       name: normalizeText(form.name),
       admissionNo: normalizeText(form.admissionNo),
-      grade,
+      grade: Number(form.grade),
       section: normalizeSectionValue(form.section),
       gender: normalizeText(form.gender),
       dob: normalizeText(form.dob),
@@ -258,52 +231,6 @@ export default function Students() {
       notes: normalizeText(form.notes),
       updatedAt: new Date().toISOString(),
     };
-
-    if (grade >= 6 && grade <= 9) {
-      return {
-        ...basePayload,
-        religionSubject: normalizeText(form.religionSubject),
-        aestheticSubject: normalizeText(form.aestheticSubject),
-        basketA: "",
-        basketB: "",
-        basketC: "",
-        alSubjects: [],
-      };
-    }
-
-    if (grade >= 10 && grade <= 11) {
-      return {
-        ...basePayload,
-        religionSubject: normalizeText(form.religionSubject),
-        aestheticSubject: "",
-        basketA: normalizeText(form.basketA),
-        basketB: normalizeText(form.basketB),
-        basketC: normalizeText(form.basketC),
-        alSubjects: [],
-      };
-    }
-
-    if (grade >= 12 && grade <= 13) {
-      return {
-        ...basePayload,
-        religionSubject: "",
-        aestheticSubject: "",
-        basketA: "",
-        basketB: "",
-        basketC: "",
-        alSubjects: parseALSubjectsInput(form.alSubjectsInput),
-      };
-    }
-
-    return {
-      ...basePayload,
-      religionSubject: "",
-      aestheticSubject: "",
-      basketA: "",
-      basketB: "",
-      basketC: "",
-      alSubjects: [],
-    };
   };
 
   const validateForm = () => {
@@ -313,31 +240,6 @@ export default function Students() {
     if (!isValidClassroom(form.grade, form.section)) {
       return "Selected grade and section do not match an existing classroom.";
     }
-
-    const grade = Number(form.grade);
-
-    if (grade >= 6 && grade <= 9) {
-      if (!normalizeText(form.religionSubject)) {
-        return "Religion subject is required for Grades 6 to 9.";
-      }
-      if (!normalizeText(form.aestheticSubject)) {
-        return "Aesthetic subject is required for Grades 6 to 9.";
-      }
-    }
-
-    if (grade >= 10 && grade <= 11) {
-      if (!normalizeText(form.religionSubject)) {
-        return "Religion subject is required for Grades 10 to 11.";
-      }
-    }
-
-    if (grade >= 12 && grade <= 13) {
-      const alSubjects = parseALSubjectsInput(form.alSubjectsInput);
-      if (alSubjects.length === 0) {
-        return "Enter at least one A/L subject for Grades 12 to 13.";
-      }
-    }
-
     return "";
   };
 
@@ -399,13 +301,10 @@ export default function Students() {
   };
 
   const handleEdit = (s) => {
-    const grade = s.grade || "";
-    const alSubjects = Array.isArray(s.alSubjects) ? s.alSubjects : [];
-
     setForm({
       name: s.name || "",
       admissionNo: s.admissionNo || "",
-      grade,
+      grade: s.grade || "",
       section: s.section || "",
       gender: s.gender || "",
       dob: s.dob || "",
@@ -416,13 +315,6 @@ export default function Students() {
       status: s.status || "Active",
       joinDate: s.joinDate || "",
       notes: s.notes || "",
-      aestheticSubject: s.aestheticSubject || "",
-      religionSubject: s.religionSubject || "",
-      basketA: s.basketA || "",
-      basketB: s.basketB || "",
-      basketC: s.basketC || "",
-      alSubjects,
-      alSubjectsInput: formatALSubjectsForInput(alSubjects),
     });
 
     setEditId(s.id);
@@ -433,6 +325,7 @@ export default function Students() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this student? This cannot be undone.")) return;
+
     try {
       await deleteDoc(doc(db, "students", id));
       setSuccess("Student deleted.");
@@ -443,20 +336,13 @@ export default function Students() {
   };
 
   const mapExcelRowToStudent = (row) => {
-    const grade = normalizeGradeValue(row["Grade"] || row["grade"]);
-    const section = normalizeSectionValue(row["Section"] || row["section"]);
-    const alSubjectsInput = normalizeText(
-      row["A/L Subjects"] || row["alSubjects"] || row["AL Subjects"]
-    );
-    const alSubjects = parseALSubjectsInput(alSubjectsInput);
-
     return {
       name: normalizeText(row["Name"] || row["name"]),
       admissionNo: normalizeText(
         row["Admission No"] || row["admissionNo"] || row["AdmissionNo"]
       ),
-      grade,
-      section,
+      grade: normalizeGradeValue(row["Grade"] || row["grade"]),
+      section: normalizeSectionValue(row["Section"] || row["section"]),
       gender: normalizeText(row["Gender"] || row["gender"]),
       dob: normalizeText(row["DOB"] || row["dob"]),
       phone: normalizeText(row["Phone"] || row["phone"]),
@@ -466,17 +352,6 @@ export default function Students() {
       status: normalizeText(row["Status"] || row["status"]) || "Active",
       joinDate: normalizeText(row["Join Date"] || row["joinDate"]),
       notes: normalizeText(row["Notes"] || row["notes"]),
-      religionSubject: normalizeText(
-        row["Religion Subject"] || row["religionSubject"]
-      ),
-      aestheticSubject: normalizeText(
-        row["Aesthetic Subject"] || row["aestheticSubject"]
-      ),
-      basketA: normalizeText(row["Basket A"] || row["basketA"]),
-      basketB: normalizeText(row["Basket B"] || row["basketB"]),
-      basketC: normalizeText(row["Basket C"] || row["basketC"]),
-      alSubjects,
-      alSubjectsInput,
     };
   };
 
@@ -497,30 +372,11 @@ export default function Students() {
       return `Row ${rowNumber}: Grade ${student.grade} Section ${student.section} does not exist in classrooms.`;
     }
 
-    if (student.grade >= 6 && student.grade <= 9) {
-      if (!student.religionSubject) {
-        return `Row ${rowNumber}: Religion Subject is required for Grades 6 to 9.`;
-      }
-      if (!student.aestheticSubject) {
-        return `Row ${rowNumber}: Aesthetic Subject is required for Grades 6 to 9.`;
-      }
-    }
-
-    if (student.grade >= 10 && student.grade <= 11) {
-      if (!student.religionSubject) {
-        return `Row ${rowNumber}: Religion Subject is required for Grades 10 to 11.`;
-      }
-    }
-
-    if (student.grade >= 12 && student.grade <= 13 && student.alSubjects.length === 0) {
-      return `Row ${rowNumber}: A/L Subjects is required for Grades 12 to 13.`;
-    }
-
     return "";
   };
 
   const buildBulkPayload = (student) => {
-    const basePayload = {
+    return {
       name: student.name,
       admissionNo: student.admissionNo,
       grade: student.grade,
@@ -535,52 +391,6 @@ export default function Students() {
       joinDate: student.joinDate,
       notes: student.notes,
       updatedAt: new Date().toISOString(),
-    };
-
-    if (student.grade >= 6 && student.grade <= 9) {
-      return {
-        ...basePayload,
-        religionSubject: student.religionSubject,
-        aestheticSubject: student.aestheticSubject,
-        basketA: "",
-        basketB: "",
-        basketC: "",
-        alSubjects: [],
-      };
-    }
-
-    if (student.grade >= 10 && student.grade <= 11) {
-      return {
-        ...basePayload,
-        religionSubject: student.religionSubject,
-        aestheticSubject: "",
-        basketA: student.basketA,
-        basketB: student.basketB,
-        basketC: student.basketC,
-        alSubjects: [],
-      };
-    }
-
-    if (student.grade >= 12 && student.grade <= 13) {
-      return {
-        ...basePayload,
-        religionSubject: "",
-        aestheticSubject: "",
-        basketA: "",
-        basketB: "",
-        basketC: "",
-        alSubjects: student.alSubjects,
-      };
-    }
-
-    return {
-      ...basePayload,
-      religionSubject: "",
-      aestheticSubject: "",
-      basketA: "",
-      basketB: "",
-      basketC: "",
-      alSubjects: [],
     };
   };
 
@@ -630,6 +440,7 @@ export default function Students() {
           failCount++;
           errors.push(`Row ${item.rowNumber}: ${err.message}`);
         }
+
         setBulkProgress(
           Math.round(((i + 1) / Math.max(validRows.length, 1)) * 100)
         );
@@ -663,12 +474,6 @@ export default function Students() {
       Address: s.address || "",
       Status: s.status || "",
       "Join Date": s.joinDate || "",
-      "Religion Subject": s.religionSubject || "",
-      "Aesthetic Subject": s.aestheticSubject || "",
-      "Basket A": s.basketA || "",
-      "Basket B": s.basketB || "",
-      "Basket C": s.basketC || "",
-      "A/L Subjects": Array.isArray(s.alSubjects) ? s.alSubjects.join(", ") : "",
       Notes: s.notes || "",
     }));
 
@@ -693,12 +498,6 @@ export default function Students() {
         Address: "123 Main St",
         Status: "Active",
         "Join Date": "2026-01-01",
-        "Religion Subject": "Hinduism",
-        "Aesthetic Subject": "Art",
-        "Basket A": "",
-        "Basket B": "",
-        "Basket C": "",
-        "A/L Subjects": "",
         Notes: "",
       },
       {
@@ -714,33 +513,6 @@ export default function Students() {
         Address: "45 School Road",
         Status: "Active",
         "Join Date": "2026-01-01",
-        "Religion Subject": "Catholicism",
-        "Aesthetic Subject": "",
-        "Basket A": "Commerce",
-        "Basket B": "Art",
-        "Basket C": "Drama",
-        "A/L Subjects": "",
-        Notes: "",
-      },
-      {
-        Name: "Kumaran",
-        "Admission No": "ADM100",
-        Grade: 12,
-        Section: "Maths A",
-        Gender: "Male",
-        DOB: "2008-03-10",
-        Phone: "0779991111",
-        "Parent Name": "Sivakumar",
-        "Parent Phone": "0779992222",
-        Address: "Kilinochchi",
-        Status: "Active",
-        "Join Date": "2026-01-01",
-        "Religion Subject": "",
-        "Aesthetic Subject": "",
-        "Basket A": "",
-        "Basket B": "",
-        "Basket C": "",
-        "A/L Subjects": "Combined Maths, Physics, Chemistry",
         Notes: "",
       },
     ];
@@ -835,6 +607,7 @@ export default function Students() {
                 {isMobile ? "" : "Template"}
               </Button>
             </Tooltip>
+
             <Tooltip title="Bulk Upload Excel">
               <Button
                 variant="outlined"
@@ -847,6 +620,7 @@ export default function Students() {
                 {isMobile ? "" : "Bulk Upload"}
               </Button>
             </Tooltip>
+
             <Tooltip title="Export to Excel">
               <Button
                 variant="outlined"
@@ -858,6 +632,7 @@ export default function Students() {
                 {isMobile ? "" : "Export"}
               </Button>
             </Tooltip>
+
             <Button
               variant="contained"
               startIcon={<AddIcon />}
@@ -899,9 +674,9 @@ export default function Students() {
             {bulkResults.failCount > 0 && `, ${bulkResults.failCount} failed`}
             {bulkResults.errors.length > 0 && (
               <Box mt={0.5}>
-                {bulkResults.errors.slice(0, 5).map((e, i) => (
+                {bulkResults.errors.slice(0, 5).map((err, i) => (
                   <Typography key={i} variant="caption" display="block">
-                    {e}
+                    {err}
                   </Typography>
                 ))}
               </Box>
@@ -1083,12 +858,13 @@ export default function Students() {
                     </Box>
                   </Box>
                   <Chip
-                    label={s.status}
+                    label={s.status || "Unknown"}
                     size="small"
                     color={statusColor(s.status)}
                     sx={{ fontWeight: 600 }}
                   />
                 </Box>
+
                 {(s.phone || s.parentPhone) && (
                   <Box mt={0.8}>
                     {s.phone && (
@@ -1108,6 +884,7 @@ export default function Students() {
                   </Box>
                 )}
               </CardContent>
+
               <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
                 <Button
                   size="small"
@@ -1216,7 +993,7 @@ export default function Students() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={s.status}
+                      label={s.status || "Unknown"}
                       size="small"
                       color={statusColor(s.status)}
                       sx={{ fontWeight: 600 }}
@@ -1270,6 +1047,7 @@ export default function Students() {
         <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
           {editId ? "✏️ Edit Student" : "➕ Add Student"}
         </DialogTitle>
+
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
@@ -1313,32 +1091,13 @@ export default function Students() {
                 <Select
                   value={form.grade}
                   label="Grade"
-                  onChange={(e) => {
-                    const nextGrade = e.target.value;
-                    const currentGrade = Number(form.grade) || 0;
-                    const nextGradeNumber = Number(nextGrade) || 0;
-
-                    const shouldResetAcademicFields = currentGrade !== nextGradeNumber;
-
+                  onChange={(e) =>
                     setForm({
                       ...form,
-                      grade: nextGrade,
+                      grade: e.target.value,
                       section: "",
-                      religionSubject: shouldResetAcademicFields
-                        ? ""
-                        : form.religionSubject,
-                      aestheticSubject: shouldResetAcademicFields
-                        ? ""
-                        : form.aestheticSubject,
-                      basketA: shouldResetAcademicFields ? "" : form.basketA,
-                      basketB: shouldResetAcademicFields ? "" : form.basketB,
-                      basketC: shouldResetAcademicFields ? "" : form.basketC,
-                      alSubjects: shouldResetAcademicFields ? [] : form.alSubjects,
-                      alSubjectsInput: shouldResetAcademicFields
-                        ? ""
-                        : form.alSubjectsInput,
-                    });
-                  }}
+                    })
+                  }
                 >
                   <MenuItem value="">
                     <em>Select Grade</em>
@@ -1350,6 +1109,7 @@ export default function Students() {
                   ))}
                 </Select>
               </FormControl>
+
               {gradeOptions.length === 0 && (
                 <Typography
                   variant="caption"
@@ -1382,6 +1142,7 @@ export default function Students() {
                   ))}
                 </Select>
               </FormControl>
+
               {form.grade && sectionOptionsForForm.length === 0 && (
                 <Typography
                   variant="caption"
@@ -1412,113 +1173,6 @@ export default function Students() {
                 </Select>
               </FormControl>
             </Grid>
-
-            {form.grade && (
-              <>
-                <Grid item xs={12}>
-                  <Divider>
-                    <Typography variant="caption" color="text.secondary">
-                      Subject Selection
-                    </Typography>
-                  </Divider>
-                </Grid>
-
-                {isJuniorGrade && (
-                  <>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        required
-                        label="Religion Subject"
-                        value={form.religionSubject}
-                        onChange={(e) =>
-                          setForm({ ...form, religionSubject: e.target.value })
-                        }
-                        helperText="For Grades 6 to 9"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        required
-                        label="Aesthetic Subject"
-                        value={form.aestheticSubject}
-                        onChange={(e) =>
-                          setForm({ ...form, aestheticSubject: e.target.value })
-                        }
-                        helperText="For Grades 6 to 9"
-                      />
-                    </Grid>
-                  </>
-                )}
-
-                {isOrdinaryLevelGrade && (
-                  <>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        required
-                        label="Religion Subject"
-                        value={form.religionSubject}
-                        onChange={(e) =>
-                          setForm({ ...form, religionSubject: e.target.value })
-                        }
-                        helperText="For Grades 10 to 11"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        fullWidth
-                        label="Basket A"
-                        value={form.basketA}
-                        onChange={(e) =>
-                          setForm({ ...form, basketA: e.target.value })
-                        }
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        fullWidth
-                        label="Basket B"
-                        value={form.basketB}
-                        onChange={(e) =>
-                          setForm({ ...form, basketB: e.target.value })
-                        }
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        fullWidth
-                        label="Basket C"
-                        value={form.basketC}
-                        onChange={(e) =>
-                          setForm({ ...form, basketC: e.target.value })
-                        }
-                      />
-                    </Grid>
-                  </>
-                )}
-
-                {isALGrade && (
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      required
-                      label="A/L Subjects"
-                      value={form.alSubjectsInput}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          alSubjectsInput: e.target.value,
-                          alSubjects: parseALSubjectsInput(e.target.value),
-                        })
-                      }
-                      helperText="Enter subjects separated by commas. Example: Combined Maths, Physics, Chemistry"
-                    />
-                  </Grid>
-                )}
-              </>
-            )}
 
             <Grid item xs={12}>
               <Divider>
@@ -1659,3 +1313,4 @@ export default function Students() {
     </Box>
   );
 }
+
