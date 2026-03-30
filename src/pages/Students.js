@@ -137,7 +137,7 @@ export default function Students() {
   const [search, setSearch] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterSection, setFilterSection] = useState("");
-  const [filterStatus, setFilterStatus] = useState("Active");
+  const [filterStatus, setFilterStatus] = useState("");
 
   // bulk upload
   const [bulkUploading, setBulkUploading] = useState(false);
@@ -981,7 +981,7 @@ export default function Students() {
               setSearch("");
               setFilterGrade("");
               setFilterSection("");
-              setFilterStatus("Active");
+              setFilterStatus("");
             }}
             sx={{ borderColor: "#e8eaf6", color: "text.secondary" }}
           >
