@@ -1,15 +1,45 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc, getDocs
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { GRADES } from "../constants";
 import {
-  Box, Typography, Button, TextField, Select, MenuItem,
-  FormControl, InputLabel, Table, TableHead, TableRow, TableCell,
-  TableBody, Paper, Dialog, DialogTitle, DialogContent, DialogActions,
-  IconButton, Chip, CircularProgress, Grid, Alert, Card, CardContent,
-  CardActions, useMediaQuery, useTheme, Tooltip, Divider
+  Box,
+  Typography,
+  Button,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Chip,
+  CircularProgress,
+  Grid,
+  Alert,
+  Card,
+  CardContent,
+  CardActions,
+  useMediaQuery,
+  useTheme,
+  Tooltip,
+  Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -21,7 +51,8 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 const STREAMS = ["Maths", "Bio", "Technology", "Arts", "Commerce"];
 const YEARS = [2026, 2025, 2024];
 const ALL_SECTIONS = [
-  "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"
+  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
 ];
 
 const emptyForm = {
@@ -30,7 +61,105 @@ const emptyForm = {
   stream: "",
   classTeacherId: "",
   year: 2026,
-  notes: ""
+  notes: "",
+};
+
+const safeString = (value) => (value == null ? "" : String(value).trim());
+const upper = (value) => safeString(value).toUpperCase();
+
+const normalizeGrade = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const normalizeYear = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : new Date().getFullYear();
+};
+
+const buildClassName = (grade, section) => `${normalizeGrade(grade)}${upper(section)}`;
+
+const normalizeTeacher = (id, data = {}, source = "users") => {
+  const name =
+    safeString(data.name) ||
+    safeString(data.fullName) ||
+    safeString(data.displayName) ||
+    safeString(data.teacherName) ||
+    "Unnamed Teacher";
+
+  const email =
+    safeString(data.email) ||
+    safeString(data.gmail) ||
+    safeString(data.mail);
+
+  const phone =
+    safeString(data.phone) ||
+    safeString(data.mobile) ||
+    safeString(data.phoneNumber);
+
+  const signatureNo =
+    safeString(data.signatureNo) ||
+    safeString(data.signatureNumber) ||
+    safeString(data.teacherSignatureNo) ||
+    safeString(data.teacherNo);
+
+  const uid =
+    safeString(data.uid) ||
+    safeString(data.authUid) ||
+    safeString(data.userId);
+
+  const role = safeString(data.role).toLowerCase();
+
+  return {
+    id,
+    source,
+    uid,
+    role,
+    name,
+    email,
+    phone,
+    signatureNo,
+    raw: data,
+  };
+};
+
+const normalizeClassroom = (id, data = {}) => {
+  const grade = normalizeGrade(data.grade);
+  const section = upper(data.section || data.classSection || "");
+  const year = normalizeYear(data.year || data.academicYear || new Date().getFullYear());
+  const className =
+    safeString(data.className) ||
+    safeString(data.fullClassName) ||
+    buildClassName(grade, section);
+
+  return {
+    id,
+    ...data,
+    grade,
+    section,
+    year,
+    className,
+    fullClassName: safeString(data.fullClassName) || className,
+    stream: safeString(data.stream),
+    notes: safeString(data.notes),
+    classTeacherId:
+      safeString(data.classTeacherId) ||
+      safeString(data.teacherId) ||
+      safeString(data.classTeacherDocId),
+    classTeacherUid: safeString(data.classTeacherUid),
+    classTeacherName:
+      safeString(data.classTeacherName) ||
+      safeString(data.teacherName),
+    classTeacherEmail:
+      safeString(data.classTeacherEmail) ||
+      safeString(data.teacherEmail),
+    classTeacherPhone:
+      safeString(data.classTeacherPhone) ||
+      safeString(data.teacherPhone),
+    classTeacherSignatureNo:
+      safeString(data.classTeacherSignatureNo) ||
+      safeString(data.teacherSignatureNo),
+  };
 };
 
 export default function ClassroomManagement() {
@@ -52,202 +181,315 @@ export default function ClassroomManagement() {
     fetchData();
   }, []);
 
+  const teachersById = useMemo(() => {
+    const map = new Map();
+    teachers.forEach((teacher) => {
+      map.set(teacher.id, teacher);
+    });
+    return map;
+  }, [teachers]);
+
+  const groupedByGrade = useMemo(() => {
+    return GRADES.reduce((acc, grade) => {
+      const rows = classrooms.filter((c) => c.grade === grade);
+      if (rows.length) acc[grade] = rows;
+      return acc;
+    }, {});
+  }, [classrooms]);
+
   const fetchData = async () => {
     setLoading(true);
+    setError("");
+
     try {
-      const [classSnap, teacherSnap] = await Promise.all([
+      const [classSnap, usersSnap, teachersSnap] = await Promise.all([
         getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "users"))
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "teachers")),
       ]);
 
-      setClassrooms(
-        classSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) =>
-            a.grade - b.grade ||
-            a.section.localeCompare(b.section) ||
-            (b.year || 0) - (a.year || 0)
-          )
+      const normalizedClassrooms = classSnap.docs
+        .map((d) => normalizeClassroom(d.id, d.data()))
+        .sort((a, b) => {
+          if (a.grade !== b.grade) return a.grade - b.grade;
+          if (a.section !== b.section) return a.section.localeCompare(b.section);
+          return b.year - a.year;
+        });
+
+      const userTeachers = usersSnap.docs
+        .map((d) => normalizeTeacher(d.id, d.data(), "users"))
+        .filter((t) => t.role === "teacher" || t.raw?.designation === "teacher");
+
+      const directTeachers = teachersSnap.docs.map((d) =>
+        normalizeTeacher(d.id, d.data(), "teachers")
       );
 
-      setTeachers(
-        teacherSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(u => u.role === "teacher")
-          .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-      );
+      const dedupedTeachers = [];
+      const seen = new Set();
+
+      [...userTeachers, ...directTeachers]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((teacher) => {
+          const key =
+            safeString(teacher.email).toLowerCase() ||
+            safeString(teacher.uid) ||
+            safeString(teacher.signatureNo) ||
+            teacher.id;
+
+          if (!seen.has(key)) {
+            seen.add(key);
+            dedupedTeachers.push(teacher);
+          }
+        });
+
+      setClassrooms(normalizedClassrooms);
+      setTeachers(dedupedTeachers);
     } catch (err) {
-      setError("Failed to load data: " + err.message);
+      setError(`Failed to load data: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const getTeacherName = (tid) => {
-    const t = teachers.find(t => t.id === tid);
-    return t ? t.name : "—";
+  const resolveTeacher = (classroom) => {
+    const direct = teachersById.get(classroom.classTeacherId);
+    if (direct) return direct;
+
+    return teachers.find((teacher) => {
+      const teacherName = safeString(teacher.name).toLowerCase();
+      const teacherEmail = safeString(teacher.email).toLowerCase();
+      const teacherUid = safeString(teacher.uid);
+      const teacherSignatureNo = safeString(teacher.signatureNo);
+
+      return (
+        (classroom.classTeacherUid && teacherUid && classroom.classTeacherUid === teacherUid) ||
+        (classroom.classTeacherEmail &&
+          teacherEmail &&
+          classroom.classTeacherEmail.toLowerCase() === teacherEmail) ||
+        (classroom.classTeacherSignatureNo &&
+          teacherSignatureNo &&
+          classroom.classTeacherSignatureNo === teacherSignatureNo) ||
+        (classroom.classTeacherName &&
+          teacherName &&
+          classroom.classTeacherName.toLowerCase() === teacherName)
+      );
+    }) || null;
   };
 
-  const getClassLabel = (c) => {
-    let label = `Grade ${c.grade} - ${c.section}`;
-    if (c.stream) label += ` (${c.stream})`;
+  const getTeacherName = (classroom) => {
+    const teacher = resolveTeacher(classroom);
+    return teacher?.name || classroom.classTeacherName || "—";
+  };
+
+  const getClassLabel = (classroom) => {
+    let label = `Grade ${classroom.grade} - ${classroom.section}`;
+    if (classroom.stream) label += ` (${classroom.stream})`;
     return label;
   };
 
-  const groupedByGrade = GRADES.reduce((acc, g) => {
-    const gc = classrooms.filter(c => c.grade === g);
-    if (gc.length > 0) acc[g] = gc;
-    return acc;
-  }, {});
-
   const getAvailableSections = () => {
-    const existingForGrade = classrooms
-      .filter(c => c.grade === form.grade)
-      .map(c => c.section);
+    const currentGrade = normalizeGrade(form.grade);
+    const currentYear = normalizeYear(form.year);
 
-    const sectionSet = new Set(["A", "B", "C", "D", ...existingForGrade]);
+    const existingForGradeYear = classrooms
+      .filter((c) => c.grade === currentGrade && c.year === currentYear)
+      .map((c) => c.section);
 
-    for (const s of ALL_SECTIONS) {
-      if (!sectionSet.has(s)) {
-        sectionSet.add(s);
+    const sectionSet = new Set(existingForGradeYear);
+
+    ["A", "B", "C", "D"].forEach((section) => sectionSet.add(section));
+
+    for (const section of ALL_SECTIONS) {
+      if (!sectionSet.has(section)) {
+        sectionSet.add(section);
         break;
       }
     }
 
-    return ALL_SECTIONS.filter(s => sectionSet.has(s));
+    return ALL_SECTIONS.filter((section) => sectionSet.has(section));
   };
 
   const availableSections = getAvailableSections();
+
+  const resetFormState = () => {
+    setForm(emptyForm);
+    setEditId(null);
+    setError("");
+    setSuccess("");
+  };
 
   const createNewSection = async () => {
     setError("");
     setSuccess("");
 
-    const existingForGrade = classrooms
-      .filter(c => c.grade === form.grade)
-      .map(c => c.section);
+    const grade = normalizeGrade(form.grade);
+    const year = normalizeYear(form.year);
 
-    const nextSection = ALL_SECTIONS.find(s => !existingForGrade.includes(s));
+    const existingForGradeYear = classrooms
+      .filter((c) => c.grade === grade && c.year === year)
+      .map((c) => c.section);
+
+    const nextSection = ALL_SECTIONS.find(
+      (section) => !existingForGradeYear.includes(section)
+    );
 
     if (!nextSection) {
-      setError(`No more section letters available for Grade ${form.grade}.`);
+      setError(`No more section letters available for Grade ${grade} in ${year}.`);
       return;
     }
 
     const duplicate = classrooms.find(
-      c => c.grade === form.grade &&
-           c.section === nextSection &&
-           c.year === form.year
+      (c) => c.grade === grade && c.section === nextSection && c.year === year
     );
 
     if (duplicate) {
-      setError(`Grade ${form.grade}-${nextSection} already exists for ${form.year}.`);
+      setError(`Grade ${grade}-${nextSection} already exists for ${year}.`);
       return;
     }
 
     setCreatingSection(true);
+
     try {
+      const className = buildClassName(grade, nextSection);
+
       await addDoc(collection(db, "classrooms"), {
-        grade: form.grade,
+        grade,
         section: nextSection,
-        stream: form.grade >= 12 ? form.stream || "" : "",
+        className,
+        fullClassName: className,
+        stream: grade >= 12 ? safeString(form.stream) : "",
         classTeacherId: "",
-        year: form.year,
+        classTeacherUid: "",
+        classTeacherName: "",
+        classTeacherEmail: "",
+        classTeacherPhone: "",
+        classTeacherSignatureNo: "",
+        year,
+        academicYear: year,
         notes: "",
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       });
 
-      setForm(prev => ({ ...prev, section: nextSection }));
-      setSuccess(`New classroom created: Grade ${form.grade} - ${nextSection}`);
+      setForm((prev) => ({ ...prev, section: nextSection }));
+      setSuccess(`New classroom created: Grade ${grade} - ${nextSection}`);
       await fetchData();
     } catch (err) {
-      setError("Failed to create classroom: " + err.message);
+      setError(`Failed to create classroom: ${err.message}`);
     } finally {
       setCreatingSection(false);
     }
   };
 
   const handleSave = async () => {
-    if (!form.grade || !form.section) {
+    const grade = normalizeGrade(form.grade);
+    const section = upper(form.section);
+    const year = normalizeYear(form.year);
+
+    if (!grade || !section) {
       setError("Grade and Section are required.");
       return;
     }
 
-    const duplicate = classrooms.find(c =>
-      c.grade === form.grade &&
-      c.section === form.section &&
-      c.year === form.year &&
-      c.id !== editId
+    const duplicate = classrooms.find(
+      (c) =>
+        c.grade === grade &&
+        c.section === section &&
+        c.year === year &&
+        c.id !== editId
     );
 
     if (duplicate) {
-      setError(`Grade ${form.grade}-${form.section} already exists for ${form.year}.`);
+      setError(`Grade ${grade}-${section} already exists for ${year}.`);
       return;
     }
+
+    const selectedTeacher =
+      teachers.find((teacher) => teacher.id === form.classTeacherId) || null;
+
+    const className = buildClassName(grade, section);
+
+    const payload = {
+      grade,
+      section,
+      className,
+      fullClassName: className,
+      stream: grade >= 12 ? safeString(form.stream) : "",
+      classTeacherId: selectedTeacher?.id || "",
+      classTeacherUid: selectedTeacher?.uid || "",
+      classTeacherName: selectedTeacher?.name || "",
+      classTeacherEmail: selectedTeacher?.email || "",
+      classTeacherPhone: selectedTeacher?.phone || "",
+      classTeacherSignatureNo: selectedTeacher?.signatureNo || "",
+      year,
+      academicYear: year,
+      notes: safeString(form.notes),
+      updatedAt: new Date().toISOString(),
+    };
 
     setSaving(true);
     setError("");
     setSuccess("");
 
     try {
-      const payload = {
-        grade: form.grade,
-        section: form.section,
-        stream: form.grade >= 12 ? (form.stream || "") : "",
-        classTeacherId: form.classTeacherId || "",
-        year: form.year,
-        notes: form.notes || "",
-        updatedAt: new Date().toISOString()
-      };
-
       if (editId) {
         await updateDoc(doc(db, "classrooms", editId), payload);
         setSuccess("Classroom updated successfully!");
       } else {
         await addDoc(collection(db, "classrooms"), {
           ...payload,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         });
         setSuccess("Classroom added successfully!");
       }
 
       setOpen(false);
-      setForm(emptyForm);
-      setEditId(null);
+      resetFormState();
       await fetchData();
     } catch (err) {
-      setError("Save failed: " + err.message);
+      setError(`Save failed: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleEdit = (c) => {
+  const handleEdit = (classroom) => {
+    const teacher =
+      resolveTeacher(classroom) ||
+      teachers.find((t) => t.id === classroom.classTeacherId) ||
+      null;
+
     setForm({
-      grade: c.grade,
-      section: c.section,
-      stream: c.stream || "",
-      classTeacherId: c.classTeacherId || "",
-      year: c.year || 2026,
-      notes: c.notes || ""
+      grade: classroom.grade || 6,
+      section: classroom.section || "A",
+      stream: classroom.stream || "",
+      classTeacherId: teacher?.id || classroom.classTeacherId || "",
+      year: classroom.year || 2026,
+      notes: classroom.notes || "",
     });
-    setEditId(c.id);
+
+    setEditId(classroom.id);
     setError("");
     setSuccess("");
     setOpen(true);
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this classroom?")) return;
+    const confirmed = window.confirm("Delete this classroom?");
+    if (!confirmed) return;
+
     try {
       await deleteDoc(doc(db, "classrooms", id));
       setSuccess("Classroom deleted.");
       await fetchData();
     } catch (err) {
-      setError("Delete failed: " + err.message);
+      setError(`Delete failed: ${err.message}`);
     }
   };
+
+  const classroomCountWithTeacher = classrooms.filter(
+    (c) => c.classTeacherId || c.classTeacherName || c.classTeacherEmail
+  ).length;
 
   return (
     <Box>
@@ -258,19 +500,40 @@ export default function ClassroomManagement() {
           p: { xs: 2, sm: 2.5 },
           mb: 2,
           boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-          border: "1px solid #e8eaf6"
+          border: "1px solid #e8eaf6",
         }}
       >
-        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1.5}>
+        <Box
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          flexWrap="wrap"
+          gap={1.5}
+        >
           <Box>
-            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={800} color="#1a237e">
+            <Typography
+              variant={isMobile ? "h6" : "h5"}
+              fontWeight={800}
+              color="#1a237e"
+            >
               Classrooms
             </Typography>
+
             <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip label={`Total: ${classrooms.length}`} size="small" color="primary" sx={{ fontWeight: 700 }} />
-              <Chip label={`Grades: ${Object.keys(groupedByGrade).length}`} size="small" color="success" sx={{ fontWeight: 700 }} />
               <Chip
-                label={`With Teacher: ${classrooms.filter(c => c.classTeacherId).length}`}
+                label={`Total: ${classrooms.length}`}
+                size="small"
+                color="primary"
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`Grades: ${Object.keys(groupedByGrade).length}`}
+                size="small"
+                color="success"
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`With Teacher: ${classroomCountWithTeacher}`}
                 size="small"
                 color="warning"
                 sx={{ fontWeight: 700 }}
@@ -283,10 +546,7 @@ export default function ClassroomManagement() {
             startIcon={<AddIcon />}
             size={isMobile ? "small" : "medium"}
             onClick={() => {
-              setForm(emptyForm);
-              setEditId(null);
-              setError("");
-              setSuccess("");
+              resetFormState();
               setOpen(true);
             }}
             sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
@@ -297,13 +557,21 @@ export default function ClassroomManagement() {
       </Box>
 
       {success && (
-        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
+        <Alert
+          severity="success"
+          sx={{ mb: 2, borderRadius: 2 }}
+          onClose={() => setSuccess("")}
+        >
           {success}
         </Alert>
       )}
 
       {error && !open && (
-        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
+        <Alert
+          severity="error"
+          sx={{ mb: 2, borderRadius: 2 }}
+          onClose={() => setError("")}
+        >
           {error}
         </Alert>
       )}
@@ -319,7 +587,7 @@ export default function ClassroomManagement() {
           sx={{
             bgcolor: "white",
             borderRadius: 3,
-            border: "1px solid #e8eaf6"
+            border: "1px solid #e8eaf6",
           }}
         >
           <SchoolIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
@@ -334,39 +602,56 @@ export default function ClassroomManagement() {
         <>
           {isMobile ? (
             <Box>
-              {classrooms.map(c => (
+              {classrooms.map((classroom) => (
                 <Card
-                  key={c.id}
+                  key={classroom.id}
                   sx={{
                     mb: 1.5,
                     borderRadius: 3,
                     border: "1px solid #e8eaf6",
-                    boxShadow: "0 2px 8px rgba(26,35,126,0.07)"
+                    boxShadow: "0 2px 8px rgba(26,35,126,0.07)",
                   }}
                 >
                   <CardContent sx={{ pb: 0 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                       <Box>
                         <Typography variant="subtitle2" fontWeight={800} color="#1a237e">
-                          {getClassLabel(c)}
+                          {getClassLabel(classroom)}
                         </Typography>
+
                         <Box display="flex" alignItems="center" gap={0.5} mt={0.3}>
                           <PersonIcon sx={{ fontSize: 13, color: "text.secondary" }} />
                           <Typography variant="caption" color="text.secondary">
-                            {getTeacherName(c.classTeacherId)}
+                            {getTeacherName(classroom)}
                           </Typography>
                         </Box>
                       </Box>
-                      <Chip label={c.year} size="small" color="primary" sx={{ fontWeight: 700 }} />
+
+                      <Chip
+                        label={classroom.year}
+                        size="small"
+                        color="primary"
+                        sx={{ fontWeight: 700 }}
+                      />
                     </Box>
 
-                    {c.stream && (
-                      <Chip label={c.stream} size="small" color="warning" sx={{ mt: 1, fontWeight: 600 }} />
+                    {classroom.stream && (
+                      <Chip
+                        label={classroom.stream}
+                        size="small"
+                        color="warning"
+                        sx={{ mt: 1, fontWeight: 600 }}
+                      />
                     )}
 
-                    {c.notes && (
-                      <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                        📝 {c.notes}
+                    {classroom.notes && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                        mt={0.5}
+                      >
+                        📝 {classroom.notes}
                       </Typography>
                     )}
                   </CardContent>
@@ -376,17 +661,18 @@ export default function ClassroomManagement() {
                       size="small"
                       variant="outlined"
                       startIcon={<EditIcon />}
-                      onClick={() => handleEdit(c)}
+                      onClick={() => handleEdit(classroom)}
                       sx={{ borderColor: "#1a237e", color: "#1a237e" }}
                     >
                       Edit
                     </Button>
+
                     <Button
                       size="small"
                       variant="outlined"
                       color="error"
                       startIcon={<DeleteIcon />}
-                      onClick={() => handleDelete(c.id)}
+                      onClick={() => handleDelete(classroom.id)}
                     >
                       Delete
                     </Button>
@@ -396,7 +682,7 @@ export default function ClassroomManagement() {
             </Box>
           ) : (
             <Box>
-              {Object.entries(groupedByGrade).map(([grade, gClassrooms]) => (
+              {Object.entries(groupedByGrade).map(([grade, rows]) => (
                 <Box key={grade} mb={3}>
                   <Box display="flex" alignItems="center" gap={1} mb={1}>
                     <SchoolIcon sx={{ color: "#1a237e", fontSize: 20 }} />
@@ -404,7 +690,7 @@ export default function ClassroomManagement() {
                       Grade {grade}
                     </Typography>
                     <Chip
-                      label={`${gClassrooms.length} section${gClassrooms.length > 1 ? "s" : ""}`}
+                      label={`${rows.length} section${rows.length > 1 ? "s" : ""}`}
                       size="small"
                       color="primary"
                       sx={{ fontWeight: 600 }}
@@ -416,26 +702,35 @@ export default function ClassroomManagement() {
                       overflowX: "auto",
                       borderRadius: 3,
                       boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-                      border: "1px solid #e8eaf6"
+                      border: "1px solid #e8eaf6",
                     }}
                   >
                     <Table size="small">
                       <TableHead sx={{ bgcolor: "#1a237e" }}>
                         <TableRow>
-                          {["Section", "Year", "Class Teacher", "Stream", "Notes", "Actions"].map(h => (
-                            <TableCell key={h} sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
-                              {h}
-                            </TableCell>
-                          ))}
+                          {["Section", "Year", "Class Teacher", "Stream", "Notes", "Actions"].map(
+                            (heading) => (
+                              <TableCell
+                                key={heading}
+                                sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
+                              >
+                                {heading}
+                              </TableCell>
+                            )
+                          )}
                         </TableRow>
                       </TableHead>
 
                       <TableBody>
-                        {gClassrooms.map(c => (
-                          <TableRow key={c.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+                        {rows.map((classroom) => (
+                          <TableRow
+                            key={classroom.id}
+                            hover
+                            sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
+                          >
                             <TableCell>
                               <Chip
-                                label={c.section}
+                                label={classroom.section}
                                 size="small"
                                 color="primary"
                                 sx={{ fontWeight: 800, fontSize: 13 }}
@@ -443,45 +738,73 @@ export default function ClassroomManagement() {
                             </TableCell>
 
                             <TableCell>
-                              <Chip label={c.year} size="small" color="default" sx={{ fontWeight: 600 }} />
+                              <Chip
+                                label={classroom.year}
+                                size="small"
+                                color="default"
+                                sx={{ fontWeight: 600 }}
+                              />
                             </TableCell>
 
                             <TableCell>
-                              {c.classTeacherId ? (
+                              {classroom.classTeacherId ||
+                              classroom.classTeacherName ||
+                              classroom.classTeacherEmail ? (
                                 <Chip
                                   icon={<PersonIcon />}
-                                  label={getTeacherName(c.classTeacherId)}
+                                  label={getTeacherName(classroom)}
                                   color="success"
                                   size="small"
                                   sx={{ fontWeight: 600 }}
                                 />
                               ) : (
-                                <Chip label="Not assigned" size="small" color="warning" variant="outlined" />
+                                <Chip
+                                  label="Not assigned"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                />
                               )}
                             </TableCell>
 
                             <TableCell>
-                              {c.stream ? (
-                                <Chip label={c.stream} size="small" color="warning" sx={{ fontWeight: 600 }} />
+                              {classroom.stream ? (
+                                <Chip
+                                  label={classroom.stream}
+                                  size="small"
+                                  color="warning"
+                                  sx={{ fontWeight: 600 }}
+                                />
                               ) : (
-                                <Typography variant="caption" color="text.secondary">—</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  —
+                                </Typography>
                               )}
                             </TableCell>
 
                             <TableCell>
                               <Typography variant="caption" color="text.secondary">
-                                {c.notes || "—"}
+                                {classroom.notes || "—"}
                               </Typography>
                             </TableCell>
 
                             <TableCell>
                               <Tooltip title="Edit">
-                                <IconButton size="small" color="primary" onClick={() => handleEdit(c)}>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleEdit(classroom)}
+                                >
                                   <EditIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
+
                               <Tooltip title="Delete">
-                                <IconButton size="small" color="error" onClick={() => handleDelete(c.id)}>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleDelete(classroom.id)}
+                                >
                                   <DeleteIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
@@ -498,7 +821,13 @@ export default function ClassroomManagement() {
         </>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+      >
         <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
           {editId ? "✏️ Edit Classroom" : "➕ Add / Create Classroom"}
         </DialogTitle>
@@ -523,11 +852,17 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.grade}
                   label="Grade"
-                  onChange={e => setForm({ ...form, grade: Number(e.target.value), section: "A" })}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      grade: Number(e.target.value),
+                      section: "A",
+                    }))
+                  }
                 >
-                  {GRADES.map(g => (
-                    <MenuItem key={g} value={g}>
-                      Grade {g}
+                  {GRADES.map((grade) => (
+                    <MenuItem key={grade} value={grade}>
+                      Grade {grade}
                     </MenuItem>
                   ))}
                 </Select>
@@ -540,17 +875,20 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.section}
                   label="Section"
-                  onChange={e => setForm({ ...form, section: e.target.value })}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, section: upper(e.target.value) }))
+                  }
                 >
-                  {availableSections.map(s => (
-                    <MenuItem key={s} value={s}>
-                      Section {s}
+                  {availableSections.map((section) => (
+                    <MenuItem key={section} value={section}>
+                      Section {section}
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
+
               <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                Existing + next available section
+                Existing + next available section for selected year
               </Typography>
             </Grid>
 
@@ -560,10 +898,14 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.year}
                   label="Year"
-                  onChange={e => setForm({ ...form, year: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, year: Number(e.target.value) }))
+                  }
                 >
-                  {YEARS.map(y => (
-                    <MenuItem key={y} value={y}>{y}</MenuItem>
+                  {YEARS.map((year) => (
+                    <MenuItem key={year} value={year}>
+                      {year}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -573,7 +915,9 @@ export default function ClassroomManagement() {
               <Button
                 fullWidth
                 variant="outlined"
-                startIcon={creatingSection ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
+                startIcon={
+                  creatingSection ? <CircularProgress size={16} /> : <AutoAwesomeIcon />
+                }
                 onClick={createNewSection}
                 disabled={creatingSection}
                 sx={{
@@ -581,15 +925,16 @@ export default function ClassroomManagement() {
                   color: "#1a237e",
                   fontWeight: 700,
                   height: 42,
-                  borderRadius: 2
+                  borderRadius: 2,
                 }}
               >
                 {creatingSection
                   ? "Creating..."
                   : `Create New Classroom / Division for Grade ${form.grade}`}
               </Button>
+
               <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                This creates the next section automatically, like E, F, G...
+                This creates the next section automatically for the selected year.
               </Typography>
             </Grid>
 
@@ -607,14 +952,18 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.classTeacherId || ""}
                   label="Class Teacher"
-                  onChange={e => setForm({ ...form, classTeacherId: e.target.value })}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, classTeacherId: e.target.value }))
+                  }
                 >
                   <MenuItem value="">
                     <em>No teacher assigned</em>
                   </MenuItem>
-                  {teachers.map(t => (
-                    <MenuItem key={t.id} value={t.id}>
-                      {t.name}
+
+                  {teachers.map((teacher) => (
+                    <MenuItem key={teacher.id} value={teacher.id}>
+                      {teacher.name}
+                      {teacher.signatureNo ? ` (${teacher.signatureNo})` : ""}
                     </MenuItem>
                   ))}
                 </Select>
@@ -627,14 +976,19 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.stream || ""}
                   label="Stream"
-                  onChange={e => setForm({ ...form, stream: e.target.value || "" })}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, stream: e.target.value || "" }))
+                  }
                 >
                   <MenuItem value="">None</MenuItem>
-                  {STREAMS.map(s => (
-                    <MenuItem key={s} value={s}>{s}</MenuItem>
+                  {STREAMS.map((stream) => (
+                    <MenuItem key={stream} value={stream}>
+                      {stream}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
+
               <Typography variant="caption" color="text.secondary">
                 {form.grade < 12 ? "Only for Grade 12–13" : "Select A/L stream"}
               </Typography>
@@ -647,7 +1001,9 @@ export default function ClassroomManagement() {
                 multiline
                 rows={2}
                 value={form.notes || ""}
-                onChange={e => setForm({ ...form, notes: e.target.value })}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, notes: e.target.value }))
+                }
                 placeholder="e.g. Science lab class, special notes..."
               />
             </Grid>
@@ -658,6 +1014,7 @@ export default function ClassroomManagement() {
           <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
             Cancel
           </Button>
+
           <Button
             onClick={handleSave}
             variant="contained"
@@ -665,9 +1022,13 @@ export default function ClassroomManagement() {
             fullWidth={isMobile}
             sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
           >
-            {saving
-              ? <CircularProgress size={20} color="inherit" />
-              : editId ? "Update Classroom" : "Save Classroom"}
+            {saving ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : editId ? (
+              "Update Classroom"
+            ) : (
+              "Save Classroom"
+            )}
           </Button>
         </DialogActions>
       </Dialog>
