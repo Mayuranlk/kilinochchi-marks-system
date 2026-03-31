@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   collection,
-  addDoc,
-  updateDoc,
   deleteDoc,
   doc,
   getDocs,
+  setDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
+  Alert,
   Box,
   Typography,
   Button,
@@ -31,7 +31,6 @@ import {
   Chip,
   CircularProgress,
   Grid,
-  Alert,
   Card,
   CardContent,
   CardActions,
@@ -71,8 +70,11 @@ const emptyForm = {
   subjectCategory: "",
   subjectId: "",
   subjectName: "",
+  subjectCode: "",
   medium: "",
   stream: "",
+  religionKey: "",
+  basketGroup: "",
 };
 
 const BATCH_LIMIT = 400;
@@ -85,6 +87,18 @@ const parseGrade = (value) => {
   return match ? Number(match[0]) : 0;
 };
 
+const normalizeSection = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
+
+const normalizeAcademicYear = (value) => {
+  const raw = normalizeText(value);
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : String(new Date().getFullYear());
+};
+
 const isActiveLike = (value) => {
   if (!normalizeText(value)) return true;
   return normalizeLower(value) === "active";
@@ -94,10 +108,20 @@ const getStudentName = (student) =>
   normalizeText(student?.name || student?.fullName || "Unnamed");
 
 const getStudentSection = (student) =>
-  normalizeText(student?.section || student?.className || "");
+  normalizeSection(student?.section || student?.className || "");
+
+const getStudentFullClass = (student) => {
+  const grade = parseGrade(student?.grade);
+  const section = getStudentSection(student);
+  if (grade && section) return `${grade}${section}`;
+  return section;
+};
 
 const getSubjectName = (subject) =>
   normalizeText(subject?.name || subject?.subjectName || "");
+
+const getSubjectCode = (subject) =>
+  normalizeText(subject?.code || subject?.subjectCode || "");
 
 const getSubjectCategory = (subject) =>
   normalizeText(subject?.category || subject?.subjectCategory || "");
@@ -108,8 +132,8 @@ const sortStudentsClientSide = (list) => {
     const gradeB = parseGrade(b.grade);
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = getStudentSection(a).toUpperCase();
-    const sectionB = getStudentSection(b).toUpperCase();
+    const sectionA = getStudentSection(a);
+    const sectionB = getStudentSection(b);
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
     const nameA = getStudentName(a).toLowerCase();
@@ -126,8 +150,8 @@ const sortEnrollments = (list) => {
     const gradeB = parseGrade(b.grade);
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = normalizeText(a.section || a.className).toUpperCase();
-    const sectionB = normalizeText(b.section || b.className).toUpperCase();
+    const sectionA = normalizeSection(a.section || a.className);
+    const sectionB = normalizeSection(b.section || b.className);
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
     const nameA = normalizeText(a.studentName).toLowerCase();
@@ -174,6 +198,10 @@ function subjectAppliesToGrade(subject, grade) {
   return true;
 }
 
+function canonicalEnrollmentId({ academicYear, studentId, subjectId }) {
+  return `${normalizeAcademicYear(academicYear)}_${studentId}_${subjectId}`;
+}
+
 export default function StudentSubjectEnrollments() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -214,9 +242,7 @@ export default function StudentSubjectEnrollments() {
       ? students.filter((s) => String(parseGrade(s.grade)) === String(filterGrade))
       : students;
 
-    return [
-      ...new Set(source.map((s) => getStudentSection(s)).filter(Boolean)),
-    ].sort();
+    return [...new Set(source.map((s) => getStudentSection(s)).filter(Boolean))].sort();
   }, [students, filterGrade]);
 
   const filteredStudentsForForm = useMemo(() => students, [students]);
@@ -235,9 +261,10 @@ export default function StudentSubjectEnrollments() {
       const matchGrade = !filterGrade || String(item.grade) === String(filterGrade);
       const matchSection =
         !filterSection ||
-        String(item.section || item.className) === String(filterSection);
+        normalizeSection(item.section || item.className) === normalizeSection(filterSection);
       const matchCategory =
-        !filterCategory || normalizeText(item.subjectCategory) === normalizeText(filterCategory);
+        !filterCategory ||
+        normalizeText(item.subjectCategory) === normalizeText(filterCategory);
 
       return matchSearch && matchGrade && matchSection && matchCategory;
     });
@@ -318,6 +345,7 @@ export default function StudentSubjectEnrollments() {
         section: "",
         subjectId: "",
         subjectName: "",
+        subjectCode: "",
       }));
       return;
     }
@@ -329,8 +357,10 @@ export default function StudentSubjectEnrollments() {
       admissionNo: selectedStudent.admissionNo || "",
       grade: parseGrade(selectedStudent.grade) || "",
       section: getStudentSection(selectedStudent),
+      medium: normalizeText(selectedStudent.medium || prev.medium),
       subjectId: "",
       subjectName: "",
+      subjectCode: "",
     }));
   };
 
@@ -341,7 +371,11 @@ export default function StudentSubjectEnrollments() {
       ...prev,
       subjectId: selectedSubject?.id || "",
       subjectName: getSubjectName(selectedSubject),
+      subjectCode: getSubjectCode(selectedSubject),
       subjectCategory: getSubjectCategory(selectedSubject) || prev.subjectCategory,
+      religionKey: normalizeText(selectedSubject?.religion || ""),
+      basketGroup: normalizeText(selectedSubject?.basketGroup || ""),
+      stream: prev.stream || normalizeText(selectedSubject?.stream || ""),
     }));
   };
 
@@ -355,25 +389,55 @@ export default function StudentSubjectEnrollments() {
     if (!normalizeText(form.subjectId)) return "Subject is required.";
     if (!normalizeText(form.subjectName)) return "Subject name is required.";
 
+    const canonicalId = canonicalEnrollmentId({
+      academicYear: form.academicYear,
+      studentId: form.studentId,
+      subjectId: form.subjectId,
+    });
+
+    const duplicate = enrollments.find((item) => {
+      if (editId && item.id === editId) return false;
+      return item.id === canonicalId;
+    });
+
+    if (duplicate) {
+      return "This student is already enrolled in the selected subject for this academic year.";
+    }
+
     return "";
   };
 
-  const buildPayload = () => ({
-    studentId: form.studentId,
-    studentName: normalizeText(form.studentName),
-    admissionNo: normalizeText(form.admissionNo),
-    grade: Number(form.grade),
-    section: normalizeText(form.section),
-    className: normalizeText(form.section),
-    academicYear: normalizeText(form.academicYear),
-    subjectCategory: normalizeText(form.subjectCategory),
-    subjectId: normalizeText(form.subjectId),
-    subjectName: normalizeText(form.subjectName),
-    medium: normalizeText(form.medium),
-    stream: normalizeText(form.stream),
-    status: "active",
-    updatedAt: new Date().toISOString(),
-  });
+  const buildPayload = () => {
+    const grade = Number(form.grade);
+    const section = normalizeSection(form.section);
+    const className = grade && section ? `${grade}${section}` : section;
+
+    return {
+      studentId: form.studentId,
+      studentName: normalizeText(form.studentName),
+      admissionNo: normalizeText(form.admissionNo),
+
+      grade,
+      section,
+      className,
+
+      academicYear: normalizeAcademicYear(form.academicYear),
+
+      subjectCategory: normalizeText(form.subjectCategory),
+      subjectId: normalizeText(form.subjectId),
+      subjectName: normalizeText(form.subjectName),
+      subjectCode: normalizeText(form.subjectCode),
+
+      medium: normalizeText(form.medium),
+      stream: normalizeText(form.stream),
+      religionKey: normalizeText(form.religionKey),
+      basketGroup: normalizeText(form.basketGroup),
+
+      generatedBy: "manual",
+      status: "active",
+      updatedAt: new Date().toISOString(),
+    };
+  };
 
   const handleSave = async () => {
     const validationError = validateForm();
@@ -388,17 +452,30 @@ export default function StudentSubjectEnrollments() {
 
     try {
       const payload = buildPayload();
+      const canonicalId = canonicalEnrollmentId({
+        academicYear: payload.academicYear,
+        studentId: payload.studentId,
+        subjectId: payload.subjectId,
+      });
 
-      if (editId) {
-        await updateDoc(doc(db, "studentSubjectEnrollments", editId), payload);
-        setSuccess("Student subject enrollment updated successfully.");
-      } else {
-        await addDoc(collection(db, "studentSubjectEnrollments"), {
+      await setDoc(
+        doc(db, "studentSubjectEnrollments", canonicalId),
+        {
           ...payload,
-          createdAt: new Date().toISOString(),
-        });
-        setSuccess("Student subject enrollment added successfully.");
+          createdAt: editId ? enrollments.find((e) => e.id === editId)?.createdAt || new Date().toISOString() : new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      if (editId && editId !== canonicalId) {
+        await deleteDoc(doc(db, "studentSubjectEnrollments", editId));
       }
+
+      setSuccess(
+        editId
+          ? "Student subject enrollment updated successfully."
+          : "Student subject enrollment added successfully."
+      );
 
       setForm({
         ...emptyForm,
@@ -425,8 +502,11 @@ export default function StudentSubjectEnrollments() {
       subjectCategory: item.subjectCategory || "",
       subjectId: item.subjectId || "",
       subjectName: item.subjectName || "",
+      subjectCode: item.subjectCode || "",
       medium: item.medium || "",
       stream: item.stream || "",
+      religionKey: item.religionKey || "",
+      basketGroup: item.basketGroup || "",
     });
     setEditId(item.id);
     setError("");
@@ -712,7 +792,7 @@ export default function StudentSubjectEnrollments() {
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
                   {item.admissionNo || "No Adm#"} • Grade {item.grade || "—"}-
-                  {item.section || item.className || "—"}
+                  {item.section || normalizeSection(item.className) || "—"}
                 </Typography>
                 <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
                   <Chip
@@ -815,7 +895,7 @@ export default function StudentSubjectEnrollments() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={`G${item.grade || "—"}-${item.section || item.className || "—"}`}
+                      label={`G${item.grade || "—"}-${item.section || normalizeSection(item.className) || "—"}`}
                       size="small"
                       color="primary"
                       sx={{ fontWeight: 700, fontSize: 12 }}
@@ -952,6 +1032,9 @@ export default function StudentSubjectEnrollments() {
                       subjectCategory: e.target.value,
                       subjectId: "",
                       subjectName: "",
+                      subjectCode: "",
+                      religionKey: "",
+                      basketGroup: "",
                       stream: e.target.value === "al_main" ? form.stream : "",
                     })
                   }
