@@ -41,6 +41,7 @@ import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest";
+import DownloadIcon from "@mui/icons-material/Download";
 
 const DRAWER_WIDTH = 240;
 
@@ -59,14 +60,16 @@ export default function Layout() {
     { label: "Students", icon: <PeopleIcon />, path: "/students" },
     { label: "Marks Entry", icon: <GradeIcon />, path: "/marks" },
     { label: "Teachers", icon: <PersonIcon />, path: "/teachers" },
-{ label: "School Setup", icon: <SettingsSuggestIcon />, path: "/setup-school-defaults",badge: "SETUP",
-},
+    {
+      label: "School Setup",
+      icon: <SettingsSuggestIcon />,
+      path: "/setup-school-defaults",
+      badge: "SETUP",
+    },
     { label: "Assignments", icon: <AssignmentIndIcon />, path: "/assignments" },
     { label: "Class Teachers", icon: <HomeWorkIcon />, path: "/class-teachers" },
-
     { label: "Promotion", icon: <UpgradeIcon />, path: "/promotion" },
     { label: "Academic Terms", icon: <CalendarMonthIcon />, path: "/terms" },
-
     {
       label: "Subject Enrollments",
       icon: <AutoFixHighIcon />,
@@ -84,8 +87,13 @@ export default function Layout() {
       icon: <CleaningServicesIcon />,
       path: "/migrate-student-subjects",
     },
+    {
+      label: "Export Samples",
+      icon: <DownloadIcon />,
+      path: "/export-firestore-samples",
+      badge: "DEV",
+    },
   ];
-  
 
   const teacherMenu = [
     { label: "Dashboard", icon: <DashboardIcon />, path: "/teacher" },
@@ -151,6 +159,11 @@ export default function Layout() {
     if (item.badge === "NEW") {
       bg = "#ffd54f";
       color = "#1a237e";
+    }
+
+    if (item.badge === "DEV") {
+      bg = "#90caf9";
+      color = "#0d47a1";
     }
 
     return (

@@ -23,6 +23,7 @@ import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
 import AcademicTerms from "./pages/AcademicTerms";
 import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
 import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
+import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
 
 function LoadingScreen() {
   return (
@@ -215,6 +216,15 @@ export default function App() {
               element={
                 <AdminRoute>
                   <YearEndPromotion />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="export-firestore-samples"
+              element={
+                <AdminRoute>
+                  <ExportFirestoreSamples />
                 </AdminRoute>
               }
             />
