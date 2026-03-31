@@ -1,15 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  where,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../firebase";
-import { useAuth } from "../context/AuthContext";
-import {
   Alert,
   Box,
   Button,
@@ -23,1065 +13,1283 @@ import {
   MenuItem,
   Paper,
   Select,
+  Snackbar,
+  Stack,
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
   Typography,
-  useMediaQuery,
-  useTheme,
+  Tooltip,
 } from "@mui/material";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveIcon from "@mui/icons-material/Save";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import WarningIcon from "@mui/icons-material/Warning";
+import SchoolIcon from "@mui/icons-material/School";
+import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
+import { getAuth } from "firebase/auth";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "../firebase";
 
-const ENTRY_STATUSES = ["Present", "Absent", "Medical Absent"];
+/**
+ * ============================================================================
+ * PRODUCTION-GRADE MARKS ENTRY
+ * ============================================================================
+ * Goals:
+ * - Robust against legacy and mixed enrollment formats
+ * - Works with:
+ *   - className: "B"
+ *   - className: "6B"
+ *   - section: "B"
+ * - Subject resolution uses subjectId first, subjectName fallback
+ * - Supports admin mode + teacher assignment mode
+ * - Supports active term loading
+ * - Supports save / reload
+ * - Supports absent / medical absent
+ * - Safe against old docs that have inconsistent fields
+ * ============================================================================
+ */
 
-const normalizeText = (value) => String(value ?? "").trim();
-const normalizeLower = (value) => normalizeText(value).toLowerCase();
+/* -------------------------------------------------------------------------- */
+/* Helpers: safe string / number normalization                                 */
+/* -------------------------------------------------------------------------- */
+
+const safeString = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+};
+
+const upper = (value) => safeString(value).toUpperCase();
+
+const lower = (value) => safeString(value).toLowerCase();
+
+const onlyDigits = (value) => {
+  const match = safeString(value).match(/\d+/g);
+  return match ? match.join("") : "";
+};
+
+const onlyLetters = (value) => {
+  const match = safeString(value).toUpperCase().match(/[A-Z]+/g);
+  return match ? match.join("") : "";
+};
+
+const compact = (value) => safeString(value).replace(/\s+/g, "");
+
+const normalizeAcademicYear = (value) => {
+  const year = onlyDigits(value);
+  return year || "";
+};
 
 const normalizeGrade = (value) => {
-  const match = String(value ?? "").match(/\d+/);
-  return match ? Number(match[0]) : 0;
+  const digits = onlyDigits(value);
+  return digits ? String(parseInt(digits, 10)) : "";
 };
 
-const normalizeClassName = (value) => normalizeText(value);
-
-const getAcademicYearValue = (term) =>
-  normalizeText(term?.academicYear || term?.year || "");
-
-const isStrictActive = (value) => normalizeLower(value) === "active";
-
-const getSubjectId = (subject) =>
-  normalizeText(subject?.id || subject?.subjectId || "");
-
-const getSubjectName = (subject) =>
-  normalizeText(subject?.name || subject?.subjectName || subject?.subject || "");
-
-const getAssignmentSubjectId = (assignment) =>
-  normalizeText(assignment?.subjectId || "");
-
-const getAssignmentSubjectName = (assignment) =>
-  normalizeText(
-    assignment?.subjectName || assignment?.subject || assignment?.name || ""
-  );
-
-const getEnrollmentSubjectId = (enrollment) =>
-  normalizeText(enrollment?.subjectId || "");
-
-const getEnrollmentSubjectName = (enrollment) =>
-  normalizeText(
-    enrollment?.subjectName || enrollment?.subject || enrollment?.name || ""
-  );
-
-const getEnrollmentAcademicYear = (enrollment) =>
-  normalizeText(enrollment?.academicYear || enrollment?.year || "");
-
-const getEnrollmentStudentName = (enrollment) =>
-  normalizeText(
-    enrollment?.studentName ||
-      enrollment?.studentFullName ||
-      enrollment?.fullName ||
-      enrollment?.name ||
-      ""
-  );
-
-const getEnrollmentAdmissionNo = (enrollment) =>
-  normalizeText(
-    enrollment?.admissionNo ||
-      enrollment?.indexNumber ||
-      enrollment?.studentAdmissionNo ||
-      ""
-  );
-
-const getStudentName = (student) =>
-  normalizeText(
-    student?.fullName || student?.studentName || student?.name || "Unnamed Student"
-  );
-
-const getStudentAdmissionNo = (student) =>
-  normalizeText(
-    student?.admissionNo || student?.indexNumber || student?.studentAdmissionNo || ""
-  );
-
-const buildMarkDocId = ({ studentId, subjectId, subjectName, term, year }) => {
-  const safeSubjectKey = subjectId || normalizeText(subjectName);
-  return `${studentId}_${safeSubjectKey}_${term}_${year}`;
+/**
+ * Extract section from:
+ * - "A"
+ * - "6A"
+ * - "Grade 6 A"
+ * - section field itself
+ */
+const normalizeSection = (value) => {
+  const letters = onlyLetters(value);
+  return letters || "";
 };
 
-const subjectMatchesAssignment = (subject, assignment) => {
-  const subjectId = getSubjectId(subject);
-  const subjectName = getSubjectName(subject);
-  const assignmentSubjectId = getAssignmentSubjectId(assignment);
-  const assignmentSubjectName = getAssignmentSubjectName(assignment);
+/**
+ * Build normalized class object from grade + raw className + raw section.
+ * Supports legacy shapes:
+ * - grade=6, className="B"
+ * - grade=6, className="6B"
+ * - grade=6, className="Grade 6 B"
+ * - grade=6, section="B"
+ */
+const normalizeClassInfo = ({ grade, className, section }) => {
+  const normalizedGrade = normalizeGrade(grade);
 
-  if (subjectId && assignmentSubjectId) {
-    return subjectId === assignmentSubjectId;
+  const rawClass = upper(className);
+  const rawSection = upper(section);
+
+  let extractedSection = normalizeSection(rawSection);
+
+  if (!extractedSection) {
+    const classLetters = normalizeSection(rawClass);
+    if (classLetters) extractedSection = classLetters;
   }
 
-  return normalizeLower(subjectName) === normalizeLower(assignmentSubjectName);
+  const fullClass =
+    normalizedGrade && extractedSection
+      ? `${normalizedGrade}${extractedSection}`
+      : "";
+
+  return {
+    grade: normalizedGrade,
+    section: extractedSection,
+    fullClass,
+  };
 };
 
-const enrollmentMatchesSubject = (enrollment, subject) => {
-  const enrollmentSubjectId = getEnrollmentSubjectId(enrollment);
-  const enrollmentSubjectName = getEnrollmentSubjectName(enrollment);
-  const subjectId = getSubjectId(subject);
-  const subjectName = getSubjectName(subject);
+/**
+ * For UI selected class values like:
+ * - "6A"
+ * - "11B"
+ * - "A" (legacy accidental)
+ */
+const normalizeSelectedClass = (selectedClass, selectedGrade = "") => {
+  const raw = upper(selectedClass);
+  const derivedGrade = normalizeGrade(raw) || normalizeGrade(selectedGrade);
+  const derivedSection = normalizeSection(raw);
+  const fullClass =
+    derivedGrade && derivedSection ? `${derivedGrade}${derivedSection}` : "";
 
-  if (subjectId && enrollmentSubjectId) {
-    return subjectId === enrollmentSubjectId;
-  }
-
-  return normalizeLower(enrollmentSubjectName) === normalizeLower(subjectName);
+  return {
+    grade: derivedGrade,
+    section: derivedSection,
+    fullClass,
+  };
 };
 
-const sortRows = (rows) => {
+const normalizeName = (value) => compact(lower(value));
+
+const subjectNameEquals = (a, b) => normalizeName(a) === normalizeName(b);
+
+const buildSubjectIdentityKey = (subjectId, subjectName) => {
+  const sid = safeString(subjectId);
+  if (sid) return `id:${sid}`;
+  return `name:${normalizeName(subjectName)}`;
+};
+
+const isActiveLike = (value) => {
+  const v = lower(value);
+  if (!v) return true;
+  return ["active", "enabled", "current", "1", "true", "yes"].includes(v);
+};
+
+const roleLooksAdmin = (role) => {
+  const r = lower(role);
+  return ["admin", "superadmin", "principal", "administrator"].includes(r);
+};
+
+const roleLooksTeacher = (role) => {
+  const r = lower(role);
+  return ["teacher", "staff", "subjectteacher", "classteacher"].includes(r);
+};
+
+const toNumberOrBlank = (value) => {
+  if (value === "" || value === null || value === undefined) return "";
+  const num = Number(value);
+  return Number.isFinite(num) ? num : "";
+};
+
+const sortByClassThenName = (rows) => {
   return [...rows].sort((a, b) => {
-    const aAdmission = normalizeText(a.admissionNo).toLowerCase();
-    const bAdmission = normalizeText(b.admissionNo).toLowerCase();
+    const ga = Number(normalizeGrade(a.grade) || 0);
+    const gb = Number(normalizeGrade(b.grade) || 0);
+    if (ga !== gb) return ga - gb;
 
-    if (aAdmission && bAdmission && aAdmission !== bAdmission) {
-      return aAdmission.localeCompare(bAdmission, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-    }
+    const sa = normalizeSection(a.section || a.className);
+    const sb = normalizeSection(b.section || b.className);
+    if (sa !== sb) return sa.localeCompare(sb);
 
-    const aName = normalizeText(a.studentName).toLowerCase();
-    const bName = normalizeText(b.studentName).toLowerCase();
-
-    if (aName !== bName) {
-      return aName.localeCompare(bName);
-    }
-
-    return normalizeText(a.studentId).localeCompare(normalizeText(b.studentId));
+    return safeString(a.studentName).localeCompare(safeString(b.studentName));
   });
 };
 
-const getGradeChip = (mark) => {
-  if (mark === "" || mark === undefined || mark === null) return null;
+/* -------------------------------------------------------------------------- */
+/* Enrollment matching helpers                                                 */
+/* -------------------------------------------------------------------------- */
 
-  const n = Number(mark);
-  if (Number.isNaN(n)) return null;
-
-  if (n >= 75) return { label: "A", color: "success" };
-  if (n >= 65) return { label: "B", color: "primary" };
-  if (n >= 55) return { label: "C", color: "warning" };
-  if (n >= 35) return { label: "S", color: "default" };
-  return { label: "F", color: "error" };
+const matchesAcademicYear = (docYear, selectedYear) => {
+  const a = normalizeAcademicYear(docYear);
+  const b = normalizeAcademicYear(selectedYear);
+  if (!b) return true;
+  return a === b;
 };
 
-export default function MarksEntry() {
-  const { profile, isAdmin } = useAuth();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+const matchesSelectedClass = (enrollment, selectedGrade, selectedClass) => {
+  const docClass = normalizeClassInfo({
+    grade: enrollment.grade,
+    className: enrollment.className,
+    section: enrollment.section,
+  });
 
-  const [classrooms, setClassrooms] = useState([]);
-  const [subjects, setSubjects] = useState([]);
-  const [studentsMap, setStudentsMap] = useState({});
-  const [assignments, setAssignments] = useState([]);
+  const selected = normalizeSelectedClass(selectedClass, selectedGrade);
 
-  const [selectedGrade, setSelectedGrade] = useState("");
-  const [selectedClassName, setSelectedClassName] = useState("");
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  if (!selected.grade) return true;
 
-  const [activeTerm, setActiveTerm] = useState(null);
+  if (docClass.grade !== selected.grade) return false;
 
-  const [baseLoading, setBaseLoading] = useState(true);
-  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
-  const [enrollmentsLoading, setEnrollmentsLoading] = useState(false);
-  const [rowsLoading, setRowsLoading] = useState(false);
+  if (selected.section && docClass.section !== selected.section) return false;
+
+  return true;
+};
+
+const enrollmentMatchesSubject = (enrollment, selectedSubject) => {
+  if (!selectedSubject) return false;
+
+  const selectedSubjectId = safeString(selectedSubject.subjectId);
+  const selectedSubjectName = safeString(selectedSubject.subjectName);
+
+  const enrollmentSubjectId = safeString(enrollment.subjectId);
+  const enrollmentSubjectName = safeString(enrollment.subjectName);
+
+  if (selectedSubjectId && enrollmentSubjectId) {
+    return selectedSubjectId === enrollmentSubjectId;
+  }
+
+  if (selectedSubjectId && !enrollmentSubjectId) {
+    return subjectNameEquals(enrollmentSubjectName, selectedSubjectName);
+  }
+
+  if (!selectedSubjectId && selectedSubjectName) {
+    return subjectNameEquals(enrollmentSubjectName, selectedSubjectName);
+  }
+
+  return false;
+};
+
+const buildEnrollmentSubjectMap = (enrollments) => {
+  const map = new Map();
+
+  enrollments.forEach((enr) => {
+    const key = buildSubjectIdentityKey(enr.subjectId, enr.subjectName);
+    if (!map.has(key)) {
+      map.set(key, {
+        subjectId: safeString(enr.subjectId),
+        subjectName: safeString(enr.subjectName),
+      });
+    } else {
+      const existing = map.get(key);
+      if (!existing.subjectId && enr.subjectId) {
+        existing.subjectId = safeString(enr.subjectId);
+      }
+      if (!existing.subjectName && enr.subjectName) {
+        existing.subjectName = safeString(enr.subjectName);
+      }
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) =>
+    safeString(a.subjectName).localeCompare(safeString(b.subjectName))
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Firestore fetch helpers                                                     */
+/* -------------------------------------------------------------------------- */
+
+const fetchCollectionDocs = async (collectionName, options = {}) => {
+  try {
+    const ref = collection(db, collectionName);
+    const constraints = [];
+
+    if (options.whereClauses?.length) {
+      options.whereClauses.forEach((clause) => {
+        constraints.push(where(clause.field, clause.op, clause.value));
+      });
+    }
+
+    if (options.orderByField) {
+      constraints.push(orderBy(options.orderByField, options.orderDirection || "asc"));
+    }
+
+    if (options.limitCount) {
+      constraints.push(limit(options.limitCount));
+    }
+
+    const q = constraints.length ? query(ref, ...constraints) : ref;
+    const snap = await getDocs(q);
+
+    return snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+  } catch (error) {
+    console.error(`Failed to fetch collection ${collectionName}:`, error);
+    return [];
+  }
+};
+
+const fetchUserProfile = async (uid) => {
+  if (!uid) return null;
+
+  try {
+    const userDoc = await getDoc(doc(db, "users", uid));
+    if (userDoc.exists()) {
+      return { id: userDoc.id, ...userDoc.data() };
+    }
+  } catch (error) {
+    console.error("Failed to read users doc:", error);
+  }
+
+  return null;
+};
+
+const fetchActiveTerms = async () => {
+  let terms = [];
+
+  // Try academicTerms first
+  terms = await fetchCollectionDocs("academicTerms");
+  if (!terms.length) {
+    // fallback older naming
+    terms = await fetchCollectionDocs("terms");
+  }
+
+  if (!terms.length) return [];
+
+  const normalized = terms.map((t) => ({
+    id: t.id,
+    name: safeString(t.name || t.termName || t.title || t.label),
+    termNumber: safeString(t.termNumber || t.termNo || t.number),
+    academicYear: normalizeAcademicYear(t.academicYear || t.year),
+    isActive: !!t.isActive || isActiveLike(t.status),
+    raw: t,
+  }));
+
+  const active = normalized.filter((t) => t.isActive);
+  if (active.length) return active;
+
+  return normalized;
+};
+
+const fetchAllEnrollments = async () => {
+  const raw = await fetchCollectionDocs("studentSubjectEnrollments");
+  return raw.filter((doc) => {
+    const status = lower(doc.status);
+    return !status || status === "active" || status === "enrolled";
+  });
+};
+
+const fetchTeacherAssignments = async (user, userProfile) => {
+  if (!user) return [];
+
+  const possibleCollections = [
+    "teacherAssignments",
+    "teacherSubjectAssignments",
+    "subjectAssignments",
+  ];
+
+  const teacherKeys = [
+    { key: "teacherId", value: user.uid },
+    { key: "uid", value: user.uid },
+    { key: "userId", value: user.uid },
+    { key: "teacherEmail", value: safeString(user.email) },
+    { key: "email", value: safeString(user.email) },
+  ];
+
+  if (userProfile?.teacherId) {
+    teacherKeys.push({ key: "teacherId", value: safeString(userProfile.teacherId) });
+  }
+
+  const results = [];
+
+  for (const collectionName of possibleCollections) {
+    for (const tk of teacherKeys) {
+      if (!tk.value) continue;
+
+      const rows = await fetchCollectionDocs(collectionName, {
+        whereClauses: [{ field: tk.key, op: "==", value: tk.value }],
+      });
+
+      rows.forEach((r) => results.push({ ...r, __collection: collectionName }));
+    }
+  }
+
+  const dedup = new Map();
+  results.forEach((item) => {
+    const key = `${item.__collection}:${item.id}`;
+    if (!dedup.has(key)) dedup.set(key, item);
+  });
+
+  return Array.from(dedup.values()).filter((row) => {
+    const status = lower(row.status);
+    return !status || status === "active" || status === "assigned";
+  });
+};
+
+const fetchExistingMarks = async ({
+  academicYear,
+  termId,
+  grade,
+  section,
+  subjectId,
+  subjectName,
+}) => {
+  const rows = await fetchCollectionDocs("marks", {
+    whereClauses: [
+      { field: "academicYear", op: "==", value: normalizeAcademicYear(academicYear) },
+      { field: "termId", op: "==", value: safeString(termId) },
+      { field: "grade", op: "==", value: normalizeGrade(grade) },
+      { field: "section", op: "==", value: normalizeSection(section) },
+    ],
+  });
+
+  return rows.filter((row) => {
+    const rowSubjectId = safeString(row.subjectId);
+    const rowSubjectName = safeString(row.subjectName);
+
+    if (subjectId && rowSubjectId) return rowSubjectId === subjectId;
+    if (subjectId && !rowSubjectId) return subjectNameEquals(rowSubjectName, subjectName);
+    return subjectNameEquals(rowSubjectName, subjectName);
+  });
+};
+
+/* -------------------------------------------------------------------------- */
+/* Main component                                                              */
+/* -------------------------------------------------------------------------- */
+
+const MarksEntry = () => {
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
+
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [allEnrollmentsForClass, setAllEnrollmentsForClass] = useState([]);
-  const [filteredRows, setFilteredRows] = useState([]);
-  const [marksByStudent, setMarksByStudent] = useState({});
+  const [userProfile, setUserProfile] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isTeacher, setIsTeacher] = useState(false);
 
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
+  const [terms, setTerms] = useState([]);
+  const [activeTermId, setActiveTermId] = useState("");
 
-  const currentAcademicYear = getAcademicYearValue(activeTerm);
+  const [academicYear, setAcademicYear] = useState(String(new Date().getFullYear()));
+  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [teacherAssignments, setTeacherAssignments] = useState([]);
 
-  const loadBaseData = useCallback(async () => {
-    setBaseLoading(true);
-    setError("");
+  const [gradeOptions, setGradeOptions] = useState([]);
+  const [classOptions, setClassOptions] = useState([]);
 
-    try {
-      const [termSnap, classroomSnap, subjectSnap, studentSnap] = await Promise.all([
-        getDocs(collection(db, "academicTerms")),
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "subjects")),
-        getDocs(collection(db, "students")),
-      ]);
+  const [selectedGrade, setSelectedGrade] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
+  const [subjectOptions, setSubjectOptions] = useState([]);
+  const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
 
-      const active = termSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .find((t) => t.isActive === true);
+  const [studentRows, setStudentRows] = useState([]);
 
-      setActiveTerm(active || null);
+  const [snack, setSnack] = useState({
+    open: false,
+    severity: "success",
+    message: "",
+  });
 
-      setClassrooms(
-        classroomSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }))
-      );
-
-      setSubjects(
-        subjectSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }))
-      );
-
-      const mappedStudents = {};
-      studentSnap.docs.forEach((d) => {
-        const student = { id: d.id, ...d.data() };
-        mappedStudents[d.id] = student;
-      });
-      setStudentsMap(mappedStudents);
-    } catch (err) {
-      setError("Failed to load initial marks entry data: " + err.message);
-    } finally {
-      setBaseLoading(false);
-    }
-  }, []);
-
-  const loadAssignments = useCallback(async () => {
-    if (!profile && !isAdmin) return;
-
-    setAssignmentsLoading(true);
-
-    try {
-      const snap = await getDocs(collection(db, "assignments"));
-      const allAssignments = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      const myAssignments = isAdmin
-        ? allAssignments
-        : allAssignments.filter((a) => a.teacherId === profile?.uid);
-
-      setAssignments(myAssignments);
-
-      if (!isAdmin && myAssignments.length > 0) {
-        const first = myAssignments[0];
-        const firstGrade = normalizeGrade(first.grade);
-        const firstClassName = normalizeClassName(
-          first.className || first.section
-        );
-
-        setSelectedGrade(firstGrade || "");
-        setSelectedClassName(firstClassName || "");
-      }
-    } catch (err) {
-      setError("Failed to load teacher assignments: " + err.message);
-    } finally {
-      setAssignmentsLoading(false);
-    }
-  }, [profile, isAdmin]);
-
-  useEffect(() => {
-    loadBaseData();
-  }, [loadBaseData]);
-
-  useEffect(() => {
-    loadAssignments();
-  }, [loadAssignments]);
-
-  const adminGradeOptions = useMemo(() => {
-    return [...new Set(classrooms.map((c) => normalizeGrade(c.grade)).filter(Boolean))].sort(
-      (a, b) => a - b
-    );
-  }, [classrooms]);
-
-  const teacherGradeOptions = useMemo(() => {
-    return [...new Set(assignments.map((a) => normalizeGrade(a.grade)).filter(Boolean))].sort(
-      (a, b) => a - b
-    );
-  }, [assignments]);
-
-  const gradeOptions = isAdmin ? adminGradeOptions : teacherGradeOptions;
-
-  const adminClassOptions = useMemo(() => {
-    if (!selectedGrade) return [];
-
-    return [
-      ...new Set(
-        classrooms
-          .filter((c) => normalizeGrade(c.grade) === Number(selectedGrade))
-          .map((c) => normalizeClassName(c.className || c.section))
-          .filter(Boolean)
-      ),
-    ].sort();
-  }, [classrooms, selectedGrade]);
-
-  const teacherClassOptions = useMemo(() => {
-    if (!selectedGrade) return [];
-
-    return [
-      ...new Set(
-        assignments
-          .filter((a) => normalizeGrade(a.grade) === Number(selectedGrade))
-          .map((a) => normalizeClassName(a.className || a.section))
-          .filter(Boolean)
-      ),
-    ].sort();
-  }, [assignments, selectedGrade]);
-
-  const classOptions = isAdmin ? adminClassOptions : teacherClassOptions;
-
-  useEffect(() => {
-    if (selectedClassName && !classOptions.includes(normalizeClassName(selectedClassName))) {
-      setSelectedClassName("");
-      setSelectedSubjectId("");
-    }
-  }, [classOptions, selectedClassName]);
-
-  const loadClassEnrollments = useCallback(async () => {
-    if (!selectedGrade || !selectedClassName) {
-      setAllEnrollmentsForClass([]);
-      return;
-    }
-
-    setEnrollmentsLoading(true);
-
-    try {
-      const grade = Number(selectedGrade);
-      const className = normalizeClassName(selectedClassName);
-
-      const enrollmentQuery = query(
-        collection(db, "studentSubjectEnrollments"),
-        where("grade", "==", grade)
-      );
-
-      const snap = await getDocs(enrollmentQuery);
-
-      let loaded = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      loaded = loaded.filter((item) => {
-        const enrollmentClass = normalizeClassName(
-          item.className || item.section || ""
-        );
-
-        const sameClass = enrollmentClass === className;
-        const sameYear = currentAcademicYear
-          ? getEnrollmentAcademicYear(item) === currentAcademicYear
-          : true;
-        const active = isStrictActive(item.status);
-
-        return sameClass && sameYear && active;
-      });
-
-      setAllEnrollmentsForClass(loaded);
-    } catch (err) {
-      setError("Failed to load subject enrollments: " + err.message);
-      setAllEnrollmentsForClass([]);
-    } finally {
-      setEnrollmentsLoading(false);
-    }
-  }, [selectedGrade, selectedClassName, currentAcademicYear]);
-
-  useEffect(() => {
-    loadClassEnrollments();
-  }, [loadClassEnrollments]);
-
-  const availableSubjectsFromEnrollments = useMemo(() => {
-    if (!selectedGrade || !selectedClassName) return [];
-
-    const enrollmentSubjectMap = new Map();
-
-    allEnrollmentsForClass.forEach((enrollment) => {
-      const subjectId = getEnrollmentSubjectId(enrollment);
-      const subjectName = getEnrollmentSubjectName(enrollment);
-
-      if (!subjectId && !subjectName) return;
-
-      const matchedMaster =
-        subjects.find((subject) => enrollmentMatchesSubject(enrollment, subject)) ||
-        null;
-
-      const finalId = subjectId || getSubjectId(matchedMaster) || subjectName;
-      const finalName =
-        subjectName || getSubjectName(matchedMaster) || "Unnamed Subject";
-
-      if (!enrollmentSubjectMap.has(finalId)) {
-        enrollmentSubjectMap.set(finalId, {
-          id: finalId,
-          subjectId: finalId,
-          name: finalName,
-          subjectName: finalName,
-          ...(matchedMaster || {}),
-        });
-      }
-    });
-
-    return Array.from(enrollmentSubjectMap.values()).sort((a, b) =>
-      getSubjectName(a).localeCompare(getSubjectName(b))
-    );
-  }, [subjects, allEnrollmentsForClass, selectedGrade, selectedClassName]);
-
-  const teacherSubjectOptions = useMemo(() => {
-    if (!selectedGrade || !selectedClassName) return [];
-
-    return availableSubjectsFromEnrollments.filter((subject) =>
-      assignments.some((assignment) => {
-        return (
-          normalizeGrade(assignment.grade) === Number(selectedGrade) &&
-          normalizeClassName(assignment.className || assignment.section) ===
-            normalizeClassName(selectedClassName) &&
-          subjectMatchesAssignment(subject, assignment)
-        );
-      })
-    );
-  }, [
-    availableSubjectsFromEnrollments,
-    assignments,
-    selectedGrade,
-    selectedClassName,
-  ]);
-
-  const subjectOptions = isAdmin ? availableSubjectsFromEnrollments : teacherSubjectOptions;
-
-  useEffect(() => {
-    if (!selectedSubjectId) return;
-
-    const stillValid = subjectOptions.some(
-      (subject) => getSubjectId(subject) === selectedSubjectId
-    );
-
-    if (!stillValid) {
-      setSelectedSubjectId("");
-    }
-  }, [subjectOptions, selectedSubjectId]);
-
-  useEffect(() => {
-    if (!selectedGrade || !selectedClassName) {
-      setSelectedSubjectId("");
-      setFilteredRows([]);
-      setMarksByStudent({});
-    }
-  }, [selectedGrade, selectedClassName]);
+  const activeTerm = useMemo(
+    () => terms.find((t) => t.id === activeTermId) || null,
+    [terms, activeTermId]
+  );
 
   const selectedSubject = useMemo(() => {
+    if (!selectedSubjectKey) return null;
     return (
-      subjectOptions.find((subject) => getSubjectId(subject) === selectedSubjectId) ||
-      null
+      subjectOptions.find(
+        (s) => buildSubjectIdentityKey(s.subjectId, s.subjectName) === selectedSubjectKey
+      ) || null
     );
-  }, [subjectOptions, selectedSubjectId]);
+  }, [selectedSubjectKey, subjectOptions]);
 
-  const loadRowsAndMarks = useCallback(async () => {
-    if (!selectedGrade || !selectedClassName || !selectedSubject || !activeTerm) {
-      setFilteredRows([]);
-      setMarksByStudent({});
+  const showSnack = useCallback((severity, message) => {
+    setSnack({ open: true, severity, message });
+  }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Load initial page data                                                   */
+  /* ------------------------------------------------------------------------ */
+
+  const loadInitialData = useCallback(async () => {
+    setInitialLoading(true);
+
+    try {
+      const profile = await fetchUserProfile(currentUser?.uid);
+      setUserProfile(profile);
+
+      const role = safeString(profile?.role || profile?.userRole);
+      const adminMode = roleLooksAdmin(role);
+      const teacherMode = roleLooksTeacher(role) || !adminMode;
+
+      setIsAdmin(adminMode);
+      setIsTeacher(teacherMode);
+
+      const [loadedTerms, enrollments, assignments] = await Promise.all([
+        fetchActiveTerms(),
+        fetchAllEnrollments(),
+        fetchTeacherAssignments(currentUser, profile),
+      ]);
+
+      setTerms(loadedTerms);
+
+      const active = loadedTerms.find((t) => t.isActive) || loadedTerms[0] || null;
+      if (active) {
+        setActiveTermId(active.id);
+        if (active.academicYear) {
+          setAcademicYear(active.academicYear);
+        }
+      }
+
+      setAllEnrollments(enrollments);
+      setTeacherAssignments(assignments);
+
+      const availableGrades = Array.from(
+        new Set(
+          enrollments
+            .map((e) => normalizeGrade(e.grade))
+            .filter(Boolean)
+            .sort((a, b) => Number(a) - Number(b))
+        )
+      );
+
+      setGradeOptions(availableGrades);
+
+      if (availableGrades.length) {
+        setSelectedGrade((prev) => prev || availableGrades[0]);
+      }
+    } catch (error) {
+      console.error("Failed to load MarksEntry initial data:", error);
+      showSnack("error", "Failed to load marks entry data.");
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [currentUser, showSnack]);
+
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Build class options whenever grade / year changes                        */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    const filtered = allEnrollments.filter(
+      (e) =>
+        matchesAcademicYear(e.academicYear, academicYear) &&
+        normalizeGrade(e.grade) === normalizeGrade(selectedGrade)
+    );
+
+    const classMap = new Map();
+
+    filtered.forEach((e) => {
+      const cls = normalizeClassInfo({
+        grade: e.grade,
+        className: e.className,
+        section: e.section,
+      });
+
+      if (!cls.grade || !cls.section || !cls.fullClass) return;
+
+      if (!classMap.has(cls.fullClass)) {
+        classMap.set(cls.fullClass, {
+          value: cls.fullClass,
+          label: cls.fullClass,
+          grade: cls.grade,
+          section: cls.section,
+        });
+      }
+    });
+
+    const classes = Array.from(classMap.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { numeric: true })
+    );
+
+    setClassOptions(classes);
+
+    if (!classes.find((c) => c.value === selectedClass)) {
+      setSelectedClass(classes[0]?.value || "");
+    }
+  }, [allEnrollments, academicYear, selectedGrade, selectedClass]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Build subject dropdown from normalized enrollments + teacher scope       */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    if (!selectedGrade || !selectedClass) {
+      setSubjectOptions([]);
+      setSelectedSubjectKey("");
       return;
     }
 
-    setRowsLoading(true);
-    setSuccess("");
-    setError("");
+    const baseEnrollments = allEnrollments.filter(
+      (e) =>
+        matchesAcademicYear(e.academicYear, academicYear) &&
+        matchesSelectedClass(e, selectedGrade, selectedClass)
+    );
 
-    try {
-      const relevantEnrollments = allEnrollmentsForClass.filter((enrollment) =>
-        enrollmentMatchesSubject(enrollment, selectedSubject)
-      );
+    let scopedEnrollments = baseEnrollments;
 
-      const rows = sortRows(
-        relevantEnrollments.map((enrollment) => {
-          const linkedStudent = studentsMap[normalizeText(enrollment.studentId)] || null;
+    // Teacher mode: restrict subjects using assignments when assignments exist
+    if (!isAdmin && teacherAssignments.length) {
+      scopedEnrollments = baseEnrollments.filter((enrollment) => {
+        return teacherAssignments.some((assignment) => {
+          const assignmentGrade = normalizeGrade(
+            assignment.grade || assignment.gradeName || assignment.classGrade
+          );
 
-          return {
-            enrollmentId: enrollment.id,
-            studentId: normalizeText(enrollment.studentId),
-            studentName:
-              getEnrollmentStudentName(enrollment) ||
-              getStudentName(linkedStudent) ||
-              "Unnamed Student",
-            admissionNo:
-              getEnrollmentAdmissionNo(enrollment) ||
-              getStudentAdmissionNo(linkedStudent) ||
-              "",
-            grade: normalizeGrade(enrollment.grade),
-            className: normalizeClassName(enrollment.className || enrollment.section),
-            subjectId:
-              getEnrollmentSubjectId(enrollment) || getSubjectId(selectedSubject),
-            subjectName:
-              getEnrollmentSubjectName(enrollment) || getSubjectName(selectedSubject),
-            academicYear:
-              getEnrollmentAcademicYear(enrollment) || currentAcademicYear,
-            rawEnrollment: enrollment,
-          };
-        })
-      );
+          const assignmentClass = normalizeClassInfo({
+            grade:
+              assignment.grade || assignment.gradeName || assignment.classGrade,
+            className: assignment.className || assignment.class || assignment.section,
+            section: assignment.section,
+          });
 
-      setFilteredRows(rows);
+          const selectedCls = normalizeSelectedClass(selectedClass, selectedGrade);
 
-      if (rows.length === 0) {
-        setMarksByStudent({});
-        setRowsLoading(false);
-        return;
-      }
+          const gradeOk = !assignmentGrade || assignmentGrade === selectedCls.grade;
 
-      const marksQuery = query(
-        collection(db, "marks"),
-        where("grade", "==", Number(selectedGrade)),
-        where("className", "==", normalizeClassName(selectedClassName)),
-        where("term", "==", activeTerm.term),
-        where("year", "==", activeTerm.year)
-      );
+          const classOk =
+            !assignmentClass.section || assignmentClass.section === selectedCls.section;
 
-      const marksSnap = await getDocs(marksQuery);
+          if (!gradeOk || !classOk) return false;
 
-      const selectedSubjectIdValue = getSubjectId(selectedSubject);
-      const selectedSubjectNameValue = getSubjectName(selectedSubject);
+          const assignmentSubjectId = safeString(assignment.subjectId);
+          const assignmentSubjectName = safeString(
+            assignment.subjectName || assignment.subject
+          );
 
-      const relevantMarks = marksSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((mark) => {
-          const sameStudent = rows.some((row) => row.studentId === mark.studentId);
-          if (!sameStudent) return false;
+          const enrollmentSubjectId = safeString(enrollment.subjectId);
+          const enrollmentSubjectName = safeString(enrollment.subjectName);
 
-          const markSubjectId = normalizeText(mark.subjectId);
-          const markSubjectName = normalizeText(mark.subjectName || mark.subject);
-
-          if (selectedSubjectIdValue && markSubjectId) {
-            return markSubjectId === selectedSubjectIdValue;
+          if (assignmentSubjectId && enrollmentSubjectId) {
+            return assignmentSubjectId === enrollmentSubjectId;
           }
 
-          return normalizeLower(markSubjectName) === normalizeLower(selectedSubjectNameValue);
+          return subjectNameEquals(assignmentSubjectName, enrollmentSubjectName);
         });
+      });
+    }
 
-      const loadedMarks = {};
-      rows.forEach((row) => {
-        loadedMarks[row.studentId] = {
-          mark: "",
-          entryStatus: "Present",
-          absentReason: "",
-        };
+    const subjects = buildEnrollmentSubjectMap(scopedEnrollments);
+    setSubjectOptions(subjects);
+
+    const existingStillValid = subjects.find(
+      (s) => buildSubjectIdentityKey(s.subjectId, s.subjectName) === selectedSubjectKey
+    );
+
+    if (!existingStillValid) {
+      setSelectedSubjectKey(
+        subjects.length
+          ? buildSubjectIdentityKey(subjects[0].subjectId, subjects[0].subjectName)
+          : ""
+      );
+    }
+  }, [
+    allEnrollments,
+    academicYear,
+    selectedGrade,
+    selectedClass,
+    isAdmin,
+    teacherAssignments,
+    selectedSubjectKey,
+  ]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Load students for selected subject + reload marks                        */
+  /* ------------------------------------------------------------------------ */
+
+  const loadStudentRows = useCallback(async () => {
+    if (!selectedGrade || !selectedClass || !selectedSubject || !activeTermId) {
+      setStudentRows([]);
+      return;
+    }
+
+    setPageLoading(true);
+
+    try {
+      const selectedCls = normalizeSelectedClass(selectedClass, selectedGrade);
+
+      const relevantEnrollments = allEnrollments.filter((enr) => {
+        return (
+          matchesAcademicYear(enr.academicYear, academicYear) &&
+          matchesSelectedClass(enr, selectedGrade, selectedClass) &&
+          enrollmentMatchesSubject(enr, selectedSubject)
+        );
       });
 
-      relevantMarks.forEach((mark) => {
-        loadedMarks[mark.studentId] = {
-          mark:
-            mark.mark !== undefined && mark.mark !== null ? String(mark.mark) : "",
-          entryStatus: mark.isMedicalAbsent
-            ? "Medical Absent"
-            : mark.isAbsent
-            ? "Absent"
-            : "Present",
-          absentReason: mark.absentReason || "",
-        };
+      const uniqueStudentsMap = new Map();
+
+      relevantEnrollments.forEach((enr) => {
+        const sid = safeString(enr.studentId);
+        if (!sid) return;
+
+        if (!uniqueStudentsMap.has(sid)) {
+          uniqueStudentsMap.set(sid, {
+            studentId: sid,
+            studentName: safeString(enr.studentName),
+            admissionNo: safeString(enr.admissionNo),
+            grade: normalizeGrade(enr.grade),
+            className: safeString(enr.className),
+            section:
+              normalizeSection(enr.section) ||
+              normalizeSection(enr.className) ||
+              selectedCls.section,
+            status: "present",
+            marks: "",
+            remarks: "",
+            existingMarkDocId: null,
+          });
+        }
       });
 
-      setMarksByStudent(loadedMarks);
-    } catch (err) {
-      setError("Failed to load enrollment rows and marks: " + err.message);
-      setFilteredRows([]);
-      setMarksByStudent({});
+      const existingMarks = await fetchExistingMarks({
+        academicYear,
+        termId: activeTermId,
+        grade: selectedCls.grade,
+        section: selectedCls.section,
+        subjectId: selectedSubject.subjectId,
+        subjectName: selectedSubject.subjectName,
+      });
+
+      existingMarks.forEach((mark) => {
+        const studentId = safeString(mark.studentId);
+        if (!studentId) return;
+
+        const existing = uniqueStudentsMap.get(studentId);
+        if (!existing) return;
+
+        existing.status = lower(mark.attendanceStatus || mark.status || "present");
+        existing.marks = toNumberOrBlank(mark.marks ?? mark.score ?? "");
+        existing.remarks = safeString(mark.remarks);
+        existing.existingMarkDocId = mark.id;
+      });
+
+      const rows = sortByClassThenName(Array.from(uniqueStudentsMap.values()));
+      setStudentRows(rows);
+    } catch (error) {
+      console.error("Failed to load student rows:", error);
+      showSnack("error", "Failed to load students for the selected subject.");
+      setStudentRows([]);
     } finally {
-      setRowsLoading(false);
+      setPageLoading(false);
     }
   }, [
     selectedGrade,
-    selectedClassName,
+    selectedClass,
     selectedSubject,
-    activeTerm,
-    allEnrollmentsForClass,
-    currentAcademicYear,
-    studentsMap,
+    activeTermId,
+    allEnrollments,
+    academicYear,
+    showSnack,
   ]);
 
   useEffect(() => {
-    loadRowsAndMarks();
-  }, [loadRowsAndMarks]);
+    loadStudentRows();
+  }, [loadStudentRows]);
 
-  const handleMarkChange = (studentId, value) => {
-    if (value === "" || (Number(value) >= 0 && Number(value) <= 100)) {
-      setMarksByStudent((prev) => ({
-        ...prev,
-        [studentId]: {
-          ...(prev[studentId] || {
-            mark: "",
-            entryStatus: "Present",
-            absentReason: "",
-          }),
-          mark: value,
-        },
-      }));
-    }
+  /* ------------------------------------------------------------------------ */
+  /* Update row fields                                                        */
+  /* ------------------------------------------------------------------------ */
+
+  const handleStatusChange = (studentId, newStatus) => {
+    setStudentRows((prev) =>
+      prev.map((row) => {
+        if (row.studentId !== studentId) return row;
+
+        const normalizedStatus = lower(newStatus || "present");
+        return {
+          ...row,
+          status: normalizedStatus,
+          marks:
+            normalizedStatus === "absent" || normalizedStatus === "medical_absent"
+              ? ""
+              : row.marks,
+        };
+      })
+    );
   };
 
-  const handleStatusChange = (studentId, entryStatus) => {
-    setMarksByStudent((prev) => {
-      const current = prev[studentId] || {
-        mark: "",
-        entryStatus: "Present",
-        absentReason: "",
-      };
-
-      return {
-        ...prev,
-        [studentId]: {
-          ...current,
-          entryStatus,
-          mark: entryStatus === "Present" ? current.mark : "",
-          absentReason: entryStatus === "Present" ? "" : current.absentReason || "",
-        },
-      };
-    });
+  const handleMarksChange = (studentId, value) => {
+    setStudentRows((prev) =>
+      prev.map((row) =>
+        row.studentId === studentId
+          ? {
+              ...row,
+              marks: value === "" ? "" : value,
+            }
+          : row
+      )
+    );
   };
 
-  const handleReasonChange = (studentId, absentReason) => {
-    setMarksByStudent((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...(prev[studentId] || {
-          mark: "",
-          entryStatus: "Present",
-          absentReason: "",
-        }),
-        absentReason,
-      },
-    }));
+  const handleRemarksChange = (studentId, value) => {
+    setStudentRows((prev) =>
+      prev.map((row) =>
+        row.studentId === studentId
+          ? {
+              ...row,
+              remarks: value,
+            }
+          : row
+      )
+    );
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* Save                                                                      */
+  /* ------------------------------------------------------------------------ */
 
   const handleSave = async () => {
-    if (!selectedSubject) {
-      setError("Please select a subject.");
+    if (!selectedGrade || !selectedClass || !selectedSubject || !activeTermId) {
+      showSnack("warning", "Please select grade, class, subject, and active term.");
       return;
     }
 
-    if (!activeTerm) {
-      setError("No active term. Please activate a term first.");
-      return;
-    }
-
-    if (filteredRows.length === 0) {
-      setError("No enrolled students found for this class and subject.");
+    if (!studentRows.length) {
+      showSnack("warning", "No students found to save marks.");
       return;
     }
 
     setSaving(true);
-    setSuccess("");
-    setError("");
 
     try {
+      const selectedCls = normalizeSelectedClass(selectedClass, selectedGrade);
       const batch = writeBatch(db);
-      let recordsToSave = 0;
 
-      filteredRows.forEach((row) => {
-        const entry = marksByStudent[row.studentId] || {
-          mark: "",
-          entryStatus: "Present",
-          absentReason: "",
-        };
+      const validRows = studentRows.filter((row) => {
+        const status = lower(row.status || "present");
+        if (status === "absent" || status === "medical_absent") return true;
+        return row.marks !== "" && row.marks !== null && row.marks !== undefined;
+      });
 
-        const isAbsent = entry.entryStatus === "Absent";
-        const isMedicalAbsent = entry.entryStatus === "Medical Absent";
-        const hasNumericMark =
-          entry.mark !== "" &&
-          entry.mark !== undefined &&
-          entry.mark !== null &&
-          !Number.isNaN(Number(entry.mark));
+      validRows.forEach((row) => {
+        const subjectKey = safeString(selectedSubject.subjectId)
+          ? safeString(selectedSubject.subjectId)
+          : normalizeName(selectedSubject.subjectName);
 
-        if (!hasNumericMark && !isAbsent && !isMedicalAbsent) {
-          return;
-        }
+        const docId = [
+          normalizeAcademicYear(academicYear),
+          activeTermId,
+          selectedCls.grade,
+          selectedCls.section,
+          subjectKey,
+          row.studentId,
+        ]
+          .filter(Boolean)
+          .join("_");
 
-        const subjectId = row.subjectId || getSubjectId(selectedSubject);
-        const subjectName = row.subjectName || getSubjectName(selectedSubject);
+        const markRef = doc(db, "marks", docId);
 
-        const markId = buildMarkDocId({
-          studentId: row.studentId,
-          subjectId,
-          subjectName,
-          term: activeTerm.term,
-          year: activeTerm.year,
-        });
-
-        const ref = doc(db, "marks", markId);
+        const attendanceStatus = lower(row.status || "present");
+        const isAbsent =
+          attendanceStatus === "absent" || attendanceStatus === "medical_absent";
 
         batch.set(
-          ref,
+          markRef,
           {
-            enrollmentId: row.enrollmentId,
-            studentId: row.studentId,
-            studentName: row.studentName,
-            admissionNo: row.admissionNo || "",
+            studentId: safeString(row.studentId),
+            studentName: safeString(row.studentName),
+            admissionNo: safeString(row.admissionNo),
 
-            grade: Number(selectedGrade),
-            className: normalizeClassName(selectedClassName),
-            section: normalizeClassName(selectedClassName),
+            academicYear: normalizeAcademicYear(academicYear),
 
-            subjectId: subjectId || "",
-            subjectName: subjectName || "",
-            subject: subjectName || "",
+            termId: safeString(activeTermId),
+            termName: safeString(activeTerm?.name || activeTerm?.termNumber || ""),
 
-            term: activeTerm.term,
-            year: activeTerm.year,
-            academicYear: row.academicYear || currentAcademicYear || "",
+            grade: selectedCls.grade,
+            className: selectedClass,
+            section: selectedCls.section,
 
-            mark: hasNumericMark ? Number(entry.mark) : null,
-            isAbsent,
-            isMedicalAbsent,
-            absentReason:
-              isAbsent || isMedicalAbsent ? normalizeText(entry.absentReason) : "",
+            subjectId: safeString(selectedSubject.subjectId),
+            subjectName: safeString(selectedSubject.subjectName),
 
-            approvalStatus: "approved",
-            status: "active",
+            attendanceStatus,
+            status: attendanceStatus, // keep legacy-compatible
+            marks: isAbsent ? null : Number(row.marks),
+            score: isAbsent ? null : Number(row.marks), // legacy-compatible
+            remarks: safeString(row.remarks),
 
-            updatedBy: profile?.name || profile?.displayName || profile?.email || "Unknown",
-            updatedById: profile?.uid || "",
-            updatedAt: new Date().toISOString(),
+            teacherId: safeString(currentUser?.uid),
+            teacherEmail: safeString(currentUser?.email),
+
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
           },
           { merge: true }
         );
-
-        recordsToSave++;
       });
 
-      if (recordsToSave === 0) {
-        setError("No marks or absence records to save.");
-        setSaving(false);
-        return;
-      }
-
       await batch.commit();
-
-      setSuccess(
-        `Saved ${recordsToSave} mark record${
-          recordsToSave !== 1 ? "s" : ""
-        } for ${activeTerm.term} ${activeTerm.year}.`
-      );
-    } catch (err) {
-      setError("Failed to save marks: " + err.message);
+      showSnack("success", "Marks saved successfully.");
+      await loadStudentRows();
+    } catch (error) {
+      console.error("Failed to save marks:", error);
+      showSnack("error", "Failed to save marks.");
     } finally {
       setSaving(false);
     }
   };
 
-  if (baseLoading || assignmentsLoading) {
-    return (
-      <Box display="flex" justifyContent="center" mt={5}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  /* ------------------------------------------------------------------------ */
+  /* UI derived state                                                          */
+  /* ------------------------------------------------------------------------ */
 
-  if (!isAdmin && assignments.length === 0) {
+  const pageModeLabel = useMemo(() => {
+    if (isAdmin) return "Admin Mode";
+    if (isTeacher) return "Teacher Mode";
+    return "User Mode";
+  }, [isAdmin, isTeacher]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Render                                                                    */
+  /* ------------------------------------------------------------------------ */
+
+  if (initialLoading) {
     return (
-      <Box mt={4}>
-        <Alert severity="warning" icon={<WarningIcon />}>
-          You have no subject assignments yet. Please contact the admin to assign
-          you to a subject and class.
-        </Alert>
+      <Box
+        sx={{
+          minHeight: "60vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Stack spacing={2} alignItems="center">
+          <CircularProgress />
+          <Typography variant="body1">Loading marks entry...</Typography>
+        </Stack>
       </Box>
     );
   }
 
   return (
-    <Box>
-      <Typography
-        variant={isMobile ? "h6" : "h5"}
-        fontWeight={700}
-        color="#1a237e"
-        gutterBottom
-      >
-        Marks Entry
-      </Typography>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
+      <Stack spacing={3}>
+        <Card elevation={2}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", md: "center" }}
+              spacing={2}
+            >
+              <Box>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <SchoolIcon color="primary" />
+                  <Typography variant="h5" fontWeight={700}>
+                    Marks Entry
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  Enrollment-driven subject loading with legacy-safe class matching
+                </Typography>
+              </Box>
 
-      {activeTerm ? (
-        <Card sx={{ mb: 2, bgcolor: "#e8f5e9", border: "2px solid #2e7d32" }}>
-          <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-              <CheckCircleIcon sx={{ color: "#2e7d32" }} />
-              <Typography variant="subtitle2" fontWeight={700} color="#2e7d32">
-                Active: {activeTerm.term} {activeTerm.year}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {activeTerm.startDate} → {activeTerm.endDate}
-              </Typography>
-            </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Chip
+                  icon={<AssignmentTurnedInIcon />}
+                  label={pageModeLabel}
+                  color={isAdmin ? "secondary" : "primary"}
+                  variant="outlined"
+                />
+                {activeTerm ? (
+                  <Chip
+                    label={`Active Term: ${activeTerm.name || activeTerm.termNumber || activeTerm.id}`}
+                    color="success"
+                    variant="outlined"
+                  />
+                ) : (
+                  <Chip label="No Active Term" color="warning" variant="outlined" />
+                )}
+              </Stack>
+            </Stack>
           </CardContent>
         </Card>
-      ) : (
-        <Alert severity="error" sx={{ mb: 2 }} icon={<WarningIcon />}>
-          No active term set. Please ask admin to activate a term before entering
-          marks.
-        </Alert>
-      )}
 
-      <Grid container spacing={1.5} mb={2}>
-        <Grid item xs={12} sm={3}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Grade</InputLabel>
-            <Select
-              value={selectedGrade}
-              label="Grade"
-              onChange={(e) => {
-                setSelectedGrade(Number(e.target.value));
-                setSelectedClassName("");
-                setSelectedSubjectId("");
-              }}
+        <Card elevation={2}>
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={2}>
+                <TextField
+                  label="Academic Year"
+                  value={academicYear}
+                  onChange={(e) => setAcademicYear(e.target.value)}
+                  fullWidth
+                  size="small"
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={2.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Term</InputLabel>
+                  <Select
+                    label="Term"
+                    value={activeTermId}
+                    onChange={(e) => setActiveTermId(e.target.value)}
+                  >
+                    {terms.map((term) => (
+                      <MenuItem key={term.id} value={term.id}>
+                        {term.name || term.termNumber || term.id}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Grade</InputLabel>
+                  <Select
+                    label="Grade"
+                    value={selectedGrade}
+                    onChange={(e) => setSelectedGrade(e.target.value)}
+                  >
+                    {gradeOptions.map((grade) => (
+                      <MenuItem key={grade} value={grade}>
+                        Grade {grade}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Class</InputLabel>
+                  <Select
+                    label="Class"
+                    value={selectedClass}
+                    onChange={(e) => setSelectedClass(e.target.value)}
+                  >
+                    {classOptions.map((cls) => (
+                      <MenuItem key={cls.value} value={cls.value}>
+                        {cls.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={12} md={3.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Subject</InputLabel>
+                  <Select
+                    label="Subject"
+                    value={selectedSubjectKey}
+                    onChange={(e) => setSelectedSubjectKey(e.target.value)}
+                  >
+                    {subjectOptions.map((subject) => {
+                      const key = buildSubjectIdentityKey(
+                        subject.subjectId,
+                        subject.subjectName
+                      );
+                      return (
+                        <MenuItem key={key} value={key}>
+                          {subject.subjectName}
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              sx={{ mt: 2.5 }}
             >
-              {gradeOptions.map((g) => (
-                <MenuItem key={g} value={g}>
-                  Grade {g}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={loadStudentRows}
+                disabled={pageLoading}
+              >
+                Reload
+              </Button>
 
-        <Grid item xs={12} sm={3}>
-          <FormControl fullWidth size="small" disabled={!selectedGrade}>
-            <InputLabel>Class</InputLabel>
-            <Select
-              value={selectedClassName}
-              label="Class"
-              onChange={(e) => {
-                setSelectedClassName(e.target.value);
-                setSelectedSubjectId("");
-              }}
-            >
-              {classOptions.map((name) => (
-                <MenuItem key={name} value={name}>
-                  {name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-
-        <Grid item xs={12} sm={6}>
-          <FormControl
-            fullWidth
-            size="small"
-            disabled={!selectedGrade || !selectedClassName || !activeTerm || enrollmentsLoading}
-          >
-            <InputLabel>Subject</InputLabel>
-            <Select
-              value={selectedSubjectId}
-              label="Subject"
-              onChange={(e) => setSelectedSubjectId(e.target.value)}
-            >
-              {subjectOptions.map((subject) => (
-                <MenuItem key={getSubjectId(subject)} value={getSubjectId(subject)}>
-                  {getSubjectName(subject)}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-      </Grid>
-
-      {!isAdmin && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Subjects available here are limited to your current assignments.
-        </Alert>
-      )}
-
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-      {!activeTerm ? null : !selectedSubject ? (
-        <Alert severity="info">
-          Select grade, class, and subject to load enrolled students.
-        </Alert>
-      ) : rowsLoading ? (
-        <Box display="flex" justifyContent="center" mt={3}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          <Box
-            display="flex"
-            justifyContent="space-between"
-            alignItems="center"
-            mb={1}
-            flexWrap="wrap"
-            gap={1}
-          >
-            <Typography variant="body2" color="text.secondary">
-              {filteredRows.length} students — Grade {selectedGrade}-{selectedClassName} |{" "}
-              {getSubjectName(selectedSubject)} | {activeTerm.term} {activeTerm.year}
-            </Typography>
-
-            {!isMobile && (
               <Button
                 variant="contained"
-                startIcon={<SaveIcon />}
+                startIcon={saving ? <CircularProgress size={18} /> : <SaveIcon />}
                 onClick={handleSave}
-                disabled={saving}
-                sx={{ bgcolor: "#1a237e" }}
+                disabled={saving || pageLoading || !studentRows.length}
               >
-                {saving ? (
-                  <CircularProgress size={20} color="inherit" />
-                ) : (
-                  "Save All Marks"
-                )}
+                {saving ? "Saving..." : "Save Marks"}
               </Button>
-            )}
-          </Box>
+            </Stack>
+          </CardContent>
+        </Card>
 
-          <Paper sx={{ overflowX: "auto" }}>
-            <Table size="small">
-              <TableHead sx={{ bgcolor: "#1a237e" }}>
-                <TableRow>
-                  {["#", "Admission No", "Name", "Entry Status", "Mark / Reason", "Grade"].map(
-                    (header) => (
-                      <TableCell
-                        key={header}
-                        sx={{
-                          color: "white",
-                          fontWeight: 600,
-                          fontSize: { xs: 11, sm: 14 },
-                          px: { xs: 1, sm: 2 },
-                        }}
-                      >
-                        {header}
+        <Card elevation={2}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", md: "center" }}
+              spacing={1}
+              sx={{ mb: 2 }}
+            >
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Student Marks
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Only enrolled students for the selected class and subject are shown
+                </Typography>
+              </Box>
+
+              <Chip
+                label={`${studentRows.length} Student${studentRows.length === 1 ? "" : "s"}`}
+                color="primary"
+                variant="outlined"
+              />
+            </Stack>
+
+            {pageLoading ? (
+              <Box
+                sx={{
+                  minHeight: 220,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Stack spacing={2} alignItems="center">
+                  <CircularProgress />
+                  <Typography variant="body2" color="text.secondary">
+                    Loading students...
+                  </Typography>
+                </Stack>
+              </Box>
+            ) : !selectedSubject ? (
+              <Alert severity="info">
+                Select grade, class, and subject to load students.
+              </Alert>
+            ) : !studentRows.length ? (
+              <Alert severity="warning">
+                No enrolled students found for the selected class and subject.
+              </Alert>
+            ) : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>No</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Student Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Admission No</TableCell>
+                      <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>
+                        Attendance
                       </TableCell>
-                    )
-                  )}
-                </TableRow>
-              </TableHead>
-
-              <TableBody>
-                {filteredRows.map((row, idx) => {
-                  const entry = marksByStudent[row.studentId] || {
-                    mark: "",
-                    entryStatus: "Present",
-                    absentReason: "",
-                  };
-
-                  const gradeInfo =
-                    entry.entryStatus === "Present"
-                      ? getGradeChip(entry.mark)
-                      : null;
-
-                  return (
-                    <TableRow key={row.enrollmentId} hover>
-                      <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
-                        {idx + 1}
-                      </TableCell>
-
-                      <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
-                        {row.admissionNo || "—"}
-                      </TableCell>
-
-                      <TableCell sx={{ px: { xs: 1, sm: 2 } }}>
-                        {isMobile
-                          ? normalizeText(row.studentName).split(" ")[0]
-                          : row.studentName}
-                      </TableCell>
-
-                      <TableCell sx={{ px: { xs: 0.5, sm: 2 }, minWidth: 170 }}>
-                        <FormControl fullWidth size="small">
-                          <Select
-                            value={entry.entryStatus}
-                            onChange={(e) =>
-                              handleStatusChange(row.studentId, e.target.value)
-                            }
-                          >
-                            {ENTRY_STATUSES.map((status) => (
-                              <MenuItem key={status} value={status}>
-                                {status}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </TableCell>
-
-                      <TableCell sx={{ px: { xs: 0.5, sm: 2 }, minWidth: 180 }}>
-                        {entry.entryStatus === "Present" ? (
-                          <TextField
-                            size="small"
-                            type="number"
-                            inputProps={{ min: 0, max: 100 }}
-                            value={entry.mark ?? ""}
-                            onChange={(e) =>
-                              handleMarkChange(row.studentId, e.target.value)
-                            }
-                            sx={{ width: { xs: 90, sm: 120 } }}
-                            placeholder="0–100"
-                            disabled={!activeTerm}
-                          />
-                        ) : (
-                          <TextField
-                            size="small"
-                            value={entry.absentReason || ""}
-                            onChange={(e) =>
-                              handleReasonChange(row.studentId, e.target.value)
-                            }
-                            sx={{ width: { xs: 120, sm: 180 } }}
-                            placeholder={
-                              entry.entryStatus === "Medical Absent"
-                                ? "Medical reason"
-                                : "Absent reason"
-                            }
-                          />
-                        )}
-                      </TableCell>
-
-                      <TableCell sx={{ px: { xs: 0.5, sm: 2 } }}>
-                        {entry.entryStatus === "Present" ? (
-                          gradeInfo ? (
-                            <Chip
-                              label={gradeInfo.label}
-                              color={gradeInfo.color}
-                              size="small"
-                            />
-                          ) : (
-                            "—"
-                          )
-                        ) : (
-                          <Chip
-                            label={entry.entryStatus === "Medical Absent" ? "MA" : "AB"}
-                            color="warning"
-                            size="small"
-                          />
-                        )}
+                      <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>Marks</TableCell>
+                      <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>
+                        Remarks
                       </TableCell>
                     </TableRow>
-                  );
-                })}
+                  </TableHead>
 
-                {filteredRows.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      No active student subject enrollments found for{" "}
-                      <strong>{getSubjectName(selectedSubject)}</strong> in Grade{" "}
-                      {selectedGrade}-{selectedClassName}. Run subject enrollment
-                      generation first.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Paper>
+                  <TableBody>
+                    {studentRows.map((row, index) => {
+                      const status = lower(row.status || "present");
+                      const marksDisabled =
+                        status === "absent" || status === "medical_absent";
 
-          <Button
-            variant="contained"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            disabled={saving}
-            fullWidth
-            sx={{ bgcolor: "#1a237e", mt: 2 }}
-          >
-            {saving ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : (
-              "Save All Marks"
+                      return (
+                        <TableRow key={row.studentId} hover>
+                          <TableCell>{index + 1}</TableCell>
+
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={600}>
+                              {row.studentName || "-"}
+                            </Typography>
+                          </TableCell>
+
+                          <TableCell>{row.admissionNo || "-"}</TableCell>
+
+                          <TableCell>
+                            <FormControl fullWidth size="small">
+                              <Select
+                                value={status}
+                                onChange={(e) =>
+                                  handleStatusChange(row.studentId, e.target.value)
+                                }
+                              >
+                                <MenuItem value="present">Present</MenuItem>
+                                <MenuItem value="absent">Absent</MenuItem>
+                                <MenuItem value="medical_absent">
+                                  Medical Absent
+                                </MenuItem>
+                              </Select>
+                            </FormControl>
+                          </TableCell>
+
+                          <TableCell>
+                            <Tooltip
+                              title={
+                                marksDisabled
+                                  ? "Marks disabled for absent / medical absent"
+                                  : ""
+                              }
+                            >
+                              <span>
+                                <TextField
+                                  type="number"
+                                  size="small"
+                                  fullWidth
+                                  value={row.marks}
+                                  onChange={(e) =>
+                                    handleMarksChange(row.studentId, e.target.value)
+                                  }
+                                  disabled={marksDisabled}
+                                  inputProps={{
+                                    min: 0,
+                                    step: "any",
+                                  }}
+                                />
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+
+                          <TableCell>
+                            <TextField
+                              size="small"
+                              fullWidth
+                              value={row.remarks}
+                              onChange={(e) =>
+                                handleRemarksChange(row.studentId, e.target.value)
+                              }
+                              placeholder="Optional remarks"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             )}
-          </Button>
-        </>
-      )}
+          </CardContent>
+        </Card>
+      </Stack>
+
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={3500}
+        onClose={() => setSnack((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+      >
+        <Alert
+          onClose={() => setSnack((prev) => ({ ...prev, open: false }))}
+          severity={snack.severity}
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          {snack.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
-}
+};
+
+export default MarksEntry;
