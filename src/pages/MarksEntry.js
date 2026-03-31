@@ -10,26 +10,26 @@ import {
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
-  Box,
-  Typography,
-  Grid,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Paper,
-  TextField,
-  Button,
-  CircularProgress,
   Alert,
-  Chip,
+  Box,
+  Button,
   Card,
   CardContent,
+  Chip,
+  CircularProgress,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -39,39 +39,37 @@ import WarningIcon from "@mui/icons-material/Warning";
 
 const ENTRY_STATUSES = ["Present", "Absent", "Medical Absent"];
 
-const normalizeText = (value) => String(value || "").trim();
+const normalizeText = (value) => String(value ?? "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
 
 const normalizeGrade = (value) => {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
 };
 
-const normalizeSection = (value) => normalizeText(value);
+const normalizeClassName = (value) => normalizeText(value);
 
 const getAcademicYearValue = (term) =>
-  normalizeText(term?.year || term?.academicYear || "");
+  normalizeText(term?.academicYear || term?.year || "");
 
-const isActiveLike = (value) => {
-  const status = normalizeLower(value);
-  return status === "" || status === "active";
-};
+const isStrictActive = (value) => normalizeLower(value) === "active";
+
+const getSubjectId = (subject) =>
+  normalizeText(subject?.id || subject?.subjectId || "");
+
+const getSubjectName = (subject) =>
+  normalizeText(subject?.name || subject?.subjectName || subject?.subject || "");
 
 const getAssignmentSubjectId = (assignment) =>
-  normalizeText(assignment?.subjectId);
+  normalizeText(assignment?.subjectId || "");
 
 const getAssignmentSubjectName = (assignment) =>
   normalizeText(
     assignment?.subjectName || assignment?.subject || assignment?.name || ""
   );
 
-const getSubjectName = (subject) =>
-  normalizeText(subject?.name || subject?.subjectName || subject?.subject || "");
-
-const getSubjectId = (subject) => normalizeText(subject?.id || subject?.subjectId);
-
 const getEnrollmentSubjectId = (enrollment) =>
-  normalizeText(enrollment?.subjectId);
+  normalizeText(enrollment?.subjectId || "");
 
 const getEnrollmentSubjectName = (enrollment) =>
   normalizeText(
@@ -83,26 +81,63 @@ const getEnrollmentAcademicYear = (enrollment) =>
 
 const getEnrollmentStudentName = (enrollment) =>
   normalizeText(
-    enrollment?.studentName || enrollment?.name || enrollment?.studentFullName || ""
+    enrollment?.studentName ||
+      enrollment?.studentFullName ||
+      enrollment?.fullName ||
+      enrollment?.name ||
+      ""
   );
 
 const getEnrollmentAdmissionNo = (enrollment) =>
   normalizeText(
-    enrollment?.admissionNo || enrollment?.indexNumber || enrollment?.studentAdmissionNo || ""
+    enrollment?.admissionNo ||
+      enrollment?.indexNumber ||
+      enrollment?.studentAdmissionNo ||
+      ""
   );
 
-const getGradeChip = (mark) => {
-  if (mark === "" || mark === undefined || mark === null) return null;
-  const n = Number(mark);
-  if (Number.isNaN(n)) return null;
-  if (n >= 75) return { label: "A", color: "success" };
-  if (n >= 65) return { label: "B", color: "primary" };
-  if (n >= 55) return { label: "C", color: "warning" };
-  if (n >= 35) return { label: "S", color: "default" };
-  return { label: "F", color: "error" };
+const getStudentName = (student) =>
+  normalizeText(
+    student?.fullName || student?.studentName || student?.name || "Unnamed Student"
+  );
+
+const getStudentAdmissionNo = (student) =>
+  normalizeText(
+    student?.admissionNo || student?.indexNumber || student?.studentAdmissionNo || ""
+  );
+
+const buildMarkDocId = ({ studentId, subjectId, subjectName, term, year }) => {
+  const safeSubjectKey = subjectId || normalizeText(subjectName);
+  return `${studentId}_${safeSubjectKey}_${term}_${year}`;
 };
 
-const sortEnrollmentRows = (rows) => {
+const subjectMatchesAssignment = (subject, assignment) => {
+  const subjectId = getSubjectId(subject);
+  const subjectName = getSubjectName(subject);
+  const assignmentSubjectId = getAssignmentSubjectId(assignment);
+  const assignmentSubjectName = getAssignmentSubjectName(assignment);
+
+  if (subjectId && assignmentSubjectId) {
+    return subjectId === assignmentSubjectId;
+  }
+
+  return normalizeLower(subjectName) === normalizeLower(assignmentSubjectName);
+};
+
+const enrollmentMatchesSubject = (enrollment, subject) => {
+  const enrollmentSubjectId = getEnrollmentSubjectId(enrollment);
+  const enrollmentSubjectName = getEnrollmentSubjectName(enrollment);
+  const subjectId = getSubjectId(subject);
+  const subjectName = getSubjectName(subject);
+
+  if (subjectId && enrollmentSubjectId) {
+    return subjectId === enrollmentSubjectId;
+  }
+
+  return normalizeLower(enrollmentSubjectName) === normalizeLower(subjectName);
+};
+
+const sortRows = (rows) => {
   return [...rows].sort((a, b) => {
     const aAdmission = normalizeText(a.admissionNo).toLowerCase();
     const bAdmission = normalizeText(b.admissionNo).toLowerCase();
@@ -116,42 +151,26 @@ const sortEnrollmentRows = (rows) => {
 
     const aName = normalizeText(a.studentName).toLowerCase();
     const bName = normalizeText(b.studentName).toLowerCase();
-    if (aName !== bName) return aName.localeCompare(bName);
+
+    if (aName !== bName) {
+      return aName.localeCompare(bName);
+    }
 
     return normalizeText(a.studentId).localeCompare(normalizeText(b.studentId));
   });
 };
 
-const buildMarkDocId = ({ studentId, subjectId, subjectName, term, year }) => {
-  const safeSubjectKey = subjectId || normalizeText(subjectName);
-  return `${studentId}_${safeSubjectKey}_${term}_${year}`;
-};
+const getGradeChip = (mark) => {
+  if (mark === "" || mark === undefined || mark === null) return null;
 
-const subjectMatchesAssignment = (subject, assignment) => {
-  const subjectId = getSubjectId(subject);
-  const subjectName = getSubjectName(subject);
+  const n = Number(mark);
+  if (Number.isNaN(n)) return null;
 
-  const assignmentSubjectId = getAssignmentSubjectId(assignment);
-  const assignmentSubjectName = getAssignmentSubjectName(assignment);
-
-  if (assignmentSubjectId && subjectId) {
-    return assignmentSubjectId === subjectId;
-  }
-
-  return normalizeLower(subjectName) === normalizeLower(assignmentSubjectName);
-};
-
-const enrollmentMatchesSubject = (enrollment, subject) => {
-  const enrollmentSubjectId = getEnrollmentSubjectId(enrollment);
-  const enrollmentSubjectName = getEnrollmentSubjectName(enrollment);
-  const subjectId = getSubjectId(subject);
-  const subjectName = getSubjectName(subject);
-
-  if (subjectId && enrollmentSubjectId) {
-    return enrollmentSubjectId === subjectId;
-  }
-
-  return normalizeLower(enrollmentSubjectName) === normalizeLower(subjectName);
+  if (n >= 75) return { label: "A", color: "success" };
+  if (n >= 65) return { label: "B", color: "primary" };
+  if (n >= 55) return { label: "C", color: "warning" };
+  if (n >= 35) return { label: "S", color: "default" };
+  return { label: "F", color: "error" };
 };
 
 export default function MarksEntry() {
@@ -161,16 +180,18 @@ export default function MarksEntry() {
 
   const [classrooms, setClassrooms] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [studentsMap, setStudentsMap] = useState({});
   const [assignments, setAssignments] = useState([]);
 
   const [selectedGrade, setSelectedGrade] = useState("");
-  const [selectedSection, setSelectedSection] = useState("");
+  const [selectedClassName, setSelectedClassName] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
 
   const [activeTerm, setActiveTerm] = useState(null);
 
   const [baseLoading, setBaseLoading] = useState(true);
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState(false);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -185,11 +206,14 @@ export default function MarksEntry() {
 
   const loadBaseData = useCallback(async () => {
     setBaseLoading(true);
+    setError("");
+
     try {
-      const [termSnap, classroomSnap, subjectSnap] = await Promise.all([
+      const [termSnap, classroomSnap, subjectSnap, studentSnap] = await Promise.all([
         getDocs(collection(db, "academicTerms")),
         getDocs(collection(db, "classrooms")),
         getDocs(collection(db, "subjects")),
+        getDocs(collection(db, "students")),
       ]);
 
       const active = termSnap.docs
@@ -211,6 +235,13 @@ export default function MarksEntry() {
           ...d.data(),
         }))
       );
+
+      const mappedStudents = {};
+      studentSnap.docs.forEach((d) => {
+        const student = { id: d.id, ...d.data() };
+        mappedStudents[d.id] = student;
+      });
+      setStudentsMap(mappedStudents);
     } catch (err) {
       setError("Failed to load initial marks entry data: " + err.message);
     } finally {
@@ -222,6 +253,7 @@ export default function MarksEntry() {
     if (!profile && !isAdmin) return;
 
     setAssignmentsLoading(true);
+
     try {
       const snap = await getDocs(collection(db, "assignments"));
       const allAssignments = snap.docs.map((d) => ({
@@ -238,10 +270,12 @@ export default function MarksEntry() {
       if (!isAdmin && myAssignments.length > 0) {
         const first = myAssignments[0];
         const firstGrade = normalizeGrade(first.grade);
-        const firstSection = normalizeSection(first.section);
+        const firstClassName = normalizeClassName(
+          first.className || first.section
+        );
 
         setSelectedGrade(firstGrade || "");
-        setSelectedSection(firstSection || "");
+        setSelectedClassName(firstClassName || "");
       }
     } catch (err) {
       setError("Failed to load teacher assignments: " + err.message);
@@ -272,56 +306,58 @@ export default function MarksEntry() {
 
   const gradeOptions = isAdmin ? adminGradeOptions : teacherGradeOptions;
 
-  const adminSectionOptions = useMemo(() => {
+  const adminClassOptions = useMemo(() => {
     if (!selectedGrade) return [];
+
     return [
       ...new Set(
         classrooms
           .filter((c) => normalizeGrade(c.grade) === Number(selectedGrade))
-          .map((c) => normalizeSection(c.section))
+          .map((c) => normalizeClassName(c.className || c.section))
           .filter(Boolean)
       ),
     ].sort();
   }, [classrooms, selectedGrade]);
 
-  const teacherSectionOptions = useMemo(() => {
+  const teacherClassOptions = useMemo(() => {
     if (!selectedGrade) return [];
+
     return [
       ...new Set(
         assignments
           .filter((a) => normalizeGrade(a.grade) === Number(selectedGrade))
-          .map((a) => normalizeSection(a.section))
+          .map((a) => normalizeClassName(a.className || a.section))
           .filter(Boolean)
       ),
     ].sort();
   }, [assignments, selectedGrade]);
 
-  const sectionOptions = isAdmin ? adminSectionOptions : teacherSectionOptions;
+  const classOptions = isAdmin ? adminClassOptions : teacherClassOptions;
 
   useEffect(() => {
-    if (
-      selectedSection &&
-      !sectionOptions.includes(normalizeSection(selectedSection))
-    ) {
-      setSelectedSection("");
+    if (selectedClassName && !classOptions.includes(normalizeClassName(selectedClassName))) {
+      setSelectedClassName("");
       setSelectedSubjectId("");
     }
-  }, [sectionOptions, selectedSection]);
+  }, [classOptions, selectedClassName]);
 
   const loadClassEnrollments = useCallback(async () => {
-    if (!selectedGrade || !selectedSection) {
+    if (!selectedGrade || !selectedClassName) {
       setAllEnrollmentsForClass([]);
       return;
     }
 
+    setEnrollmentsLoading(true);
+
     try {
       const grade = Number(selectedGrade);
-      const section = normalizeSection(selectedSection);
+      const className = normalizeClassName(selectedClassName);
 
       const enrollmentQuery = query(
         collection(db, "studentSubjectEnrollments"),
         where("grade", "==", grade),
-        where("section", "==", section)
+        where("className", "==", className),
+        where("status", "==", "active")
       );
 
       const snap = await getDocs(enrollmentQuery);
@@ -331,30 +367,29 @@ export default function MarksEntry() {
         ...d.data(),
       }));
 
-      loaded = loaded.filter((item) => isActiveLike(item.status));
-
       if (currentAcademicYear) {
-        const sameYear = loaded.filter(
+        loaded = loaded.filter(
           (item) => getEnrollmentAcademicYear(item) === currentAcademicYear
         );
-        if (sameYear.length > 0) {
-          loaded = sameYear;
-        }
       }
+
+      loaded = loaded.filter((item) => isStrictActive(item.status));
 
       setAllEnrollmentsForClass(loaded);
     } catch (err) {
       setError("Failed to load subject enrollments: " + err.message);
       setAllEnrollmentsForClass([]);
+    } finally {
+      setEnrollmentsLoading(false);
     }
-  }, [selectedGrade, selectedSection, currentAcademicYear]);
+  }, [selectedGrade, selectedClassName, currentAcademicYear]);
 
   useEffect(() => {
     loadClassEnrollments();
   }, [loadClassEnrollments]);
 
   const availableSubjectsFromEnrollments = useMemo(() => {
-    if (!selectedGrade || !selectedSection) return [];
+    if (!selectedGrade || !selectedClassName) return [];
 
     const matchedSubjects = subjects.filter((subject) =>
       allEnrollmentsForClass.some((enrollment) =>
@@ -365,16 +400,17 @@ export default function MarksEntry() {
     return matchedSubjects.sort((a, b) =>
       getSubjectName(a).localeCompare(getSubjectName(b))
     );
-  }, [subjects, allEnrollmentsForClass, selectedGrade, selectedSection]);
+  }, [subjects, allEnrollmentsForClass, selectedGrade, selectedClassName]);
 
   const teacherSubjectOptions = useMemo(() => {
-    if (!selectedGrade || !selectedSection) return [];
+    if (!selectedGrade || !selectedClassName) return [];
 
     return availableSubjectsFromEnrollments.filter((subject) =>
       assignments.some((assignment) => {
         return (
           normalizeGrade(assignment.grade) === Number(selectedGrade) &&
-          normalizeSection(assignment.section) === normalizeSection(selectedSection) &&
+          normalizeClassName(assignment.className || assignment.section) ===
+            normalizeClassName(selectedClassName) &&
           subjectMatchesAssignment(subject, assignment)
         );
       })
@@ -383,12 +419,10 @@ export default function MarksEntry() {
     availableSubjectsFromEnrollments,
     assignments,
     selectedGrade,
-    selectedSection,
+    selectedClassName,
   ]);
 
-  const subjectOptions = isAdmin
-    ? availableSubjectsFromEnrollments
-    : teacherSubjectOptions;
+  const subjectOptions = isAdmin ? availableSubjectsFromEnrollments : teacherSubjectOptions;
 
   useEffect(() => {
     if (!selectedSubjectId) return;
@@ -403,12 +437,12 @@ export default function MarksEntry() {
   }, [subjectOptions, selectedSubjectId]);
 
   useEffect(() => {
-    if (!selectedGrade || !selectedSection) {
+    if (!selectedGrade || !selectedClassName) {
       setSelectedSubjectId("");
       setFilteredRows([]);
       setMarksByStudent({});
     }
-  }, [selectedGrade, selectedSection]);
+  }, [selectedGrade, selectedClassName]);
 
   const selectedSubject = useMemo(() => {
     return (
@@ -418,7 +452,7 @@ export default function MarksEntry() {
   }, [subjectOptions, selectedSubjectId]);
 
   const loadRowsAndMarks = useCallback(async () => {
-    if (!selectedGrade || !selectedSection || !selectedSubject || !activeTerm) {
+    if (!selectedGrade || !selectedClassName || !selectedSubject || !activeTerm) {
       setFilteredRows([]);
       setMarksByStudent({});
       return;
@@ -433,22 +467,32 @@ export default function MarksEntry() {
         enrollmentMatchesSubject(enrollment, selectedSubject)
       );
 
-      const rows = sortEnrollmentRows(
-        relevantEnrollments.map((enrollment) => ({
-          enrollmentId: enrollment.id,
-          studentId: normalizeText(enrollment.studentId),
-          studentName: getEnrollmentStudentName(enrollment) || "Unnamed Student",
-          admissionNo: getEnrollmentAdmissionNo(enrollment),
-          grade: normalizeGrade(enrollment.grade),
-          section: normalizeSection(enrollment.section),
-          subjectId:
-            getEnrollmentSubjectId(enrollment) || getSubjectId(selectedSubject),
-          subjectName:
-            getEnrollmentSubjectName(enrollment) || getSubjectName(selectedSubject),
-          academicYear:
-            getEnrollmentAcademicYear(enrollment) || currentAcademicYear,
-          rawEnrollment: enrollment,
-        }))
+      const rows = sortRows(
+        relevantEnrollments.map((enrollment) => {
+          const linkedStudent = studentsMap[normalizeText(enrollment.studentId)] || null;
+
+          return {
+            enrollmentId: enrollment.id,
+            studentId: normalizeText(enrollment.studentId),
+            studentName:
+              getEnrollmentStudentName(enrollment) ||
+              getStudentName(linkedStudent) ||
+              "Unnamed Student",
+            admissionNo:
+              getEnrollmentAdmissionNo(enrollment) ||
+              getStudentAdmissionNo(linkedStudent) ||
+              "",
+            grade: normalizeGrade(enrollment.grade),
+            className: normalizeClassName(enrollment.className),
+            subjectId:
+              getEnrollmentSubjectId(enrollment) || getSubjectId(selectedSubject),
+            subjectName:
+              getEnrollmentSubjectName(enrollment) || getSubjectName(selectedSubject),
+            academicYear:
+              getEnrollmentAcademicYear(enrollment) || currentAcademicYear,
+            rawEnrollment: enrollment,
+          };
+        })
       );
 
       setFilteredRows(rows);
@@ -462,12 +506,13 @@ export default function MarksEntry() {
       const marksQuery = query(
         collection(db, "marks"),
         where("grade", "==", Number(selectedGrade)),
-        where("section", "==", normalizeSection(selectedSection)),
+        where("className", "==", normalizeClassName(selectedClassName)),
         where("term", "==", activeTerm.term),
         where("year", "==", activeTerm.year)
       );
 
       const marksSnap = await getDocs(marksQuery);
+
       const selectedSubjectIdValue = getSubjectId(selectedSubject);
       const selectedSubjectNameValue = getSubjectName(selectedSubject);
 
@@ -519,11 +564,12 @@ export default function MarksEntry() {
     }
   }, [
     selectedGrade,
-    selectedSection,
+    selectedClassName,
     selectedSubject,
     activeTerm,
     allEnrollmentsForClass,
     currentAcademicYear,
+    studentsMap,
   ]);
 
   useEffect(() => {
@@ -643,8 +689,10 @@ export default function MarksEntry() {
             studentId: row.studentId,
             studentName: row.studentName,
             admissionNo: row.admissionNo || "",
+
             grade: Number(selectedGrade),
-            section: normalizeSection(selectedSection),
+            className: normalizeClassName(selectedClassName),
+            section: normalizeClassName(selectedClassName), // legacy compatibility
 
             subjectId: subjectId || "",
             subjectName: subjectName || "",
@@ -661,7 +709,9 @@ export default function MarksEntry() {
               isAbsent || isMedicalAbsent ? normalizeText(entry.absentReason) : "",
 
             approvalStatus: "approved",
-            updatedBy: profile?.name || profile?.displayName || "Unknown",
+            status: "active",
+
+            updatedBy: profile?.name || profile?.displayName || profile?.email || "Unknown",
             updatedById: profile?.uid || "",
             updatedAt: new Date().toISOString(),
           },
@@ -751,7 +801,7 @@ export default function MarksEntry() {
               label="Grade"
               onChange={(e) => {
                 setSelectedGrade(Number(e.target.value));
-                setSelectedSection("");
+                setSelectedClassName("");
                 setSelectedSubjectId("");
               }}
             >
@@ -766,18 +816,18 @@ export default function MarksEntry() {
 
         <Grid item xs={12} sm={3}>
           <FormControl fullWidth size="small" disabled={!selectedGrade}>
-            <InputLabel>Section</InputLabel>
+            <InputLabel>Class</InputLabel>
             <Select
-              value={selectedSection}
-              label="Section"
+              value={selectedClassName}
+              label="Class"
               onChange={(e) => {
-                setSelectedSection(e.target.value);
+                setSelectedClassName(e.target.value);
                 setSelectedSubjectId("");
               }}
             >
-              {sectionOptions.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
+              {classOptions.map((name) => (
+                <MenuItem key={name} value={name}>
+                  {name}
                 </MenuItem>
               ))}
             </Select>
@@ -788,7 +838,7 @@ export default function MarksEntry() {
           <FormControl
             fullWidth
             size="small"
-            disabled={!selectedGrade || !selectedSection || !activeTerm}
+            disabled={!selectedGrade || !selectedClassName || !activeTerm || enrollmentsLoading}
           >
             <InputLabel>Subject</InputLabel>
             <Select
@@ -817,7 +867,7 @@ export default function MarksEntry() {
 
       {!activeTerm ? null : !selectedSubject ? (
         <Alert severity="info">
-          Select grade, section, and subject to load enrolled students.
+          Select grade, class, and subject to load enrolled students.
         </Alert>
       ) : rowsLoading ? (
         <Box display="flex" justifyContent="center" mt={3}>
@@ -834,7 +884,7 @@ export default function MarksEntry() {
             gap={1}
           >
             <Typography variant="body2" color="text.secondary">
-              {filteredRows.length} students — Grade {selectedGrade}-{selectedSection} |{" "}
+              {filteredRows.length} students — Grade {selectedGrade}-{selectedClassName} |{" "}
               {getSubjectName(selectedSubject)} | {activeTerm.term} {activeTerm.year}
             </Typography>
 
@@ -967,9 +1017,7 @@ export default function MarksEntry() {
                           )
                         ) : (
                           <Chip
-                            label={
-                              entry.entryStatus === "Medical Absent" ? "MA" : "AB"
-                            }
+                            label={entry.entryStatus === "Medical Absent" ? "MA" : "AB"}
                             color="warning"
                             size="small"
                           />
@@ -982,9 +1030,9 @@ export default function MarksEntry() {
                 {filteredRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} align="center">
-                      No student subject enrollments found for{" "}
+                      No active student subject enrollments found for{" "}
                       <strong>{getSubjectName(selectedSubject)}</strong> in Grade{" "}
-                      {selectedGrade}-{selectedSection}. Run subject enrollment
+                      {selectedGrade}-{selectedClassName}. Run subject enrollment
                       generation first.
                     </TableCell>
                   </TableRow>
