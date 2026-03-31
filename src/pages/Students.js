@@ -8,42 +8,43 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
+  Alert,
+  Avatar,
   Box,
-  Typography,
   Button,
-  TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Paper,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  IconButton,
+  Card,
+  CardActions,
+  CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  FormHelperText,
   Grid,
-  Alert,
-  Card,
-  CardContent,
-  CardActions,
+  IconButton,
+  InputLabel,
+  LinearProgress,
+  ListItemText,
+  MenuItem,
+  OutlinedInput,
+  Paper,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
   useMediaQuery,
   useTheme,
-  Tooltip,
-  Avatar,
-  Divider,
-  LinearProgress,
-  Checkbox,
-  ListItemText,
-  OutlinedInput,
-  FormHelperText,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -54,9 +55,20 @@ import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import * as XLSX from "xlsx";
 
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                   */
+/* -------------------------------------------------------------------------- */
+
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
-const RELIGION_OPTIONS = ["Hindu", "Catholic", "Christian", "Islam", "Buddhist", "Other"];
+const RELIGION_OPTIONS = [
+  "Hinduism",
+  "Catholicism",
+  "Christianity",
+  "Islam",
+  "Buddhism",
+  "Other",
+];
 const STREAM_OPTIONS = ["Maths", "Bio", "Commerce", "Technology", "Arts"];
 const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
 
@@ -79,15 +91,24 @@ const emptyForm = {
   medium: "",
 };
 
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
 const normalizeText = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
 
 const normalizeGradeValue = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const raw = normalizeText(value);
+  const match = raw.match(/\d+/);
+  return match ? Number(match[0]) : 0;
 };
 
-const normalizeSectionValue = (value) => normalizeText(value);
+const normalizeSectionValue = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
 
 const sortStudentsClientSide = (list) => {
   return [...list].sort((a, b) => {
@@ -95,17 +116,15 @@ const sortStudentsClientSide = (list) => {
     const gradeB = Number(b.grade) || 0;
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = String(a.section || "").toUpperCase();
-    const sectionB = String(b.section || "").toUpperCase();
+    const sectionA = normalizeSectionValue(a.section || a.className);
+    const sectionB = normalizeSectionValue(b.section || b.className);
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
-    const nameA = String(a.name || "").toLowerCase();
-    const nameB = String(a.name || "").toLowerCase();
+    const nameA = normalizeText(a.name || a.fullName).toLowerCase();
+    const nameB = normalizeText(b.name || b.fullName).toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
 
-    const admA = String(a.admissionNo || "").toLowerCase();
-    const admB = String(b.admissionNo || "").toLowerCase();
-    return admA.localeCompare(admB, undefined, {
+    return normalizeText(a.admissionNo).localeCompare(normalizeText(b.admissionNo), undefined, {
       numeric: true,
       sensitivity: "base",
     });
@@ -143,6 +162,61 @@ const sectionCardSx = {
   height: "100%",
 };
 
+const subjectDisplayName = (subject) =>
+  normalizeText(subject.name || subject.subjectName || subject.shortName);
+
+const subjectCategory = (subject) => normalizeLower(subject.category);
+const subjectReligion = (subject) => normalizeText(subject.religion);
+const subjectBasketGroup = (subject) =>
+  normalizeText(subject.basketGroup || "").toUpperCase();
+
+const isActiveSubject = (subject) =>
+  normalizeLower(subject.status || "active") === "active";
+
+const subjectSupportsGrade = (subject, grade) => {
+  const g = Number(grade);
+  if (!g) return false;
+
+  if (Array.isArray(subject.grades) && subject.grades.length > 0) {
+    return subject.grades.map(Number).includes(g);
+  }
+
+  const minGrade = normalizeGradeValue(subject.minGrade);
+  const maxGrade = normalizeGradeValue(subject.maxGrade);
+
+  if (minGrade && maxGrade) {
+    return g >= minGrade && g <= maxGrade;
+  }
+  if (minGrade && !maxGrade) {
+    return g >= minGrade;
+  }
+  if (!minGrade && maxGrade) {
+    return g <= maxGrade;
+  }
+
+  return true;
+};
+
+const statusColor = (status) => {
+  if (status === "Active") return "success";
+  if (status === "Left") return "error";
+  if (status === "Graduated") return "primary";
+  return "warning";
+};
+
+const initials = (name = "") =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
+
 export default function Students() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -174,21 +248,21 @@ export default function Students() {
     const map = new Set();
     classrooms.forEach((c) => {
       const grade = normalizeGradeValue(c.grade);
-      const section = normalizeSectionValue(c.section);
+      const section = normalizeSectionValue(c.section || c.className);
       if (grade && section) {
-        map.add(`${grade}__${section.toUpperCase()}`);
+        map.add(`${grade}__${section}`);
       }
     });
     return map;
   }, [classrooms]);
 
-  const gradeOptions = useMemo(
-    () =>
-      [...new Set(classrooms.map((c) => normalizeGradeValue(c.grade)).filter(Boolean))].sort(
-        (a, b) => a - b
-      ),
-    [classrooms]
-  );
+  const gradeOptions = useMemo(() => {
+    return [...new Set(
+      classrooms
+        .map((c) => normalizeGradeValue(c.grade))
+        .filter(Boolean)
+    )].sort((a, b) => a - b);
+  }, [classrooms]);
 
   const sectionOptionsForFilter = useMemo(() => {
     if (filterGrade) {
@@ -196,14 +270,18 @@ export default function Students() {
         ...new Set(
           classrooms
             .filter((c) => normalizeGradeValue(c.grade) === Number(filterGrade))
-            .map((c) => normalizeSectionValue(c.section))
+            .map((c) => normalizeSectionValue(c.section || c.className))
             .filter(Boolean)
         ),
       ].sort();
     }
 
     return [
-      ...new Set(classrooms.map((c) => normalizeSectionValue(c.section)).filter(Boolean)),
+      ...new Set(
+        classrooms
+          .map((c) => normalizeSectionValue(c.section || c.className))
+          .filter(Boolean)
+      ),
     ].sort();
   }, [classrooms, filterGrade]);
 
@@ -213,14 +291,14 @@ export default function Students() {
       ...new Set(
         classrooms
           .filter((c) => normalizeGradeValue(c.grade) === Number(form.grade))
-          .map((c) => normalizeSectionValue(c.section))
+          .map((c) => normalizeSectionValue(c.section || c.className))
           .filter(Boolean)
       ),
     ].sort();
   }, [classrooms, form.grade]);
 
   const activeSubjects = useMemo(() => {
-    return subjects.filter((s) => normalizeLower(s.status || "active") === "active");
+    return subjects.filter(isActiveSubject);
   }, [subjects]);
 
   const aestheticOptions = useMemo(() => {
@@ -230,11 +308,27 @@ export default function Students() {
     return activeSubjects
       .filter(
         (s) =>
-          s.category === "aesthetic" &&
-          Array.isArray(s.grades) &&
-          s.grades.map(Number).includes(grade)
+          subjectCategory(s) === "aesthetic" &&
+          subjectSupportsGrade(s, grade)
       )
-      .sort((a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name)));
+      .sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
+  }, [activeSubjects, form.grade]);
+
+  const religionSubjectOptions = useMemo(() => {
+    const grade = Number(form.grade);
+    if (!shouldShowReligion(grade)) return RELIGION_OPTIONS;
+
+    const fromSubjects = activeSubjects
+      .filter(
+        (s) =>
+          subjectCategory(s) === "religion" &&
+          subjectSupportsGrade(s, grade) &&
+          subjectReligion(s)
+      )
+      .map((s) => subjectReligion(s));
+
+    const combined = [...new Set([...RELIGION_OPTIONS, ...fromSubjects].filter(Boolean))];
+    return combined;
   }, [activeSubjects, form.grade]);
 
   const basketOptions = useMemo(() => {
@@ -243,20 +337,22 @@ export default function Students() {
       return { A: [], B: [], C: [] };
     }
 
-    const base = activeSubjects.filter(
-      (s) =>
-        s.category === "basket" &&
-        Array.isArray(s.grades) &&
-        s.grades.map(Number).includes(grade)
-    );
+    const candidates = activeSubjects.filter((s) => {
+      if (!subjectSupportsGrade(s, grade)) return false;
+
+      const category = subjectCategory(s);
+      const basketGroup = subjectBasketGroup(s);
+
+      return category === "basket" || basketGroup;
+    });
 
     const sortByName = (list) =>
-      [...list].sort((a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name)));
+      [...list].sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
 
     return {
-      A: sortByName(base.filter((s) => normalizeText(s.basketGroup).toUpperCase() === "A")),
-      B: sortByName(base.filter((s) => normalizeText(s.basketGroup).toUpperCase() === "B")),
-      C: sortByName(base.filter((s) => normalizeText(s.basketGroup).toUpperCase() === "C")),
+      A: sortByName(candidates.filter((s) => ["A", "1"].includes(subjectBasketGroup(s)))),
+      B: sortByName(candidates.filter((s) => ["B", "2"].includes(subjectBasketGroup(s)))),
+      C: sortByName(candidates.filter((s) => ["C", "3"].includes(subjectBasketGroup(s)))),
     };
   }, [activeSubjects, form.grade]);
 
@@ -266,15 +362,17 @@ export default function Students() {
 
     return activeSubjects
       .filter((s) => {
-        if (s.category !== "al_main") return false;
-        if (!Array.isArray(s.grades) || !s.grades.map(Number).includes(grade)) return false;
+        if (!subjectSupportsGrade(s, grade)) return false;
+
+        const category = subjectCategory(s);
+        if (category !== "al_main" && category !== "al") return false;
 
         if (!normalizeText(form.stream)) return true;
         if (!normalizeText(s.stream)) return true;
 
         return normalizeLower(s.stream) === normalizeLower(form.stream);
       })
-      .sort((a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name)));
+      .sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
   }, [activeSubjects, form.grade, form.stream]);
 
   const enrollmentWarnings = useMemo(() => {
@@ -286,15 +384,9 @@ export default function Students() {
     }
 
     if (shouldShowBasketChoices(grade)) {
-      if (basketOptions.A.length === 0) {
-        warnings.push("No active Basket A subjects found for this grade.");
-      }
-      if (basketOptions.B.length === 0) {
-        warnings.push("No active Basket B subjects found for this grade.");
-      }
-      if (basketOptions.C.length === 0) {
-        warnings.push("No active Basket C subjects found for this grade.");
-      }
+      if (basketOptions.A.length === 0) warnings.push("No Basket A subjects found for this grade.");
+      if (basketOptions.B.length === 0) warnings.push("No Basket B subjects found for this grade.");
+      if (basketOptions.C.length === 0) warnings.push("No Basket C subjects found for this grade.");
     }
 
     if (shouldShowALFields(grade) && normalizeText(form.stream) && alMainSubjectOptions.length === 0) {
@@ -321,18 +413,31 @@ export default function Students() {
         getDocs(collection(db, "subjects")),
       ]);
 
-      const loadedStudents = studSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        alSubjectChoices: Array.isArray(d.data().alSubjectChoices)
-          ? d.data().alSubjectChoices
-          : [],
-      }));
+      const loadedStudents = studSnap.docs.map((d) => {
+        const raw = d.data();
+        return {
+          id: d.id,
+          ...raw,
+          name: raw.name || raw.fullName || "",
+          fullName: raw.fullName || raw.name || "",
+          section: raw.section || raw.className || "",
+          className: raw.className || raw.section || "",
+          religion: raw.religion || "",
+          aestheticChoice: raw.aestheticChoice || raw.aesthetic || "",
+          basketAChoice: raw.basketAChoice || raw.basket1 || "",
+          basketBChoice: raw.basketBChoice || raw.basket2 || "",
+          basketCChoice: raw.basketCChoice || raw.basket3 || "",
+          alSubjectChoices: Array.isArray(raw.alSubjectChoices) ? raw.alSubjectChoices : [],
+          status: raw.status || "Active",
+        };
+      });
 
       const loadedSubjects = subjectSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        grades: Array.isArray(d.data().grades) ? d.data().grades.map(Number) : [],
+        grades: Array.isArray(d.data().grades)
+          ? d.data().grades.map(Number)
+          : [],
       }));
 
       setStudents(sortStudentsClientSide(loadedStudents));
@@ -347,12 +452,10 @@ export default function Students() {
 
   const isValidClassroom = (grade, section) => {
     if (!grade || !section) return false;
-    return classroomLookup.has(
-      `${Number(grade)}__${String(section).trim().toUpperCase()}`
-    );
+    return classroomLookup.has(`${Number(grade)}__${normalizeSectionValue(section)}`);
   };
 
-  const getStudentName = (student) => student.name || "";
+  const getStudentName = (student) => student.name || student.fullName || "";
 
   const cleanFormByGrade = (data) => {
     const grade = Number(data.grade);
@@ -374,27 +477,42 @@ export default function Students() {
 
   const buildPayloadFromForm = () => {
     const cleaned = cleanFormByGrade(form);
+    const grade = Number(cleaned.grade);
+    const section = normalizeSectionValue(cleaned.section);
 
     return {
       name: normalizeText(cleaned.name),
+      fullName: normalizeText(cleaned.name),
+
       admissionNo: normalizeText(cleaned.admissionNo),
-      grade: Number(cleaned.grade),
-      section: normalizeSectionValue(cleaned.section),
-      className: `${Number(cleaned.grade)}${normalizeSectionValue(cleaned.section)}`,
+
+      grade,
+      section,
+      className: section,
+
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
+
       religion: normalizeText(cleaned.religion),
+
+      aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
+
+      basket1: normalizeText(cleaned.basketAChoice),
+      basket2: normalizeText(cleaned.basketBChoice),
+      basket3: normalizeText(cleaned.basketCChoice),
+
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
+
       stream: normalizeText(cleaned.stream),
-      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
-        ? cleaned.alSubjectChoices
-        : [],
+      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices) ? cleaned.alSubjectChoices : [],
+
       medium: normalizeText(cleaned.medium),
+
       updatedAt: new Date().toISOString(),
     };
   };
@@ -408,10 +526,7 @@ export default function Students() {
       return normalizeLower(s.admissionNo) === admissionNo;
     });
 
-    if (duplicate) {
-      return "Admission number already exists.";
-    }
-
+    if (duplicate) return "Admission number already exists.";
     return "";
   };
 
@@ -436,7 +551,7 @@ export default function Students() {
 
     if (shouldShowAesthetic(grade)) {
       if (aestheticOptions.length === 0) {
-        return "No aesthetic subjects are defined for this grade. Create them in Subject Definitions first.";
+        return "No aesthetic subjects are defined for this grade.";
       }
       if (!normalizeText(form.aestheticChoice)) {
         return "Aesthetic choice is required for Grades 6 to 9.";
@@ -445,7 +560,7 @@ export default function Students() {
 
     if (shouldShowBasketChoices(grade)) {
       if (basketOptions.A.length === 0 || basketOptions.B.length === 0 || basketOptions.C.length === 0) {
-        return "Basket subject definitions are incomplete for this grade. Create Basket A, B, and C subjects first.";
+        return "Basket subject definitions are incomplete for this grade.";
       }
       if (!normalizeText(form.basketAChoice)) return "Basket A choice is required.";
       if (!normalizeText(form.basketBChoice)) return "Basket B choice is required.";
@@ -454,11 +569,15 @@ export default function Students() {
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
-      if (alMainSubjectOptions.length === 0) {
-        return "No A/L main subjects are defined for the selected stream and grade.";
-      }
 
-      const choices = [...new Set((Array.isArray(form.alSubjectChoices) ? form.alSubjectChoices : []).map(normalizeText).filter(Boolean))];
+      const choices = [
+        ...new Set(
+          (Array.isArray(form.alSubjectChoices) ? form.alSubjectChoices : [])
+            .map(normalizeText)
+            .filter(Boolean)
+        ),
+      ];
+
       if (choices.length !== 3) {
         return "Exactly 3 A/L subject choices are required for Grades 12 to 13.";
       }
@@ -479,7 +598,8 @@ export default function Students() {
       normalizeText(s.stream).toLowerCase().includes(q);
 
     const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
-    const matchSection = !filterSection || s.section === filterSection;
+    const matchSection =
+      !filterSection || normalizeSectionValue(s.section || s.className) === filterSection;
     const matchStatus = !filterStatus || s.status === filterStatus;
 
     return matchSearch && matchGrade && matchSection && matchStatus;
@@ -526,19 +646,19 @@ export default function Students() {
 
   const handleEdit = (s) => {
     setForm({
-      name: s.name || "",
+      name: s.name || s.fullName || "",
       admissionNo: s.admissionNo || "",
       grade: s.grade || "",
-      section: s.section || "",
+      section: s.section || s.className || "",
       gender: s.gender || "",
       dob: s.dob || "",
       status: s.status || "Active",
       joinDate: s.joinDate || "",
       religion: s.religion || "",
-      aestheticChoice: s.aestheticChoice || "",
-      basketAChoice: s.basketAChoice || "",
-      basketBChoice: s.basketBChoice || "",
-      basketCChoice: s.basketCChoice || "",
+      aestheticChoice: s.aestheticChoice || s.aesthetic || "",
+      basketAChoice: s.basketAChoice || s.basket1 || "",
+      basketBChoice: s.basketBChoice || s.basket2 || "",
+      basketCChoice: s.basketCChoice || s.basket3 || "",
       stream: s.stream || "",
       alSubjectChoices: Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices : [],
       medium: s.medium || "",
@@ -551,7 +671,7 @@ export default function Students() {
   };
 
   const handleInactivate = async (student) => {
-    if (!window.confirm(`Set student "${student.name}" as Left?`)) return;
+    if (!window.confirm(`Set student "${getStudentName(student)}" as Left?`)) return;
 
     try {
       await updateDoc(doc(db, "students", student.id), {
@@ -572,9 +692,7 @@ export default function Students() {
 
     return {
       name: normalizeText(row["Name"] || row["name"]),
-      admissionNo: normalizeText(
-        row["Admission No"] || row["admissionNo"] || row["AdmissionNo"]
-      ),
+      admissionNo: normalizeText(row["Admission No"] || row["admissionNo"] || row["AdmissionNo"]),
       grade: normalizeGradeValue(row["Grade"] || row["grade"]),
       section: normalizeSectionValue(row["Section"] || row["section"]),
       gender: normalizeText(row["Gender"] || row["gender"]),
@@ -583,9 +701,9 @@ export default function Students() {
       joinDate: normalizeText(row["Join Date"] || row["joinDate"]),
       religion: normalizeText(row["Religion"] || row["religion"]),
       aestheticChoice: normalizeText(row["Aesthetic Choice"] || row["aestheticChoice"]),
-      basketAChoice: normalizeText(row["Basket A Choice"] || row["basketAChoice"]),
-      basketBChoice: normalizeText(row["Basket B Choice"] || row["basketBChoice"]),
-      basketCChoice: normalizeText(row["Basket C Choice"] || row["basketCChoice"]),
+      basketAChoice: normalizeText(row["Basket A Choice"] || row["basketAChoice"] || row["Basket 1"] || row["basket1"]),
+      basketBChoice: normalizeText(row["Basket B Choice"] || row["basketBChoice"] || row["Basket 2"] || row["basket2"]),
+      basketCChoice: normalizeText(row["Basket C Choice"] || row["basketCChoice"] || row["Basket 3"] || row["basket3"]),
       stream: normalizeText(row["Stream"] || row["stream"]),
       alSubjectChoices: [al1, al2, al3].filter(Boolean),
       medium: normalizeText(row["Medium"] || row["medium"]),
@@ -593,13 +711,8 @@ export default function Students() {
   };
 
   const validateBulkRow = (student, rowNumber, seenAdmissionNos) => {
-    if (!student.name) {
-      return `Row ${rowNumber}: Student name is required.`;
-    }
-
-    if (!student.admissionNo) {
-      return `Row ${rowNumber}: Admission number is required.`;
-    }
+    if (!student.name) return `Row ${rowNumber}: Student name is required.`;
+    if (!student.admissionNo) return `Row ${rowNumber}: Admission number is required.`;
 
     if (seenAdmissionNos.has(normalizeLower(student.admissionNo))) {
       return `Row ${rowNumber}: Duplicate admission number in upload file.`;
@@ -612,13 +725,8 @@ export default function Students() {
       return `Row ${rowNumber}: Admission number already exists.`;
     }
 
-    if (!student.grade) {
-      return `Row ${rowNumber}: Grade is required.`;
-    }
-
-    if (!student.section) {
-      return `Row ${rowNumber}: Section is required.`;
-    }
+    if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
+    if (!student.section) return `Row ${rowNumber}: Section is required.`;
 
     if (!isValidClassroom(student.grade, student.section)) {
       return `Row ${rowNumber}: Grade ${student.grade} Section ${student.section} does not exist in classrooms.`;
@@ -655,27 +763,42 @@ export default function Students() {
 
   const buildBulkPayload = (student) => {
     const cleaned = cleanFormByGrade(student);
+    const grade = Number(cleaned.grade);
+    const section = normalizeSectionValue(cleaned.section);
 
     return {
       name: normalizeText(cleaned.name),
+      fullName: normalizeText(cleaned.name),
+
       admissionNo: normalizeText(cleaned.admissionNo),
-      grade: Number(cleaned.grade),
-      section: normalizeSectionValue(cleaned.section),
-      className: `${Number(cleaned.grade)}${normalizeSectionValue(cleaned.section)}`,
+
+      grade,
+      section,
+      className: section,
+
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
+
       religion: normalizeText(cleaned.religion),
+
+      aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
+
+      basket1: normalizeText(cleaned.basketAChoice),
+      basket2: normalizeText(cleaned.basketBChoice),
+      basket3: normalizeText(cleaned.basketCChoice),
+
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
+
       stream: normalizeText(cleaned.stream),
-      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
-        ? cleaned.alSubjectChoices
-        : [],
+      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices) ? cleaned.alSubjectChoices : [],
+
       medium: normalizeText(cleaned.medium),
+
       updatedAt: new Date().toISOString(),
     };
   };
@@ -721,16 +844,16 @@ export default function Students() {
       let failCount = invalidRows.length;
       const errors = invalidRows.map((item) => item.validationError);
 
-      for (let i = 0; i < validRows.length; i++) {
+      for (let i = 0; i < validRows.length; i += 1) {
         const item = validRows[i];
         try {
           await addDoc(collection(db, "students"), {
             ...buildBulkPayload(item.student),
             createdAt: new Date().toISOString(),
           });
-          successCount++;
+          successCount += 1;
         } catch (err) {
-          failCount++;
+          failCount += 1;
           errors.push(`Row ${item.rowNumber}: ${err.message}`);
         }
 
@@ -756,18 +879,18 @@ export default function Students() {
   const handleExport = () => {
     const exportData = filtered.map((s) => ({
       "Admission No": s.admissionNo || "",
-      Name: s.name || "",
+      Name: getStudentName(s),
       Grade: s.grade || "",
-      Section: s.section || "",
+      Section: s.section || s.className || "",
       Gender: s.gender || "",
       DOB: s.dob || "",
       Status: s.status || "",
       "Join Date": s.joinDate || "",
       Religion: s.religion || "",
-      "Aesthetic Choice": s.aestheticChoice || "",
-      "Basket A Choice": s.basketAChoice || "",
-      "Basket B Choice": s.basketBChoice || "",
-      "Basket C Choice": s.basketCChoice || "",
+      "Aesthetic Choice": s.aestheticChoice || s.aesthetic || "",
+      "Basket A Choice": s.basketAChoice || s.basket1 || "",
+      "Basket B Choice": s.basketBChoice || s.basket2 || "",
+      "Basket C Choice": s.basketCChoice || s.basket3 || "",
       Stream: s.stream || "",
       "AL Subject 1": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[0] || "" : "",
       "AL Subject 2": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[1] || "" : "",
@@ -792,7 +915,7 @@ export default function Students() {
         DOB: "2012-01-15",
         Status: "Active",
         "Join Date": "2026-01-01",
-        Religion: "Hindu",
+        Religion: "Hinduism",
         "Aesthetic Choice": "Art",
         "Basket A Choice": "",
         "Basket B Choice": "",
@@ -812,7 +935,7 @@ export default function Students() {
         DOB: "2010-05-12",
         Status: "Active",
         "Join Date": "2026-01-01",
-        Religion: "Catholic",
+        Religion: "Catholicism",
         "Aesthetic Choice": "",
         "Basket A Choice": "History",
         "Basket B Choice": "ICT",
@@ -827,7 +950,7 @@ export default function Students() {
         "Admission No": "ADM100",
         Name: "AL Student",
         Grade: 12,
-        Section: "Maths A",
+        Section: "A",
         Gender: "Male",
         DOB: "2008-07-04",
         Status: "Active",
@@ -851,22 +974,6 @@ export default function Students() {
     XLSX.writeFile(wb, "student_upload_template.xlsx");
   };
 
-  const statusColor = (s) => {
-    if (s === "Active") return "success";
-    if (s === "Left") return "error";
-    if (s === "Graduated") return "primary";
-    return "warning";
-  };
-
-  const initials = (name = "") =>
-    name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join("")
-      .toUpperCase();
-
   return (
     <Box>
       <Box
@@ -887,35 +994,16 @@ export default function Students() {
           gap={1.5}
         >
           <Box>
-            <Typography
-              variant={isMobile ? "h6" : "h5"}
-              fontWeight={800}
-              color="#1a237e"
-            >
+            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={800} color="#1a237e">
               Students
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.4}>
               Student master with enrollment-driving fields only.
             </Typography>
             <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip
-                label={`Active: ${activeCount}`}
-                size="small"
-                color="success"
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`Left: ${leftCount}`}
-                size="small"
-                color="error"
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`Total: ${students.length}`}
-                size="small"
-                color="primary"
-                sx={{ fontWeight: 700 }}
-              />
+              <Chip label={`Active: ${activeCount}`} size="small" color="success" sx={{ fontWeight: 700 }} />
+              <Chip label={`Left: ${leftCount}`} size="small" color="error" sx={{ fontWeight: 700 }} />
+              <Chip label={`Total: ${students.length}`} size="small" color="primary" sx={{ fontWeight: 700 }} />
             </Box>
           </Box>
 
@@ -988,11 +1076,7 @@ export default function Students() {
             <Typography variant="caption" color="text.secondary">
               Uploading... {bulkProgress}%
             </Typography>
-            <LinearProgress
-              variant="determinate"
-              value={bulkProgress}
-              sx={{ mt: 0.5, borderRadius: 2 }}
-            />
+            <LinearProgress variant="determinate" value={bulkProgress} sx={{ mt: 0.5, borderRadius: 2 }} />
           </Box>
         )}
 
@@ -1025,10 +1109,7 @@ export default function Students() {
             sx={{ minWidth: 220, flex: 1 }}
             InputProps={{
               startAdornment: (
-                <SearchIcon
-                  fontSize="small"
-                  sx={{ mr: 0.5, color: "text.secondary" }}
-                />
+                <SearchIcon fontSize="small" sx={{ mr: 0.5, color: "text.secondary" }} />
               ),
             }}
           />
@@ -1102,21 +1183,13 @@ export default function Students() {
       </Box>
 
       {success && (
-        <Alert
-          severity="success"
-          sx={{ mb: 2, borderRadius: 2 }}
-          onClose={() => setSuccess("")}
-        >
+        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
           {success}
         </Alert>
       )}
 
       {error && !open && (
-        <Alert
-          severity="error"
-          sx={{ mb: 2, borderRadius: 2 }}
-          onClose={() => setError("")}
-        >
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
           {error}
         </Alert>
       )}
@@ -1136,18 +1209,11 @@ export default function Students() {
           }}
         >
           <PersonIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
-          <Typography
-            variant="h6"
-            color="text.secondary"
-            mt={1}
-            fontWeight={600}
-          >
+          <Typography variant="h6" color="text.secondary" mt={1} fontWeight={600}>
             No students found
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {students.length === 0
-              ? 'Click "Add Student" to get started'
-              : "Try adjusting your filters"}
+            {students.length === 0 ? 'Click "Add Student" to get started' : "Try adjusting your filters"}
           </Typography>
         </Box>
       ) : isMobile ? (
@@ -1163,11 +1229,7 @@ export default function Students() {
               }}
             >
               <CardContent sx={{ pb: 0 }}>
-                <Box
-                  display="flex"
-                  justifyContent="space-between"
-                  alignItems="flex-start"
-                >
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                   <Box display="flex" alignItems="center" gap={1.5}>
                     <Avatar
                       sx={{
@@ -1185,7 +1247,7 @@ export default function Students() {
                         {getStudentName(s)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {s.admissionNo || "No Adm#"} • Grade {s.grade}-{s.section}
+                        {s.admissionNo || "No Adm#"} • Grade {s.grade}-{s.section || s.className}
                       </Typography>
                     </Box>
                   </Box>
@@ -1257,10 +1319,7 @@ export default function Students() {
                   "Enrollment Fields",
                   "Actions",
                 ].map((h) => (
-                  <TableCell
-                    key={h}
-                    sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
-                  >
+                  <TableCell key={h} sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
                     {h}
                   </TableCell>
                 ))}
@@ -1268,11 +1327,7 @@ export default function Students() {
             </TableHead>
             <TableBody>
               {filtered.map((s, idx) => (
-                <TableRow
-                  key={s.id}
-                  hover
-                  sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
-                >
+                <TableRow key={s.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
                   <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>
                     {idx + 1}
                   </TableCell>
@@ -1302,17 +1357,13 @@ export default function Students() {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Typography
-                      variant="caption"
-                      fontWeight={700}
-                      color="#1a237e"
-                    >
+                    <Typography variant="caption" fontWeight={700} color="#1a237e">
                       {s.admissionNo || "—"}
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={`G${s.grade}-${s.section}`}
+                      label={`G${s.grade}-${s.section || s.className}`}
                       size="small"
                       color="primary"
                       sx={{ fontWeight: 700, fontSize: 12 }}
@@ -1336,17 +1387,17 @@ export default function Students() {
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={0.5} flexWrap="wrap">
-                      {s.aestheticChoice && (
-                        <Chip size="small" label={`Aesthetic: ${s.aestheticChoice}`} />
+                      {(s.aestheticChoice || s.aesthetic) && (
+                        <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
                       )}
-                      {s.basketAChoice && (
-                        <Chip size="small" label={`A: ${s.basketAChoice}`} color="warning" />
+                      {(s.basketAChoice || s.basket1) && (
+                        <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
                       )}
-                      {s.basketBChoice && (
-                        <Chip size="small" label={`B: ${s.basketBChoice}`} color="warning" />
+                      {(s.basketBChoice || s.basket2) && (
+                        <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
                       )}
-                      {s.basketCChoice && (
-                        <Chip size="small" label={`C: ${s.basketCChoice}`} color="warning" />
+                      {(s.basketCChoice || s.basket3) && (
+                        <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
                       )}
                       {Array.isArray(s.alSubjectChoices) &&
                         s.alSubjectChoices.map((item, itemIdx) => (
@@ -1361,11 +1412,7 @@ export default function Students() {
                   </TableCell>
                   <TableCell>
                     <Tooltip title="Edit">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => handleEdit(s)}
-                      >
+                      <IconButton size="small" color="primary" onClick={() => handleEdit(s)}>
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -1432,9 +1479,7 @@ export default function Students() {
                         required
                         label="Admission No."
                         value={form.admissionNo}
-                        onChange={(e) =>
-                          setForm({ ...form, admissionNo: e.target.value })
-                        }
+                        onChange={(e) => setForm({ ...form, admissionNo: e.target.value })}
                       />
                     </Grid>
 
@@ -1472,9 +1517,7 @@ export default function Students() {
                         <Select
                           value={form.section}
                           label="Section"
-                          onChange={(e) =>
-                            setForm({ ...form, section: e.target.value })
-                          }
+                          onChange={(e) => setForm({ ...form, section: e.target.value })}
                         >
                           <MenuItem value="">
                             <em>Select Section</em>
@@ -1486,9 +1529,7 @@ export default function Students() {
                           ))}
                         </Select>
                         {form.grade && sectionOptionsForForm.length === 0 && (
-                          <FormHelperText error>
-                            No sections found for this grade.
-                          </FormHelperText>
+                          <FormHelperText error>No sections found for this grade.</FormHelperText>
                         )}
                       </FormControl>
                     </Grid>
@@ -1499,9 +1540,7 @@ export default function Students() {
                         <Select
                           value={form.status}
                           label="Status"
-                          onChange={(e) =>
-                            setForm({ ...form, status: e.target.value })
-                          }
+                          onChange={(e) => setForm({ ...form, status: e.target.value })}
                         >
                           {STUDENT_STATUSES.map((s) => (
                             <MenuItem key={s} value={s}>
@@ -1530,9 +1569,7 @@ export default function Students() {
                         <Select
                           value={form.gender}
                           label="Gender"
-                          onChange={(e) =>
-                            setForm({ ...form, gender: e.target.value })
-                          }
+                          onChange={(e) => setForm({ ...form, gender: e.target.value })}
                         >
                           <MenuItem value="">—</MenuItem>
                           {GENDERS.map((g) => (
@@ -1561,9 +1598,7 @@ export default function Students() {
                         label="Join Date"
                         type="date"
                         value={form.joinDate}
-                        onChange={(e) =>
-                          setForm({ ...form, joinDate: e.target.value })
-                        }
+                        onChange={(e) => setForm({ ...form, joinDate: e.target.value })}
                         InputLabelProps={{ shrink: true }}
                       />
                     </Grid>
@@ -1639,11 +1674,9 @@ export default function Students() {
                               <Select
                                 value={form.religion}
                                 label="Religion"
-                                onChange={(e) =>
-                                  setForm({ ...form, religion: e.target.value })
-                                }
+                                onChange={(e) => setForm({ ...form, religion: e.target.value })}
                               >
-                                {RELIGION_OPTIONS.map((item) => (
+                                {religionSubjectOptions.map((item) => (
                                   <MenuItem key={item} value={item}>
                                     {item}
                                   </MenuItem>
@@ -1655,11 +1688,7 @@ export default function Students() {
 
                         {shouldShowAesthetic(form.grade) && (
                           <Grid item xs={12} sm={6} md={4}>
-                            <FormControl
-                              fullWidth
-                              required
-                              disabled={aestheticOptions.length === 0}
-                            >
+                            <FormControl fullWidth required disabled={aestheticOptions.length === 0}>
                               <InputLabel>Aesthetic Choice</InputLabel>
                               <Select
                                 value={form.aestheticChoice}
@@ -1669,8 +1698,8 @@ export default function Students() {
                                 }
                               >
                                 {aestheticOptions.map((subject) => (
-                                  <MenuItem key={subject.id} value={subject.name}>
-                                    {subject.name}
+                                  <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                    {subjectDisplayName(subject)}
                                   </MenuItem>
                                 ))}
                               </Select>
@@ -1686,11 +1715,7 @@ export default function Students() {
                         {shouldShowBasketChoices(form.grade) && (
                           <>
                             <Grid item xs={12} md={4}>
-                              <FormControl
-                                fullWidth
-                                required
-                                disabled={basketOptions.A.length === 0}
-                              >
+                              <FormControl fullWidth required disabled={basketOptions.A.length === 0}>
                                 <InputLabel>Basket A Choice</InputLabel>
                                 <Select
                                   value={form.basketAChoice}
@@ -1700,25 +1725,19 @@ export default function Students() {
                                   }
                                 >
                                   {basketOptions.A.map((subject) => (
-                                    <MenuItem key={subject.id} value={subject.name}>
-                                      {subject.name}
+                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                      {subjectDisplayName(subject)}
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 {basketOptions.A.length === 0 && (
-                                  <FormHelperText error>
-                                    No Basket A subjects found.
-                                  </FormHelperText>
+                                  <FormHelperText error>No Basket A subjects found.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
 
                             <Grid item xs={12} md={4}>
-                              <FormControl
-                                fullWidth
-                                required
-                                disabled={basketOptions.B.length === 0}
-                              >
+                              <FormControl fullWidth required disabled={basketOptions.B.length === 0}>
                                 <InputLabel>Basket B Choice</InputLabel>
                                 <Select
                                   value={form.basketBChoice}
@@ -1728,25 +1747,19 @@ export default function Students() {
                                   }
                                 >
                                   {basketOptions.B.map((subject) => (
-                                    <MenuItem key={subject.id} value={subject.name}>
-                                      {subject.name}
+                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                      {subjectDisplayName(subject)}
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 {basketOptions.B.length === 0 && (
-                                  <FormHelperText error>
-                                    No Basket B subjects found.
-                                  </FormHelperText>
+                                  <FormHelperText error>No Basket B subjects found.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
 
                             <Grid item xs={12} md={4}>
-                              <FormControl
-                                fullWidth
-                                required
-                                disabled={basketOptions.C.length === 0}
-                              >
+                              <FormControl fullWidth required disabled={basketOptions.C.length === 0}>
                                 <InputLabel>Basket C Choice</InputLabel>
                                 <Select
                                   value={form.basketCChoice}
@@ -1756,15 +1769,13 @@ export default function Students() {
                                   }
                                 >
                                   {basketOptions.C.map((subject) => (
-                                    <MenuItem key={subject.id} value={subject.name}>
-                                      {subject.name}
+                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                      {subjectDisplayName(subject)}
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 {basketOptions.C.length === 0 && (
-                                  <FormHelperText error>
-                                    No Basket C subjects found.
-                                  </FormHelperText>
+                                  <FormHelperText error>No Basket C subjects found.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
@@ -1819,24 +1830,24 @@ export default function Students() {
                                   renderValue={(selected) => selected.join(", ")}
                                 >
                                   {alMainSubjectOptions.map((subject) => (
-                                    <MenuItem key={subject.id} value={subject.name}>
-                                      <Checkbox checked={form.alSubjectChoices.indexOf(subject.name) > -1} />
-                                      <ListItemText primary={subject.name} />
+                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                      <Checkbox
+                                        checked={
+                                          form.alSubjectChoices.indexOf(subjectDisplayName(subject)) > -1
+                                        }
+                                      />
+                                      <ListItemText primary={subjectDisplayName(subject)} />
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 {!form.stream ? (
-                                  <FormHelperText>
-                                    Select stream first.
-                                  </FormHelperText>
+                                  <FormHelperText>Select stream first.</FormHelperText>
                                 ) : alMainSubjectOptions.length === 0 ? (
                                   <FormHelperText error>
                                     No active A/L main subjects found for this stream and grade.
                                   </FormHelperText>
                                 ) : (
-                                  <FormHelperText>
-                                    Select exactly 3 subjects.
-                                  </FormHelperText>
+                                  <FormHelperText>Select exactly 3 subjects.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
