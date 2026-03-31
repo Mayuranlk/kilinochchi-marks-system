@@ -355,9 +355,7 @@ export default function MarksEntry() {
 
       const enrollmentQuery = query(
         collection(db, "studentSubjectEnrollments"),
-        where("grade", "==", grade),
-        where("className", "==", className),
-        where("status", "==", "active")
+        where("grade", "==", grade)
       );
 
       const snap = await getDocs(enrollmentQuery);
@@ -367,13 +365,19 @@ export default function MarksEntry() {
         ...d.data(),
       }));
 
-      if (currentAcademicYear) {
-        loaded = loaded.filter(
-          (item) => getEnrollmentAcademicYear(item) === currentAcademicYear
+      loaded = loaded.filter((item) => {
+        const enrollmentClass = normalizeClassName(
+          item.className || item.section || ""
         );
-      }
 
-      loaded = loaded.filter((item) => isStrictActive(item.status));
+        const sameClass = enrollmentClass === className;
+        const sameYear = currentAcademicYear
+          ? getEnrollmentAcademicYear(item) === currentAcademicYear
+          : true;
+        const active = isStrictActive(item.status);
+
+        return sameClass && sameYear && active;
+      });
 
       setAllEnrollmentsForClass(loaded);
     } catch (err) {
@@ -391,13 +395,34 @@ export default function MarksEntry() {
   const availableSubjectsFromEnrollments = useMemo(() => {
     if (!selectedGrade || !selectedClassName) return [];
 
-    const matchedSubjects = subjects.filter((subject) =>
-      allEnrollmentsForClass.some((enrollment) =>
-        enrollmentMatchesSubject(enrollment, subject)
-      )
-    );
+    const enrollmentSubjectMap = new Map();
 
-    return matchedSubjects.sort((a, b) =>
+    allEnrollmentsForClass.forEach((enrollment) => {
+      const subjectId = getEnrollmentSubjectId(enrollment);
+      const subjectName = getEnrollmentSubjectName(enrollment);
+
+      if (!subjectId && !subjectName) return;
+
+      const matchedMaster =
+        subjects.find((subject) => enrollmentMatchesSubject(enrollment, subject)) ||
+        null;
+
+      const finalId = subjectId || getSubjectId(matchedMaster) || subjectName;
+      const finalName =
+        subjectName || getSubjectName(matchedMaster) || "Unnamed Subject";
+
+      if (!enrollmentSubjectMap.has(finalId)) {
+        enrollmentSubjectMap.set(finalId, {
+          id: finalId,
+          subjectId: finalId,
+          name: finalName,
+          subjectName: finalName,
+          ...(matchedMaster || {}),
+        });
+      }
+    });
+
+    return Array.from(enrollmentSubjectMap.values()).sort((a, b) =>
       getSubjectName(a).localeCompare(getSubjectName(b))
     );
   }, [subjects, allEnrollmentsForClass, selectedGrade, selectedClassName]);
@@ -483,7 +508,7 @@ export default function MarksEntry() {
               getStudentAdmissionNo(linkedStudent) ||
               "",
             grade: normalizeGrade(enrollment.grade),
-            className: normalizeClassName(enrollment.className),
+            className: normalizeClassName(enrollment.className || enrollment.section),
             subjectId:
               getEnrollmentSubjectId(enrollment) || getSubjectId(selectedSubject),
             subjectName:
@@ -692,7 +717,7 @@ export default function MarksEntry() {
 
             grade: Number(selectedGrade),
             className: normalizeClassName(selectedClassName),
-            section: normalizeClassName(selectedClassName), // legacy compatibility
+            section: normalizeClassName(selectedClassName),
 
             subjectId: subjectId || "",
             subjectName: subjectName || "",
