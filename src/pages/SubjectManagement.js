@@ -50,6 +50,7 @@ const CATEGORY_OPTIONS = [
   { value: "basket_b", label: "Basket B" },
   { value: "basket_c", label: "Basket C" },
   { value: "al_main", label: "A/L Main" },
+  { value: "general", label: "General" },
 ];
 
 const RELIGION_OPTIONS = [
@@ -79,26 +80,28 @@ const defaultForm = {
   category: "core",
   status: "active",
 
-  // grade application
-  gradeMode: "single", // single | range | multi
+  gradeMode: "single",
   grade: "",
   minGrade: "",
   maxGrade: "",
   grades: [],
 
-  // religion subjects
   religion: "",
   religionGroup: "",
 
-  // AL subjects
   stream: "",
   streams: [],
 
-  // general metadata
+  basketGroup: "",
+
   description: "",
   displayOrder: "",
   isOptional: false,
 };
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -138,30 +141,6 @@ function getStatusColor(status) {
   return normalizeLower(status) === "active" ? "success" : "default";
 }
 
-function buildGradeSummary(subject) {
-  const grade = subject.grade;
-  const minGrade = subject.minGrade;
-  const maxGrade = subject.maxGrade;
-  const grades = Array.isArray(subject.grades) ? subject.grades : [];
-
-  if (grade !== undefined && grade !== null && grade !== "") {
-    return `Grade ${grade}`;
-  }
-
-  if (grades.length > 0) {
-    return grades
-      .map((g) => `G${g}`)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-      .join(", ");
-  }
-
-  if (minGrade || maxGrade) {
-    return `G${minGrade || "?"} - G${maxGrade || "?"}`;
-  }
-
-  return "All";
-}
-
 function getSubjectCode(subject) {
   return normalizeText(subject.code || subject.subjectCode || "");
 }
@@ -189,6 +168,7 @@ function buildAutoCode(name, category) {
     basket_b: "BB",
     basket_c: "BC",
     al_main: "AL",
+    general: "GEN",
   };
 
   return `${prefixMap[category] || "SUB"}_${initials || "SUB"}`;
@@ -245,12 +225,19 @@ function detectGradeMode(subject) {
 }
 
 function buildFormFromSubject(subject) {
+  let derivedCategory = normalizeText(subject.category || "core");
+  const basketGroup = normalizeText(subject.basketGroup || "").toUpperCase();
+
+  if (derivedCategory === "basket" && basketGroup === "A") derivedCategory = "basket_a";
+  if (derivedCategory === "basket" && basketGroup === "B") derivedCategory = "basket_b";
+  if (derivedCategory === "basket" && basketGroup === "C") derivedCategory = "basket_c";
+
   return {
     id: subject.id || "",
     code: normalizeText(subject.code || subject.subjectCode || ""),
     name: normalizeText(subject.name || subject.subjectName || ""),
     shortName: normalizeText(subject.shortName || ""),
-    category: normalizeText(subject.category || "core"),
+    category: derivedCategory,
     status: normalizeText(subject.status || "active"),
 
     gradeMode: detectGradeMode(subject),
@@ -264,6 +251,8 @@ function buildFormFromSubject(subject) {
     stream: normalizeText(subject.stream || ""),
     streams: Array.isArray(subject.streams) ? subject.streams : [],
 
+    basketGroup: basketGroup || "",
+
     description: normalizeText(subject.description || ""),
     displayOrder:
       subject.displayOrder !== undefined && subject.displayOrder !== null
@@ -271,6 +260,38 @@ function buildFormFromSubject(subject) {
         : "",
     isOptional: subject.isOptional === true,
   };
+}
+
+function buildGradeSummary(subject) {
+  const grade = subject.grade;
+  const minGrade = subject.minGrade;
+  const maxGrade = subject.maxGrade;
+  const grades = Array.isArray(subject.grades) ? subject.grades : [];
+
+  if (grade !== undefined && grade !== null && grade !== "") {
+    return `Grade ${grade}`;
+  }
+
+  if (grades.length > 0) {
+    return grades
+      .map((g) => `G${g}`)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .join(", ");
+  }
+
+  if (minGrade || maxGrade) {
+    return `G${minGrade || "?"} - G${maxGrade || "?"}`;
+  }
+
+  return "All";
+}
+
+function canonicalBasketGroup(category, basketGroup) {
+  if (normalizeText(basketGroup)) return normalizeText(basketGroup).toUpperCase();
+  if (category === "basket_a") return "A";
+  if (category === "basket_b") return "B";
+  if (category === "basket_c") return "C";
+  return "";
 }
 
 function validateForm(form) {
@@ -316,6 +337,12 @@ function validateForm(form) {
     errors.religion = "Religion is required for religion subjects";
   }
 
+  if (["basket_a", "basket_b", "basket_c"].includes(form.category)) {
+    if (!canonicalBasketGroup(form.category, form.basketGroup)) {
+      errors.basketGroup = "Basket group is required";
+    }
+  }
+
   if (form.category === "al_main") {
     const hasSingleStream = !!normalizeText(form.stream);
     const hasMultiStreams = Array.isArray(form.streams) && form.streams.length > 0;
@@ -328,16 +355,44 @@ function validateForm(form) {
   return errors;
 }
 
+function buildComparableGradeKey(subjectLike) {
+  if (subjectLike.grade !== undefined && subjectLike.grade !== null && subjectLike.grade !== "") {
+    return `single:${subjectLike.grade}`;
+  }
+
+  if (
+    (subjectLike.minGrade !== undefined && subjectLike.minGrade !== null && subjectLike.minGrade !== "") ||
+    (subjectLike.maxGrade !== undefined && subjectLike.maxGrade !== null && subjectLike.maxGrade !== "")
+  ) {
+    return `range:${subjectLike.minGrade || ""}:${subjectLike.maxGrade || ""}`;
+  }
+
+  if (Array.isArray(subjectLike.grades) && subjectLike.grades.length > 0) {
+    return `multi:${[...subjectLike.grades].map(String).sort().join(",")}`;
+  }
+
+  return "all";
+}
+
 function buildPayload(form, profile) {
   const grades = getCleanGrades(form);
+  const category = normalizeText(form.category);
+  const basketGroup = canonicalBasketGroup(category, form.basketGroup);
+
+  const normalizedCategory =
+    category === "basket_a" || category === "basket_b" || category === "basket_c"
+      ? category
+      : category;
 
   const payload = {
     code: normalizeText(form.code),
     subjectCode: normalizeText(form.code),
+
     name: normalizeText(form.name),
     subjectName: normalizeText(form.name),
+
     shortName: normalizeText(form.shortName),
-    category: normalizeText(form.category),
+    category: normalizedCategory,
     status: normalizeText(form.status || "active"),
 
     grade: grades.grade,
@@ -345,19 +400,20 @@ function buildPayload(form, profile) {
     maxGrade: grades.maxGrade,
     grades: grades.grades,
 
-    religion: form.category === "religion" ? normalizeText(form.religion) : "",
-    religionGroup:
-      form.category === "religion" ? normalizeText(form.religionGroup) : "",
+    religion: category === "religion" ? normalizeText(form.religion) : "",
+    religionGroup: category === "religion" ? normalizeText(form.religionGroup) : "",
 
-    stream: form.category === "al_main" ? normalizeText(form.stream) : "",
+    stream: category === "al_main" ? normalizeText(form.stream) : "",
     streams:
-      form.category === "al_main"
+      category === "al_main"
         ? (form.streams || []).map((x) => normalizeText(x)).filter(Boolean)
         : [],
 
+    basketGroup:
+      ["basket_a", "basket_b", "basket_c"].includes(category) ? basketGroup : "",
+
     description: normalizeText(form.description),
-    displayOrder:
-      form.displayOrder === "" ? 0 : Number(form.displayOrder) || 0,
+    displayOrder: form.displayOrder === "" ? 0 : Number(form.displayOrder) || 0,
     isOptional: form.isOptional === true,
 
     updatedAt: new Date().toISOString(),
@@ -392,6 +448,10 @@ function SubjectStatsCard({ title, value, icon }) {
     </Card>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export default function SubjectManagement() {
   const { profile, isAdmin } = useAuth();
@@ -439,10 +499,9 @@ export default function SubjectManagement() {
   const stats = useMemo(() => {
     return {
       total: subjects.length,
-      active: subjects.filter((s) => normalizeLower(s.status) === "active").length,
-      inactive: subjects.filter((s) => normalizeLower(s.status) !== "active").length,
-      categories: new Set(subjects.map((s) => normalizeText(s.category)).filter(Boolean))
-        .size,
+      active: subjects.filter((s) => normalizeLower(s.status || "active") === "active").length,
+      inactive: subjects.filter((s) => normalizeLower(s.status || "active") !== "active").length,
+      categories: new Set(subjects.map((s) => normalizeText(s.category)).filter(Boolean)).size,
     };
   }, [subjects]);
 
@@ -459,7 +518,9 @@ export default function SubjectManagement() {
         code.toLowerCase().includes(search.toLowerCase()) ||
         category.toLowerCase().includes(search.toLowerCase()) ||
         normalizeText(subject.religion).toLowerCase().includes(search.toLowerCase()) ||
-        normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase());
+        normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase()) ||
+        (Array.isArray(subject.streams) &&
+          subject.streams.join(", ").toLowerCase().includes(search.toLowerCase()));
 
       const passesCategory =
         categoryFilter === "all" || category === categoryFilter;
@@ -472,10 +533,9 @@ export default function SubjectManagement() {
         String(subject.grade) === String(gradeFilter) ||
         (Array.isArray(subject.grades) &&
           subject.grades.map(String).includes(String(gradeFilter))) ||
-        (subject.minGrade &&
-          subject.maxGrade &&
-          Number(gradeFilter) >= Number(subject.minGrade) &&
-          Number(gradeFilter) <= Number(subject.maxGrade));
+        ((subject.minGrade || subject.maxGrade) &&
+          Number(gradeFilter) >= Number(subject.minGrade || -Infinity) &&
+          Number(gradeFilter) <= Number(subject.maxGrade || Infinity));
 
       return passesSearch && passesCategory && passesStatus && passesGrade;
     });
@@ -552,19 +612,33 @@ export default function SubjectManagement() {
       const duplicate = subjects.find((subject) => {
         if (editingId && subject.id === editingId) return false;
 
-        return (
-          normalizeLower(getSubjectCode(subject)) === normalizeLower(payload.code) ||
-          (normalizeLower(getSubjectName(subject)) === normalizeLower(payload.name) &&
-            normalizeLower(subject.category) === normalizeLower(payload.category) &&
-            buildGradeSummary(subject) === buildGradeSummary(payload))
-        );
+        const sameCode =
+          normalizeLower(getSubjectCode(subject)) === normalizeLower(payload.code);
+
+        const sameNameCategoryGrade =
+          normalizeLower(getSubjectName(subject)) === normalizeLower(payload.name) &&
+          normalizeLower(subject.category) === normalizeLower(payload.category) &&
+          buildComparableGradeKey(subject) === buildComparableGradeKey(payload);
+
+        const sameBasketGroup =
+          normalizeText(subject.basketGroup || "") === normalizeText(payload.basketGroup || "");
+
+        if (sameCode) return true;
+        if (sameNameCategoryGrade) {
+          if (
+            ["basket_a", "basket_b", "basket_c"].includes(payload.category)
+          ) {
+            return sameBasketGroup;
+          }
+          return true;
+        }
+
+        return false;
       });
 
       if (duplicate) {
         throw new Error(
-          `Duplicate subject detected: ${getSubjectName(duplicate)} (${getSubjectCode(
-            duplicate
-          )})`
+          `Duplicate subject detected: ${getSubjectName(duplicate)} (${getSubjectCode(duplicate)})`
         );
       }
 
@@ -597,7 +671,7 @@ export default function SubjectManagement() {
 
     try {
       const nextStatus =
-        normalizeLower(subject.status) === "active" ? "inactive" : "active";
+        normalizeLower(subject.status || "active") === "active" ? "inactive" : "active";
 
       await updateDoc(doc(db, SUBJECT_COLLECTION, subject.id), {
         status: nextStatus,
@@ -606,9 +680,7 @@ export default function SubjectManagement() {
         updatedByName: profile?.name || profile?.displayName || profile?.email || "",
       });
 
-      setSuccess(
-        `${getSubjectName(subject)} marked as ${nextStatus}.`
-      );
+      setSuccess(`${getSubjectName(subject)} marked as ${nextStatus}.`);
       await loadSubjects();
     } catch (err) {
       setError("Failed to update subject status: " + err.message);
@@ -618,6 +690,7 @@ export default function SubjectManagement() {
   const dialogTitle = editingId ? "Edit Subject" : "Create Subject";
   const isReligion = form.category === "religion";
   const isAL = form.category === "al_main";
+  const isBasket = ["basket_a", "basket_b", "basket_c"].includes(form.category);
 
   if (loading) {
     return (
@@ -822,6 +895,8 @@ export default function SubjectManagement() {
                       (Array.isArray(subject.streams) && subject.streams.length > 0
                         ? subject.streams.join(", ")
                         : "—")
+                    : ["basket_a", "basket_b", "basket_c"].includes(subject.category)
+                    ? normalizeText(subject.basketGroup || "") || "—"
                     : "—"}
                 </TableCell>
                 <TableCell>
@@ -847,7 +922,7 @@ export default function SubjectManagement() {
 
                     <Tooltip
                       title={
-                        normalizeLower(subject.status) === "active"
+                        normalizeLower(subject.status || "active") === "active"
                           ? "Set Inactive"
                           : "Set Active"
                       }
@@ -857,14 +932,14 @@ export default function SubjectManagement() {
                           size="small"
                           variant="outlined"
                           color={
-                            normalizeLower(subject.status) === "active"
+                            normalizeLower(subject.status || "active") === "active"
                               ? "warning"
                               : "success"
                           }
                           onClick={() => toggleStatus(subject)}
                           disabled={!isAdmin}
                         >
-                          {normalizeLower(subject.status) === "active"
+                          {normalizeLower(subject.status || "active") === "active"
                             ? "Deactivate"
                             : "Activate"}
                         </Button>
@@ -886,12 +961,7 @@ export default function SubjectManagement() {
         </Table>
       </Paper>
 
-      <Dialog
-        open={dialogOpen}
-        onClose={closeDialog}
-        fullWidth
-        maxWidth="md"
-      >
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
         <DialogTitle>{dialogTitle}</DialogTitle>
 
         <DialogContent dividers>
@@ -1146,6 +1216,39 @@ export default function SubjectManagement() {
               </>
             )}
 
+            {isBasket && (
+              <>
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                    Basket Mapping
+                  </Typography>
+
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={4}>
+                      <FormControl fullWidth error={!!formErrors.basketGroup}>
+                        <InputLabel>Basket Group</InputLabel>
+                        <Select
+                          value={form.basketGroup || canonicalBasketGroup(form.category, form.basketGroup)}
+                          label="Basket Group"
+                          onChange={(e) => updateForm("basketGroup", e.target.value)}
+                        >
+                          <MenuItem value="A">A</MenuItem>
+                          <MenuItem value="B">B</MenuItem>
+                          <MenuItem value="C">C</MenuItem>
+                        </Select>
+                      </FormControl>
+                      {formErrors.basketGroup && (
+                        <Typography variant="caption" color="error">
+                          {formErrors.basketGroup}
+                        </Typography>
+                      )}
+                    </Grid>
+                  </Grid>
+                </Box>
+              </>
+            )}
+
             {isAL && (
               <>
                 <Divider />
@@ -1255,7 +1358,13 @@ export default function SubjectManagement() {
             onClick={handleSave}
             disabled={saving || !isAdmin}
           >
-            {saving ? <CircularProgress size={20} color="inherit" /> : editingId ? "Update Subject" : "Create Subject"}
+            {saving ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : editingId ? (
+              "Update Subject"
+            ) : (
+              "Create Subject"
+            )}
           </Button>
         </DialogActions>
       </Dialog>
