@@ -1,222 +1,488 @@
-import React, { useEffect, useState } from "react";
-import { collection, getDocs, addDoc, deleteDoc, doc } from "firebase/firestore";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  where,
+} from "firebase/firestore";
 import { db } from "../firebase";
 import {
-  GRADES, SECTIONS, getStudentSubjects,
-  AESTHETIC_SUBJECTS, BASKET_1, BASKET_2, BASKET_3,
-  COMPULSORY_SUBJECTS_10_11, SUBJECTS_BY_GRADE
-} from "../constants";
-import {
-  Box, Typography, Button, FormControl, InputLabel, Select, MenuItem,
-  Table, TableHead, TableRow, TableCell, TableBody, Paper, IconButton,
-  CircularProgress, Alert, Grid, Chip, Card, CardContent,
-  Checkbox, FormGroup, FormControlLabel, Avatar, Tooltip,
-  useMediaQuery, useTheme
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  FormControl,
+  FormControlLabel,
+  FormGroup,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
-import DeleteIcon      from "@mui/icons-material/Delete";
-import SaveIcon        from "@mui/icons-material/Save";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 
-const getSubjectsForGrade = (g) => {
-  if (g >= 6 && g <= 9) {
-    const dummy = { grade: g, religion: "Hinduism", aesthetic: "Art" };
-    const compulsory = getStudentSubjects(dummy).slice(0, -1);
-    return [...new Set([...compulsory, ...AESTHETIC_SUBJECTS])];
-  }
-  if (g >= 10 && g <= 11) {
-    return [...COMPULSORY_SUBJECTS_10_11, ...BASKET_1, ...BASKET_2, ...BASKET_3];
-  }
-  return SUBJECTS_BY_GRADE[g] || [];
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
+const GRADES = [6, 7, 8, 9, 10, 11];
+const SECTIONS = ["A", "B", "C", "D", "E", "F"];
+
+const safeString = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
 };
 
+const lower = (value) => safeString(value).toLowerCase();
+
+const normalizeGrade = (value) => {
+  const raw = safeString(value);
+  const match = raw.match(/\d+/);
+  return match ? Number(match[0]) : null;
+};
+
+const normalizeSection = (value) => {
+  const raw = safeString(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : "";
+};
+
+const normalizeSubjectName = (value) =>
+  safeString(value).replace(/\s+/g, "").toLowerCase();
+
 const getAvatarColor = (name) => {
-  const colors = ["#1a237e","#1565c0","#0277bd","#00695c",
-                  "#2e7d32","#6a1b9a","#880e4f","#e65100"];
+  const colors = [
+    "#1a237e",
+    "#1565c0",
+    "#0277bd",
+    "#00695c",
+    "#2e7d32",
+    "#6a1b9a",
+    "#880e4f",
+    "#e65100",
+  ];
+
   let hash = 0;
-  for (let i = 0; i < (name?.length || 0); i++)
+  for (let i = 0; i < (name?.length || 0); i += 1) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
   return colors[Math.abs(hash) % colors.length];
 };
 
-// All subjects across all grades (unique)
-const ALL_SUBJECTS = [...new Set(
-  GRADES.flatMap(g => getSubjectsForGrade(g))
-)].sort();
+const getSubjectName = (subject) =>
+  safeString(subject.subjectName || subject.name || subject.shortName);
+
+const getSubjectCode = (subject) =>
+  safeString(subject.subjectCode || subject.code);
+
+const isActiveSubject = (subject) => lower(subject.status || "active") === "active";
+
+const isTeacherActive = (teacher) => lower(teacher.status || "active") === "active";
+
+const subjectMatchesGrade = (subject, grade) => {
+  const grades = Array.isArray(subject.grades)
+    ? subject.grades.map((g) => normalizeGrade(g)).filter(Boolean)
+    : [];
+
+  if (grades.length) {
+    return grades.includes(Number(grade));
+  }
+
+  const minGrade = normalizeGrade(subject.minGrade);
+  const maxGrade = normalizeGrade(subject.maxGrade);
+
+  if (minGrade && maxGrade) {
+    return Number(grade) >= minGrade && Number(grade) <= maxGrade;
+  }
+
+  if (minGrade && !maxGrade) {
+    return Number(grade) >= minGrade;
+  }
+
+  if (!minGrade && maxGrade) {
+    return Number(grade) <= maxGrade;
+  }
+
+  return true;
+};
+
+const subjectKey = (row) => {
+  const sid = safeString(row.subjectId);
+  if (sid) return `id:${sid}`;
+  return `name:${normalizeSubjectName(row.subjectName || row.subject)}`;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export default function TeacherAssignments() {
-  const theme    = useTheme();
+  const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [teachers, setTeachers]       = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [saving, setSaving]           = useState(false);
-  const [error, setError]             = useState("");
-  const [success, setSuccess]         = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  // ── Form state ──
+  const [teachers, setTeachers] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+
   const [selectedTeacher, setSelectedTeacher] = useState("");
-  const [selectedGrades, setSelectedGrades]   = useState([]);   // number[]
-  const [selectedSections, setSelectedSections] = useState([]); // string[]
-  const [selectedSubjects, setSelectedSubjects] = useState([]); // string[]
+  const [selectedGrades, setSelectedGrades] = useState([]);
+  const [selectedSections, setSelectedSections] = useState([]);
+  const [selectedSubjectKeys, setSelectedSubjectKeys] = useState([]);
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const fetchAll = async () => {
     setLoading(true);
-    const [tSnap, aSnap] = await Promise.all([
-      getDocs(collection(db, "users")),
-      getDocs(collection(db, "assignments"))
-    ]);
-    setTeachers(
-      tSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter(u => u.role === "teacher" && (u.status || "active") === "active")
-        .sort((a, b) => a.name.localeCompare(b.name))
-    );
-    setAssignments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    setLoading(false);
+    setError("");
+
+    try {
+      const [teacherSnap, subjectSnap, assignmentSnap] = await Promise.all([
+        getDocs(query(collection(db, "users"), where("role", "==", "teacher"))),
+        getDocs(collection(db, "subjects")),
+        getDocs(collection(db, "teacherAssignments")),
+      ]);
+
+      const teacherRows = teacherSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((row) => isTeacherActive(row))
+        .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name)));
+
+      const subjectRows = subjectSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((row) => isActiveSubject(row))
+        .sort((a, b) => getSubjectName(a).localeCompare(getSubjectName(b)));
+
+      const assignmentRows = assignmentSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      setTeachers(teacherRows);
+      setSubjects(subjectRows);
+      setAssignments(assignmentRows);
+    } catch (err) {
+      console.error("TeacherAssignments fetch error:", err);
+      setError("Failed to load teachers, subjects, or assignments.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    fetchAll();
+  }, []);
 
-  // ── Toggle helpers ──
-  const toggleGrade = (g) => {
-    setSelectedGrades(prev =>
-      prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+  const selectedTeacherRow = useMemo(
+    () => teachers.find((t) => t.id === selectedTeacher) || null,
+    [teachers, selectedTeacher]
+  );
+
+  const availableSubjects = useMemo(() => {
+    if (!selectedGrades.length) {
+      return subjects;
+    }
+
+    return subjects.filter((subject) =>
+      selectedGrades.some((grade) => subjectMatchesGrade(subject, grade))
     );
-    // Reset subjects when grade changes
-    setSelectedSubjects([]);
+  }, [subjects, selectedGrades]);
+
+  const selectedSubjectRows = useMemo(() => {
+    return availableSubjects.filter((subject) =>
+      selectedSubjectKeys.includes(subjectKey({
+        subjectId: subject.id,
+        subjectName: getSubjectName(subject),
+      }))
+    );
+  }, [availableSubjects, selectedSubjectKeys]);
+
+  const previewCombos = useMemo(() => {
+    const combos = [];
+
+    selectedGrades.forEach((grade) => {
+      selectedSections.forEach((section) => {
+        selectedSubjectRows.forEach((subject) => {
+          if (!subjectMatchesGrade(subject, grade)) return;
+
+          combos.push({
+            grade: Number(grade),
+            section: safeString(section),
+            subjectId: subject.id,
+            subjectName: getSubjectName(subject),
+            subjectCode: getSubjectCode(subject),
+          });
+        });
+      });
+    });
+
+    return combos;
+  }, [selectedGrades, selectedSections, selectedSubjectRows]);
+
+  const previewCount = previewCombos.length;
+
+  const toggleGrade = (grade) => {
+    setSelectedGrades((prev) => {
+      const next = prev.includes(grade)
+        ? prev.filter((g) => g !== grade)
+        : [...prev, grade].sort((a, b) => a - b);
+
+      return next;
+    });
+
+    setSelectedSubjectKeys([]);
   };
 
-  const toggleSection = (s) => {
-    setSelectedSections(prev =>
-      prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+  const toggleSection = (section) => {
+    setSelectedSections((prev) =>
+      prev.includes(section)
+        ? prev.filter((s) => s !== section)
+        : [...prev, section].sort()
     );
   };
 
-  const toggleSubject = (s) => {
-    setSelectedSubjects(prev =>
-      prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+  const toggleSubject = (key) => {
+    setSelectedSubjectKeys((prev) =>
+      prev.includes(key)
+        ? prev.filter((s) => s !== key)
+        : [...prev, key]
     );
   };
 
   const toggleAllGrades = () => {
-    setSelectedGrades(prev => prev.length === GRADES.length ? [] : [...GRADES]);
-    setSelectedSubjects([]);
+    setSelectedGrades((prev) =>
+      prev.length === GRADES.length ? [] : [...GRADES]
+    );
+    setSelectedSubjectKeys([]);
   };
 
   const toggleAllSections = () => {
-    setSelectedSections(prev =>
+    setSelectedSections((prev) =>
       prev.length === SECTIONS.length ? [] : [...SECTIONS]
     );
   };
 
   const toggleAllSubjects = () => {
-    setSelectedSubjects(prev =>
-      prev.length === availableSubjects.length ? [] : [...availableSubjects]
+    const allKeys = availableSubjects.map((subject) =>
+      subjectKey({
+        subjectId: subject.id,
+        subjectName: getSubjectName(subject),
+      })
+    );
+
+    setSelectedSubjectKeys((prev) =>
+      prev.length === allKeys.length ? [] : allKeys
     );
   };
 
-  // Subjects available for selected grades
-  const availableSubjects = selectedGrades.length > 0
-    ? [...new Set(selectedGrades.flatMap(g => getSubjectsForGrade(g)))].sort()
-    : ALL_SUBJECTS;
-
-  // Preview: how many combos will be created
-  const previewCount = selectedGrades.length *
-    selectedSections.length * selectedSubjects.length;
-
-  // ── Save ──
   const handleSave = async () => {
-    if (!selectedTeacher)          return setError("Please select a teacher.");
-    if (selectedGrades.length === 0)   return setError("Select at least one grade.");
-    if (selectedSections.length === 0) return setError("Select at least one section.");
-    if (selectedSubjects.length === 0) return setError("Select at least one subject.");
+    setError("");
+    setSuccess("");
 
-    setSaving(true); setError("");
-    const teacher = teachers.find(t => t.id === selectedTeacher);
-    const conflicts = [];
-    const toAdd = [];
-
-    for (const g of selectedGrades) {
-      for (const s of selectedSections) {
-        for (const sub of selectedSubjects) {
-          // Skip if subject not valid for this grade
-          if (!getSubjectsForGrade(g).includes(sub)) continue;
-
-          // Check duplicate
-          const existing = assignments.find(a =>
-            a.grade === g && a.section === s && a.subject === sub
-          );
-          if (existing) {
-            if (existing.teacherId === selectedTeacher) continue; // already assigned
-            const ct = teachers.find(t => t.id === existing.teacherId);
-            conflicts.push(`${sub} G${g}-${s} → already assigned to ${ct?.name || "another teacher"}`);
-            continue;
-          }
-          toAdd.push({ grade: g, section: s, subject: sub });
-        }
-      }
-    }
-
-    if (conflicts.length > 0) {
-      setError("⚠️ Conflicts found:\n" + conflicts.join("\n"));
-      setSaving(false);
+    if (!selectedTeacher) {
+      setError("Please select a teacher.");
       return;
     }
 
-    if (toAdd.length === 0) {
-      setError("All selected combinations are already assigned.");
-      setSaving(false);
+    if (!selectedGrades.length) {
+      setError("Select at least one grade.");
       return;
     }
+
+    if (!selectedSections.length) {
+      setError("Select at least one section.");
+      return;
+    }
+
+    if (!selectedSubjectRows.length) {
+      setError("Select at least one subject.");
+      return;
+    }
+
+    setSaving(true);
 
     try {
-      await Promise.all(toAdd.map(item =>
-        addDoc(collection(db, "assignments"), {
-          teacherId:   selectedTeacher,
-          teacherName: teacher?.name || "",
-          grade:       item.grade,
-          section:     item.section,
-          subject:     item.subject,
-          createdAt:   new Date().toISOString(),
-        })
-      ));
-      setSuccess(`✅ ${toAdd.length} assignments added for ${teacher?.name}!`);
-      // Reset form
+      const conflicts = [];
+      const alreadyAssignedToSameTeacher = [];
+      const rowsToCreate = [];
+
+      previewCombos.forEach((combo) => {
+        const existing = assignments.find((assignment) => {
+          const sameGrade = Number(assignment.grade) === Number(combo.grade);
+          const sameSection =
+            normalizeSection(assignment.section) === normalizeSection(combo.section);
+
+          if (!sameGrade || !sameSection) return false;
+
+          const existingSubjectId = safeString(assignment.subjectId);
+          const existingSubjectName = safeString(
+            assignment.subjectName || assignment.subject
+          );
+
+          if (existingSubjectId && combo.subjectId) {
+            return existingSubjectId === combo.subjectId;
+          }
+
+          return (
+            normalizeSubjectName(existingSubjectName) ===
+            normalizeSubjectName(combo.subjectName)
+          );
+        });
+
+        if (!existing) {
+          rowsToCreate.push(combo);
+          return;
+        }
+
+        if (safeString(existing.teacherId) === selectedTeacher) {
+          alreadyAssignedToSameTeacher.push(
+            `${combo.subjectName} - G${combo.grade}-${combo.section}`
+          );
+          return;
+        }
+
+        conflicts.push(
+          `${combo.subjectName} - G${combo.grade}-${combo.section} already assigned to ${safeString(existing.teacherName) || "another teacher"}`
+        );
+      });
+
+      if (conflicts.length) {
+        setError(conflicts.join("\n"));
+        setSaving(false);
+        return;
+      }
+
+      if (!rowsToCreate.length) {
+        setError(
+          alreadyAssignedToSameTeacher.length
+            ? "All selected combinations are already assigned to this teacher."
+            : "No new assignments to save."
+        );
+        setSaving(false);
+        return;
+      }
+
+      await Promise.all(
+        rowsToCreate.map((row) =>
+          addDoc(collection(db, "teacherAssignments"), {
+            teacherId: selectedTeacher,
+            teacherName: safeString(selectedTeacherRow?.name),
+            teacherEmail: safeString(selectedTeacherRow?.email),
+            grade: Number(row.grade),
+            section: safeString(row.section),
+            className: `${row.grade}${row.section}`,
+            subjectId: safeString(row.subjectId),
+            subjectName: safeString(row.subjectName),
+            subject: safeString(row.subjectName),
+            subjectCode: safeString(row.subjectCode),
+            status: "active",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+        )
+      );
+
+      setSuccess(
+        `${rowsToCreate.length} assignment${rowsToCreate.length === 1 ? "" : "s"} added for ${safeString(selectedTeacherRow?.name)}.`
+      );
+
       setSelectedTeacher("");
       setSelectedGrades([]);
       setSelectedSections([]);
-      setSelectedSubjects([]);
-      fetchAll();
-    } catch (err) { setError(err.message); }
-    setSaving(false);
+      setSelectedSubjectKeys([]);
+
+      await fetchAll();
+    } catch (err) {
+      console.error("TeacherAssignments save error:", err);
+      setError("Failed to save teacher assignments.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Remove this assignment?")) return;
-    await deleteDoc(doc(db, "assignments", id));
-    fetchAll();
+    const confirmed = window.confirm("Remove this assignment?");
+    if (!confirmed) return;
+
+    try {
+      await deleteDoc(doc(db, "teacherAssignments", id));
+      await fetchAll();
+    } catch (err) {
+      console.error("TeacherAssignments delete error:", err);
+      setError("Failed to remove assignment.");
+    }
   };
 
-  // Grouped for display
-  const groupedByTeacher = teachers
-    .map(t => ({
-      ...t,
+  const groupedAssignments = teachers
+    .map((teacher) => ({
+      ...teacher,
       assignments: assignments
-        .filter(a => a.teacherId === t.id)
-        .sort((a, b) => a.grade - b.grade || a.section.localeCompare(b.section))
+        .filter((assignment) => safeString(assignment.teacherId) === teacher.id)
+        .sort((a, b) => {
+          const gradeDiff = Number(a.grade) - Number(b.grade);
+          if (gradeDiff !== 0) return gradeDiff;
+
+          const sectionDiff = safeString(a.section).localeCompare(safeString(b.section));
+          if (sectionDiff !== 0) return sectionDiff;
+
+          return safeString(a.subjectName || a.subject).localeCompare(
+            safeString(b.subjectName || b.subject)
+          );
+        }),
     }))
-    .filter(t => t.assignments.length > 0);
+    .filter((teacher) => teacher.assignments.length > 0);
 
   return (
     <Box>
-      {/* Header */}
       <Box mb={2}>
         <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
           Teacher Assignments
         </Typography>
-        <Box display="flex" gap={0.5} mt={0.5} flexWrap="wrap">
-          <Chip label={`${assignments.length} Total`} size="small" color="primary" />
-          <Chip label={`${teachers.length} Teachers`} size="small" color="success" />
+
+        <Box display="flex" gap={0.5} mt={0.75} flexWrap="wrap">
+          <Chip
+            label={`${assignments.length} Total`}
+            size="small"
+            color="primary"
+          />
+          <Chip
+            label={`${teachers.length} Teachers`}
+            size="small"
+            color="success"
+          />
+          <Chip
+            label={`${subjects.length} Active Subjects`}
+            size="small"
+            color="secondary"
+          />
         </Box>
       </Box>
 
@@ -226,50 +492,67 @@ export default function TeacherAssignments() {
         </Alert>
       )}
 
-      {/* ══════════════════════════════
-          ASSIGNMENT FORM
-      ══════════════════════════════ */}
-      <Paper sx={{
-        p: { xs: 2, sm: 3 }, mb: 3, borderRadius: 3,
-        border: "2px solid #e8eaf6",
-        boxShadow: "0 2px 12px rgba(26,35,126,0.07)"
-      }}>
+      <Paper
+        sx={{
+          p: { xs: 2, sm: 3 },
+          mb: 3,
+          borderRadius: 3,
+          border: "2px solid #e8eaf6",
+          boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
+        }}
+      >
         <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={2.5}>
-          ➕ New Assignment
+          New Assignment
         </Typography>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
             {error.split("\n").map((line, i) => (
-              <Typography key={i} variant="caption" display="block">{line}</Typography>
+              <Typography key={i} variant="caption" display="block">
+                {line}
+              </Typography>
             ))}
           </Alert>
         )}
 
-        {/* ── Step 1: Select Teacher ── */}
         <Box mb={2.5}>
           <Typography variant="body2" fontWeight={700} color="#1a237e" mb={1}>
             Step 1 — Select Teacher
           </Typography>
-          <FormControl fullWidth size="small" sx={{ maxWidth: 400 }}>
+
+          <FormControl fullWidth size="small" sx={{ maxWidth: 420 }}>
             <InputLabel>Teacher *</InputLabel>
-            <Select value={selectedTeacher} label="Teacher *"
-              onChange={e => setSelectedTeacher(e.target.value)}>
-              {teachers.map(t => (
-                <MenuItem key={t.id} value={t.id}>
+            <Select
+              label="Teacher *"
+              value={selectedTeacher}
+              onChange={(e) => setSelectedTeacher(e.target.value)}
+            >
+              {teachers.map((teacher) => (
+                <MenuItem key={teacher.id} value={teacher.id}>
                   <Box display="flex" alignItems="center" gap={1.5}>
-                    <Avatar sx={{
-                      bgcolor: getAvatarColor(t.name),
-                      width: 28, height: 28, fontSize: 13, fontWeight: 700
-                    }}>
-                      {t.name?.charAt(0)}
+                    <Avatar
+                      sx={{
+                        bgcolor: getAvatarColor(teacher.name),
+                        width: 28,
+                        height: 28,
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {safeString(teacher.name).charAt(0) || "T"}
                     </Avatar>
+
                     <Box>
                       <Typography variant="body2" fontWeight={600}>
-                        {t.name}
+                        {teacher.name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {assignments.filter(a => a.teacherId === t.id).length} assigned
+                        {
+                          assignments.filter(
+                            (assignment) => safeString(assignment.teacherId) === teacher.id
+                          ).length
+                        }{" "}
+                        assigned
                       </Typography>
                     </Box>
                   </Box>
@@ -280,278 +563,373 @@ export default function TeacherAssignments() {
         </Box>
 
         <Grid container spacing={3}>
-
-          {/* ── Step 2: Select Grades ── */}
           <Grid item xs={12} sm={4}>
-            <Box sx={{
-              border: "1px solid #e8eaf6", borderRadius: 2, p: 2,
-              bgcolor: selectedGrades.length > 0 ? "#e8eaf6" : "#fafafa"
-            }}>
-              <Box display="flex" justifyContent="space-between"
-                alignItems="center" mb={1}>
+            <Box
+              sx={{
+                border: "1px solid #e8eaf6",
+                borderRadius: 2,
+                p: 2,
+                bgcolor: selectedGrades.length > 0 ? "#e8eaf6" : "#fafafa",
+              }}
+            >
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#1a237e">
                   Step 2 — Grade
                 </Typography>
-                <Button size="small" variant="text"
+                <Button
+                  size="small"
+                  variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0 }}
-                  onClick={toggleAllGrades}>
+                  onClick={toggleAllGrades}
+                >
                   {selectedGrades.length === GRADES.length ? "None" : "All"}
                 </Button>
               </Box>
+
               <FormGroup>
-                {GRADES.map(g => (
-                  <FormControlLabel key={g}
+                {GRADES.map((grade) => (
+                  <FormControlLabel
+                    key={grade}
                     control={
                       <Checkbox
-                        checked={selectedGrades.includes(g)}
-                        onChange={() => toggleGrade(g)}
+                        checked={selectedGrades.includes(grade)}
+                        onChange={() => toggleGrade(grade)}
                         size="small"
-                        sx={{ py: 0.3,
+                        sx={{
+                          py: 0.3,
                           color: "#1a237e",
-                          "&.Mui-checked": { color: "#1a237e" }
+                          "&.Mui-checked": { color: "#1a237e" },
                         }}
                       />
                     }
-                    label={
-                      <Typography variant="body2">Grade {g}</Typography>
-                    }
+                    label={<Typography variant="body2">Grade {grade}</Typography>}
                   />
                 ))}
               </FormGroup>
+
               {selectedGrades.length > 0 && (
-                <Chip label={`${selectedGrades.length} selected`}
-                  size="small" color="primary" sx={{ mt: 1 }} />
+                <Chip
+                  label={`${selectedGrades.length} selected`}
+                  size="small"
+                  color="primary"
+                  sx={{ mt: 1 }}
+                />
               )}
             </Box>
           </Grid>
 
-          {/* ── Step 3: Select Sections ── */}
           <Grid item xs={12} sm={4}>
-            <Box sx={{
-              border: "1px solid #e8eaf6", borderRadius: 2, p: 2,
-              bgcolor: selectedSections.length > 0 ? "#e8f5e9" : "#fafafa"
-            }}>
-              <Box display="flex" justifyContent="space-between"
-                alignItems="center" mb={1}>
+            <Box
+              sx={{
+                border: "1px solid #e8eaf6",
+                borderRadius: 2,
+                p: 2,
+                bgcolor: selectedSections.length > 0 ? "#e8f5e9" : "#fafafa",
+              }}
+            >
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#2e7d32">
                   Step 3 — Section
                 </Typography>
-                <Button size="small" variant="text"
+                <Button
+                  size="small"
+                  variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#2e7d32" }}
-                  onClick={toggleAllSections}>
+                  onClick={toggleAllSections}
+                >
                   {selectedSections.length === SECTIONS.length ? "None" : "All"}
                 </Button>
               </Box>
+
               <FormGroup>
-                {SECTIONS.map(s => (
-                  <FormControlLabel key={s}
+                {SECTIONS.map((section) => (
+                  <FormControlLabel
+                    key={section}
                     control={
                       <Checkbox
-                        checked={selectedSections.includes(s)}
-                        onChange={() => toggleSection(s)}
+                        checked={selectedSections.includes(section)}
+                        onChange={() => toggleSection(section)}
                         size="small"
-                        sx={{ py: 0.3,
+                        sx={{
+                          py: 0.3,
                           color: "#2e7d32",
-                          "&.Mui-checked": { color: "#2e7d32" }
+                          "&.Mui-checked": { color: "#2e7d32" },
                         }}
                       />
                     }
-                    label={
-                      <Typography variant="body2">Section {s}</Typography>
-                    }
+                    label={<Typography variant="body2">Section {section}</Typography>}
                   />
                 ))}
               </FormGroup>
+
               {selectedSections.length > 0 && (
-                <Chip label={`${selectedSections.length} selected`}
-                  size="small" color="success" sx={{ mt: 1 }} />
+                <Chip
+                  label={`${selectedSections.length} selected`}
+                  size="small"
+                  color="success"
+                  sx={{ mt: 1 }}
+                />
               )}
             </Box>
           </Grid>
 
-          {/* ── Step 4: Select Subjects ── */}
           <Grid item xs={12} sm={4}>
-            <Box sx={{
-              border: "1px solid #e8eaf6", borderRadius: 2, p: 2,
-              bgcolor: selectedSubjects.length > 0 ? "#fff3e0" : "#fafafa",
-              maxHeight: 320, overflowY: "auto"
-            }}>
-              <Box display="flex" justifyContent="space-between"
-                alignItems="center" mb={1}>
+            <Box
+              sx={{
+                border: "1px solid #e8eaf6",
+                borderRadius: 2,
+                p: 2,
+                bgcolor: selectedSubjectKeys.length > 0 ? "#fff3e0" : "#fafafa",
+                maxHeight: 360,
+                overflowY: "auto",
+              }}
+            >
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#e65100">
                   Step 4 — Subject
                 </Typography>
-                <Button size="small" variant="text"
+                <Button
+                  size="small"
+                  variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#e65100" }}
-                  onClick={toggleAllSubjects}>
-                  {selectedSubjects.length === availableSubjects.length ? "None" : "All"}
+                  onClick={toggleAllSubjects}
+                >
+                  {selectedSubjectKeys.length === availableSubjects.length ? "None" : "All"}
                 </Button>
               </Box>
+
               <FormGroup>
-                {availableSubjects.map(s => (
-                  <FormControlLabel key={s}
-                    control={
-                      <Checkbox
-                        checked={selectedSubjects.includes(s)}
-                        onChange={() => toggleSubject(s)}
-                        size="small"
-                        sx={{ py: 0.3,
-                          color: "#e65100",
-                          "&.Mui-checked": { color: "#e65100" }
-                        }}
-                      />
-                    }
-                    label={
-                      <Typography variant="body2" sx={{ fontSize: 13 }}>
-                        {s}
-                      </Typography>
-                    }
-                  />
-                ))}
+                {availableSubjects.map((subject) => {
+                  const key = subjectKey({
+                    subjectId: subject.id,
+                    subjectName: getSubjectName(subject),
+                  });
+
+                  return (
+                    <FormControlLabel
+                      key={key}
+                      control={
+                        <Checkbox
+                          checked={selectedSubjectKeys.includes(key)}
+                          onChange={() => toggleSubject(key)}
+                          size="small"
+                          sx={{
+                            py: 0.3,
+                            color: "#e65100",
+                            "&.Mui-checked": { color: "#e65100" },
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography variant="body2" sx={{ fontSize: 13 }}>
+                          {getSubjectName(subject)}
+                        </Typography>
+                      }
+                    />
+                  );
+                })}
               </FormGroup>
-              {selectedSubjects.length > 0 && (
-                <Chip label={`${selectedSubjects.length} selected`}
-                  size="small" color="warning" sx={{ mt: 1 }} />
+
+              {selectedSubjectKeys.length > 0 && (
+                <Chip
+                  label={`${selectedSubjectKeys.length} selected`}
+                  size="small"
+                  color="warning"
+                  sx={{ mt: 1 }}
+                />
               )}
             </Box>
           </Grid>
         </Grid>
 
-        {/* ── Preview + Save ── */}
-        <Box mt={2.5} display="flex" alignItems="center"
-          gap={2} flexWrap="wrap">
+        <Box mt={2.5} display="flex" alignItems="center" gap={2} flexWrap="wrap">
           {previewCount > 0 && (
-            <Box sx={{
-              bgcolor: "#e8eaf6", px: 2, py: 1,
-              borderRadius: 2, border: "1px solid #1a237e"
-            }}>
+            <Box
+              sx={{
+                bgcolor: "#e8eaf6",
+                px: 2,
+                py: 1,
+                borderRadius: 2,
+                border: "1px solid #1a237e",
+              }}
+            >
               <Typography variant="body2" fontWeight={700} color="#1a237e">
-                <CheckCircleIcon sx={{ fontSize: 16, mr: 0.5,
-                  verticalAlign: "middle" }} />
+                <CheckCircleIcon
+                  sx={{ fontSize: 16, mr: 0.5, verticalAlign: "middle" }}
+                />
                 Will create <strong>{previewCount}</strong> assignment
                 {previewCount !== 1 ? "s" : ""}
-                {" "}({selectedGrades.length}G × {selectedSections.length}S
-                × {selectedSubjects.length} subjects)
               </Typography>
             </Box>
           )}
+
           <Button
             variant="contained"
-            startIcon={saving
-              ? <CircularProgress size={16} color="inherit" />
-              : <SaveIcon />}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
             onClick={handleSave}
             disabled={saving || previewCount === 0 || !selectedTeacher}
-            sx={{ bgcolor: "#1a237e", px: 3 }}>
+            sx={{ bgcolor: "#1a237e", px: 3 }}
+          >
             {saving ? "Saving..." : `Save ${previewCount > 0 ? previewCount : ""} Assignments`}
           </Button>
         </Box>
       </Paper>
 
-      {/* ══════════════════════════════
-          CURRENT ASSIGNMENTS TABLE
-      ══════════════════════════════ */}
-      {loading ? <CircularProgress /> : (
-        groupedByTeacher.length > 0 ? (
-          <Box>
-            <Typography variant="subtitle1" fontWeight={700}
-              color="#1a237e" mb={1.5}>
-              📋 Current Assignments
-            </Typography>
-            {isMobile ? (
-              groupedByTeacher.map(t => (
-                <Card key={t.id} sx={{
-                  mb: 1.5, borderRadius: 3,
+      {loading ? (
+        <Box display="flex" justifyContent="center" mt={3}>
+          <CircularProgress />
+        </Box>
+      ) : groupedAssignments.length > 0 ? (
+        <Box>
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+            Current Assignments
+          </Typography>
+
+          {isMobile ? (
+            groupedAssignments.map((teacher) => (
+              <Card
+                key={teacher.id}
+                sx={{
+                  mb: 1.5,
+                  borderRadius: 3,
                   border: "1px solid #e8eaf6",
-                  boxShadow: "0 2px 8px rgba(26,35,126,0.08)"
-                }}>
-                  <CardContent sx={{ pb: 1 }}>
-                    <Box display="flex" alignItems="center" gap={1} mb={1}>
-                      <Avatar sx={{
-                        bgcolor: getAvatarColor(t.name),
-                        width: 32, height: 32, fontSize: 14, fontWeight: 700
-                      }}>
-                        {t.name?.charAt(0)}
-                      </Avatar>
-                      <Typography variant="subtitle2" fontWeight={700}
-                        color="#1a237e">
-                        {t.name}
-                      </Typography>
-                      <Chip label={`${t.assignments.length}`}
-                        size="small" color="primary" sx={{ ml: "auto" }} />
-                    </Box>
-                    {t.assignments.map(a => (
-                      <Box key={a.id}
-                        display="flex" justifyContent="space-between"
-                        alignItems="center" py={0.5}
-                        sx={{ borderBottom: "1px solid #f0f0f0" }}>
-                        <Box display="flex" gap={0.8} flexWrap="wrap"
-                          alignItems="center">
-                          <Chip label={`G${a.grade}-${a.section}`}
-                            size="small" color="primary" />
-                          <Typography variant="body2">{a.subject}</Typography>
-                        </Box>
-                        <IconButton size="small" color="error"
-                          onClick={() => handleDelete(a.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                  boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
+                }}
+              >
+                <CardContent sx={{ pb: 1 }}>
+                  <Box display="flex" alignItems="center" gap={1} mb={1}>
+                    <Avatar
+                      sx={{
+                        bgcolor: getAvatarColor(teacher.name),
+                        width: 32,
+                        height: 32,
+                        fontSize: 14,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {safeString(teacher.name).charAt(0) || "T"}
+                    </Avatar>
+
+                    <Typography variant="subtitle2" fontWeight={700} color="#1a237e">
+                      {teacher.name}
+                    </Typography>
+
+                    <Chip
+                      label={`${teacher.assignments.length}`}
+                      size="small"
+                      color="primary"
+                      sx={{ ml: "auto" }}
+                    />
+                  </Box>
+
+                  {teacher.assignments.map((assignment) => (
+                    <Box
+                      key={assignment.id}
+                      display="flex"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      py={0.5}
+                      sx={{ borderBottom: "1px solid #f0f0f0" }}
+                    >
+                      <Box display="flex" gap={0.8} flexWrap="wrap" alignItems="center">
+                        <Chip
+                          label={`G${assignment.grade}-${assignment.section}`}
+                          size="small"
+                          color="primary"
+                        />
+                        <Typography variant="body2">
+                          {assignment.subjectName || assignment.subject}
+                        </Typography>
                       </Box>
+
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleDelete(assignment.id)}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Paper
+              sx={{
+                borderRadius: 3,
+                overflow: "hidden",
+                boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
+              }}
+            >
+              <Table size="small">
+                <TableHead sx={{ bgcolor: "#1a237e" }}>
+                  <TableRow>
+                    {["#", "Teacher", "Grade", "Section", "Subject", "Action"].map((head) => (
+                      <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
+                        {head}
+                      </TableCell>
                     ))}
-                  </CardContent>
-                </Card>
-              ))
-            ) : (
-              <Paper sx={{ borderRadius: 3, overflow: "hidden",
-                boxShadow: "0 2px 12px rgba(26,35,126,0.08)" }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: "#1a237e" }}>
-                    <TableRow>
-                      {["#","Teacher","Grade","Section","Subject","Action"].map(h => (
-                        <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
-                          {h}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {assignments
-                      .sort((a, b) => a.grade - b.grade ||
-                        a.section.localeCompare(b.section))
-                      .map((a, idx) => (
-                      <TableRow key={a.id} hover
-                        sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
-                        <TableCell>{idx + 1}</TableCell>
+                  </TableRow>
+                </TableHead>
+
+                <TableBody>
+                  {assignments
+                    .slice()
+                    .sort((a, b) => {
+                      const gradeDiff = Number(a.grade) - Number(b.grade);
+                      if (gradeDiff !== 0) return gradeDiff;
+
+                      const sectionDiff = safeString(a.section).localeCompare(
+                        safeString(b.section)
+                      );
+                      if (sectionDiff !== 0) return sectionDiff;
+
+                      return safeString(a.subjectName || a.subject).localeCompare(
+                        safeString(b.subjectName || b.subject)
+                      );
+                    })
+                    .map((assignment, index) => (
+                      <TableRow
+                        key={assignment.id}
+                        hover
+                        sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
+                      >
+                        <TableCell>{index + 1}</TableCell>
                         <TableCell>
                           <Typography variant="body2" fontWeight={600}>
-                            {a.teacherName}
+                            {assignment.teacherName}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip label={`Grade ${a.grade}`}
-                            size="small" color="primary" />
+                          <Chip
+                            label={`Grade ${assignment.grade}`}
+                            size="small"
+                            color="primary"
+                          />
                         </TableCell>
-                        <TableCell>{a.section}</TableCell>
-                        <TableCell>{a.subject}</TableCell>
+                        <TableCell>{assignment.section}</TableCell>
+                        <TableCell>{assignment.subjectName || assignment.subject}</TableCell>
                         <TableCell>
                           <Tooltip title="Remove">
-                            <IconButton size="small" color="error"
-                              onClick={() => handleDelete(a.id)}>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDelete(assignment.id)}
+                            >
                               <DeleteIcon />
                             </IconButton>
                           </Tooltip>
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
-                </Table>
-              </Paper>
-            )}
-          </Box>
-        ) : (
-          <Alert severity="info">
-            No assignments yet. Use the form above to assign teachers.
-          </Alert>
-        )
+                </TableBody>
+              </Table>
+            </Paper>
+          )}
+        </Box>
+      ) : (
+        <Alert severity="info">No teacher assignments yet.</Alert>
       )}
     </Box>
   );
