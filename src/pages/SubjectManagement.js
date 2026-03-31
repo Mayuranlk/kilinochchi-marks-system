@@ -1,1118 +1,1261 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  doc,
-} from "firebase/firestore";
-import { db } from "../firebase";
-import {
-  Box,
-  Typography,
-  Button,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Paper,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  IconButton,
-  Chip,
-  CircularProgress,
-  Grid,
   Alert,
+  Box,
+  Button,
   Card,
   CardContent,
-  CardActions,
-  useMediaQuery,
-  useTheme,
-  Tooltip,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
-  Checkbox,
-  ListItemText,
-  OutlinedInput,
+  FormControl,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Switch,
   Table,
+  TableBody,
+  TableCell,
   TableHead,
   TableRow,
-  TableCell,
-  TableBody,
-  Tabs,
-  Tab,
+  TextField,
+  Tooltip,
+  Typography,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
-import BlockIcon from "@mui/icons-material/Block";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import SchoolIcon from "@mui/icons-material/School";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 
-const SUBJECT_CATEGORIES = [
-  { value: "compulsory", label: "Compulsory" },
+const SUBJECT_COLLECTION = "subjects";
+
+const CATEGORY_OPTIONS = [
+  { value: "core", label: "Core" },
   { value: "religion", label: "Religion" },
   { value: "aesthetic", label: "Aesthetic" },
-  { value: "basket", label: "Basket" },
+  { value: "basket_a", label: "Basket A" },
+  { value: "basket_b", label: "Basket B" },
+  { value: "basket_c", label: "Basket C" },
   { value: "al_main", label: "A/L Main" },
-  { value: "general_english", label: "General English" },
-  { value: "common_compulsory", label: "Common Compulsory" },
-  { value: "other", label: "Other" },
 ];
 
-const SUBJECT_STATUSES = ["active", "inactive"];
-const RELIGION_KEYS = ["Hindu", "Catholic", "Christian", "Islam", "Buddhist", "Other"];
-const BASKET_GROUPS = ["A", "B", "C"];
-const STREAM_OPTIONS = ["Maths", "Bio", "Commerce", "Technology", "Arts"];
-const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
-const GRADE_OPTIONS = [6, 7, 8, 9, 10, 11, 12, 13];
+const RELIGION_OPTIONS = [
+  "Buddhism",
+  "Hinduism",
+  "Islam",
+  "Catholicism",
+  "Christianity",
+];
 
-const emptyForm = {
+const STREAM_OPTIONS = [
+  "Science",
+  "Commerce",
+  "Arts",
+  "Technology",
+  "Maths",
+  "Bio",
+];
+
+const GRADE_OPTIONS = Array.from({ length: 13 }, (_, i) => i + 1);
+
+const defaultForm = {
+  id: "",
   code: "",
   name: "",
-  category: "",
-  grades: [],
-  religionKey: "",
-  basketGroup: "",
-  stream: "",
-  mediums: [],
+  shortName: "",
+  category: "core",
   status: "active",
-  isSystem: false,
+
+  // grade application
+  gradeMode: "single", // single | range | multi
+  grade: "",
+  minGrade: "",
+  maxGrade: "",
+  grades: [],
+
+  // religion subjects
+  religion: "",
+  religionGroup: "",
+
+  // AL subjects
+  stream: "",
+  streams: [],
+
+  // general metadata
+  description: "",
   displayOrder: "",
+  isOptional: false,
 };
 
-const normalizeText = (value) => String(value || "").trim();
-const normalizeLower = (value) => normalizeText(value).toLowerCase();
-const normalizeUpper = (value) => normalizeText(value).toUpperCase();
-const normalizeStatus = (value) => normalizeLower(value);
-const normalizeCategory = (value) => normalizeText(value);
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
 
-const normalizeGradeList = (grades) => {
-  return [...new Set((Array.isArray(grades) ? grades : []).map(Number).filter(Boolean))].sort(
-    (a, b) => a - b
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function slugify(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function toNumberOrEmpty(value) {
+  if (value === "" || value === null || value === undefined) return "";
+  const n = Number(value);
+  return Number.isNaN(n) ? "" : n;
+}
+
+function sortByName(items) {
+  return [...items].sort((a, b) =>
+    normalizeText(a.name || a.subjectName).localeCompare(
+      normalizeText(b.name || b.subjectName)
+    )
   );
-};
+}
 
-const getCategoryLabel = (value) =>
-  SUBJECT_CATEGORIES.find((item) => item.value === value)?.label || value || "—";
+function getCategoryLabel(category) {
+  return CATEGORY_OPTIONS.find((c) => c.value === category)?.label || category || "—";
+}
 
-const getStageFromGrades = (grades = []) => {
-  const numbers = normalizeGradeList(grades);
-  if (numbers.some((g) => g >= 12 && g <= 13)) return "al";
-  if (numbers.some((g) => g >= 10 && g <= 11)) return "ol";
-  if (numbers.some((g) => g >= 6 && g <= 9)) return "junior";
-  return "all";
-};
+function getStatusColor(status) {
+  return normalizeLower(status) === "active" ? "success" : "default";
+}
 
-const shouldShowReligionKey = (category) => category === "religion";
-const shouldShowBasketGroup = (category) => category === "basket";
-const shouldShowStream = (category) => category === "al_main";
-const shouldShowMediums = (category) =>
-  ["al_main", "general_english", "common_compulsory", "other"].includes(category);
+function buildGradeSummary(subject) {
+  const grade = subject.grade;
+  const minGrade = subject.minGrade;
+  const maxGrade = subject.maxGrade;
+  const grades = Array.isArray(subject.grades) ? subject.grades : [];
 
-const sortSubjects = (list) => {
-  return [...list].sort((a, b) => {
-    const orderA =
-      a.displayOrder !== "" && a.displayOrder !== undefined && a.displayOrder !== null
-        ? Number(a.displayOrder)
-        : 9999;
-    const orderB =
-      b.displayOrder !== "" && b.displayOrder !== undefined && b.displayOrder !== null
-        ? Number(b.displayOrder)
-        : 9999;
+  if (grade !== undefined && grade !== null && grade !== "") {
+    return `Grade ${grade}`;
+  }
 
-    if (orderA !== orderB) return orderA - orderB;
+  if (grades.length > 0) {
+    return grades
+      .map((g) => `G${g}`)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .join(", ");
+  }
 
-    const categoryA = normalizeLower(a.category);
-    const categoryB = normalizeLower(b.category);
-    if (categoryA !== categoryB) return categoryA.localeCompare(categoryB);
+  if (minGrade || maxGrade) {
+    return `G${minGrade || "?"} - G${maxGrade || "?"}`;
+  }
 
-    return normalizeLower(a.name).localeCompare(normalizeLower(b.name));
-  });
-};
+  return "All";
+}
 
-const sharesAnyGrade = (gradesA, gradesB) => {
-  const a = new Set(normalizeGradeList(gradesA));
-  return normalizeGradeList(gradesB).some((g) => a.has(g));
-};
+function getSubjectCode(subject) {
+  return normalizeText(subject.code || subject.subjectCode || "");
+}
 
-const hasGradeOutside = (grades, min, max) =>
-  normalizeGradeList(grades).some((g) => g < min || g > max);
+function getSubjectName(subject) {
+  return normalizeText(subject.name || subject.subjectName || "");
+}
+
+function getInitialsFromName(name) {
+  return normalizeText(name)
+    .split(" ")
+    .filter(Boolean)
+    .map((x) => x[0]?.toUpperCase())
+    .join("")
+    .slice(0, 6);
+}
+
+function buildAutoCode(name, category) {
+  const initials = getInitialsFromName(name);
+  const prefixMap = {
+    core: "CORE",
+    religion: "REL",
+    aesthetic: "AES",
+    basket_a: "BA",
+    basket_b: "BB",
+    basket_c: "BC",
+    al_main: "AL",
+  };
+
+  return `${prefixMap[category] || "SUB"}_${initials || "SUB"}`;
+}
+
+function buildSubjectDocId(form) {
+  const namePart = slugify(form.name || "subject");
+  const categoryPart = slugify(form.category || "general");
+  const codePart = slugify(form.code || "");
+  return [categoryPart, codePart, namePart].filter(Boolean).join("_");
+}
+
+function getCleanGrades(form) {
+  if (form.gradeMode === "single") {
+    return {
+      grade: toNumberOrEmpty(form.grade),
+      minGrade: "",
+      maxGrade: "",
+      grades: [],
+    };
+  }
+
+  if (form.gradeMode === "range") {
+    return {
+      grade: "",
+      minGrade: toNumberOrEmpty(form.minGrade),
+      maxGrade: toNumberOrEmpty(form.maxGrade),
+      grades: [],
+    };
+  }
+
+  return {
+    grade: "",
+    minGrade: "",
+    maxGrade: "",
+    grades: (form.grades || []).map(Number).filter(Boolean),
+  };
+}
+
+function detectGradeMode(subject) {
+  if (subject.grade !== undefined && subject.grade !== null && subject.grade !== "") {
+    return "single";
+  }
+  if (
+    (subject.minGrade !== undefined && subject.minGrade !== null && subject.minGrade !== "") ||
+    (subject.maxGrade !== undefined && subject.maxGrade !== null && subject.maxGrade !== "")
+  ) {
+    return "range";
+  }
+  if (Array.isArray(subject.grades) && subject.grades.length > 0) {
+    return "multi";
+  }
+  return "single";
+}
+
+function buildFormFromSubject(subject) {
+  return {
+    id: subject.id || "",
+    code: normalizeText(subject.code || subject.subjectCode || ""),
+    name: normalizeText(subject.name || subject.subjectName || ""),
+    shortName: normalizeText(subject.shortName || ""),
+    category: normalizeText(subject.category || "core"),
+    status: normalizeText(subject.status || "active"),
+
+    gradeMode: detectGradeMode(subject),
+    grade: subject.grade ?? "",
+    minGrade: subject.minGrade ?? "",
+    maxGrade: subject.maxGrade ?? "",
+    grades: Array.isArray(subject.grades) ? subject.grades : [],
+
+    religion: normalizeText(subject.religion || ""),
+    religionGroup: normalizeText(subject.religionGroup || ""),
+    stream: normalizeText(subject.stream || ""),
+    streams: Array.isArray(subject.streams) ? subject.streams : [],
+
+    description: normalizeText(subject.description || ""),
+    displayOrder:
+      subject.displayOrder !== undefined && subject.displayOrder !== null
+        ? String(subject.displayOrder)
+        : "",
+    isOptional: subject.isOptional === true,
+  };
+}
+
+function validateForm(form) {
+  const errors = {};
+
+  if (!normalizeText(form.name)) {
+    errors.name = "Subject name is required";
+  }
+
+  if (!normalizeText(form.category)) {
+    errors.category = "Category is required";
+  }
+
+  if (!normalizeText(form.code)) {
+    errors.code = "Code is required";
+  }
+
+  if (form.gradeMode === "single" && !toNumberOrEmpty(form.grade)) {
+    errors.grade = "Grade is required";
+  }
+
+  if (form.gradeMode === "range") {
+    if (!toNumberOrEmpty(form.minGrade)) {
+      errors.minGrade = "Min grade is required";
+    }
+    if (!toNumberOrEmpty(form.maxGrade)) {
+      errors.maxGrade = "Max grade is required";
+    }
+    if (
+      toNumberOrEmpty(form.minGrade) &&
+      toNumberOrEmpty(form.maxGrade) &&
+      Number(form.minGrade) > Number(form.maxGrade)
+    ) {
+      errors.maxGrade = "Max grade must be greater than or equal to min grade";
+    }
+  }
+
+  if (form.gradeMode === "multi" && (!form.grades || form.grades.length === 0)) {
+    errors.grades = "Select at least one grade";
+  }
+
+  if (form.category === "religion" && !normalizeText(form.religion)) {
+    errors.religion = "Religion is required for religion subjects";
+  }
+
+  if (form.category === "al_main") {
+    const hasSingleStream = !!normalizeText(form.stream);
+    const hasMultiStreams = Array.isArray(form.streams) && form.streams.length > 0;
+
+    if (!hasSingleStream && !hasMultiStreams) {
+      errors.stream = "Select at least one stream for A/L subject";
+    }
+  }
+
+  return errors;
+}
+
+function buildPayload(form, profile) {
+  const grades = getCleanGrades(form);
+
+  const payload = {
+    code: normalizeText(form.code),
+    subjectCode: normalizeText(form.code),
+    name: normalizeText(form.name),
+    subjectName: normalizeText(form.name),
+    shortName: normalizeText(form.shortName),
+    category: normalizeText(form.category),
+    status: normalizeText(form.status || "active"),
+
+    grade: grades.grade,
+    minGrade: grades.minGrade,
+    maxGrade: grades.maxGrade,
+    grades: grades.grades,
+
+    religion: form.category === "religion" ? normalizeText(form.religion) : "",
+    religionGroup:
+      form.category === "religion" ? normalizeText(form.religionGroup) : "",
+
+    stream: form.category === "al_main" ? normalizeText(form.stream) : "",
+    streams:
+      form.category === "al_main"
+        ? (form.streams || []).map((x) => normalizeText(x)).filter(Boolean)
+        : [],
+
+    description: normalizeText(form.description),
+    displayOrder:
+      form.displayOrder === "" ? 0 : Number(form.displayOrder) || 0,
+    isOptional: form.isOptional === true,
+
+    updatedAt: new Date().toISOString(),
+    updatedById: profile?.uid || "",
+    updatedByName: profile?.name || profile?.displayName || profile?.email || "",
+  };
+
+  if (!form.id) {
+    payload.createdAt = new Date().toISOString();
+    payload.createdById = profile?.uid || "";
+    payload.createdByName =
+      profile?.name || profile?.displayName || profile?.email || "";
+  }
+
+  return payload;
+}
+
+function SubjectStatsCard({ title, value, icon }) {
+  return (
+    <Card variant="outlined" sx={{ height: "100%" }}>
+      <CardContent>
+        <Stack direction="row" spacing={1.5} alignItems="center" mb={1}>
+          {icon}
+          <Typography variant="body2" color="text.secondary">
+            {title}
+          </Typography>
+        </Stack>
+        <Typography variant="h5" fontWeight={700}>
+          {value}
+        </Typography>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SubjectManagement() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { profile, isAdmin } = useAuth();
 
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [editId, setEditId] = useState(null);
-
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState("all");
+
   const [search, setSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterStatus, setFilterStatus] = useState("active");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [gradeFilter, setGradeFilter] = useState("all");
 
-  const [error, setError] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(defaultForm);
+  const [formErrors, setFormErrors] = useState({});
+  const [editingId, setEditingId] = useState("");
+
   const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchSubjects();
-  }, []);
-
-  const fetchSubjects = async () => {
+  async function loadSubjects() {
     setLoading(true);
+    setError("");
+
     try {
-      const snap = await getDocs(collection(db, "subjects"));
-      const loaded = snap.docs.map((d) => ({
+      const snap = await getDocs(collection(db, SUBJECT_COLLECTION));
+      const rows = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        grades: normalizeGradeList(d.data().grades),
-        mediums: Array.isArray(d.data().mediums) ? d.data().mediums : [],
       }));
-      setSubjects(sortSubjects(loaded));
+
+      setSubjects(sortByName(rows));
     } catch (err) {
       setError("Failed to load subjects: " + err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const filteredSubjects = useMemo(() => {
-    const q = normalizeLower(search);
+  useEffect(() => {
+    loadSubjects();
+  }, []);
 
-    return subjects.filter((subject) => {
-      const stage = getStageFromGrades(subject.grades);
-
-      const matchTab =
-        tab === "all" ||
-        stage === tab ||
-        (tab === "junior" && subject.grades.some((g) => g >= 6 && g <= 9)) ||
-        (tab === "ol" && subject.grades.some((g) => g >= 10 && g <= 11)) ||
-        (tab === "al" && subject.grades.some((g) => g >= 12 && g <= 13));
-
-      const matchSearch =
-        !q ||
-        normalizeLower(subject.name).includes(q) ||
-        normalizeLower(subject.code).includes(q) ||
-        normalizeLower(subject.category).includes(q) ||
-        normalizeLower(subject.religionKey).includes(q) ||
-        normalizeLower(subject.stream).includes(q) ||
-        normalizeLower(subject.basketGroup).includes(q);
-
-      const matchCategory = !filterCategory || subject.category === filterCategory;
-      const matchStatus = !filterStatus || normalizeStatus(subject.status) === filterStatus;
-
-      return matchTab && matchSearch && matchCategory && matchStatus;
-    });
-  }, [subjects, tab, search, filterCategory, filterStatus]);
-
-  const counts = useMemo(() => {
+  const stats = useMemo(() => {
     return {
       total: subjects.length,
-      active: subjects.filter((s) => normalizeStatus(s.status) === "active").length,
-      inactive: subjects.filter((s) => normalizeStatus(s.status) === "inactive").length,
-      compulsory: subjects.filter((s) => s.category === "compulsory").length,
-      religion: subjects.filter((s) => s.category === "religion").length,
-      basket: subjects.filter((s) => s.category === "basket").length,
-      alMain: subjects.filter((s) => s.category === "al_main").length,
+      active: subjects.filter((s) => normalizeLower(s.status) === "active").length,
+      inactive: subjects.filter((s) => normalizeLower(s.status) !== "active").length,
+      categories: new Set(subjects.map((s) => normalizeText(s.category)).filter(Boolean))
+        .size,
     };
   }, [subjects]);
 
-  const resetForm = () => {
-    setForm(emptyForm);
-    setEditId(null);
-  };
+  const filteredSubjects = useMemo(() => {
+    return subjects.filter((subject) => {
+      const name = getSubjectName(subject);
+      const code = getSubjectCode(subject);
+      const category = normalizeText(subject.category);
+      const status = normalizeLower(subject.status || "active");
 
-  const cleanFormByCategory = (data) => {
-    const category = normalizeCategory(data.category);
+      const passesSearch =
+        !normalizeText(search) ||
+        name.toLowerCase().includes(search.toLowerCase()) ||
+        code.toLowerCase().includes(search.toLowerCase()) ||
+        category.toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.religion).toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase());
 
-    return {
-      ...data,
-      religionKey: shouldShowReligionKey(category) ? normalizeText(data.religionKey) : "",
-      basketGroup: shouldShowBasketGroup(category) ? normalizeUpper(data.basketGroup) : "",
-      stream: shouldShowStream(category) ? normalizeText(data.stream) : "",
-      mediums: shouldShowMediums(category)
-        ? [...new Set((Array.isArray(data.mediums) ? data.mediums : []).map(normalizeText).filter(Boolean))]
-        : [],
-    };
-  };
+      const passesCategory =
+        categoryFilter === "all" || category === categoryFilter;
 
-  const buildPayload = () => {
-    const cleaned = cleanFormByCategory(form);
+      const passesStatus =
+        statusFilter === "all" || status === statusFilter;
 
-    return {
-      code: normalizeText(cleaned.code),
-      name: normalizeText(cleaned.name),
-      category: normalizeCategory(cleaned.category),
-      grades: normalizeGradeList(cleaned.grades),
-      religionKey: normalizeText(cleaned.religionKey),
-      basketGroup: normalizeUpper(cleaned.basketGroup),
-      stream: normalizeText(cleaned.stream),
-      mediums: Array.isArray(cleaned.mediums) ? cleaned.mediums : [],
-      status: normalizeStatus(cleaned.status) || "active",
-      isSystem: Boolean(cleaned.isSystem),
-      displayOrder:
-        cleaned.displayOrder === "" || cleaned.displayOrder === null || cleaned.displayOrder === undefined
-          ? null
-          : Number(cleaned.displayOrder),
-      updatedAt: new Date().toISOString(),
-    };
-  };
+      const passesGrade =
+        gradeFilter === "all" ||
+        String(subject.grade) === String(gradeFilter) ||
+        (Array.isArray(subject.grades) &&
+          subject.grades.map(String).includes(String(gradeFilter))) ||
+        (subject.minGrade &&
+          subject.maxGrade &&
+          Number(gradeFilter) >= Number(subject.minGrade) &&
+          Number(gradeFilter) <= Number(subject.maxGrade));
 
-  const validateForm = () => {
-    const payload = buildPayload();
-
-    if (!payload.code) return "Subject code is required.";
-    if (!payload.name) return "Subject name is required.";
-    if (!payload.category) return "Category is required.";
-    if (!Array.isArray(payload.grades) || payload.grades.length === 0) {
-      return "Select at least one grade.";
-    }
-
-    if (payload.category === "religion" && !payload.religionKey) {
-      return "Religion key is required for religion subjects.";
-    }
-
-    if (payload.category === "basket" && !payload.basketGroup) {
-      return "Basket group is required for basket subjects.";
-    }
-
-    if (payload.category === "al_main" && !payload.stream) {
-      return "Stream is required for A/L main subjects.";
-    }
-
-    if (payload.category === "religion" && hasGradeOutside(payload.grades, 6, 11)) {
-      return "Religion subjects can only be assigned to Grades 6 to 11.";
-    }
-
-    if (payload.category === "aesthetic" && hasGradeOutside(payload.grades, 6, 9)) {
-      return "Aesthetic subjects can only be assigned to Grades 6 to 9.";
-    }
-
-    if (payload.category === "basket" && hasGradeOutside(payload.grades, 10, 11)) {
-      return "Basket subjects can only be assigned to Grades 10 to 11.";
-    }
-
-    if (payload.category === "al_main" && hasGradeOutside(payload.grades, 12, 13)) {
-      return "A/L main subjects can only be assigned to Grades 12 to 13.";
-    }
-
-    if (payload.category === "general_english" && hasGradeOutside(payload.grades, 12, 13)) {
-      return "General English can only be assigned to Grades 12 to 13.";
-    }
-
-    if (payload.category === "common_compulsory" && hasGradeOutside(payload.grades, 12, 13)) {
-      return "Common Compulsory subjects can only be assigned to Grades 12 to 13.";
-    }
-
-    if (payload.category === "compulsory" && payload.grades.some((g) => g >= 12)) {
-      return "Use A/L Main, General English, or Common Compulsory for Grades 12 to 13.";
-    }
-
-    const duplicateCode = subjects.find((item) => {
-      if (editId && item.id === editId) return false;
-      return normalizeLower(item.code) === normalizeLower(payload.code);
+      return passesSearch && passesCategory && passesStatus && passesGrade;
     });
+  }, [subjects, search, categoryFilter, statusFilter, gradeFilter]);
 
-    if (duplicateCode) {
-      return "A subject with this code already exists.";
+  function openCreateDialog() {
+    setEditingId("");
+    setForm(defaultForm);
+    setFormErrors({});
+    setDialogOpen(true);
+  }
+
+  function openEditDialog(subject) {
+    setEditingId(subject.id);
+    setForm(buildFormFromSubject(subject));
+    setFormErrors({});
+    setDialogOpen(true);
+  }
+
+  function closeDialog() {
+    if (saving) return;
+    setDialogOpen(false);
+    setForm(defaultForm);
+    setEditingId("");
+    setFormErrors({});
+  }
+
+  function updateForm(field, value) {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
+
+  function handleAutoCode() {
+    setForm((prev) => ({
+      ...prev,
+      code: buildAutoCode(prev.name, prev.category),
+    }));
+  }
+
+  function handleGradeModeChange(mode) {
+    setForm((prev) => ({
+      ...prev,
+      gradeMode: mode,
+      grade: "",
+      minGrade: "",
+      maxGrade: "",
+      grades: [],
+    }));
+  }
+
+  async function handleSave() {
+    setSuccess("");
+    setError("");
+
+    if (!isAdmin) {
+      setError("Only admin can create or edit subjects.");
+      return;
     }
 
-    const conflictingCategoryRule = subjects.find((item) => {
-      if (editId && item.id === editId) return false;
-      if (!sharesAnyGrade(item.grades, payload.grades)) return false;
+    const validationErrors = validateForm(form);
+    setFormErrors(validationErrors);
 
-      const sameCategory = normalizeLower(item.category) === normalizeLower(payload.category);
-      if (!sameCategory) return false;
-
-      if (payload.category === "religion") {
-        return normalizeLower(item.religionKey) === normalizeLower(payload.religionKey);
-      }
-
-      if (payload.category === "basket") {
-        return normalizeUpper(item.basketGroup) === normalizeUpper(payload.basketGroup);
-      }
-
-      if (payload.category === "general_english") {
-        return true;
-      }
-
-      if (payload.category === "common_compulsory") {
-        return normalizeLower(item.name) === normalizeLower(payload.name);
-      }
-
-      if (payload.category === "al_main") {
-        return (
-          normalizeLower(item.name) === normalizeLower(payload.name) &&
-          normalizeLower(item.stream) === normalizeLower(payload.stream)
-        );
-      }
-
-      if (payload.category === "aesthetic") {
-        return normalizeLower(item.name) === normalizeLower(payload.name);
-      }
-
-      if (payload.category === "compulsory") {
-        return normalizeLower(item.name) === normalizeLower(payload.name);
-      }
-
-      return normalizeLower(item.name) === normalizeLower(payload.name);
-    });
-
-    if (conflictingCategoryRule) {
-      if (payload.category === "religion") {
-        return "A religion subject with the same religion key already exists for one or more selected grades.";
-      }
-      if (payload.category === "basket") {
-        return "A basket subject with the same basket group already exists for one or more selected grades.";
-      }
-      if (payload.category === "general_english") {
-        return "General English already exists for one or more selected grades.";
-      }
-      if (payload.category === "al_main") {
-        return "An A/L main subject with the same subject name and stream already exists for one or more selected grades.";
-      }
-      return "A conflicting subject definition already exists for one or more selected grades.";
-    }
-
-    return "";
-  };
-
-  const handleSave = async () => {
-    const validationError = validateForm();
-    if (validationError) {
-      setError(validationError);
+    if (Object.keys(validationErrors).length > 0) {
       return;
     }
 
     setSaving(true);
-    setError("");
-    setSuccess("");
 
     try {
-      const payload = buildPayload();
+      const payload = buildPayload(form, profile);
 
-      if (editId) {
-        await updateDoc(doc(db, "subjects", editId), payload);
+      const duplicate = subjects.find((subject) => {
+        if (editingId && subject.id === editingId) return false;
+
+        return (
+          normalizeLower(getSubjectCode(subject)) === normalizeLower(payload.code) ||
+          (normalizeLower(getSubjectName(subject)) === normalizeLower(payload.name) &&
+            normalizeLower(subject.category) === normalizeLower(payload.category) &&
+            buildGradeSummary(subject) === buildGradeSummary(payload))
+        );
+      });
+
+      if (duplicate) {
+        throw new Error(
+          `Duplicate subject detected: ${getSubjectName(duplicate)} (${getSubjectCode(
+            duplicate
+          )})`
+        );
+      }
+
+      if (editingId) {
+        await updateDoc(doc(db, SUBJECT_COLLECTION, editingId), payload);
         setSuccess("Subject updated successfully.");
       } else {
-        await addDoc(collection(db, "subjects"), {
-          ...payload,
-          createdAt: new Date().toISOString(),
-        });
+        const newId = buildSubjectDocId(form);
+        await setDoc(doc(db, SUBJECT_COLLECTION, newId), payload, { merge: false });
         setSuccess("Subject created successfully.");
       }
 
-      setOpen(false);
-      resetForm();
-      await fetchSubjects();
+      closeDialog();
+      await loadSubjects();
     } catch (err) {
       setError("Failed to save subject: " + err.message);
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const handleEdit = (subject) => {
-    setForm({
-      code: subject.code || "",
-      name: subject.name || "",
-      category: subject.category || "",
-      grades: normalizeGradeList(subject.grades),
-      religionKey: subject.religionKey || "",
-      basketGroup: subject.basketGroup || "",
-      stream: subject.stream || "",
-      mediums: Array.isArray(subject.mediums) ? subject.mediums : [],
-      status: subject.status || "active",
-      isSystem: Boolean(subject.isSystem),
-      displayOrder:
-        subject.displayOrder === null || subject.displayOrder === undefined
-          ? ""
-          : String(subject.displayOrder),
-    });
-    setEditId(subject.id);
-    setError("");
+  async function toggleStatus(subject) {
+    if (!isAdmin) {
+      setError("Only admin can change subject status.");
+      return;
+    }
+
     setSuccess("");
-    setOpen(true);
-  };
-
-  const handleDeactivate = async (subject) => {
-    if (!window.confirm(`Set subject "${subject.name}" inactive?`)) return;
+    setError("");
 
     try {
-      await updateDoc(doc(db, "subjects", subject.id), {
-        status: "inactive",
+      const nextStatus =
+        normalizeLower(subject.status) === "active" ? "inactive" : "active";
+
+      await updateDoc(doc(db, SUBJECT_COLLECTION, subject.id), {
+        status: nextStatus,
         updatedAt: new Date().toISOString(),
+        updatedById: profile?.uid || "",
+        updatedByName: profile?.name || profile?.displayName || profile?.email || "",
       });
-      setSuccess("Subject set to inactive.");
-      await fetchSubjects();
+
+      setSuccess(
+        `${getSubjectName(subject)} marked as ${nextStatus}.`
+      );
+      await loadSubjects();
     } catch (err) {
       setError("Failed to update subject status: " + err.message);
     }
-  };
+  }
 
-  const juniorSubjects = subjects.filter((s) =>
-    s.grades.some((g) => g >= 6 && g <= 9)
-  ).length;
+  const dialogTitle = editingId ? "Edit Subject" : "Create Subject";
+  const isReligion = form.category === "religion";
+  const isAL = form.category === "al_main";
 
-  const olSubjects = subjects.filter((s) =>
-    s.grades.some((g) => g >= 10 && g <= 11)
-  ).length;
-
-  const alSubjects = subjects.filter((s) =>
-    s.grades.some((g) => g >= 12 && g <= 13)
-  ).length;
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" mt={6}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box>
-      <Box
-        sx={{
-          bgcolor: "white",
-          borderRadius: 3,
-          p: { xs: 2, sm: 2.5 },
-          mb: 2,
-          boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-          border: "1px solid #e8eaf6",
-        }}
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", md: "center" }}
+        spacing={2}
+        mb={3}
       >
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          flexWrap="wrap"
-          gap={1.5}
-        >
-          <Box>
-            <Typography
-              variant={isMobile ? "h6" : "h5"}
-              fontWeight={800}
-              color="#1a237e"
-            >
-              Subject Definitions
-            </Typography>
-            <Typography variant="body2" color="text.secondary" mt={0.5}>
-              Strict subject master for enrollment generation, marks entry, and reporting.
-            </Typography>
+        <Box>
+          <Typography variant="h5" fontWeight={700} color="#1a237e">
+            Subject Management
+          </Typography>
+          <Typography variant="body2" color="text.secondary" mt={0.5}>
+            Manage strict subject definitions for enrollment generation and marks entry.
+          </Typography>
+        </Box>
 
-            <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
-              <Chip label={`Total: ${counts.total}`} size="small" color="primary" sx={{ fontWeight: 700 }} />
-              <Chip label={`Active: ${counts.active}`} size="small" color="success" sx={{ fontWeight: 700 }} />
-              <Chip label={`Inactive: ${counts.inactive}`} size="small" color="default" sx={{ fontWeight: 700 }} />
-              <Chip label={`Compulsory: ${counts.compulsory}`} size="small" color="secondary" sx={{ fontWeight: 700 }} />
-            </Box>
-          </Box>
-
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={loadSubjects}
+          >
+            Refresh
+          </Button>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => {
-              resetForm();
-              setError("");
-              setSuccess("");
-              setOpen(true);
-            }}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+            onClick={openCreateDialog}
+            disabled={!isAdmin}
           >
-            {isMobile ? "Add" : "Add Subject"}
+            Add Subject
           </Button>
-        </Box>
+        </Stack>
+      </Stack>
 
-        <Grid container spacing={1.5} mt={1}>
+      {!isAdmin && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          You can view subject definitions, but only admin can create or edit them.
+        </Alert>
+      )}
+
+      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Grid container spacing={2} mb={3}>
+        <Grid item xs={12} sm={6} md={3}>
+          <SubjectStatsCard
+            title="Total Subjects"
+            value={stats.total}
+            icon={<SchoolIcon color="primary" />}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SubjectStatsCard
+            title="Active"
+            value={stats.active}
+            icon={<Chip size="small" color="success" label="ACTIVE" />}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SubjectStatsCard
+            title="Inactive"
+            value={stats.inactive}
+            icon={<Chip size="small" label="INACTIVE" />}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <SubjectStatsCard
+            title="Categories"
+            value={stats.categories}
+            icon={<AutoAwesomeIcon color="secondary" />}
+          />
+        </Grid>
+      </Grid>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2}>
           <Grid item xs={12} md={4}>
-            <Card sx={{ borderRadius: 3, border: "1px solid #e8eaf6" }}>
-              <CardContent>
-                <Typography variant="subtitle2" fontWeight={800}>
-                  Grades 6–9
-                </Typography>
-                <Typography variant="body2" color="text.secondary" mt={0.5}>
-                  Compulsory, religion, and aesthetic subject definitions.
-                </Typography>
-                <Chip label={`${juniorSubjects} subjects`} size="small" color="primary" sx={{ mt: 1, fontWeight: 700 }} />
-              </CardContent>
-            </Card>
+            <TextField
+              fullWidth
+              label="Search subjects"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, code, category, religion, stream"
+            />
           </Grid>
 
-          <Grid item xs={12} md={4}>
-            <Card sx={{ borderRadius: 3, border: "1px solid #e8eaf6" }}>
-              <CardContent>
-                <Typography variant="subtitle2" fontWeight={800}>
-                  Grades 10–11
-                </Typography>
-                <Typography variant="body2" color="text.secondary" mt={0.5}>
-                  Compulsory, religion, and basket subject definitions.
-                </Typography>
-                <Chip label={`${olSubjects} subjects`} size="small" color="warning" sx={{ mt: 1, fontWeight: 700 }} />
-              </CardContent>
-            </Card>
+          <Grid item xs={12} sm={4} md={2.5}>
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={categoryFilter}
+                label="Category"
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                {CATEGORY_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
 
-          <Grid item xs={12} md={4}>
-            <Card sx={{ borderRadius: 3, border: "1px solid #e8eaf6" }}>
-              <CardContent>
-                <Typography variant="subtitle2" fontWeight={800}>
-                  Grades 12–13
-                </Typography>
-                <Typography variant="body2" color="text.secondary" mt={0.5}>
-                  A/L main, General English, and Common Compulsory subjects.
-                </Typography>
-                <Chip label={`${alSubjects} subjects`} size="small" color="success" sx={{ mt: 1, fontWeight: 700 }} />
-              </CardContent>
-            </Card>
+          <Grid item xs={12} sm={4} md={2.5}>
+            <FormControl fullWidth>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={statusFilter}
+                label="Status"
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="inactive">Inactive</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={4} md={3}>
+            <FormControl fullWidth>
+              <InputLabel>Grade</InputLabel>
+              <Select
+                value={gradeFilter}
+                label="Grade"
+                onChange={(e) => setGradeFilter(e.target.value)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                {GRADE_OPTIONS.map((grade) => (
+                  <MenuItem key={grade} value={grade}>
+                    Grade {grade}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
         </Grid>
+      </Paper>
 
-        <Tabs
-          value={tab}
-          onChange={(_, value) => setTab(value)}
-          sx={{ mt: 2, borderBottom: "1px solid #e8eaf6" }}
-          variant={isMobile ? "scrollable" : "standard"}
-          scrollButtons="auto"
-        >
-          <Tab label="All" value="all" />
-          <Tab label="Grades 6–9" value="junior" />
-          <Tab label="Grades 10–11" value="ol" />
-          <Tab label="Grades 12–13" value="al" />
-        </Tabs>
-
-        <Box display="flex" flexWrap="wrap" gap={1.5} mt={2} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Search code, subject, category, stream"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 220, flex: 1 }}
-          />
-
-          <FormControl size="small" sx={{ minWidth: 170 }}>
-            <InputLabel>Category</InputLabel>
-            <Select
-              value={filterCategory}
-              label="Category"
-              onChange={(e) => setFilterCategory(e.target.value)}
-            >
-              <MenuItem value="">All Categories</MenuItem>
-              {SUBJECT_CATEGORIES.map((item) => (
-                <MenuItem key={item.value} value={item.value}>
-                  {item.label}
-                </MenuItem>
+      <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table size="small">
+          <TableHead sx={{ bgcolor: "#1a237e" }}>
+            <TableRow>
+              {[
+                "Code",
+                "Subject Name",
+                "Category",
+                "Grade Scope",
+                "Religion / Stream",
+                "Status",
+                "Actions",
+              ].map((head) => (
+                <TableCell key={head} sx={{ color: "white", fontWeight: 700 }}>
+                  {head}
+                </TableCell>
               ))}
-            </Select>
-          </FormControl>
+            </TableRow>
+          </TableHead>
 
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={filterStatus}
-              label="Status"
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <MenuItem value="">All</MenuItem>
-              {SUBJECT_STATUSES.map((status) => (
-                <MenuItem key={status} value={status}>
-                  {status}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => {
-              setSearch("");
-              setFilterCategory("");
-              setFilterStatus("active");
-              setTab("all");
-            }}
-            sx={{ borderColor: "#e8eaf6", color: "text.secondary" }}
-          >
-            Clear
-          </Button>
-
-          <Typography variant="caption" color="text.secondary">
-            {filteredSubjects.length} result{filteredSubjects.length !== 1 ? "s" : ""}
-          </Typography>
-        </Box>
-      </Box>
-
-      {success && (
-        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
-          {success}
-        </Alert>
-      )}
-
-      {error && !open && (
-        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
-          {error}
-        </Alert>
-      )}
-
-      {loading ? (
-        <Box display="flex" justifyContent="center" p={5}>
-          <CircularProgress />
-        </Box>
-      ) : filteredSubjects.length === 0 ? (
-        <Box
-          textAlign="center"
-          py={8}
-          sx={{
-            bgcolor: "white",
-            borderRadius: 3,
-            border: "1px solid #e8eaf6",
-          }}
-        >
-          <Typography variant="h6" color="text.secondary" fontWeight={600}>
-            No subjects found
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Create subject definitions to support enrollments and marks entry.
-          </Typography>
-        </Box>
-      ) : isMobile ? (
-        <Box>
-          {filteredSubjects.map((subject) => (
-            <Card
-              key={subject.id}
-              sx={{
-                mb: 1.5,
-                borderRadius: 3,
-                border: "1px solid #e8eaf6",
-                boxShadow: "0 2px 8px rgba(26,35,126,0.07)",
-              }}
-            >
-              <CardContent sx={{ pb: 0 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="flex-start" gap={1}>
-                  <Box>
-                    <Typography variant="subtitle1" fontWeight={800}>
-                      {subject.name || "Unnamed Subject"}
+          <TableBody>
+            {filteredSubjects.map((subject) => (
+              <TableRow key={subject.id} hover>
+                <TableCell>{getSubjectCode(subject) || "—"}</TableCell>
+                <TableCell>
+                  <Stack spacing={0.4}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {getSubjectName(subject)}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {subject.code || "—"}
-                    </Typography>
-                  </Box>
-
+                    {normalizeText(subject.shortName) && (
+                      <Typography variant="caption" color="text.secondary">
+                        {subject.shortName}
+                      </Typography>
+                    )}
+                  </Stack>
+                </TableCell>
+                <TableCell>
                   <Chip
-                    label={normalizeStatus(subject.status) || "inactive"}
+                    label={getCategoryLabel(subject.category)}
                     size="small"
-                    color={normalizeStatus(subject.status) === "active" ? "success" : "default"}
-                    sx={{ fontWeight: 700 }}
+                    color="primary"
+                    variant="outlined"
                   />
-                </Box>
-
-                <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
-                  <Chip label={getCategoryLabel(subject.category)} size="small" color="primary" />
-                  {subject.religionKey && <Chip label={`Religion: ${subject.religionKey}`} size="small" />}
-                  {subject.basketGroup && <Chip label={`Basket ${subject.basketGroup}`} size="small" color="warning" />}
-                  {subject.stream && <Chip label={`Stream: ${subject.stream}`} size="small" color="success" />}
-                </Box>
-
-                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Grades: {subject.grades.length > 0 ? subject.grades.join(", ") : "—"}
-                </Typography>
-
-                {Array.isArray(subject.mediums) && subject.mediums.length > 0 && (
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Mediums: {subject.mediums.join(", ")}
-                  </Typography>
-                )}
-              </CardContent>
-
-              <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<EditIcon />}
-                  onClick={() => handleEdit(subject)}
-                  sx={{ borderColor: "#1a237e", color: "#1a237e" }}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="warning"
-                  startIcon={<BlockIcon />}
-                  onClick={() => handleDeactivate(subject)}
-                  disabled={normalizeStatus(subject.status) === "inactive"}
-                >
-                  Inactivate
-                </Button>
-              </CardActions>
-            </Card>
-          ))}
-        </Box>
-      ) : (
-        <Paper
-          sx={{
-            borderRadius: 3,
-            boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-            border: "1px solid #e8eaf6",
-            overflow: "hidden",
-          }}
-        >
-          <Table size="small">
-            <TableHead sx={{ bgcolor: "#1a237e" }}>
-              <TableRow>
-                {[
-                  "#",
-                  "Code",
-                  "Subject",
-                  "Category",
-                  "Grades",
-                  "Extra",
-                  "Mediums",
-                  "Status",
-                  "Actions",
-                ].map((header) => (
-                  <TableCell
-                    key={header}
-                    sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
-                  >
-                    {header}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {filteredSubjects.map((subject, idx) => (
-                <TableRow key={subject.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
-                  <TableCell>{idx + 1}</TableCell>
-                  <TableCell>
-                    <Typography variant="caption" fontWeight={700} color="#1a237e">
-                      {subject.code || "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={700}>
-                      {subject.name || "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{getCategoryLabel(subject.category)}</TableCell>
-                  <TableCell>
-                    {subject.grades.length > 0 ? subject.grades.join(", ") : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={0.5} flexWrap="wrap">
-                      {subject.religionKey && <Chip size="small" label={subject.religionKey} />}
-                      {subject.basketGroup && <Chip size="small" label={`Basket ${subject.basketGroup}`} color="warning" />}
-                      {subject.stream && <Chip size="small" label={subject.stream} color="success" />}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    {Array.isArray(subject.mediums) && subject.mediums.length > 0
-                      ? subject.mediums.join(", ")
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={normalizeStatus(subject.status) || "inactive"}
-                      size="small"
-                      color={normalizeStatus(subject.status) === "active" ? "success" : "default"}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </TableCell>
-                  <TableCell>
+                </TableCell>
+                <TableCell>{buildGradeSummary(subject)}</TableCell>
+                <TableCell>
+                  {subject.category === "religion"
+                    ? normalizeText(subject.religion || subject.religionGroup) || "—"
+                    : subject.category === "al_main"
+                    ? normalizeText(subject.stream) ||
+                      (Array.isArray(subject.streams) && subject.streams.length > 0
+                        ? subject.streams.join(", ")
+                        : "—")
+                    : "—"}
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={normalizeText(subject.status || "active").toUpperCase()}
+                    color={getStatusColor(subject.status || "active")}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Stack direction="row" spacing={0.5}>
                     <Tooltip title="Edit">
-                      <IconButton size="small" color="primary" onClick={() => handleEdit(subject)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Set inactive">
                       <span>
                         <IconButton
                           size="small"
-                          color="warning"
-                          onClick={() => handleDeactivate(subject)}
-                          disabled={normalizeStatus(subject.status) === "inactive"}
+                          onClick={() => openEditDialog(subject)}
+                          disabled={!isAdmin}
                         >
-                          <BlockIcon fontSize="small" />
+                          <EditIcon fontSize="small" />
                         </IconButton>
                       </span>
                     </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
-      )}
+
+                    <Tooltip
+                      title={
+                        normalizeLower(subject.status) === "active"
+                          ? "Set Inactive"
+                          : "Set Active"
+                      }
+                    >
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color={
+                            normalizeLower(subject.status) === "active"
+                              ? "warning"
+                              : "success"
+                          }
+                          onClick={() => toggleStatus(subject)}
+                          disabled={!isAdmin}
+                        >
+                          {normalizeLower(subject.status) === "active"
+                            ? "Deactivate"
+                            : "Activate"}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+            ))}
+
+            {filteredSubjects.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  No subjects found for the selected filters.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
 
       <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        maxWidth="md"
+        open={dialogOpen}
+        onClose={closeDialog}
         fullWidth
-        fullScreen={isMobile}
+        maxWidth="md"
       >
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "Edit Subject Definition" : "Add Subject Definition"}
-        </DialogTitle>
+        <DialogTitle>{dialogTitle}</DialogTitle>
 
-        <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-              {error}
-            </Alert>
-          )}
+        <DialogContent dividers>
+          <Stack spacing={3}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Subject Code"
+                  value={form.code}
+                  onChange={(e) => updateForm("code", e.target.value)}
+                  error={!!formErrors.code}
+                  helperText={formErrors.code}
+                />
+              </Grid>
 
-          <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Basic Details
-                </Typography>
-              </Divider>
-            </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Subject Name"
+                  value={form.name}
+                  onChange={(e) => updateForm("name", e.target.value)}
+                  error={!!formErrors.name}
+                  helperText={formErrors.name}
+                />
+              </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                required
-                label="Subject Code"
-                value={form.code}
-                onChange={(e) => setForm({ ...form, code: e.target.value })}
-                placeholder="CIV, REL-HIN, AL-CM"
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={8}>
-              <TextField
-                fullWidth
-                required
-                label="Subject Name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Civics, Hinduism, Combined Maths"
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={form.category}
-                  label="Category"
-                  onChange={(e) =>
-                    setForm(
-                      cleanFormByCategory({
-                        ...form,
-                        category: e.target.value,
-                      })
-                    )
-                  }
+              <Grid item xs={12} md={2}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={handleAutoCode}
+                  sx={{ height: "56px" }}
                 >
-                  {SUBJECT_CATEGORIES.map((item) => (
-                    <MenuItem key={item.value} value={item.value}>
-                      {item.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+                  Auto Code
+                </Button>
+              </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required>
-                <InputLabel>Grades</InputLabel>
-                <Select
-                  multiple
-                  value={form.grades}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      grades:
-                        typeof e.target.value === "string"
-                          ? e.target.value.split(",")
-                          : e.target.value,
-                    })
-                  }
-                  input={<OutlinedInput label="Grades" />}
-                  renderValue={(selected) => selected.join(", ")}
-                >
-                  {GRADE_OPTIONS.map((grade) => (
-                    <MenuItem key={grade} value={grade}>
-                      <Checkbox checked={form.grades.indexOf(grade) > -1} />
-                      <ListItemText primary={`Grade ${grade}`} />
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Short Name"
+                  value={form.shortName}
+                  onChange={(e) => updateForm("shortName", e.target.value)}
+                />
+              </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Display Order"
-                type="number"
-                value={form.displayOrder}
-                onChange={(e) => setForm({ ...form, displayOrder: e.target.value })}
-                placeholder="Optional"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Rule Mapping
-                </Typography>
-              </Divider>
-            </Grid>
-
-            {shouldShowReligionKey(form.category) && (
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth required>
-                  <InputLabel>Religion Key</InputLabel>
+              <Grid item xs={12} md={4}>
+                <FormControl fullWidth error={!!formErrors.category}>
+                  <InputLabel>Category</InputLabel>
                   <Select
-                    value={form.religionKey}
-                    label="Religion Key"
-                    onChange={(e) => setForm({ ...form, religionKey: e.target.value })}
+                    value={form.category}
+                    label="Category"
+                    onChange={(e) => updateForm("category", e.target.value)}
                   >
-                    {RELIGION_KEYS.map((item) => (
-                      <MenuItem key={item} value={item}>
-                        {item}
+                    {CATEGORY_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
+                {formErrors.category && (
+                  <Typography variant="caption" color="error">
+                    {formErrors.category}
+                  </Typography>
+                )}
               </Grid>
-            )}
 
-            {shouldShowBasketGroup(form.category) && (
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth required>
-                  <InputLabel>Basket Group</InputLabel>
-                  <Select
-                    value={form.basketGroup}
-                    label="Basket Group"
-                    onChange={(e) => setForm({ ...form, basketGroup: e.target.value })}
-                  >
-                    {BASKET_GROUPS.map((item) => (
-                      <MenuItem key={item} value={item}>
-                        Basket {item}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            {shouldShowStream(form.category) && (
-              <Grid item xs={12} sm={4}>
-                <FormControl fullWidth required>
-                  <InputLabel>Stream</InputLabel>
-                  <Select
-                    value={form.stream}
-                    label="Stream"
-                    onChange={(e) => setForm({ ...form, stream: e.target.value })}
-                  >
-                    {STREAM_OPTIONS.map((item) => (
-                      <MenuItem key={item} value={item}>
-                        {item}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            {shouldShowMediums(form.category) && (
-              <Grid item xs={12} sm={8}>
+              <Grid item xs={12} md={4}>
                 <FormControl fullWidth>
-                  <InputLabel>Supported Mediums</InputLabel>
+                  <InputLabel>Status</InputLabel>
                   <Select
-                    multiple
-                    value={form.mediums}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        mediums:
-                          typeof e.target.value === "string"
-                            ? e.target.value.split(",")
-                            : e.target.value,
-                      })
-                    }
-                    input={<OutlinedInput label="Supported Mediums" />}
-                    renderValue={(selected) => selected.join(", ")}
+                    value={form.status}
+                    label="Status"
+                    onChange={(e) => updateForm("status", e.target.value)}
                   >
-                    {MEDIUM_OPTIONS.map((item) => (
-                      <MenuItem key={item} value={item}>
-                        <Checkbox checked={form.mediums.indexOf(item) > -1} />
-                        <ListItemText primary={item} />
-                      </MenuItem>
-                    ))}
+                    <MenuItem value="active">Active</MenuItem>
+                    <MenuItem value="inactive">Inactive</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
+            </Grid>
+
+            <Divider />
+
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                Grade Application
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
+                  <FormControl fullWidth>
+                    <InputLabel>Grade Mode</InputLabel>
+                    <Select
+                      value={form.gradeMode}
+                      label="Grade Mode"
+                      onChange={(e) => handleGradeModeChange(e.target.value)}
+                    >
+                      <MenuItem value="single">Single Grade</MenuItem>
+                      <MenuItem value="range">Grade Range</MenuItem>
+                      <MenuItem value="multi">Multiple Grades</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {form.gradeMode === "single" && (
+                  <Grid item xs={12} md={4}>
+                    <FormControl fullWidth error={!!formErrors.grade}>
+                      <InputLabel>Grade</InputLabel>
+                      <Select
+                        value={form.grade}
+                        label="Grade"
+                        onChange={(e) => updateForm("grade", e.target.value)}
+                      >
+                        {GRADE_OPTIONS.map((grade) => (
+                          <MenuItem key={grade} value={grade}>
+                            Grade {grade}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {formErrors.grade && (
+                      <Typography variant="caption" color="error">
+                        {formErrors.grade}
+                      </Typography>
+                    )}
+                  </Grid>
+                )}
+
+                {form.gradeMode === "range" && (
+                  <>
+                    <Grid item xs={12} md={4}>
+                      <FormControl fullWidth error={!!formErrors.minGrade}>
+                        <InputLabel>Min Grade</InputLabel>
+                        <Select
+                          value={form.minGrade}
+                          label="Min Grade"
+                          onChange={(e) => updateForm("minGrade", e.target.value)}
+                        >
+                          {GRADE_OPTIONS.map((grade) => (
+                            <MenuItem key={grade} value={grade}>
+                              Grade {grade}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {formErrors.minGrade && (
+                        <Typography variant="caption" color="error">
+                          {formErrors.minGrade}
+                        </Typography>
+                      )}
+                    </Grid>
+
+                    <Grid item xs={12} md={4}>
+                      <FormControl fullWidth error={!!formErrors.maxGrade}>
+                        <InputLabel>Max Grade</InputLabel>
+                        <Select
+                          value={form.maxGrade}
+                          label="Max Grade"
+                          onChange={(e) => updateForm("maxGrade", e.target.value)}
+                        >
+                          {GRADE_OPTIONS.map((grade) => (
+                            <MenuItem key={grade} value={grade}>
+                              Grade {grade}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {formErrors.maxGrade && (
+                        <Typography variant="caption" color="error">
+                          {formErrors.maxGrade}
+                        </Typography>
+                      )}
+                    </Grid>
+                  </>
+                )}
+
+                {form.gradeMode === "multi" && (
+                  <Grid item xs={12} md={8}>
+                    <FormControl fullWidth error={!!formErrors.grades}>
+                      <InputLabel>Grades</InputLabel>
+                      <Select
+                        multiple
+                        value={form.grades}
+                        label="Grades"
+                        onChange={(e) => updateForm("grades", e.target.value)}
+                        renderValue={(selected) =>
+                          selected.map((g) => `Grade ${g}`).join(", ")
+                        }
+                      >
+                        {GRADE_OPTIONS.map((grade) => (
+                          <MenuItem key={grade} value={grade}>
+                            Grade {grade}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {formErrors.grades && (
+                      <Typography variant="caption" color="error">
+                        {formErrors.grades}
+                      </Typography>
+                    )}
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
+
+            {isReligion && (
+              <>
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                    Religion Mapping
+                  </Typography>
+
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth error={!!formErrors.religion}>
+                        <InputLabel>Religion</InputLabel>
+                        <Select
+                          value={form.religion}
+                          label="Religion"
+                          onChange={(e) => updateForm("religion", e.target.value)}
+                        >
+                          {RELIGION_OPTIONS.map((item) => (
+                            <MenuItem key={item} value={item}>
+                              {item}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {formErrors.religion && (
+                        <Typography variant="caption" color="error">
+                          {formErrors.religion}
+                        </Typography>
+                      )}
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Religion Group"
+                        value={form.religionGroup}
+                        onChange={(e) => updateForm("religionGroup", e.target.value)}
+                        placeholder="Optional alternate matching value"
+                      />
+                    </Grid>
+                  </Grid>
+                </Box>
+              </>
             )}
 
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Status
-                </Typography>
-              </Divider>
-            </Grid>
+            {isAL && (
+              <>
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                    A/L Stream Mapping
+                  </Typography>
 
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={form.status}
-                  label="Status"
-                  onChange={(e) => setForm({ ...form, status: e.target.value })}
-                >
-                  {SUBJECT_STATUSES.map((status) => (
-                    <MenuItem key={status} value={status}>
-                      {status}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth error={!!formErrors.stream}>
+                        <InputLabel>Primary Stream</InputLabel>
+                        <Select
+                          value={form.stream}
+                          label="Primary Stream"
+                          onChange={(e) => updateForm("stream", e.target.value)}
+                        >
+                          <MenuItem value="">None</MenuItem>
+                          {STREAM_OPTIONS.map((item) => (
+                            <MenuItem key={item} value={item}>
+                              {item}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {formErrors.stream && (
+                        <Typography variant="caption" color="error">
+                          {formErrors.stream}
+                        </Typography>
+                      )}
+                    </Grid>
 
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>System Subject</InputLabel>
-                <Select
-                  value={String(form.isSystem)}
-                  label="System Subject"
-                  onChange={(e) => setForm({ ...form, isSystem: e.target.value === "true" })}
-                >
-                  <MenuItem value="false">False</MenuItem>
-                  <MenuItem value="true">True</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
+                    <Grid item xs={12} md={6}>
+                      <FormControl fullWidth>
+                        <InputLabel>Additional Streams</InputLabel>
+                        <Select
+                          multiple
+                          value={form.streams}
+                          label="Additional Streams"
+                          onChange={(e) => updateForm("streams", e.target.value)}
+                          renderValue={(selected) => selected.join(", ")}
+                        >
+                          {STREAM_OPTIONS.map((item) => (
+                            <MenuItem key={item} value={item}>
+                              {item}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                </Box>
+              </>
+            )}
+
+            <Divider />
+
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                Extra Metadata
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={8}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={3}
+                    label="Description"
+                    value={form.description}
+                    onChange={(e) => updateForm("description", e.target.value)}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={4}>
+                  <Stack spacing={2}>
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label="Display Order"
+                      value={form.displayOrder}
+                      onChange={(e) => updateForm("displayOrder", e.target.value)}
+                    />
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={form.isOptional}
+                          onChange={(e) => updateForm("isOptional", e.target.checked)}
+                        />
+                      }
+                      label="Optional Subject"
+                    />
+                  </Stack>
+                </Grid>
+              </Grid>
+            </Box>
+          </Stack>
         </DialogContent>
 
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          <Button
-            onClick={() => {
-              setOpen(false);
-              setError("");
-            }}
-            fullWidth={isMobile}
-          >
+        <DialogActions>
+          <Button onClick={closeDialog} disabled={saving}>
             Cancel
           </Button>
           <Button
-            onClick={handleSave}
             variant="contained"
-            disabled={saving}
-            fullWidth={isMobile}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
+            onClick={handleSave}
+            disabled={saving || !isAdmin}
           >
-            {saving ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : editId ? (
-              "Update Subject"
-            ) : (
-              "Save Subject"
-            )}
+            {saving ? <CircularProgress size={20} color="inherit" /> : editingId ? "Update Subject" : "Create Subject"}
           </Button>
         </DialogActions>
       </Dialog>
