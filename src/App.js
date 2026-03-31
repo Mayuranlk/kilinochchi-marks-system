@@ -22,6 +22,7 @@ import StudentsBySubject from "./pages/StudentsBySubject";
 import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
 import AcademicTerms from "./pages/AcademicTerms";
 import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
+import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
 
 function LoadingScreen() {
   return (
@@ -231,6 +232,15 @@ export default function App() {
                 </TeacherRoute>
               }
             />
+
+            <Route
+  path="setup-school-defaults"
+  element={
+    <AdminRoute>
+      <SetupSchoolDefaults />
+    </AdminRoute>
+  }
+/>
 
             <Route
               path="marks"

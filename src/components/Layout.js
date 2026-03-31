@@ -40,6 +40,7 @@ import MenuBookIcon from "@mui/icons-material/MenuBook";
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
+import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest";
 
 const DRAWER_WIDTH = 240;
 
@@ -58,7 +59,8 @@ export default function Layout() {
     { label: "Students", icon: <PeopleIcon />, path: "/students" },
     { label: "Marks Entry", icon: <GradeIcon />, path: "/marks" },
     { label: "Teachers", icon: <PersonIcon />, path: "/teachers" },
-
+{ label: "School Setup", icon: <SettingsSuggestIcon />, path: "/setup-school-defaults",badge: "SETUP",
+},
     { label: "Assignments", icon: <AssignmentIndIcon />, path: "/assignments" },
     { label: "Class Teachers", icon: <HomeWorkIcon />, path: "/class-teachers" },
 
@@ -83,6 +85,7 @@ export default function Layout() {
       path: "/migrate-student-subjects",
     },
   ];
+  
 
   const teacherMenu = [
     { label: "Dashboard", icon: <DashboardIcon />, path: "/teacher" },
