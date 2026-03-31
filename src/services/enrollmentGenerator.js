@@ -1,5 +1,3 @@
-// src/services/enrollmentGenerator.js
-
 import {
   collection,
   doc,
@@ -23,12 +21,22 @@ export const ENROLLMENT_MODES = {
   FULL_REBUILD: "full_rebuild",
 };
 
+/* -------------------------------------------------------------------------- */
+/* Normalizers                                                                 */
+/* -------------------------------------------------------------------------- */
+
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
 function normalizeLoose(value) {
   return normalize(value).replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeAcademicYear(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : String(new Date().getFullYear());
 }
 
 function toArray(value) {
@@ -43,15 +51,19 @@ function parseGrade(value) {
   return match ? Number(match[0]) : null;
 }
 
+function normalizeSection(value) {
+  const raw = String(value ?? "").trim().toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Student helpers                                                             */
+/* -------------------------------------------------------------------------- */
+
 function isStudentActive(student) {
   if (typeof student?.isActive === "boolean") return student.isActive;
   if (student?.status) return normalize(student.status) === "active";
-  return true;
-}
-
-function isSubjectActive(subject) {
-  if (typeof subject?.isActive === "boolean") return subject.isActive;
-  if (subject?.status) return normalize(subject.status) === "active";
   return true;
 }
 
@@ -60,8 +72,81 @@ function isALStudent(student) {
   return grade >= 12 || !!student?.stream;
 }
 
-function uniqueEnrollmentId(studentId, subjectId, academicYear) {
-  return `${academicYear}_${studentId}_${subjectId}`;
+function getStudentName(student) {
+  return student?.fullName || student?.name || "";
+}
+
+function getStudentSection(student) {
+  return normalizeSection(student?.section || student?.className);
+}
+
+function getStudentFullClass(student) {
+  const grade = parseGrade(student?.grade);
+  const section = getStudentSection(student);
+  if (grade && section) return `${grade}${section}`;
+  if (section) return section;
+  return "";
+}
+
+function getStudentReligion(student) {
+  return student?.religion || "";
+}
+
+function getStudentAestheticChoice(student) {
+  return student?.aestheticChoice || student?.aesthetic || "";
+}
+
+function getStudentBasketChoice(student, bucket) {
+  if (bucket === "A") return student?.basketAChoice || student?.basket1 || "";
+  if (bucket === "B") return student?.basketBChoice || student?.basket2 || "";
+  if (bucket === "C") return student?.basketCChoice || student?.basket3 || "";
+  return "";
+}
+
+function getStudentALChoices(student) {
+  return toArray(student?.alSubjectChoices);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Subject helpers                                                             */
+/* -------------------------------------------------------------------------- */
+
+function isSubjectActive(subject) {
+  if (typeof subject?.isActive === "boolean") return subject.isActive;
+  if (subject?.status) return normalize(subject.status) === "active";
+  return true;
+}
+
+function getSubjectName(subject) {
+  return subject?.name || subject?.subjectName || subject?.shortName || "";
+}
+
+function getSubjectCode(subject) {
+  return subject?.code || subject?.subjectCode || "";
+}
+
+function getSubjectCategory(subject) {
+  return normalize(subject?.category);
+}
+
+function getSubjectId(subject) {
+  return subject?.id || "";
+}
+
+function subjectKey(subject) {
+  const subjectId = getSubjectId(subject);
+  if (subjectId) return `id:${subjectId}`;
+  return `name:${normalizeLoose(getSubjectName(subject))}`;
+}
+
+function valueMatches(subjectValue, studentValue) {
+  const a = tokenSet(subjectValue);
+  const b = tokenSet(studentValue);
+
+  for (const token of a) {
+    if (b.has(token)) return true;
+  }
+  return false;
 }
 
 function tokenSet(values) {
@@ -88,12 +173,12 @@ function tokenSet(values) {
 
 function subjectTokens(subject) {
   const set = new Set();
+
   [
-    subject?.id,
-    subject?.code,
+    getSubjectId(subject),
+    getSubjectCode(subject),
     subject?.subjectCode,
-    subject?.name,
-    subject?.subjectName,
+    getSubjectName(subject),
     subject?.shortName,
   ]
     .filter(Boolean)
@@ -111,16 +196,6 @@ function subjectMatchesChoice(subject, choice) {
 
   for (const token of choiceTokens) {
     if (sTokens.has(token)) return true;
-  }
-  return false;
-}
-
-function valueMatches(subjectValue, studentValue) {
-  const a = tokenSet(subjectValue);
-  const b = tokenSet(studentValue);
-
-  for (const token of a) {
-    if (b.has(token)) return true;
   }
   return false;
 }
@@ -151,63 +226,114 @@ function subjectAppliesToGrade(subject, grade) {
   return true;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Subject index                                                               */
+/* -------------------------------------------------------------------------- */
+
 function buildSubjectIndex(subjects) {
   const activeSubjects = subjects.filter(isSubjectActive);
 
+  const categoryIs = (subject, values) => values.includes(getSubjectCategory(subject));
+
   return {
     all: activeSubjects,
-    core: activeSubjects.filter((s) => normalize(s.category) === "core"),
-    religion: activeSubjects.filter((s) => normalize(s.category) === "religion"),
-    aesthetic: activeSubjects.filter((s) => normalize(s.category) === "aesthetic"),
-    basketA: activeSubjects.filter((s) => normalize(s.category) === "basket_a"),
-    basketB: activeSubjects.filter((s) => normalize(s.category) === "basket_b"),
-    basketC: activeSubjects.filter((s) => normalize(s.category) === "basket_c"),
-    alMain: activeSubjects.filter((s) => normalize(s.category) === "al_main"),
+
+    core: activeSubjects.filter((s) =>
+      categoryIs(s, ["core", "compulsory", "mandatory", "common"])
+    ),
+
+    religion: activeSubjects.filter((s) =>
+      categoryIs(s, ["religion"])
+    ),
+
+    aesthetic: activeSubjects.filter((s) =>
+      categoryIs(s, ["aesthetic"])
+    ),
+
+    basketA: activeSubjects.filter(
+      (s) =>
+        categoryIs(s, ["basket", "basket_a"]) ||
+        normalize(String(s?.basketGroup || "")) === "a"
+    ).filter((s) => {
+      const bg = String(s?.basketGroup || "").toUpperCase();
+      return bg === "A" || bg === "" || getSubjectCategory(s) === "basket_a";
+    }),
+
+    basketB: activeSubjects.filter(
+      (s) =>
+        categoryIs(s, ["basket", "basket_b"]) ||
+        normalize(String(s?.basketGroup || "")) === "b"
+    ).filter((s) => {
+      const bg = String(s?.basketGroup || "").toUpperCase();
+      return bg === "B" || bg === "" || getSubjectCategory(s) === "basket_b";
+    }),
+
+    basketC: activeSubjects.filter(
+      (s) =>
+        categoryIs(s, ["basket", "basket_c"]) ||
+        normalize(String(s?.basketGroup || "")) === "c"
+    ).filter((s) => {
+      const bg = String(s?.basketGroup || "").toUpperCase();
+      return bg === "C" || bg === "" || getSubjectCategory(s) === "basket_c";
+    }),
+
+    alMain: activeSubjects.filter((s) =>
+      categoryIs(s, ["al_main", "al"])
+    ),
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Validation                                                                  */
+/* -------------------------------------------------------------------------- */
 
 function validateStudent(student, subjectIndex) {
   const errors = [];
   const grade = parseGrade(student?.grade);
+  const section = getStudentSection(student);
 
   if (!grade) errors.push("Missing grade");
-  if (!student?.className) errors.push("Missing className");
+  if (!section) errors.push("Missing section");
 
   if (!grade) return errors;
 
   const isAL = isALStudent(student);
 
   const religionSubjects = subjectIndex.religion.filter((s) => subjectAppliesToGrade(s, grade));
-  if (religionSubjects.length && !student?.religion) {
+  if (religionSubjects.length && !getStudentReligion(student)) {
     errors.push("Missing religion");
   }
 
   const aestheticSubjects = subjectIndex.aesthetic.filter((s) => subjectAppliesToGrade(s, grade));
-  if (!isAL && aestheticSubjects.length && !student?.aestheticChoice) {
+  if (!isAL && grade >= 6 && grade <= 9 && aestheticSubjects.length && !getStudentAestheticChoice(student)) {
     errors.push("Missing aestheticChoice");
   }
 
   if (!isAL && (grade === 10 || grade === 11)) {
-    if (subjectIndex.basketA.some((s) => subjectAppliesToGrade(s, grade)) && !student?.basketA) {
-      errors.push("Missing basketA");
+    if (subjectIndex.basketA.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "A")) {
+      errors.push("Missing basketAChoice");
     }
-    if (subjectIndex.basketB.some((s) => subjectAppliesToGrade(s, grade)) && !student?.basketB) {
-      errors.push("Missing basketB");
+    if (subjectIndex.basketB.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "B")) {
+      errors.push("Missing basketBChoice");
     }
-    if (subjectIndex.basketC.some((s) => subjectAppliesToGrade(s, grade)) && !student?.basketC) {
-      errors.push("Missing basketC");
+    if (subjectIndex.basketC.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "C")) {
+      errors.push("Missing basketCChoice");
     }
   }
 
   if (isAL) {
     if (!student?.stream) errors.push("Missing stream");
-    if (!toArray(student?.alSubjectChoices).length) {
+    if (!getStudentALChoices(student).length) {
       errors.push("Missing alSubjectChoices");
     }
   }
 
   return errors;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Desired subject building                                                    */
+/* -------------------------------------------------------------------------- */
 
 function buildDesiredSubjects(student, subjectIndex) {
   const grade = parseGrade(student?.grade);
@@ -221,7 +347,8 @@ function buildDesiredSubjects(student, subjectIndex) {
   const isAL = isALStudent(student);
 
   const add = (subject) => {
-    if (subject?.id) desired.set(subject.id, subject);
+    const key = subjectKey(subject);
+    if (key) desired.set(key, subject);
   };
 
   subjectIndex.core
@@ -232,31 +359,31 @@ function buildDesiredSubjects(student, subjectIndex) {
     .filter((s) => subjectAppliesToGrade(s, grade))
     .filter(
       (s) =>
-        valueMatches(s?.religion, student?.religion) ||
-        valueMatches(s?.religionGroup, student?.religion) ||
-        valueMatches(s?.name, student?.religion)
+        valueMatches(s?.religion, getStudentReligion(student)) ||
+        valueMatches(s?.religionGroup, getStudentReligion(student)) ||
+        valueMatches(getSubjectName(s), getStudentReligion(student))
     )
     .forEach(add);
 
   if (!isAL) {
     subjectIndex.aesthetic
       .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, student?.aestheticChoice))
+      .filter((s) => subjectMatchesChoice(s, getStudentAestheticChoice(student)))
       .forEach(add);
 
     subjectIndex.basketA
       .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, student?.basketA))
+      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "A")))
       .forEach(add);
 
     subjectIndex.basketB
       .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, student?.basketB))
+      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "B")))
       .forEach(add);
 
     subjectIndex.basketC
       .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, student?.basketC))
+      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "C")))
       .forEach(add);
   }
 
@@ -265,12 +392,12 @@ function buildDesiredSubjects(student, subjectIndex) {
       .filter((s) => subjectAppliesToGrade(s, grade))
       .filter((s) => {
         const streamOk =
-          !s?.stream && !s?.streams
+          (!s?.stream && !s?.streams)
             ? true
             : valueMatches(s?.stream, student?.stream) ||
               valueMatches(s?.streams, student?.stream);
 
-        const choiceOk = subjectMatchesChoice(s, student?.alSubjectChoices);
+        const choiceOk = subjectMatchesChoice(s, getStudentALChoices(student));
         return streamOk && choiceOk;
       })
       .forEach(add);
@@ -283,25 +410,50 @@ function buildDesiredSubjects(student, subjectIndex) {
   return { subjects: Array.from(desired.values()), issues: [] };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Enrollment payload                                                          */
+/* -------------------------------------------------------------------------- */
+
+function uniqueEnrollmentId(studentId, subjectId, academicYear) {
+  return `${academicYear}_${studentId}_${subjectId}`;
+}
+
 function enrollmentPayload(student, subject, academicYear) {
-  const gradeNumber = parseGrade(student.grade);
-  const className = student.className || student.section || "";
+  const gradeNumber = parseGrade(student?.grade);
+  const section = getStudentSection(student);
+  const fullClass = getStudentFullClass(student);
 
   return {
     studentId: student.id,
-    studentName: student.fullName || student.name || "",
+    studentName: getStudentName(student),
     admissionNo: student.admissionNo || student.indexNumber || "",
-    subjectId: subject.id,
-    subjectName: subject.name || subject.subjectName || "",
+
     grade: gradeNumber || null,
-    section: className,
-    className,
-    academicYear,
+    section,
+    className: fullClass,
+
+    academicYear: normalizeAcademicYear(academicYear),
+
+    subjectId: getSubjectId(subject),
+    subjectName: getSubjectName(subject),
+    subjectCode: getSubjectCode(subject),
+    subjectCategory: getSubjectCategory(subject),
+
+    religionKey: subject?.religion || "",
+    basketGroup: subject?.basketGroup || "",
+    stream: subject?.stream || "",
+    medium: student?.medium || "",
+
+    generatedBy: "system",
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Firestore fetch                                                             */
+/* -------------------------------------------------------------------------- */
 
 function mapDocs(snapshot) {
   return snapshot.docs.map((docSnap) => ({
@@ -323,7 +475,7 @@ async function fetchSubjects() {
 async function fetchEnrollmentsByYear(academicYear) {
   const q = query(
     collection(db, ENROLLMENTS_COLLECTION),
-    where("academicYear", "==", academicYear)
+    where("academicYear", "==", normalizeAcademicYear(academicYear))
   );
   const snap = await getDocs(q);
   return mapDocs(snap);
@@ -332,23 +484,53 @@ async function fetchEnrollmentsByYear(academicYear) {
 async function fetchEnrollmentsByStudent(academicYear, studentId) {
   const q = query(
     collection(db, ENROLLMENTS_COLLECTION),
-    where("academicYear", "==", academicYear),
+    where("academicYear", "==", normalizeAcademicYear(academicYear)),
     where("studentId", "==", studentId)
   );
   const snap = await getDocs(q);
   return mapDocs(snap);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Enrollment matching                                                         */
+/* -------------------------------------------------------------------------- */
+
+function existingEnrollmentKey(enrollment) {
+  if (enrollment?.subjectId) return `id:${enrollment.subjectId}`;
+  return `name:${normalizeLoose(enrollment?.subjectName)}`;
+}
+
 function groupEnrollmentsByStudent(enrollments) {
   const map = new Map();
+
   for (const enrollment of enrollments) {
     if (!map.has(enrollment.studentId)) {
       map.set(enrollment.studentId, []);
     }
     map.get(enrollment.studentId).push(enrollment);
   }
+
   return map;
 }
+
+function hasPayloadChanged(existingEnrollment, payload) {
+  return (
+    existingEnrollment.subjectName !== payload.subjectName ||
+    existingEnrollment.subjectCode !== payload.subjectCode ||
+    existingEnrollment.grade !== payload.grade ||
+    existingEnrollment.section !== payload.section ||
+    existingEnrollment.className !== payload.className ||
+    existingEnrollment.status !== "active" ||
+    (existingEnrollment.subjectCategory || "") !== (payload.subjectCategory || "") ||
+    (existingEnrollment.basketGroup || "") !== (payload.basketGroup || "") ||
+    (existingEnrollment.stream || "") !== (payload.stream || "") ||
+    (existingEnrollment.medium || "") !== (payload.medium || "")
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Batch commit                                                                */
+/* -------------------------------------------------------------------------- */
 
 async function commitOperations(operations) {
   for (let i = 0; i < operations.length; i += BATCH_LIMIT) {
@@ -359,11 +541,17 @@ async function commitOperations(operations) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Generate missing                                                            */
+/* -------------------------------------------------------------------------- */
+
 export async function generateMissingEnrollments({ academicYear }) {
+  const normalizedYear = normalizeAcademicYear(academicYear);
+
   const [students, subjects, enrollments] = await Promise.all([
     fetchStudents(),
     fetchSubjects(),
-    fetchEnrollmentsByYear(academicYear),
+    fetchEnrollmentsByYear(normalizedYear),
   ]);
 
   const subjectIndex = buildSubjectIndex(subjects);
@@ -390,52 +578,70 @@ export async function generateMissingEnrollments({ academicYear }) {
         skipped += 1;
         logs.push({
           type: "warning",
-          message: `${student.fullName || student.name || student.id} skipped`,
+          message: `${getStudentName(student) || student.id} skipped`,
           details: issues.join(", "),
         });
         continue;
       }
 
       const existing = enrollmentMap.get(student.id) || [];
-      const existingBySubjectId = new Map(existing.map((e) => [e.subjectId, e]));
+      const existingByKey = new Map(existing.map((e) => [existingEnrollmentKey(e), e]));
 
       for (const subject of desiredSubjects) {
-        const existingEnrollment = existingBySubjectId.get(subject.id);
-        const ref = doc(
+        const desiredKey = subjectKey(subject);
+        const existingEnrollment = existingByKey.get(desiredKey);
+
+        const canonicalRef = doc(
           db,
           ENROLLMENTS_COLLECTION,
-          uniqueEnrollmentId(student.id, subject.id, academicYear)
+          uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
         );
-        const payload = enrollmentPayload(student, subject, academicYear);
+        const payload = enrollmentPayload(student, subject, normalizedYear);
 
         if (!existingEnrollment) {
           created += 1;
-          operations.push((batch) => batch.set(ref, payload, { merge: true }));
+          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
           continue;
         }
 
         if (existingEnrollment.status === "inactive") {
           reactivated += 1;
-          operations.push((batch) => batch.set(ref, payload, { merge: true }));
+          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
+
+          if (existingEnrollment.id !== canonicalRef.id) {
+            const oldRef = doc(db, ENROLLMENTS_COLLECTION, existingEnrollment.id);
+            operations.push((batch) =>
+              batch.set(
+                oldRef,
+                { status: "inactive", updatedAt: serverTimestamp() },
+                { merge: true }
+              )
+            );
+          }
           continue;
         }
 
-        const changed =
-          existingEnrollment.subjectName !== payload.subjectName ||
-          existingEnrollment.grade !== payload.grade ||
-          existingEnrollment.className !== payload.className ||
-          existingEnrollment.status !== "active";
-
-        if (changed) {
+        if (hasPayloadChanged(existingEnrollment, payload) || existingEnrollment.id !== canonicalRef.id) {
           updated += 1;
-          operations.push((batch) => batch.set(ref, payload, { merge: true }));
+          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
+
+          if (existingEnrollment.id !== canonicalRef.id) {
+            const oldRef = doc(db, ENROLLMENTS_COLLECTION, existingEnrollment.id);
+            operations.push((batch) =>
+              batch.set(
+                oldRef,
+                { status: "inactive", updatedAt: serverTimestamp() },
+                { merge: true }
+              )
+            );
+          }
         }
       }
     } catch (error) {
       errors += 1;
       logs.push({
         type: "error",
-        message: `${student.fullName || student.name || student.id} failed`,
+        message: `${getStudentName(student) || student.id} failed`,
         details: error.message,
       });
     }
@@ -456,11 +662,17 @@ export async function generateMissingEnrollments({ academicYear }) {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Regenerate one student                                                      */
+/* -------------------------------------------------------------------------- */
+
 export async function regenerateSingleStudent({ academicYear, studentId }) {
+  const normalizedYear = normalizeAcademicYear(academicYear);
+
   const [students, subjects, existingEnrollments] = await Promise.all([
     fetchStudents(),
     fetchSubjects(),
-    fetchEnrollmentsByStudent(academicYear, studentId),
+    fetchEnrollmentsByStudent(normalizedYear, studentId),
   ]);
 
   const student = students.find((s) => s.id === studentId);
@@ -482,7 +694,7 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
       logs: [
         {
           type: "warning",
-          message: `${student.fullName || student.name || student.id} skipped`,
+          message: `${getStudentName(student) || student.id} skipped`,
           details: "Student is inactive",
         },
       ],
@@ -505,7 +717,7 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
       logs: [
         {
           type: "warning",
-          message: `${student.fullName || student.name || student.id} skipped`,
+          message: `${getStudentName(student) || student.id} skipped`,
           details: issues.join(", "),
         },
       ],
@@ -536,13 +748,16 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
   }
 
   for (const subject of desiredSubjects) {
-    const existing = existingEnrollments.find((e) => e.subjectId === subject.id);
+    const existing = existingEnrollments.find(
+      (e) => existingEnrollmentKey(e) === subjectKey(subject)
+    );
+
     const ref = doc(
       db,
       ENROLLMENTS_COLLECTION,
-      uniqueEnrollmentId(student.id, subject.id, academicYear)
+      uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
     );
-    const payload = enrollmentPayload(student, subject, academicYear);
+    const payload = enrollmentPayload(student, subject, normalizedYear);
 
     if (!existing) created += 1;
     else if (existing.status === "inactive") reactivated += 1;
@@ -565,18 +780,24 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     logs: [
       {
         type: "success",
-        message: `${student.fullName || student.name || student.id} regenerated`,
+        message: `${getStudentName(student) || student.id} regenerated`,
         details: `Subjects rebuilt: ${desiredSubjects.length}`,
       },
     ],
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Full rebuild                                                                */
+/* -------------------------------------------------------------------------- */
+
 export async function fullRebuildEnrollments({ academicYear }) {
+  const normalizedYear = normalizeAcademicYear(academicYear);
+
   const [students, subjects, enrollments] = await Promise.all([
     fetchStudents(),
     fetchSubjects(),
-    fetchEnrollmentsByYear(academicYear),
+    fetchEnrollmentsByYear(normalizedYear),
   ]);
 
   const subjectIndex = buildSubjectIndex(subjects);
@@ -621,7 +842,7 @@ export async function fullRebuildEnrollments({ academicYear }) {
         skipped += 1;
         logs.push({
           type: "warning",
-          message: `${student.fullName || student.name || student.id} skipped`,
+          message: `${getStudentName(student) || student.id} skipped`,
           details: issues.join(", "),
         });
         continue;
@@ -630,13 +851,16 @@ export async function fullRebuildEnrollments({ academicYear }) {
       const existing = enrollmentMap.get(student.id) || [];
 
       for (const subject of desiredSubjects) {
-        const found = existing.find((e) => e.subjectId === subject.id);
+        const found = existing.find(
+          (e) => existingEnrollmentKey(e) === subjectKey(subject)
+        );
+
         const ref = doc(
           db,
           ENROLLMENTS_COLLECTION,
-          uniqueEnrollmentId(student.id, subject.id, academicYear)
+          uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
         );
-        const payload = enrollmentPayload(student, subject, academicYear);
+        const payload = enrollmentPayload(student, subject, normalizedYear);
 
         if (!found) created += 1;
         else if (found.status === "inactive") reactivated += 1;
@@ -648,7 +872,7 @@ export async function fullRebuildEnrollments({ academicYear }) {
       errors += 1;
       logs.push({
         type: "error",
-        message: `${student.fullName || student.name || student.id} failed`,
+        message: `${getStudentName(student) || student.id} failed`,
         details: error.message,
       });
     }
