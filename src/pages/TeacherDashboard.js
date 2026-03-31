@@ -3,7 +3,6 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { getStudentSubjects } from "../constants";
 import {
   Alert,
   Avatar,
@@ -39,7 +38,7 @@ import SchoolIcon from "@mui/icons-material/School";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
+/* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
 function normalizeText(value) {
@@ -61,6 +60,10 @@ function normalizeSection(value) {
   return match ? match[0] : raw;
 }
 
+function buildFullClassName(grade, section) {
+  return `${parseGrade(grade)}${normalizeSection(section)}`;
+}
+
 function getStudentName(student) {
   return normalizeText(student?.name || student?.fullName || "Unnamed Student");
 }
@@ -73,8 +76,16 @@ function isStudentActive(student) {
   return normalizeLower(student?.status || "active") === "active";
 }
 
+function getStudentAdmissionNo(student) {
+  return normalizeText(student?.admissionNo || student?.admissionNumber || student?.admNo);
+}
+
 function getMarkSubject(mark) {
-  return normalizeText(mark?.subjectName || mark?.subject);
+  return normalizeText(mark?.subjectName || mark?.subject || "");
+}
+
+function getMarkSubjectId(mark) {
+  return normalizeText(mark?.subjectId || "");
 }
 
 function getMarkYear(mark) {
@@ -82,7 +93,7 @@ function getMarkYear(mark) {
 }
 
 function getMarkTerm(mark) {
-  return normalizeText(mark?.term || mark?.termName || mark?.termLabel);
+  return normalizeText(mark?.term || mark?.termName || mark?.termLabel || "");
 }
 
 function getMarkValue(mark) {
@@ -102,12 +113,59 @@ function hasMarkEntry(mark) {
   );
 }
 
+function getMarkClassName(mark) {
+  if (normalizeText(mark?.className)) {
+    const value = normalizeText(mark.className);
+    return /^\d+[A-Z]+$/i.test(value)
+      ? value.toUpperCase()
+      : buildFullClassName(mark?.grade, value);
+  }
+
+  if (mark?.grade || mark?.section) {
+    return buildFullClassName(mark.grade, mark.section);
+  }
+
+  return "";
+}
+
 function getTeacherAssignmentSubject(assignment) {
   return normalizeText(assignment?.subjectName || assignment?.subject || "");
 }
 
+function getTeacherAssignmentSubjectId(assignment) {
+  return normalizeText(assignment?.subjectId || "");
+}
+
 function getTeacherAssignmentSection(assignment) {
-  return normalizeSection(assignment?.section || assignment?.className || "");
+  const raw = normalizeText(assignment?.section || assignment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(raw)) {
+    return normalizeSection(raw.replace(/^\d+/, ""));
+  }
+  return normalizeSection(raw);
+}
+
+function getTeacherAssignmentClassName(assignment) {
+  const rawClassName = normalizeText(assignment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(assignment?.grade, assignment?.section || rawClassName);
+}
+
+function getEnrollmentClassName(enrollment) {
+  const rawClassName = normalizeText(enrollment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
+}
+
+function getEnrollmentSubject(enrollment) {
+  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
+}
+
+function getEnrollmentSubjectId(enrollment) {
+  return normalizeText(enrollment?.subjectId || "");
+}
+
+function isEnrollmentActive(enrollment) {
+  return normalizeLower(enrollment?.status || "active") === "active";
 }
 
 function getInitials(name = "") {
@@ -115,7 +173,7 @@ function getInitials(name = "") {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
+    .map((word) => word[0]?.toUpperCase())
     .join("");
 }
 
@@ -141,6 +199,65 @@ function progressBarColor(status) {
     : status === "partial"
     ? "#f57f17"
     : "#c62828";
+}
+
+function teacherMatchesProfile(record, profile) {
+  const recordTeacherId = normalizeText(
+    record?.teacherId || record?.classTeacherId || record?.teacherDocId
+  );
+  const recordUid = normalizeText(record?.teacherUid || record?.classTeacherUid || record?.uid);
+  const recordEmail = normalizeLower(
+    record?.teacherEmail || record?.classTeacherEmail || record?.email
+  );
+  const recordName = normalizeLower(
+    record?.teacherName || record?.classTeacherName || record?.name
+  );
+  const recordSignatureNo = normalizeText(
+    record?.teacherSignatureNo || record?.classTeacherSignatureNo || record?.signatureNo
+  );
+
+  const profileIds = [
+    profile?.uid,
+    profile?.id,
+    profile?.teacherId,
+    profile?.docId,
+    profile?.userId,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  const profileEmails = [profile?.email].map(normalizeLower).filter(Boolean);
+  const profileNames = [profile?.name, profile?.displayName].map(normalizeLower).filter(Boolean);
+  const profileSignatureNos = [
+    profile?.signatureNo,
+    profile?.teacherSignatureNo,
+    profile?.teacherNo,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return (
+    (recordTeacherId && profileIds.includes(recordTeacherId)) ||
+    (recordUid && profileIds.includes(recordUid)) ||
+    (recordEmail && profileEmails.includes(recordEmail)) ||
+    (recordName && profileNames.includes(recordName)) ||
+    (recordSignatureNo && profileSignatureNos.includes(recordSignatureNo))
+  );
+}
+
+function normalizeClassroom(classroom) {
+  const grade = parseGrade(classroom?.grade);
+  const section = normalizeSection(classroom?.section || classroom?.className || "");
+  const year = String(classroom?.year || classroom?.academicYear || "");
+  return {
+    ...classroom,
+    grade,
+    section,
+    year,
+    className:
+      normalizeText(classroom?.className || classroom?.fullClassName) ||
+      buildFullClassName(grade, section),
+  };
 }
 
 function StatCard({ title, value, subtitle, icon, bg }) {
@@ -222,152 +339,243 @@ export default function TeacherDashboard() {
   const [marks, setMarks] = useState([]);
   const [activeTerm, setActiveTerm] = useState(null);
   const [subjectProgress, setSubjectProgress] = useState([]);
+  const [classTeacherClass, setClassTeacherClass] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     async function fetchData() {
-      if (!profile?.uid) return;
+      if (!profile?.uid && !profile?.email && !profile?.name) return;
 
       setLoading(true);
       setLoadError("");
 
       try {
-        const [termSnap, assignmentSnap, studentSnap, marksSnap] = await Promise.all([
+        const [
+          termSnap,
+          assignmentSnap,
+          studentSnap,
+          marksSnap,
+          classroomSnap,
+          enrollmentSnap,
+        ] = await Promise.all([
           getDocs(collection(db, "academicTerms")),
           getDocs(collection(db, "teacherAssignments")),
           getDocs(collection(db, "students")),
           getDocs(collection(db, "marks")),
+          getDocs(collection(db, "classrooms")),
+          getDocs(collection(db, "studentSubjectEnrollments")),
         ]);
 
-        const active = termSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .find((t) => t.isActive === true) || null;
+        const active =
+          termSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .find((term) => term.isActive === true) || null;
+
         setActiveTerm(active);
 
-        const allAssignments = assignmentSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
+        const allAssignments = assignmentSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((a) => normalizeLower(a.status || "active") === "active");
 
         const myAssignments = allAssignments
-          .filter((a) => normalizeText(a.teacherId) === normalizeText(profile.uid))
-          .filter((a) => normalizeLower(a.status || "active") === "active")
+          .filter((assignment) => teacherMatchesProfile(assignment, profile))
           .sort((a, b) => {
-            const gradeDiff = Number(a.grade || 0) - Number(b.grade || 0);
+            const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
             if (gradeDiff !== 0) return gradeDiff;
             return getTeacherAssignmentSection(a).localeCompare(getTeacherAssignmentSection(b));
           });
 
         setAssignments(myAssignments);
 
-        const myClasses = [
-          ...new Map(
-            myAssignments.map((a) => [
-              `${a.grade}-${getTeacherAssignmentSection(a)}`,
-              { grade: Number(a.grade), section: getTeacherAssignmentSection(a) },
-            ])
-          ).values(),
-        ];
+        const classrooms = classroomSnap.docs.map((d) =>
+          normalizeClassroom({ id: d.id, ...d.data() })
+        );
+
+        const matchedClassTeacherClass =
+          classrooms.find((room) => teacherMatchesProfile(room, profile)) || null;
+
+        setClassTeacherClass(matchedClassTeacherClass);
 
         const allStudents = studentSnap.docs.map((d) => ({
           id: d.id,
           ...d.data(),
         }));
 
-        const myStudents = allStudents.filter(
-          (s) =>
-            isStudentActive(s) &&
-            myClasses.some(
-              (c) =>
-                Number(c.grade) === Number(s.grade) &&
-                c.section === getStudentSection(s)
-            )
+        const studentsById = new Map(
+          allStudents.map((student) => [normalizeText(student.id), student])
         );
 
-        myStudents.sort((a, b) => {
-          const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
-          if (gradeDiff !== 0) return gradeDiff;
-
-          const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
-          if (sectionDiff !== 0) return sectionDiff;
-
-          return getStudentName(a).localeCompare(getStudentName(b));
-        });
-
-        setStudents(myStudents);
+        const allEnrollments = enrollmentSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((enrollment) => isEnrollmentActive(enrollment));
 
         const allMarks = marksSnap.docs.map((d) => ({
           id: d.id,
           ...d.data(),
         }));
 
-        const myMarks = allMarks.filter((m) =>
-          myAssignments.some(
-            (a) =>
-              Number(a.grade) === Number(m.grade) &&
-              getTeacherAssignmentSection(a) === normalizeSection(m.section || m.className) &&
-              getTeacherAssignmentSubject(a) === getMarkSubject(m)
-          )
-        );
+        const myAssignmentClassKeys = [
+          ...new Set(myAssignments.map((assignment) => getTeacherAssignmentClassName(assignment))),
+        ];
+
+        const myAssignmentPairs = myAssignments.map((assignment) => ({
+          className: getTeacherAssignmentClassName(assignment),
+          subjectId: getTeacherAssignmentSubjectId(assignment),
+          subjectName: getTeacherAssignmentSubject(assignment),
+          grade: parseGrade(assignment.grade),
+          section: getTeacherAssignmentSection(assignment),
+        }));
+
+        const myEnrollments = allEnrollments.filter((enrollment) => {
+          const enrollmentClassName = getEnrollmentClassName(enrollment);
+          const enrollmentSubjectId = getEnrollmentSubjectId(enrollment);
+          const enrollmentSubjectName = getEnrollmentSubject(enrollment);
+
+          return myAssignmentPairs.some((pair) => {
+            const sameClass = pair.className === enrollmentClassName;
+            const sameSubject =
+              (pair.subjectId && enrollmentSubjectId && pair.subjectId === enrollmentSubjectId) ||
+              (!!pair.subjectName && pair.subjectName === enrollmentSubjectName);
+
+            return sameClass && sameSubject;
+          });
+        });
+
+        const myStudentIds = [...new Set(myEnrollments.map((e) => normalizeText(e.studentId)).filter(Boolean))];
+
+        const myStudents = myStudentIds
+          .map((studentId) => studentsById.get(studentId))
+          .filter(Boolean)
+          .filter((student) => isStudentActive(student))
+          .sort((a, b) => {
+            const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
+            if (gradeDiff !== 0) return gradeDiff;
+
+            const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
+            if (sectionDiff !== 0) return sectionDiff;
+
+            return getStudentName(a).localeCompare(getStudentName(b));
+          });
+
+        setStudents(myStudents);
+
+        const myMarks = allMarks.filter((mark) => {
+          const markClassName = getMarkClassName(mark);
+          const markSubjectId = getMarkSubjectId(mark);
+          const markSubjectName = getMarkSubject(mark);
+
+          return myAssignmentPairs.some((pair) => {
+            const sameClass = pair.className === markClassName;
+            const sameSubject =
+              (pair.subjectId && markSubjectId && pair.subjectId === markSubjectId) ||
+              (!!pair.subjectName && pair.subjectName === markSubjectName);
+
+            return sameClass && sameSubject;
+          });
+        });
 
         setMarks(myMarks);
 
-        if (profile.isClassTeacher && active) {
-          const classStudents = allStudents.filter(
-            (s) =>
-              isStudentActive(s) &&
-              Number(s.grade) === Number(profile.classGrade) &&
-              getStudentSection(s) === normalizeSection(profile.classSection)
+        if (matchedClassTeacherClass && active) {
+          const className = matchedClassTeacherClass.className;
+          const classAssignments = allAssignments.filter(
+            (assignment) => getTeacherAssignmentClassName(assignment) === className
           );
 
-          const subjectSet = new Set();
-          classStudents.forEach((s) => {
-            const subs = getStudentSubjects(s) || [];
-            subs.forEach((sub) => subjectSet.add(normalizeText(sub)));
+          const classEnrollments = allEnrollments.filter(
+            (enrollment) =>
+              getEnrollmentClassName(enrollment) === className &&
+              String(enrollment.academicYear || "") === String(active.year || enrollment.academicYear || "")
+          );
+
+          const groupedSubjectsMap = new Map();
+
+          classAssignments.forEach((assignment) => {
+            const subjectId = getTeacherAssignmentSubjectId(assignment);
+            const subjectName = getTeacherAssignmentSubject(assignment);
+            const key = subjectId || subjectName;
+            if (!key) return;
+
+            if (!groupedSubjectsMap.has(key)) {
+              groupedSubjectsMap.set(key, {
+                subjectId,
+                subjectName,
+              });
+            }
           });
 
-          const progress = Array.from(subjectSet).map((subject) => {
-            const eligibleStudents = classStudents.filter((s) =>
-              (getStudentSubjects(s) || []).map((x) => normalizeText(x)).includes(subject)
-            );
+          classEnrollments.forEach((enrollment) => {
+            const subjectId = getEnrollmentSubjectId(enrollment);
+            const subjectName = getEnrollmentSubject(enrollment);
+            const key = subjectId || subjectName;
+            if (!key) return;
 
-            const enteredMarks = allMarks.filter(
-              (m) =>
-                Number(m.grade) === Number(profile.classGrade) &&
-                normalizeSection(m.section || m.className) ===
-                  normalizeSection(profile.classSection) &&
-                getMarkSubject(m) === subject &&
-                (!active?.term || getMarkTerm(m) === normalizeText(active.term)) &&
-                (!active?.year || getMarkYear(m) === String(active.year))
-            );
-
-            const uniqueMarkedStudents = new Set(
-              enteredMarks
-                .filter((m) => hasMarkEntry(m))
-                .map((m) => normalizeText(m.studentId))
-                .filter(Boolean)
-            );
-
-            const entered = uniqueMarkedStudents.size;
-            const total = eligibleStudents.length;
-            const percent = total > 0 ? Math.round((entered / total) * 100) : 0;
-            const status =
-              entered === 0 ? "pending" : entered < total ? "partial" : "done";
-
-            return {
-              subject,
-              entered,
-              total,
-              percent,
-              status,
-            };
+            if (!groupedSubjectsMap.has(key)) {
+              groupedSubjectsMap.set(key, {
+                subjectId,
+                subjectName,
+              });
+            }
           });
 
-          progress.sort((a, b) => {
-            const order = { pending: 0, partial: 1, done: 2 };
-            return order[a.status] - order[b.status] || a.subject.localeCompare(b.subject);
-          });
+          const progress = Array.from(groupedSubjectsMap.values())
+            .map((subjectInfo) => {
+              const eligibleEnrollments = classEnrollments.filter((enrollment) => {
+                const sameSubject =
+                  (subjectInfo.subjectId &&
+                    getEnrollmentSubjectId(enrollment) &&
+                    subjectInfo.subjectId === getEnrollmentSubjectId(enrollment)) ||
+                  (!!subjectInfo.subjectName &&
+                    subjectInfo.subjectName === getEnrollmentSubject(enrollment));
+
+                return sameSubject;
+              });
+
+              const eligibleStudentIds = new Set(
+                eligibleEnrollments
+                  .map((enrollment) => normalizeText(enrollment.studentId))
+                  .filter(Boolean)
+              );
+
+              const markedStudentIds = new Set(
+                allMarks
+                  .filter((mark) => {
+                    const sameClass = getMarkClassName(mark) === className;
+                    const sameTerm = !active?.term || getMarkTerm(mark) === normalizeText(active.term);
+                    const sameYear = !active?.year || getMarkYear(mark) === String(active.year);
+
+                    const sameSubject =
+                      (subjectInfo.subjectId &&
+                        getMarkSubjectId(mark) &&
+                        subjectInfo.subjectId === getMarkSubjectId(mark)) ||
+                      (!!subjectInfo.subjectName &&
+                        subjectInfo.subjectName === getMarkSubject(mark));
+
+                    return sameClass && sameTerm && sameYear && sameSubject && hasMarkEntry(mark);
+                  })
+                  .map((mark) => normalizeText(mark.studentId))
+                  .filter((studentId) => studentId && eligibleStudentIds.has(studentId))
+              );
+
+              const entered = markedStudentIds.size;
+              const total = eligibleStudentIds.size;
+              const percent = total > 0 ? Math.round((entered / total) * 100) : 0;
+              const status =
+                entered === 0 ? "pending" : entered < total ? "partial" : "done";
+
+              return {
+                subject: subjectInfo.subjectName || "Unnamed Subject",
+                entered,
+                total,
+                percent,
+                status,
+              };
+            })
+            .sort((a, b) => {
+              const order = { pending: 0, partial: 1, done: 2 };
+              return order[a.status] - order[b.status] || a.subject.localeCompare(b.subject);
+            });
 
           setSubjectProgress(progress);
         } else {
@@ -387,19 +595,23 @@ export default function TeacherDashboard() {
   const myClasses = useMemo(() => {
     return [
       ...new Map(
-        assignments.map((a) => [
-          `${a.grade}-${getTeacherAssignmentSection(a)}`,
-          { grade: Number(a.grade), section: getTeacherAssignmentSection(a) },
+        assignments.map((assignment) => [
+          getTeacherAssignmentClassName(assignment),
+          {
+            grade: parseGrade(assignment.grade),
+            section: getTeacherAssignmentSection(assignment),
+            className: getTeacherAssignmentClassName(assignment),
+          },
         ])
       ).values(),
     ];
   }, [assignments]);
 
   const groupedClasses = useMemo(() => {
-    return assignments.reduce((acc, a) => {
-      const key = `Grade ${a.grade}-${getTeacherAssignmentSection(a)}`;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(getTeacherAssignmentSubject(a));
+    return assignments.reduce((acc, assignment) => {
+      const classLabel = `Grade ${parseGrade(assignment.grade)}-${getTeacherAssignmentSection(assignment)}`;
+      if (!acc[classLabel]) acc[classLabel] = [];
+      acc[classLabel].push(getTeacherAssignmentSubject(assignment));
       return acc;
     }, {});
   }, [assignments]);
@@ -408,43 +620,41 @@ export default function TeacherDashboard() {
     if (!activeTerm) return 0;
 
     return assignments.filter((assignment) => {
-      const classStudents = students.filter(
-        (s) =>
-          Number(s.grade) === Number(assignment.grade) &&
-          getStudentSection(s) === getTeacherAssignmentSection(assignment)
+      const className = getTeacherAssignmentClassName(assignment);
+      const subjectId = getTeacherAssignmentSubjectId(assignment);
+      const subjectName = getTeacherAssignmentSubject(assignment);
+
+      const eligibleStudentIds = new Set(
+        students
+          .filter((student) => {
+            const studentClassName = buildFullClassName(student.grade, getStudentSection(student));
+            return studentClassName === className;
+          })
+          .map((student) => normalizeText(student.id))
       );
-
-      if (!classStudents.length) return false;
-
-      const subjectEligibleStudents = classStudents.filter((s) =>
-        (getStudentSubjects(s) || [])
-          .map((x) => normalizeText(x))
-          .includes(getTeacherAssignmentSubject(assignment))
-      );
-
-      if (!subjectEligibleStudents.length) return false;
 
       const markedStudentIds = new Set(
         marks
-          .filter(
-            (m) =>
-              Number(m.grade) === Number(assignment.grade) &&
-              normalizeSection(m.section || m.className) ===
-                getTeacherAssignmentSection(assignment) &&
-              getMarkSubject(m) === getTeacherAssignmentSubject(assignment) &&
-              getMarkTerm(m) === normalizeText(activeTerm.term) &&
-              getMarkYear(m) === String(activeTerm.year) &&
-              hasMarkEntry(m)
-          )
-          .map((m) => normalizeText(m.studentId))
-          .filter(Boolean)
+          .filter((mark) => {
+            const sameClass = getMarkClassName(mark) === className;
+            const sameTerm = getMarkTerm(mark) === normalizeText(activeTerm.term);
+            const sameYear = getMarkYear(mark) === String(activeTerm.year);
+            const sameSubject =
+              (subjectId && getMarkSubjectId(mark) && subjectId === getMarkSubjectId(mark)) ||
+              (!!subjectName && subjectName === getMarkSubject(mark));
+
+            return sameClass && sameTerm && sameYear && sameSubject && hasMarkEntry(mark);
+          })
+          .map((mark) => normalizeText(mark.studentId))
+          .filter((studentId) => studentId && eligibleStudentIds.has(studentId))
       );
 
-      return markedStudentIds.size >= subjectEligibleStudents.length;
+      return eligibleStudentIds.size > 0 && markedStudentIds.size >= eligibleStudentIds.size;
     }).length;
   }, [assignments, students, marks, activeTerm]);
 
   const marksCount = marks.length;
+  const isClassTeacher = !!classTeacherClass;
 
   const statCards = [
     {
@@ -485,7 +695,7 @@ export default function TeacherDashboard() {
       onClick: () => navigate("/teacher/marks"),
       icon: <AssessmentIcon sx={{ color: "#2e7d32" }} />,
     },
-    profile?.isClassTeacher
+    isClassTeacher
       ? {
           title: "Class Teacher Report",
           description: "Monitor completion and overall class progress.",
@@ -542,6 +752,7 @@ export default function TeacherDashboard() {
                 color="primary"
                 size="small"
               />
+
               {activeTerm ? (
                 <Chip
                   icon={<CheckCircleIcon />}
@@ -558,13 +769,13 @@ export default function TeacherDashboard() {
                 />
               )}
 
-              {profile?.isClassTeacher && (
+              {isClassTeacher && classTeacherClass ? (
                 <Chip
-                  label={`Class Teacher · G${profile.classGrade}-${profile.classSection}`}
+                  label={`Class Teacher · G${classTeacherClass.grade}-${classTeacherClass.section}`}
                   color="secondary"
                   size="small"
                 />
-              )}
+              ) : null}
             </Stack>
           </Box>
 
@@ -577,7 +788,7 @@ export default function TeacherDashboard() {
               Open Marks Entry
             </Button>
 
-            {profile?.isClassTeacher && (
+            {isClassTeacher && (
               <Button
                 variant="outlined"
                 onClick={() => navigate("/teacher/class-report")}
@@ -603,14 +814,14 @@ export default function TeacherDashboard() {
       )}
 
       <Grid container spacing={2} mb={3}>
-        {statCards.map((c) => (
-          <Grid item xs={12} sm={4} key={c.label}>
+        {statCards.map((card) => (
+          <Grid item xs={12} sm={4} key={card.label}>
             <StatCard
-              title={c.label}
-              value={c.value}
-              subtitle={c.subtitle}
-              icon={c.icon}
-              bg={c.color}
+              title={card.label}
+              value={card.value}
+              subtitle={card.subtitle}
+              icon={card.icon}
+              bg={card.color}
             />
           </Grid>
         ))}
@@ -624,7 +835,7 @@ export default function TeacherDashboard() {
         ))}
       </Grid>
 
-      {profile?.isClassTeacher && (
+      {isClassTeacher && classTeacherClass && (
         <Box mb={3}>
           <Paper
             sx={{
@@ -646,7 +857,7 @@ export default function TeacherDashboard() {
                   Class Progress Monitor
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Grade {profile.classGrade}-{profile.classSection}
+                  Grade {classTeacherClass.grade}-{classTeacherClass.section}
                   {activeTerm ? ` · ${activeTerm.term} ${activeTerm.year}` : ""}
                 </Typography>
               </Box>
@@ -683,12 +894,7 @@ export default function TeacherDashboard() {
                     }}
                   >
                     <CardContent>
-                      <Box
-                        display="flex"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        mb={1}
-                      >
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                         <Typography variant="body2" fontWeight={700}>
                           {sp.subject}
                         </Typography>
@@ -724,9 +930,9 @@ export default function TeacherDashboard() {
                 <Table size="small">
                   <TableHead sx={{ bgcolor: "#1a237e" }}>
                     <TableRow>
-                      {["#", "Subject", "Progress", "Students", "%", "Status"].map((h) => (
-                        <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
-                          {h}
+                      {["#", "Subject", "Progress", "Students", "%", "Status"].map((head) => (
+                        <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
+                          {head}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -817,10 +1023,10 @@ export default function TeacherDashboard() {
                   </Typography>
 
                   <Box display="flex" flexWrap="wrap" gap={0.6}>
-                    {subjects.map((s) => (
+                    {subjects.map((subject) => (
                       <Chip
-                        key={`${classLabel}-${s}`}
-                        label={s}
+                        key={`${classLabel}-${subject}`}
+                        label={subject}
                         size="small"
                         color="primary"
                         variant="outlined"
@@ -875,24 +1081,21 @@ export default function TeacherDashboard() {
                     No students found in your assigned classes.
                   </Typography>
                 ) : (
-                  students.map((s, idx) => (
-                    <Card
-                      key={s.id}
-                      variant="outlined"
-                      sx={{ mb: 1.2, borderRadius: 2 }}
-                    >
+                  students.map((student, idx) => (
+                    <Card key={student.id} variant="outlined" sx={{ mb: 1.2, borderRadius: 2 }}>
                       <CardContent sx={{ pb: 1.2 }}>
                         <Stack direction="row" spacing={1.2} alignItems="center">
                           <Avatar sx={{ bgcolor: "#1a237e", width: 36, height: 36 }}>
-                            {getInitials(getStudentName(s))}
+                            {getInitials(getStudentName(student))}
                           </Avatar>
 
                           <Box flex={1}>
                             <Typography variant="body2" fontWeight={700}>
-                              {getStudentName(s)}
+                              {getStudentName(student)}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Adm: {s.admissionNo || "—"} · G{parseGrade(s.grade)}-{getStudentSection(s)}
+                              Adm: {getStudentAdmissionNo(student) || "—"} · G{parseGrade(student.grade)}-
+                              {getStudentSection(student)}
                             </Typography>
                           </Box>
 
@@ -906,7 +1109,7 @@ export default function TeacherDashboard() {
                           variant="outlined"
                           startIcon={<AssessmentIcon />}
                           sx={{ mt: 1.2, borderColor: "#1a237e", color: "#1a237e" }}
-                          onClick={() => navigate(`/teacher/report/${s.id}`)}
+                          onClick={() => navigate(`/teacher/report/${student.id}`)}
                         >
                           Report
                         </Button>
@@ -919,18 +1122,18 @@ export default function TeacherDashboard() {
               <Table size="small">
                 <TableHead sx={{ bgcolor: "#f5f7ff" }}>
                   <TableRow>
-                    {["#", "Adm No", "Name", "Grade", "Gender", "Action"].map((h) => (
-                      <TableCell key={h} sx={{ fontWeight: 700 }}>
-                        {h}
+                    {["#", "Adm No", "Name", "Grade", "Gender", "Action"].map((head) => (
+                      <TableCell key={head} sx={{ fontWeight: 700 }}>
+                        {head}
                       </TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {students.map((s, idx) => (
-                    <TableRow key={s.id} hover>
+                  {students.map((student, idx) => (
+                    <TableRow key={student.id} hover>
                       <TableCell>{idx + 1}</TableCell>
-                      <TableCell>{s.admissionNo || "—"}</TableCell>
+                      <TableCell>{getStudentAdmissionNo(student) || "—"}</TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={1.2} alignItems="center">
                           <Avatar
@@ -942,27 +1145,27 @@ export default function TeacherDashboard() {
                               fontWeight: 800,
                             }}
                           >
-                            {getInitials(getStudentName(s))}
+                            {getInitials(getStudentName(student))}
                           </Avatar>
                           <Typography variant="body2" fontWeight={700}>
-                            {getStudentName(s)}
+                            {getStudentName(student)}
                           </Typography>
                         </Stack>
                       </TableCell>
                       <TableCell>
                         <Chip
-                          label={`G${parseGrade(s.grade)}-${getStudentSection(s)}`}
+                          label={`G${parseGrade(student.grade)}-${getStudentSection(student)}`}
                           size="small"
                           color="primary"
                         />
                       </TableCell>
-                      <TableCell>{s.gender || "—"}</TableCell>
+                      <TableCell>{student.gender || "—"}</TableCell>
                       <TableCell>
                         <Button
                           size="small"
                           variant="outlined"
                           startIcon={<AssessmentIcon />}
-                          onClick={() => navigate(`/teacher/report/${s.id}`)}
+                          onClick={() => navigate(`/teacher/report/${student.id}`)}
                           sx={{ borderColor: "#1a237e", color: "#1a237e" }}
                         >
                           Report
@@ -1063,9 +1266,20 @@ export default function TeacherDashboard() {
                   Class teacher role
                 </Typography>
                 <Typography variant="body2" fontWeight={700}>
-                  {profile?.isClassTeacher ? "Yes" : "No"}
+                  {isClassTeacher ? "Yes" : "No"}
                 </Typography>
               </Box>
+
+              {isClassTeacher && classTeacherClass && (
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">
+                    Class teacher class
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700}>
+                    G{classTeacherClass.grade}-{classTeacherClass.section}
+                  </Typography>
+                </Box>
+              )}
             </Stack>
 
             <Divider sx={{ my: 2 }} />
@@ -1085,7 +1299,7 @@ export default function TeacherDashboard() {
                 Marks Entry
               </Button>
 
-              {profile?.isClassTeacher && (
+              {isClassTeacher && (
                 <Button
                   variant="outlined"
                   fullWidth
