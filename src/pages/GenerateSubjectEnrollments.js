@@ -1,5 +1,3 @@
-// src/pages/GenerateSubjectEnrollments.js
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -30,6 +28,10 @@ import {
   regenerateSingleStudent,
 } from "../services/enrollmentGenerator";
 
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
 function currentAcademicYear() {
   return String(new Date().getFullYear());
 }
@@ -38,9 +40,60 @@ function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeAcademicYear(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : currentAcademicYear();
+}
+
+function normalizeGrade(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = String(value ?? "").trim().toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function getStudentName(student) {
+  return student?.fullName || student?.name || "Unnamed";
+}
+
+function getStudentSection(student) {
+  return normalizeSection(student?.section || student?.className);
+}
+
+function getStudentGrade(student) {
+  return normalizeGrade(student?.grade);
+}
+
+function getStudentClassLabel(student) {
+  const grade = getStudentGrade(student);
+  const section = getStudentSection(student);
+
+  if (grade && section) return `G${grade}-${section}`;
+  if (grade) return `G${grade}`;
+  if (section) return section;
+  return "No Class";
+}
+
+function getStudentOptionLabel(student) {
+  const name = getStudentName(student);
+  const classLabel = getStudentClassLabel(student);
+  const admissionNo = String(student?.admissionNo || "").trim();
+
+  return `${name}${admissionNo ? ` (${admissionNo})` : ""} - ${classLabel}`;
+}
+
 function isStudentActive(student) {
   if (typeof student?.isActive === "boolean") return student.isActive;
-  if (student?.status) return normalize(student.status) === "active";
+  if (student?.status) {
+    const status = normalize(student.status);
+    return status === "active";
+  }
   return true;
 }
 
@@ -63,6 +116,10 @@ function StatCard({ title, value }) {
     </Card>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export default function GenerateSubjectEnrollments() {
   const { profile, isAdmin, loading: authLoading } = useAuth();
@@ -95,7 +152,25 @@ export default function GenerateSubjectEnrollments() {
         if (!mounted) return;
         setStudents(studentData);
       } catch (error) {
-        console.error(error);
+        console.error("Failed to load students:", error);
+        if (!mounted) return;
+        setSummary({
+          mode: "load",
+          totalProcessed: 0,
+          created: 0,
+          reactivated: 0,
+          updated: 0,
+          deactivated: 0,
+          skipped: 0,
+          errors: 1,
+          logs: [
+            {
+              type: "error",
+              message: "Failed to load students",
+              details: error.message,
+            },
+          ],
+        });
       } finally {
         if (mounted) setPageLoading(false);
       }
@@ -115,27 +190,44 @@ export default function GenerateSubjectEnrollments() {
 
   const sortedStudents = useMemo(() => {
     return [...students].sort((a, b) => {
-      const aName = (a.fullName || a.name || "").toLowerCase();
-      const bName = (b.fullName || b.name || "").toLowerCase();
-      return aName.localeCompare(bName);
+      const gradeDiff = getStudentGrade(a) - getStudentGrade(b);
+      if (gradeDiff !== 0) return gradeDiff;
+
+      const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
+      if (sectionDiff !== 0) return sectionDiff;
+
+      return getStudentName(a).toLowerCase().localeCompare(getStudentName(b).toLowerCase());
     });
   }, [students]);
+
+  async function refreshStudents() {
+    const refreshedStudents = await fetchStudents();
+    setStudents(refreshedStudents);
+
+    if (selectedStudent?.id) {
+      const refreshedSelected = refreshedStudents.find((s) => s.id === selectedStudent.id) || null;
+      setSelectedStudent(refreshedSelected);
+    }
+  }
 
   async function runMode(mode) {
     setRunning(mode);
 
     try {
+      const normalizedYear = normalizeAcademicYear(academicYear);
       let result;
 
       if (mode === ENROLLMENT_MODES.GENERATE_MISSING) {
-        result = await generateMissingEnrollments({ academicYear });
+        result = await generateMissingEnrollments({
+          academicYear: normalizedYear,
+        });
       } else if (mode === ENROLLMENT_MODES.REGENERATE_STUDENT) {
         if (!selectedStudent?.id) {
           throw new Error("Please select a student first.");
         }
 
         result = await regenerateSingleStudent({
-          academicYear,
+          academicYear: normalizedYear,
           studentId: selectedStudent.id,
         });
       } else if (mode === ENROLLMENT_MODES.FULL_REBUILD) {
@@ -143,13 +235,27 @@ export default function GenerateSubjectEnrollments() {
           throw new Error("Only admin can run full rebuild.");
         }
 
-        result = await fullRebuildEnrollments({ academicYear });
+        result = await fullRebuildEnrollments({
+          academicYear: normalizedYear,
+        });
+      } else {
+        throw new Error("Unknown enrollment mode.");
       }
 
-      setSummary(result);
+      setAcademicYear(normalizedYear);
+      setSummary({
+        mode: result?.mode || mode,
+        totalProcessed: result?.totalProcessed || 0,
+        created: result?.created || 0,
+        reactivated: result?.reactivated || 0,
+        updated: result?.updated || 0,
+        deactivated: result?.deactivated || 0,
+        skipped: result?.skipped || 0,
+        errors: result?.errors || 0,
+        logs: Array.isArray(result?.logs) ? result.logs : [],
+      });
 
-      const refreshedStudents = await fetchStudents();
-      setStudents(refreshedStudents);
+      await refreshStudents();
     } catch (error) {
       console.error(error);
       setSummary({
@@ -190,9 +296,9 @@ export default function GenerateSubjectEnrollments() {
         </Box>
 
         <Alert severity="info">
-          Existing MarksEntry will remain safe as long as it reads only
-          <strong> active </strong>
-          enrollments.
+          This page rebuilds <strong>studentSubjectEnrollments</strong> using the current
+          student profile, subject definitions, and academic year. Marks Entry remains safe
+          when it reads only <strong>active</strong> enrollments.
         </Alert>
 
         <Grid container spacing={2}>
@@ -201,7 +307,7 @@ export default function GenerateSubjectEnrollments() {
               fullWidth
               label="Academic Year"
               value={academicYear}
-              onChange={(e) => setAcademicYear(e.target.value)}
+              onChange={(e) => setAcademicYear(normalizeAcademicYear(e.target.value))}
               disabled={isRunning}
             />
           </Grid>
@@ -211,11 +317,8 @@ export default function GenerateSubjectEnrollments() {
               options={sortedStudents}
               value={selectedStudent}
               onChange={(_, value) => setSelectedStudent(value)}
-              getOptionLabel={(option) =>
-                `${option.fullName || option.name || "Unnamed"}${
-                  option.className ? ` - ${option.className}` : ""
-                }`
-              }
+              getOptionLabel={(option) => getStudentOptionLabel(option)}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
               renderInput={(params) => (
                 <TextField
                   {...params}
@@ -239,7 +342,7 @@ export default function GenerateSubjectEnrollments() {
                   </Stack>
 
                   <Typography variant="body2" color="text.secondary">
-                    Create only missing enrollments for all active students.
+                    Create only missing enrollments for all active students in the selected year.
                   </Typography>
 
                   <Button
@@ -268,7 +371,7 @@ export default function GenerateSubjectEnrollments() {
                   </Stack>
 
                   <Typography variant="body2" color="text.secondary">
-                    Inactivate old enrollments for one student and rebuild correctly.
+                    Inactivate old enrollments for one student and rebuild that student only.
                   </Typography>
 
                   <Button
@@ -303,7 +406,7 @@ export default function GenerateSubjectEnrollments() {
                   </Stack>
 
                   <Typography variant="body2" color="text.secondary">
-                    Inactivate all current-year enrollments and rebuild everything.
+                    Inactivate all current-year enrollments and rebuild everything from scratch.
                   </Typography>
 
                   <Button
@@ -368,7 +471,10 @@ export default function GenerateSubjectEnrollments() {
             <StatCard title="Deactivated" value={summary.deactivated} />
           </Grid>
           <Grid item xs={12} md={2}>
-            <StatCard title="Skipped / Errors" value={`${summary.skipped} / ${summary.errors}`} />
+            <StatCard
+              title="Skipped / Errors"
+              value={`${summary.skipped} / ${summary.errors}`}
+            />
           </Grid>
         </Grid>
 
@@ -385,7 +491,7 @@ export default function GenerateSubjectEnrollments() {
             ) : (
               summary.logs.map((log, index) => (
                 <Alert
-                  key={`${log.message}-${index}`}
+                  key={`${log.message || "log"}-${index}`}
                   severity={
                     log.type === "error"
                       ? "error"
@@ -395,11 +501,11 @@ export default function GenerateSubjectEnrollments() {
                   }
                 >
                   <Typography variant="body2" fontWeight={600}>
-                    {log.message}
+                    {log.message || "Log"}
                   </Typography>
                   {log.details ? (
                     <Typography variant="caption" display="block">
-                      {log.details}
+                      {String(log.details)}
                     </Typography>
                   ) : null}
                 </Alert>
