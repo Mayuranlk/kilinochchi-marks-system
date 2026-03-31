@@ -8,7 +8,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
 import GenerateSubjectEnrollments from "./pages/GenerateSubjectEnrollments";
-import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments"; // old manual page
+import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments";
 import MarksEntry from "./pages/MarksEntry";
 import ReportCard from "./pages/ReportCard";
 import AdminTeachers from "./pages/AdminTeachers";
@@ -54,8 +54,6 @@ function TeacherRoute({ children }) {
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-
-  // allow admin to also open teacher-safe pages if needed
   if (!isTeacher && !isAdmin) return <Navigate to="/" replace />;
 
   return children;
@@ -113,7 +111,6 @@ export default function App() {
               }
             />
 
-            {/* NEW automatic enrollment generator */}
             <Route
               path="student-subject-enrollments"
               element={
@@ -123,7 +120,6 @@ export default function App() {
               }
             />
 
-            {/* OLD manual enrollment page kept separately */}
             <Route
               path="manual-student-subject-enrollments"
               element={
@@ -138,6 +134,15 @@ export default function App() {
               element={
                 <AdminRoute>
                   <MigrateStudentSubjects />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="setup-school-defaults"
+              element={
+                <AdminRoute>
+                  <SetupSchoolDefaults />
                 </AdminRoute>
               }
             />
@@ -232,15 +237,6 @@ export default function App() {
                 </TeacherRoute>
               }
             />
-
-            <Route
-  path="setup-school-defaults"
-  element={
-    <AdminRoute>
-      <SetupSchoolDefaults />
-    </AdminRoute>
-  }
-/>
 
             <Route
               path="marks"
