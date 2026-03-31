@@ -13,7 +13,6 @@ import {
   Box,
   Typography,
   Button,
-  TextField,
   Select,
   MenuItem,
   FormControl,
@@ -41,6 +40,7 @@ import {
   Tooltip,
   Divider,
   Stack,
+  TextField,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -50,8 +50,11 @@ import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 const SUBJECT_CATEGORIES = [
   { value: "religion", label: "Religion" },
   { value: "aesthetic", label: "Aesthetic" },
-  { value: "basket", label: "Basket" },
+  { value: "basket_a", label: "Basket A" },
+  { value: "basket_b", label: "Basket B" },
+  { value: "basket_c", label: "Basket C" },
   { value: "al_main", label: "A/L Main" },
+  { value: "core", label: "Core" },
   { value: "general", label: "General" },
 ];
 
@@ -64,8 +67,9 @@ const emptyForm = {
   admissionNo: "",
   grade: "",
   section: "",
-  academicYear: "",
+  academicYear: String(new Date().getFullYear()),
   subjectCategory: "",
+  subjectId: "",
   subjectName: "",
   medium: "",
   stream: "",
@@ -74,48 +78,63 @@ const emptyForm = {
 const BATCH_LIMIT = 400;
 
 const normalizeText = (value) => String(value || "").trim();
+const normalizeLower = (value) => normalizeText(value).toLowerCase();
+
+const parseGrade = (value) => {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const isActiveLike = (value) => {
+  if (!normalizeText(value)) return true;
+  return normalizeLower(value) === "active";
+};
+
+const getStudentName = (student) =>
+  normalizeText(student?.name || student?.fullName || "Unnamed");
+
+const getStudentSection = (student) =>
+  normalizeText(student?.section || student?.className || "");
+
+const getSubjectName = (subject) =>
+  normalizeText(subject?.name || subject?.subjectName || "");
+
+const getSubjectCategory = (subject) =>
+  normalizeText(subject?.category || subject?.subjectCategory || "");
 
 const sortStudentsClientSide = (list) => {
   return [...list].sort((a, b) => {
-    const gradeA = Number(a.grade) || 0;
-    const gradeB = Number(b.grade) || 0;
+    const gradeA = parseGrade(a.grade);
+    const gradeB = parseGrade(b.grade);
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = String(a.section || a.className || "").toUpperCase();
-    const sectionB = String(b.section || b.className || "").toUpperCase();
+    const sectionA = getStudentSection(a).toUpperCase();
+    const sectionB = getStudentSection(b).toUpperCase();
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
-    const nameA = String(a.name || a.fullName || "").toLowerCase();
-    const nameB = String(b.name || b.fullName || "").toLowerCase();
+    const nameA = getStudentName(a).toLowerCase();
+    const nameB = getStudentName(b).toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
 
-    const admA = String(a.admissionNo || "").toLowerCase();
-    const admB = String(b.admissionNo || "").toLowerCase();
-    return admA.localeCompare(admB);
+    return normalizeText(a.admissionNo).localeCompare(normalizeText(b.admissionNo));
   });
 };
 
 const sortEnrollments = (list) => {
   return [...list].sort((a, b) => {
-    const gradeA = Number(a.grade) || 0;
-    const gradeB = Number(b.grade) || 0;
+    const gradeA = parseGrade(a.grade);
+    const gradeB = parseGrade(b.grade);
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = String(a.section || a.className || "").toUpperCase();
-    const sectionB = String(b.section || b.className || "").toUpperCase();
+    const sectionA = normalizeText(a.section || a.className).toUpperCase();
+    const sectionB = normalizeText(b.section || b.className).toUpperCase();
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
-    const nameA = String(a.studentName || "").toLowerCase();
-    const nameB = String(b.studentName || "").toLowerCase();
+    const nameA = normalizeText(a.studentName).toLowerCase();
+    const nameB = normalizeText(b.studentName).toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
 
-    const categoryA = String(a.subjectCategory || "").toLowerCase();
-    const categoryB = String(b.subjectCategory || "").toLowerCase();
-    if (categoryA !== categoryB) return categoryA.localeCompare(categoryB);
-
-    return String(a.subjectName || "")
-      .toLowerCase()
-      .localeCompare(String(b.subjectName || "").toLowerCase());
+    return normalizeText(a.subjectName).localeCompare(normalizeText(b.subjectName));
   });
 };
 
@@ -132,11 +151,35 @@ async function commitDeleteInChunks(ids) {
   }
 }
 
+function subjectAppliesToGrade(subject, grade) {
+  if (!grade) return false;
+
+  const directGrade = parseGrade(subject?.grade);
+  if (directGrade) return directGrade === grade;
+
+  const grades = Array.isArray(subject?.grades)
+    ? subject.grades.map(parseGrade).filter(Boolean)
+    : [];
+  if (grades.length) return grades.includes(grade);
+
+  const minGrade = parseGrade(subject?.minGrade);
+  const maxGrade = parseGrade(subject?.maxGrade);
+
+  if (minGrade || maxGrade) {
+    const min = minGrade || -Infinity;
+    const max = maxGrade || Infinity;
+    return grade >= min && grade <= max;
+  }
+
+  return true;
+}
+
 export default function StudentSubjectEnrollments() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [students, setStudents] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -161,27 +204,18 @@ export default function StudentSubjectEnrollments() {
   }, [students]);
 
   const gradeOptions = useMemo(() => {
-    return [...new Set(students.map((s) => Number(s.grade)).filter(Boolean))].sort(
+    return [...new Set(students.map((s) => parseGrade(s.grade)).filter(Boolean))].sort(
       (a, b) => a - b
     );
   }, [students]);
 
   const sectionOptions = useMemo(() => {
-    if (filterGrade) {
-      return [
-        ...new Set(
-          students
-            .filter((s) => String(s.grade) === String(filterGrade))
-            .map((s) => normalizeText(s.section || s.className))
-            .filter(Boolean)
-        ),
-      ].sort();
-    }
+    const source = filterGrade
+      ? students.filter((s) => String(parseGrade(s.grade)) === String(filterGrade))
+      : students;
 
     return [
-      ...new Set(
-        students.map((s) => normalizeText(s.section || s.className)).filter(Boolean)
-      ),
+      ...new Set(source.map((s) => getStudentSection(s)).filter(Boolean)),
     ].sort();
   }, [students, filterGrade]);
 
@@ -202,11 +236,23 @@ export default function StudentSubjectEnrollments() {
       const matchSection =
         !filterSection ||
         String(item.section || item.className) === String(filterSection);
-      const matchCategory = !filterCategory || item.subjectCategory === filterCategory;
+      const matchCategory =
+        !filterCategory || normalizeText(item.subjectCategory) === normalizeText(filterCategory);
 
       return matchSearch && matchGrade && matchSection && matchCategory;
     });
   }, [enrollments, search, filterGrade, filterSection, filterCategory]);
+
+  const availableSubjectsForForm = useMemo(() => {
+    const grade = parseGrade(form.grade);
+    const category = normalizeText(form.subjectCategory);
+
+    return subjects
+      .filter((subject) => isActiveLike(subject.status))
+      .filter((subject) => !category || getSubjectCategory(subject) === category)
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .sort((a, b) => getSubjectName(a).localeCompare(getSubjectName(b)));
+  }, [subjects, form.grade, form.subjectCategory]);
 
   useEffect(() => {
     fetchData();
@@ -219,12 +265,18 @@ export default function StudentSubjectEnrollments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [studentSnap, enrollmentSnap] = await Promise.all([
+      const [studentSnap, subjectSnap, enrollmentSnap] = await Promise.all([
         getDocs(collection(db, "students")),
+        getDocs(collection(db, "subjects")),
         getDocs(collection(db, "studentSubjectEnrollments")),
       ]);
 
       const loadedStudents = studentSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      const loadedSubjects = subjectSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
       }));
@@ -235,6 +287,7 @@ export default function StudentSubjectEnrollments() {
       }));
 
       setStudents(sortStudentsClientSide(loadedStudents));
+      setSubjects(loadedSubjects);
       setEnrollments(sortEnrollments(loadedEnrollments));
     } catch (err) {
       setError("Failed to load data: " + err.message);
@@ -245,10 +298,10 @@ export default function StudentSubjectEnrollments() {
 
   const getStudentDisplay = (student) => {
     if (!student) return "";
-    return `${student.name || student.fullName || "Unnamed"}${
+    return `${getStudentName(student)}${
       student.admissionNo ? ` (${student.admissionNo})` : ""
-    } - Grade ${student.grade || ""}${
-      student.section || student.className ? ` ${student.section || student.className}` : ""
+    } - Grade ${parseGrade(student.grade) || ""}${
+      getStudentSection(student) ? ` ${getStudentSection(student)}` : ""
     }`;
   };
 
@@ -263,6 +316,8 @@ export default function StudentSubjectEnrollments() {
         admissionNo: "",
         grade: "",
         section: "",
+        subjectId: "",
+        subjectName: "",
       }));
       return;
     }
@@ -270,10 +325,23 @@ export default function StudentSubjectEnrollments() {
     setForm((prev) => ({
       ...prev,
       studentId: selectedStudent.id,
-      studentName: selectedStudent.name || selectedStudent.fullName || "",
+      studentName: getStudentName(selectedStudent),
       admissionNo: selectedStudent.admissionNo || "",
-      grade: selectedStudent.grade || "",
-      section: selectedStudent.section || selectedStudent.className || "",
+      grade: parseGrade(selectedStudent.grade) || "",
+      section: getStudentSection(selectedStudent),
+      subjectId: "",
+      subjectName: "",
+    }));
+  };
+
+  const handleSubjectChange = (subjectId) => {
+    const selectedSubject = subjects.find((s) => s.id === subjectId);
+
+    setForm((prev) => ({
+      ...prev,
+      subjectId: selectedSubject?.id || "",
+      subjectName: getSubjectName(selectedSubject),
+      subjectCategory: getSubjectCategory(selectedSubject) || prev.subjectCategory,
     }));
   };
 
@@ -284,28 +352,8 @@ export default function StudentSubjectEnrollments() {
     if (!normalizeText(form.section)) return "Student section is required.";
     if (!normalizeText(form.academicYear)) return "Academic year is required.";
     if (!normalizeText(form.subjectCategory)) return "Subject category is required.";
+    if (!normalizeText(form.subjectId)) return "Subject is required.";
     if (!normalizeText(form.subjectName)) return "Subject name is required.";
-
-    const grade = Number(form.grade) || 0;
-    const category = form.subjectCategory;
-
-    if (grade >= 6 && grade <= 9) {
-      if (!["religion", "aesthetic", "general"].includes(category)) {
-        return "Grades 6 to 9 should use Religion, Aesthetic, or General category.";
-      }
-    }
-
-    if (grade >= 10 && grade <= 11) {
-      if (!["religion", "basket", "general"].includes(category)) {
-        return "Grades 10 to 11 should use Religion, Basket, or General category.";
-      }
-    }
-
-    if (grade >= 12 && grade <= 13) {
-      if (!["al_main", "general"].includes(category)) {
-        return "Grades 12 to 13 should use A/L Main or General category.";
-      }
-    }
 
     return "";
   };
@@ -319,9 +367,11 @@ export default function StudentSubjectEnrollments() {
     className: normalizeText(form.section),
     academicYear: normalizeText(form.academicYear),
     subjectCategory: normalizeText(form.subjectCategory),
+    subjectId: normalizeText(form.subjectId),
     subjectName: normalizeText(form.subjectName),
     medium: normalizeText(form.medium),
     stream: normalizeText(form.stream),
+    status: "active",
     updatedAt: new Date().toISOString(),
   });
 
@@ -350,7 +400,10 @@ export default function StudentSubjectEnrollments() {
         setSuccess("Student subject enrollment added successfully.");
       }
 
-      setForm(emptyForm);
+      setForm({
+        ...emptyForm,
+        academicYear: String(new Date().getFullYear()),
+      });
       setEditId(null);
       setOpen(false);
       await fetchData();
@@ -370,6 +423,7 @@ export default function StudentSubjectEnrollments() {
       section: item.section || item.className || "",
       academicYear: item.academicYear || "",
       subjectCategory: item.subjectCategory || "",
+      subjectId: item.subjectId || "",
       subjectName: item.subjectName || "",
       medium: item.medium || "",
       stream: item.stream || "",
@@ -501,7 +555,10 @@ export default function StudentSubjectEnrollments() {
               startIcon={<AddIcon />}
               size={isMobile ? "small" : "medium"}
               onClick={() => {
-                setForm(emptyForm);
+                setForm({
+                  ...emptyForm,
+                  academicYear: String(new Date().getFullYear()),
+                });
                 setEditId(null);
                 setError("");
                 setSuccess("");
@@ -670,17 +727,15 @@ export default function StudentSubjectEnrollments() {
                     color="success"
                     sx={{ fontWeight: 700 }}
                   />
+                  <Chip
+                    label={normalizeText(item.status || "active")}
+                    size="small"
+                    color={normalizeLower(item.status || "active") === "active" ? "success" : "default"}
+                  />
                 </Box>
                 <Typography variant="caption" color="text.secondary" display="block" mt={1}>
                   Year: {item.academicYear || "—"}
                 </Typography>
-                {(item.medium || item.stream) && (
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    {item.medium ? `Medium: ${item.medium}` : ""}
-                    {item.medium && item.stream ? " • " : ""}
-                    {item.stream ? `Stream: ${item.stream}` : ""}
-                  </Typography>
-                )}
               </CardContent>
 
               <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
@@ -726,8 +781,7 @@ export default function StudentSubjectEnrollments() {
                   "Category",
                   "Subject",
                   "Academic Year",
-                  "Medium",
-                  "Stream",
+                  "Status",
                   "Actions",
                 ].map((header) => (
                   <TableCell
@@ -770,8 +824,13 @@ export default function StudentSubjectEnrollments() {
                   <TableCell>{getCategoryLabel(item.subjectCategory)}</TableCell>
                   <TableCell>{item.subjectName || "—"}</TableCell>
                   <TableCell>{item.academicYear || "—"}</TableCell>
-                  <TableCell>{item.medium || "—"}</TableCell>
-                  <TableCell>{item.stream || "—"}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={normalizeText(item.status || "active").toUpperCase()}
+                      size="small"
+                      color={normalizeLower(item.status || "active") === "active" ? "success" : "default"}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Tooltip title="Edit">
                       <IconButton
@@ -807,7 +866,7 @@ export default function StudentSubjectEnrollments() {
         fullScreen={isMobile}
       >
         <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "✏️ Edit Subject Enrollment" : "➕ Add Subject Enrollment"}
+          {editId ? "Edit Subject Enrollment" : "Add Subject Enrollment"}
         </DialogTitle>
 
         <DialogContent>
@@ -847,39 +906,19 @@ export default function StudentSubjectEnrollments() {
             </Grid>
 
             <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Student Name"
-                value={form.studentName}
-                InputProps={{ readOnly: true }}
-              />
+              <TextField fullWidth label="Student Name" value={form.studentName} InputProps={{ readOnly: true }} />
             </Grid>
 
             <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Admission No."
-                value={form.admissionNo}
-                InputProps={{ readOnly: true }}
-              />
+              <TextField fullWidth label="Admission No." value={form.admissionNo} InputProps={{ readOnly: true }} />
             </Grid>
 
             <Grid item xs={12} sm={2}>
-              <TextField
-                fullWidth
-                label="Grade"
-                value={form.grade}
-                InputProps={{ readOnly: true }}
-              />
+              <TextField fullWidth label="Grade" value={form.grade} InputProps={{ readOnly: true }} />
             </Grid>
 
             <Grid item xs={12} sm={2}>
-              <TextField
-                fullWidth
-                label="Section"
-                value={form.section}
-                InputProps={{ readOnly: true }}
-              />
+              <TextField fullWidth label="Section" value={form.section} InputProps={{ readOnly: true }} />
             </Grid>
 
             <Grid item xs={12}>
@@ -911,6 +950,8 @@ export default function StudentSubjectEnrollments() {
                     setForm({
                       ...form,
                       subjectCategory: e.target.value,
+                      subjectId: "",
+                      subjectName: "",
                       stream: e.target.value === "al_main" ? form.stream : "",
                     })
                   }
@@ -925,13 +966,31 @@ export default function StudentSubjectEnrollments() {
             </Grid>
 
             <Grid item xs={12} sm={4}>
+              <FormControl fullWidth required>
+                <InputLabel>Subject</InputLabel>
+                <Select
+                  value={form.subjectId}
+                  label="Subject"
+                  onChange={(e) => handleSubjectChange(e.target.value)}
+                >
+                  <MenuItem value="">
+                    <em>Select Subject</em>
+                  </MenuItem>
+                  {availableSubjectsForForm.map((subject) => (
+                    <MenuItem key={subject.id} value={subject.id}>
+                      {getSubjectName(subject)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={4}>
               <TextField
                 fullWidth
-                required
-                label="Subject Name"
-                placeholder="Hinduism / Art / Commerce / Physics"
+                label="Selected Subject Name"
                 value={form.subjectName}
-                onChange={(e) => setForm({ ...form, subjectName: e.target.value })}
+                InputProps={{ readOnly: true }}
               />
             </Grid>
 
