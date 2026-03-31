@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
@@ -39,10 +40,12 @@ import {
   useTheme,
   Tooltip,
   Divider,
+  Stack,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 
 const SUBJECT_CATEGORIES = [
   { value: "religion", label: "Religion" },
@@ -68,12 +71,9 @@ const emptyForm = {
   stream: "",
 };
 
-const normalizeText = (value) => String(value || "").trim();
+const BATCH_LIMIT = 400;
 
-const normalizeGrade = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : "";
-};
+const normalizeText = (value) => String(value || "").trim();
 
 const sortStudentsClientSide = (list) => {
   return [...list].sort((a, b) => {
@@ -81,12 +81,12 @@ const sortStudentsClientSide = (list) => {
     const gradeB = Number(b.grade) || 0;
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = String(a.section || "").toUpperCase();
-    const sectionB = String(b.section || "").toUpperCase();
+    const sectionA = String(a.section || a.className || "").toUpperCase();
+    const sectionB = String(b.section || b.className || "").toUpperCase();
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
-    const nameA = String(a.name || "").toLowerCase();
-    const nameB = String(b.name || "").toLowerCase();
+    const nameA = String(a.name || a.fullName || "").toLowerCase();
+    const nameB = String(b.name || b.fullName || "").toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
 
     const admA = String(a.admissionNo || "").toLowerCase();
@@ -101,8 +101,8 @@ const sortEnrollments = (list) => {
     const gradeB = Number(b.grade) || 0;
     if (gradeA !== gradeB) return gradeA - gradeB;
 
-    const sectionA = String(a.section || "").toUpperCase();
-    const sectionB = String(b.section || "").toUpperCase();
+    const sectionA = String(a.section || a.className || "").toUpperCase();
+    const sectionB = String(b.section || b.className || "").toUpperCase();
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
     const nameA = String(a.studentName || "").toLowerCase();
@@ -113,9 +113,24 @@ const sortEnrollments = (list) => {
     const categoryB = String(b.subjectCategory || "").toLowerCase();
     if (categoryA !== categoryB) return categoryA.localeCompare(categoryB);
 
-    return String(a.subjectName || "").toLowerCase().localeCompare(String(b.subjectName || "").toLowerCase());
+    return String(a.subjectName || "")
+      .toLowerCase()
+      .localeCompare(String(b.subjectName || "").toLowerCase());
   });
 };
+
+async function commitDeleteInChunks(ids) {
+  for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
+    const chunk = ids.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+
+    chunk.forEach((id) => {
+      batch.delete(doc(db, "studentSubjectEnrollments", id));
+    });
+
+    await batch.commit();
+  }
+}
 
 export default function StudentSubjectEnrollments() {
   const theme = useTheme();
@@ -130,6 +145,7 @@ export default function StudentSubjectEnrollments() {
   const [editId, setEditId] = useState(null);
 
   const [saving, setSaving] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -145,7 +161,9 @@ export default function StudentSubjectEnrollments() {
   }, [students]);
 
   const gradeOptions = useMemo(() => {
-    return [...new Set(students.map((s) => Number(s.grade)).filter(Boolean))].sort((a, b) => a - b);
+    return [...new Set(students.map((s) => Number(s.grade)).filter(Boolean))].sort(
+      (a, b) => a - b
+    );
   }, [students]);
 
   const sectionOptions = useMemo(() => {
@@ -154,18 +172,20 @@ export default function StudentSubjectEnrollments() {
         ...new Set(
           students
             .filter((s) => String(s.grade) === String(filterGrade))
-            .map((s) => normalizeText(s.section))
+            .map((s) => normalizeText(s.section || s.className))
             .filter(Boolean)
         ),
       ].sort();
     }
 
-    return [...new Set(students.map((s) => normalizeText(s.section)).filter(Boolean))].sort();
+    return [
+      ...new Set(
+        students.map((s) => normalizeText(s.section || s.className)).filter(Boolean)
+      ),
+    ].sort();
   }, [students, filterGrade]);
 
-  const filteredStudentsForForm = useMemo(() => {
-    return students;
-  }, [students]);
+  const filteredStudentsForForm = useMemo(() => students, [students]);
 
   const filteredEnrollments = useMemo(() => {
     const q = search.toLowerCase();
@@ -179,7 +199,9 @@ export default function StudentSubjectEnrollments() {
         normalizeText(item.academicYear).toLowerCase().includes(q);
 
       const matchGrade = !filterGrade || String(item.grade) === String(filterGrade);
-      const matchSection = !filterSection || String(item.section) === String(filterSection);
+      const matchSection =
+        !filterSection ||
+        String(item.section || item.className) === String(filterSection);
       const matchCategory = !filterCategory || item.subjectCategory === filterCategory;
 
       return matchSearch && matchGrade && matchSection && matchCategory;
@@ -223,7 +245,11 @@ export default function StudentSubjectEnrollments() {
 
   const getStudentDisplay = (student) => {
     if (!student) return "";
-    return `${student.name || "Unnamed"}${student.admissionNo ? ` (${student.admissionNo})` : ""} - Grade ${student.grade || ""}${student.section ? ` ${student.section}` : ""}`;
+    return `${student.name || student.fullName || "Unnamed"}${
+      student.admissionNo ? ` (${student.admissionNo})` : ""
+    } - Grade ${student.grade || ""}${
+      student.section || student.className ? ` ${student.section || student.className}` : ""
+    }`;
   };
 
   const handleStudentChange = (studentId) => {
@@ -244,10 +270,10 @@ export default function StudentSubjectEnrollments() {
     setForm((prev) => ({
       ...prev,
       studentId: selectedStudent.id,
-      studentName: selectedStudent.name || "",
+      studentName: selectedStudent.name || selectedStudent.fullName || "",
       admissionNo: selectedStudent.admissionNo || "",
       grade: selectedStudent.grade || "",
-      section: selectedStudent.section || "",
+      section: selectedStudent.section || selectedStudent.className || "",
     }));
   };
 
@@ -290,6 +316,7 @@ export default function StudentSubjectEnrollments() {
     admissionNo: normalizeText(form.admissionNo),
     grade: Number(form.grade),
     section: normalizeText(form.section),
+    className: normalizeText(form.section),
     academicYear: normalizeText(form.academicYear),
     subjectCategory: normalizeText(form.subjectCategory),
     subjectName: normalizeText(form.subjectName),
@@ -314,13 +341,13 @@ export default function StudentSubjectEnrollments() {
 
       if (editId) {
         await updateDoc(doc(db, "studentSubjectEnrollments", editId), payload);
-        setSuccess("Student subject enrollment updated successfully!");
+        setSuccess("Student subject enrollment updated successfully.");
       } else {
         await addDoc(collection(db, "studentSubjectEnrollments"), {
           ...payload,
           createdAt: new Date().toISOString(),
         });
-        setSuccess("Student subject enrollment added successfully!");
+        setSuccess("Student subject enrollment added successfully.");
       }
 
       setForm(emptyForm);
@@ -340,7 +367,7 @@ export default function StudentSubjectEnrollments() {
       studentName: item.studentName || "",
       admissionNo: item.admissionNo || "",
       grade: item.grade || "",
-      section: item.section || "",
+      section: item.section || item.className || "",
       academicYear: item.academicYear || "",
       subjectCategory: item.subjectCategory || "",
       subjectName: item.subjectName || "",
@@ -362,6 +389,39 @@ export default function StudentSubjectEnrollments() {
       await fetchData();
     } catch (err) {
       setError("Delete failed: " + err.message);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (enrollments.length === 0) {
+      setError("No enrollments available to delete.");
+      return;
+    }
+
+    const confirm1 = window.confirm(
+      `Delete ALL ${enrollments.length} student subject enrollments? This cannot be undone.`
+    );
+    if (!confirm1) return;
+
+    const confirm2 = window.confirm(
+      "Please confirm again: this will remove every document in studentSubjectEnrollments."
+    );
+    if (!confirm2) return;
+
+    setBulkDeleting(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const ids = enrollments.map((item) => item.id);
+      await commitDeleteInChunks(ids);
+
+      setSuccess(`Deleted all ${ids.length} subject enrollments successfully.`);
+      await fetchData();
+    } catch (err) {
+      setError("Delete all failed: " + err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -417,21 +477,41 @@ export default function StudentSubjectEnrollments() {
             </Box>
           </Box>
 
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            size={isMobile ? "small" : "medium"}
-            onClick={() => {
-              setForm(emptyForm);
-              setEditId(null);
-              setError("");
-              setSuccess("");
-              setOpen(true);
-            }}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
-          >
-            {isMobile ? "Add" : "Add Enrollment"}
-          </Button>
+          <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              size={isMobile ? "small" : "medium"}
+              onClick={handleDeleteAll}
+              disabled={bulkDeleting || loading || enrollments.length === 0}
+              sx={{ fontWeight: 700, borderRadius: 2 }}
+            >
+              {bulkDeleting ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : isMobile ? (
+                "Delete All"
+              ) : (
+                "Delete All Enrollments"
+              )}
+            </Button>
+
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              size={isMobile ? "small" : "medium"}
+              onClick={() => {
+                setForm(emptyForm);
+                setEditId(null);
+                setError("");
+                setSuccess("");
+                setOpen(true);
+              }}
+              sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+            >
+              {isMobile ? "Add" : "Add Enrollment"}
+            </Button>
+          </Stack>
         </Box>
 
         <Box display="flex" flexWrap="wrap" gap={1.5} mt={2} alignItems="center">
@@ -574,7 +654,8 @@ export default function StudentSubjectEnrollments() {
                   {item.studentName || "Unnamed Student"}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  {item.admissionNo || "No Adm#"} • Grade {item.grade || "—"}-{item.section || "—"}
+                  {item.admissionNo || "No Adm#"} • Grade {item.grade || "—"}-
+                  {item.section || item.className || "—"}
                 </Typography>
                 <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
                   <Chip
@@ -680,7 +761,7 @@ export default function StudentSubjectEnrollments() {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={`G${item.grade || "—"}-${item.section || "—"}`}
+                      label={`G${item.grade || "—"}-${item.section || item.className || "—"}`}
                       size="small"
                       color="primary"
                       sx={{ fontWeight: 700, fontSize: 12 }}
