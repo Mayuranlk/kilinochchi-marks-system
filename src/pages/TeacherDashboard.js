@@ -11,8 +11,8 @@ import {
   Button,
   Card,
   CardContent,
-  CircularProgress,
   Chip,
+  CircularProgress,
   Divider,
   Grid,
   LinearProgress,
@@ -90,6 +90,16 @@ function getMarkValue(mark) {
   if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function hasMarkEntry(mark) {
+  return (
+    getMarkValue(mark) !== null ||
+    mark?.isAbsent === true ||
+    mark?.isMedicalAbsent === true ||
+    normalizeLower(mark?.attendanceStatus) === "absent" ||
+    normalizeLower(mark?.attendanceStatus) === "medical_absent"
+  );
 }
 
 function getTeacherAssignmentSubject(assignment) {
@@ -314,12 +324,12 @@ export default function TeacherDashboard() {
           const subjectSet = new Set();
           classStudents.forEach((s) => {
             const subs = getStudentSubjects(s) || [];
-            subs.forEach((sub) => subjectSet.add(sub));
+            subs.forEach((sub) => subjectSet.add(normalizeText(sub)));
           });
 
           const progress = Array.from(subjectSet).map((subject) => {
             const eligibleStudents = classStudents.filter((s) =>
-              (getStudentSubjects(s) || []).includes(subject)
+              (getStudentSubjects(s) || []).map((x) => normalizeText(x)).includes(subject)
             );
 
             const enteredMarks = allMarks.filter(
@@ -327,12 +337,19 @@ export default function TeacherDashboard() {
                 Number(m.grade) === Number(profile.classGrade) &&
                 normalizeSection(m.section || m.className) ===
                   normalizeSection(profile.classSection) &&
-                getMarkSubject(m) === normalizeText(subject) &&
+                getMarkSubject(m) === subject &&
                 (!active?.term || getMarkTerm(m) === normalizeText(active.term)) &&
                 (!active?.year || getMarkYear(m) === String(active.year))
             );
 
-            const entered = enteredMarks.filter((m) => getMarkValue(m) !== null || m.isAbsent || m.isMedicalAbsent).length;
+            const uniqueMarkedStudents = new Set(
+              enteredMarks
+                .filter((m) => hasMarkEntry(m))
+                .map((m) => normalizeText(m.studentId))
+                .filter(Boolean)
+            );
+
+            const entered = uniqueMarkedStudents.size;
             const total = eligibleStudents.length;
             const percent = total > 0 ? Math.round((entered / total) * 100) : 0;
             const status =
@@ -387,6 +404,46 @@ export default function TeacherDashboard() {
     }, {});
   }, [assignments]);
 
+  const completedAssignmentsCount = useMemo(() => {
+    if (!activeTerm) return 0;
+
+    return assignments.filter((assignment) => {
+      const classStudents = students.filter(
+        (s) =>
+          Number(s.grade) === Number(assignment.grade) &&
+          getStudentSection(s) === getTeacherAssignmentSection(assignment)
+      );
+
+      if (!classStudents.length) return false;
+
+      const subjectEligibleStudents = classStudents.filter((s) =>
+        (getStudentSubjects(s) || [])
+          .map((x) => normalizeText(x))
+          .includes(getTeacherAssignmentSubject(assignment))
+      );
+
+      if (!subjectEligibleStudents.length) return false;
+
+      const markedStudentIds = new Set(
+        marks
+          .filter(
+            (m) =>
+              Number(m.grade) === Number(assignment.grade) &&
+              normalizeSection(m.section || m.className) ===
+                getTeacherAssignmentSection(assignment) &&
+              getMarkSubject(m) === getTeacherAssignmentSubject(assignment) &&
+              getMarkTerm(m) === normalizeText(activeTerm.term) &&
+              getMarkYear(m) === String(activeTerm.year) &&
+              hasMarkEntry(m)
+          )
+          .map((m) => normalizeText(m.studentId))
+          .filter(Boolean)
+      );
+
+      return markedStudentIds.size >= subjectEligibleStudents.length;
+    }).length;
+  }, [assignments, students, marks, activeTerm]);
+
   const marksCount = marks.length;
 
   const statCards = [
@@ -407,7 +464,7 @@ export default function TeacherDashboard() {
     {
       label: "Assignments",
       value: assignments.length,
-      subtitle: "Active teaching assignments",
+      subtitle: `${completedAssignmentsCount} completed this term`,
       icon: <MenuBookIcon sx={{ fontSize: 32, color: "#e65100" }} />,
       color: "#fff3e0",
     },
@@ -424,7 +481,7 @@ export default function TeacherDashboard() {
     {
       title: "Student Reports",
       description: "Open report cards for students in your assigned classes.",
-      buttonText: "View Students",
+      buttonText: "Open Students",
       onClick: () => navigate("/teacher/marks"),
       icon: <AssessmentIcon sx={{ color: "#2e7d32" }} />,
     },
@@ -541,7 +598,7 @@ export default function TeacherDashboard() {
 
       {assignments.length === 0 && (
         <Alert severity="warning" icon={<WarningIcon />} sx={{ mb: 2 }}>
-          You have no teaching assignments yet. Ask admin to assign your classes and subjects.
+          You have no subject assignments yet. Ask admin to assign your classes and subjects.
         </Alert>
       )}
 
@@ -976,6 +1033,15 @@ export default function TeacherDashboard() {
 
               <Box display="flex" justifyContent="space-between">
                 <Typography variant="body2" color="text.secondary">
+                  Completed assignments
+                </Typography>
+                <Typography variant="body2" fontWeight={700}>
+                  {completedAssignmentsCount}
+                </Typography>
+              </Box>
+
+              <Box display="flex" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
                   Students in scope
                 </Typography>
                 <Typography variant="body2" fontWeight={700}>
@@ -1017,16 +1083,6 @@ export default function TeacherDashboard() {
                 endIcon={<ArrowForwardIcon />}
               >
                 Marks Entry
-              </Button>
-
-              <Button
-                variant="outlined"
-                fullWidth
-                onClick={() => navigate("/teacher")}
-                sx={{ justifyContent: "space-between", borderColor: "#e8eaf6", color: "#1a237e" }}
-                endIcon={<ArrowForwardIcon />}
-              >
-                Dashboard Refresh
               </Button>
 
               {profile?.isClassTeacher && (
