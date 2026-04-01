@@ -83,6 +83,7 @@ function getStudentSection(student) {
 function getStudentFullClass(student) {
   const grade = parseGrade(student?.grade);
   const section = getStudentSection(student);
+
   if (grade && section) return `${grade}${section}`;
   if (section) return section;
   return "";
@@ -139,16 +140,6 @@ function subjectKey(subject) {
   return `name:${normalizeLoose(getSubjectName(subject))}`;
 }
 
-function valueMatches(subjectValue, studentValue) {
-  const a = tokenSet(subjectValue);
-  const b = tokenSet(studentValue);
-
-  for (const token of a) {
-    if (b.has(token)) return true;
-  }
-  return false;
-}
-
 function tokenSet(values) {
   const set = new Set();
 
@@ -171,6 +162,17 @@ function tokenSet(values) {
   return set;
 }
 
+function valueMatches(subjectValue, studentValue) {
+  const a = tokenSet(subjectValue);
+  const b = tokenSet(studentValue);
+
+  for (const token of a) {
+    if (b.has(token)) return true;
+  }
+
+  return false;
+}
+
 function subjectTokens(subject) {
   const set = new Set();
 
@@ -182,9 +184,9 @@ function subjectTokens(subject) {
     subject?.shortName,
   ]
     .filter(Boolean)
-    .forEach((v) => {
-      set.add(normalize(v));
-      set.add(normalizeLoose(v));
+    .forEach((value) => {
+      set.add(normalize(value));
+      set.add(normalizeLoose(value));
     });
 
   return set;
@@ -192,11 +194,12 @@ function subjectTokens(subject) {
 
 function subjectMatchesChoice(subject, choice) {
   const choiceTokens = tokenSet(choice);
-  const sTokens = subjectTokens(subject);
+  const subjectTokenSet = subjectTokens(subject);
 
   for (const token of choiceTokens) {
-    if (sTokens.has(token)) return true;
+    if (subjectTokenSet.has(token)) return true;
   }
+
   return false;
 }
 
@@ -226,6 +229,32 @@ function subjectAppliesToGrade(subject, grade) {
   return true;
 }
 
+function getNormalizedBasketBucket(subject) {
+  const rawValues = [
+    subject?.basketLabel,
+    subject?.basketGroup,
+    subject?.basket,
+    subject?.bucket,
+    subject?.group,
+  ]
+    .filter(Boolean)
+    .map((value) => normalize(String(value)));
+
+  for (const raw of rawValues) {
+    if (raw === "a" || raw === "basket_1" || raw === "basket1" || raw === "1") {
+      return "A";
+    }
+    if (raw === "b" || raw === "basket_2" || raw === "basket2" || raw === "2") {
+      return "B";
+    }
+    if (raw === "c" || raw === "basket_3" || raw === "basket3" || raw === "3") {
+      return "C";
+    }
+  }
+
+  return "";
+}
+
 /* -------------------------------------------------------------------------- */
 /* Subject index                                                               */
 /* -------------------------------------------------------------------------- */
@@ -234,51 +263,46 @@ function buildSubjectIndex(subjects) {
   const activeSubjects = subjects.filter(isSubjectActive);
 
   const categoryIs = (subject, values) => values.includes(getSubjectCategory(subject));
+  const bucketIs = (subject, bucket) => getNormalizedBasketBucket(subject) === bucket;
 
   return {
     all: activeSubjects,
 
-    core: activeSubjects.filter((s) =>
-      categoryIs(s, ["core", "compulsory", "mandatory", "common"])
+    core: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["core", "compulsory", "mandatory", "common"])
     ),
 
-    religion: activeSubjects.filter((s) =>
-      categoryIs(s, ["religion"])
+    religion: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["religion"])
     ),
 
-    aesthetic: activeSubjects.filter((s) =>
-      categoryIs(s, ["aesthetic"])
+    aesthetic: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["aesthetic"])
     ),
 
-    basketA: activeSubjects.filter(
-      (s) =>
-        categoryIs(s, ["basket", "basket_a"]) ||
-        normalize(String(s?.basketGroup || "")) === "a"
-    ).filter((s) => {
-      const bg = String(s?.basketGroup || "").toUpperCase();
-      return bg === "A" || bg === "" || getSubjectCategory(s) === "basket_a";
+    basketA: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["basket", "basket_a"]) || bucketIs(subject, "A")
+    ).filter((subject) => {
+      const bucket = getNormalizedBasketBucket(subject);
+      return bucket === "A" || (bucket === "" && getSubjectCategory(subject) === "basket_a");
     }),
 
-    basketB: activeSubjects.filter(
-      (s) =>
-        categoryIs(s, ["basket", "basket_b"]) ||
-        normalize(String(s?.basketGroup || "")) === "b"
-    ).filter((s) => {
-      const bg = String(s?.basketGroup || "").toUpperCase();
-      return bg === "B" || bg === "" || getSubjectCategory(s) === "basket_b";
+    basketB: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["basket", "basket_b"]) || bucketIs(subject, "B")
+    ).filter((subject) => {
+      const bucket = getNormalizedBasketBucket(subject);
+      return bucket === "B" || (bucket === "" && getSubjectCategory(subject) === "basket_b");
     }),
 
-    basketC: activeSubjects.filter(
-      (s) =>
-        categoryIs(s, ["basket", "basket_c"]) ||
-        normalize(String(s?.basketGroup || "")) === "c"
-    ).filter((s) => {
-      const bg = String(s?.basketGroup || "").toUpperCase();
-      return bg === "C" || bg === "" || getSubjectCategory(s) === "basket_c";
+    basketC: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["basket", "basket_c"]) || bucketIs(subject, "C")
+    ).filter((subject) => {
+      const bucket = getNormalizedBasketBucket(subject);
+      return bucket === "C" || (bucket === "" && getSubjectCategory(subject) === "basket_c");
     }),
 
-    alMain: activeSubjects.filter((s) =>
-      categoryIs(s, ["al_main", "al"])
+    alMain: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["al_main", "al"])
     ),
   };
 }
@@ -299,24 +323,39 @@ function validateStudent(student, subjectIndex) {
 
   const isAL = isALStudent(student);
 
-  const religionSubjects = subjectIndex.religion.filter((s) => subjectAppliesToGrade(s, grade));
+  const religionSubjects = subjectIndex.religion.filter((subject) =>
+    subjectAppliesToGrade(subject, grade)
+  );
   if (religionSubjects.length && !getStudentReligion(student)) {
     errors.push("Missing religion");
   }
 
-  const aestheticSubjects = subjectIndex.aesthetic.filter((s) => subjectAppliesToGrade(s, grade));
+  const aestheticSubjects = subjectIndex.aesthetic.filter((subject) =>
+    subjectAppliesToGrade(subject, grade)
+  );
   if (!isAL && grade >= 6 && grade <= 9 && aestheticSubjects.length && !getStudentAestheticChoice(student)) {
     errors.push("Missing aestheticChoice");
   }
 
   if (!isAL && (grade === 10 || grade === 11)) {
-    if (subjectIndex.basketA.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "A")) {
+    if (
+      subjectIndex.basketA.some((subject) => subjectAppliesToGrade(subject, grade)) &&
+      !getStudentBasketChoice(student, "A")
+    ) {
       errors.push("Missing basketAChoice");
     }
-    if (subjectIndex.basketB.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "B")) {
+
+    if (
+      subjectIndex.basketB.some((subject) => subjectAppliesToGrade(subject, grade)) &&
+      !getStudentBasketChoice(student, "B")
+    ) {
       errors.push("Missing basketBChoice");
     }
-    if (subjectIndex.basketC.some((s) => subjectAppliesToGrade(s, grade)) && !getStudentBasketChoice(student, "C")) {
+
+    if (
+      subjectIndex.basketC.some((subject) => subjectAppliesToGrade(subject, grade)) &&
+      !getStudentBasketChoice(student, "C")
+    ) {
       errors.push("Missing basketCChoice");
     }
   }
@@ -352,52 +391,52 @@ function buildDesiredSubjects(student, subjectIndex) {
   };
 
   subjectIndex.core
-    .filter((s) => subjectAppliesToGrade(s, grade))
+    .filter((subject) => subjectAppliesToGrade(subject, grade))
     .forEach(add);
 
   subjectIndex.religion
-    .filter((s) => subjectAppliesToGrade(s, grade))
+    .filter((subject) => subjectAppliesToGrade(subject, grade))
     .filter(
-      (s) =>
-        valueMatches(s?.religion, getStudentReligion(student)) ||
-        valueMatches(s?.religionGroup, getStudentReligion(student)) ||
-        valueMatches(getSubjectName(s), getStudentReligion(student))
+      (subject) =>
+        valueMatches(subject?.religion, getStudentReligion(student)) ||
+        valueMatches(subject?.religionGroup, getStudentReligion(student)) ||
+        valueMatches(getSubjectName(subject), getStudentReligion(student))
     )
     .forEach(add);
 
   if (!isAL) {
     subjectIndex.aesthetic
-      .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, getStudentAestheticChoice(student)))
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .filter((subject) => subjectMatchesChoice(subject, getStudentAestheticChoice(student)))
       .forEach(add);
 
     subjectIndex.basketA
-      .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "A")))
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .filter((subject) => subjectMatchesChoice(subject, getStudentBasketChoice(student, "A")))
       .forEach(add);
 
     subjectIndex.basketB
-      .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "B")))
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .filter((subject) => subjectMatchesChoice(subject, getStudentBasketChoice(student, "B")))
       .forEach(add);
 
     subjectIndex.basketC
-      .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => subjectMatchesChoice(s, getStudentBasketChoice(student, "C")))
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .filter((subject) => subjectMatchesChoice(subject, getStudentBasketChoice(student, "C")))
       .forEach(add);
   }
 
   if (isAL) {
     subjectIndex.alMain
-      .filter((s) => subjectAppliesToGrade(s, grade))
-      .filter((s) => {
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
+      .filter((subject) => {
         const streamOk =
-          (!s?.stream && !s?.streams)
+          !subject?.stream && !subject?.streams
             ? true
-            : valueMatches(s?.stream, student?.stream) ||
-              valueMatches(s?.streams, student?.stream);
+            : valueMatches(subject?.stream, student?.stream) ||
+              valueMatches(subject?.streams, student?.stream);
 
-        const choiceOk = subjectMatchesChoice(s, getStudentALChoices(student));
+        const choiceOk = subjectMatchesChoice(subject, getStudentALChoices(student));
         return streamOk && choiceOk;
       })
       .forEach(add);
@@ -440,7 +479,8 @@ function enrollmentPayload(student, subject, academicYear) {
     subjectCategory: getSubjectCategory(subject),
 
     religionKey: subject?.religion || "",
-    basketGroup: subject?.basketGroup || "",
+    basketGroup: subject?.basketGroup || getNormalizedBasketBucket(subject) || "",
+    basketLabel: subject?.basketLabel || getNormalizedBasketBucket(subject) || "",
     stream: subject?.stream || "",
     medium: student?.medium || "",
 
@@ -520,9 +560,10 @@ function hasPayloadChanged(existingEnrollment, payload) {
     existingEnrollment.grade !== payload.grade ||
     existingEnrollment.section !== payload.section ||
     existingEnrollment.className !== payload.className ||
-    existingEnrollment.status !== "active" || // 🔥 IMPORTANT FIX
+    existingEnrollment.status !== "active" ||
     (existingEnrollment.subjectCategory || "") !== (payload.subjectCategory || "") ||
     (existingEnrollment.basketGroup || "") !== (payload.basketGroup || "") ||
+    (existingEnrollment.basketLabel || "") !== (payload.basketLabel || "") ||
     (existingEnrollment.stream || "") !== (payload.stream || "") ||
     (existingEnrollment.medium || "") !== (payload.medium || "")
   );
@@ -585,7 +626,7 @@ export async function generateMissingEnrollments({ academicYear }) {
       }
 
       const existing = enrollmentMap.get(student.id) || [];
-      const existingByKey = new Map(existing.map((e) => [existingEnrollmentKey(e), e]));
+      const existingByKey = new Map(existing.map((enrollment) => [existingEnrollmentKey(enrollment), enrollment]));
 
       for (const subject of desiredSubjects) {
         const desiredKey = subjectKey(subject);
@@ -621,7 +662,10 @@ export async function generateMissingEnrollments({ academicYear }) {
           continue;
         }
 
-        if (hasPayloadChanged(existingEnrollment, payload) || existingEnrollment.id !== canonicalRef.id) {
+        if (
+          hasPayloadChanged(existingEnrollment, payload) ||
+          existingEnrollment.id !== canonicalRef.id
+        ) {
           updated += 1;
           operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
 
@@ -749,7 +793,7 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
 
   for (const subject of desiredSubjects) {
     const existing = existingEnrollments.find(
-      (e) => existingEnrollmentKey(e) === subjectKey(subject)
+      (enrollment) => existingEnrollmentKey(enrollment) === subjectKey(subject)
     );
 
     const ref = doc(
@@ -852,7 +896,7 @@ export async function fullRebuildEnrollments({ academicYear }) {
 
       for (const subject of desiredSubjects) {
         const found = existing.find(
-          (e) => existingEnrollmentKey(e) === subjectKey(subject)
+          (enrollment) => existingEnrollmentKey(enrollment) === subjectKey(subject)
         );
 
         const ref = doc(

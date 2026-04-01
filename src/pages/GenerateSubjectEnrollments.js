@@ -30,7 +30,7 @@ import {
 } from "../services/enrollmentGenerator";
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
+/* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
 function currentAcademicYear() {
@@ -91,10 +91,11 @@ function getStudentOptionLabel(student) {
 
 function isStudentActive(student) {
   if (typeof student?.isActive === "boolean") return student.isActive;
+
   if (student?.status) {
-    const status = normalize(student.status);
-    return status === "active";
+    return normalize(student.status) === "active";
   }
+
   return true;
 }
 
@@ -118,8 +119,28 @@ function StatCard({ title, value }) {
   );
 }
 
+function buildErrorSummary(mode, error) {
+  return {
+    mode,
+    totalProcessed: 0,
+    created: 0,
+    reactivated: 0,
+    updated: 0,
+    deactivated: 0,
+    skipped: 0,
+    errors: 1,
+    logs: [
+      {
+        type: "error",
+        message: "Operation failed",
+        details: error?.message || "Unknown error",
+      },
+    ],
+  };
+}
+
 /* -------------------------------------------------------------------------- */
-/* Component                                                                   */
+/* Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
 export default function GenerateSubjectEnrollments() {
@@ -148,6 +169,7 @@ export default function GenerateSubjectEnrollments() {
 
     async function load() {
       setPageLoading(true);
+
       try {
         const studentData = await fetchStudents();
         if (!mounted) return;
@@ -155,6 +177,7 @@ export default function GenerateSubjectEnrollments() {
       } catch (error) {
         console.error("Failed to load students:", error);
         if (!mounted) return;
+
         setSummary({
           mode: "load",
           totalProcessed: 0,
@@ -168,7 +191,7 @@ export default function GenerateSubjectEnrollments() {
             {
               type: "error",
               message: "Failed to load students",
-              details: error.message,
+              details: error?.message || "Unknown error",
             },
           ],
         });
@@ -185,7 +208,7 @@ export default function GenerateSubjectEnrollments() {
   }, []);
 
   const activeStudents = useMemo(
-    () => students.filter((s) => isStudentActive(s)),
+    () => students.filter((student) => isStudentActive(student)),
     [students]
   );
 
@@ -209,7 +232,7 @@ export default function GenerateSubjectEnrollments() {
 
     if (selectedStudent?.id) {
       const refreshedSelected =
-        refreshedStudents.find((s) => s.id === selectedStudent.id) || null;
+        refreshedStudents.find((student) => student.id === selectedStudent.id) || null;
       setSelectedStudent(refreshedSelected);
     }
   }
@@ -265,23 +288,7 @@ export default function GenerateSubjectEnrollments() {
       await refreshStudents();
     } catch (error) {
       console.error(error);
-      setSummary({
-        mode,
-        totalProcessed: 0,
-        created: 0,
-        reactivated: 0,
-        updated: 0,
-        deactivated: 0,
-        skipped: 0,
-        errors: 1,
-        logs: [
-          {
-            type: "error",
-            message: "Operation failed",
-            details: error.message,
-          },
-        ],
-      });
+      setSummary(buildErrorSummary(mode, error));
     } finally {
       setRunning("");
     }
@@ -336,7 +343,7 @@ export default function GenerateSubjectEnrollments() {
           {
             type: "error",
             message: "Post-promotion generation failed",
-            details: error.message,
+            details: error?.message || "Unknown error",
           },
         ],
       });

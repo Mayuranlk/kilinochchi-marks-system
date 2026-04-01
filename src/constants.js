@@ -1,11 +1,36 @@
 export const SCHOOL_NAME = "Kilinochchi Central College";
-export const SCHOOL_SUBTITLE = "Provincial Department of Education - Northern Province";
+export const SCHOOL_SUBTITLE =
+  "Provincial Department of Education - Northern Province";
 
 export const GRADES = [6, 7, 8, 9, 10, 11, 12, 13];
 
 export const SECTIONS = [
-  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "V",
+  "W",
+  "X",
+  "Y",
+  "Z",
 ];
 
 export const TERMS = ["Term 1", "Term 2", "Term 3"];
@@ -28,29 +53,42 @@ export const AESTHETIC_SUBJECTS = [
   "Drama & Theatre",
 ];
 
-// ── Grade 10-11 Baskets ──
-export const BASKET_1 = [
-  "Art",
-  "Music (Oriental)",
-  "Music (Western)",
-  "Dancing",
-  "Drama & Theatre",
-];
+// ── Grade 10-11 Baskets (FINAL SCHOOL VERSION) ──
+// Keep these exact names aligned with subject seeding,
+// student choice dropdowns, and enrollment generation.
 
-export const BASKET_2 = [
-  "ICT",
-  "Design & Technology",
-  "Home Economics",
-  "Agriculture",
-];
-
-export const BASKET_3 = [
+export const BASKET_A = [
   "Business & Accounting Studies",
   "Geography",
-  "Civics Education",
+  "Civic Education",
   "Entrepreneurship Studies",
-  "Communication & Media Studies",
 ];
+
+export const BASKET_B = [
+  "Music (Carnatic)",
+  "Art",
+  "Dancing (Bharata)",
+  "Drama and Theatre (Tamil)",
+  "Appreciation of English Literary Texts",
+  "Appreciation of Tamil Literary Texts",
+];
+
+export const BASKET_C = [
+  "Information & Communication Technology",
+  "Agriculture & Food Technology",
+  "Home Economics",
+  "Health & Physical Education",
+  "Communication & Media Studies",
+  "Design & Construction Technology",
+  "Design & Mechanical Technology",
+  "Design, Electrical & Electronic Technology",
+];
+
+// ── Backward-compatible exports ──
+// Keep these names because other files may already import BASKET_1/2/3.
+export const BASKET_1 = BASKET_A;
+export const BASKET_2 = BASKET_B;
+export const BASKET_3 = BASKET_C;
 
 // ── Compulsory core ──
 export const COMPULSORY_CORE_6_9 = [
@@ -86,144 +124,33 @@ export const COMPULSORY_SUBJECTS_10_11 = [
   "Religion",
 ];
 
+// ── Reusable subject catalog blocks ──
+export const LOWER_GRADE_SUBJECT_CATALOG = [
+  ...COMPULSORY_CORE_6_9,
+  ...RELIGIONS,
+  ...AESTHETIC_SUBJECTS,
+];
+
+export const GRADE_10_11_SUBJECT_CATALOG = [
+  ...COMPULSORY_CORE_10_11,
+  ...RELIGIONS,
+  ...BASKET_A,
+  ...BASKET_B,
+  ...BASKET_C,
+];
+
 // ── Subject catalog by grade ──
 // UI fallback / catalog only.
 // Do NOT treat this as canonical student enrollment truth.
 export const SUBJECTS_BY_GRADE = {
-  6: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Geography",
-    "Civics",
-    "Health & Physical Education",
-    "ICT",
-    "Sinhala",
-    "PTS",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    "Art",
-    "Music",
-    "Dancing",
-    "Drama & Theatre",
-  ],
-  7: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Geography",
-    "Civics",
-    "Health & Physical Education",
-    "ICT",
-    "Sinhala",
-    "PTS",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    "Art",
-    "Music",
-    "Dancing",
-    "Drama & Theatre",
-  ],
-  8: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Geography",
-    "Civics",
-    "Health & Physical Education",
-    "ICT",
-    "Sinhala",
-    "PTS",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    "Art",
-    "Music",
-    "Dancing",
-    "Drama & Theatre",
-  ],
-  9: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Geography",
-    "Civics",
-    "Health & Physical Education",
-    "ICT",
-    "Sinhala",
-    "PTS",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    "Art",
-    "Music",
-    "Dancing",
-    "Drama & Theatre",
-  ],
-  10: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    ...BASKET_1,
-    ...BASKET_2,
-    ...BASKET_3,
-  ],
-  11: [
-    "Tamil",
-    "Mathematics",
-    "Science",
-    "History",
-    "English",
-    "Buddhism",
-    "Hinduism",
-    "Islam",
-    "Catholicism",
-    "Christianity",
-    ...BASKET_1,
-    ...BASKET_2,
-    ...BASKET_3,
-  ],
-  12: [
-    "Tamil",
-    "English",
-    "General English",
-    "Subject 1",
-    "Subject 2",
-    "Subject 3",
-  ],
-  13: [
-    "Tamil",
-    "English",
-    "General English",
-    "Subject 1",
-    "Subject 2",
-    "Subject 3",
-  ],
+  6: [...LOWER_GRADE_SUBJECT_CATALOG],
+  7: [...LOWER_GRADE_SUBJECT_CATALOG],
+  8: [...LOWER_GRADE_SUBJECT_CATALOG],
+  9: [...LOWER_GRADE_SUBJECT_CATALOG],
+  10: [...GRADE_10_11_SUBJECT_CATALOG],
+  11: [...GRADE_10_11_SUBJECT_CATALOG],
+  12: ["Tamil", "English", "General English", "Subject 1", "Subject 2", "Subject 3"],
+  13: ["Tamil", "English", "General English", "Subject 1", "Subject 2", "Subject 3"],
 };
 
 export const ASSESSMENT_TYPES = [
@@ -257,7 +184,9 @@ export const getStudentName = (student) =>
   normalizeText(student?.name || student?.fullName || "Unnamed Student");
 
 export const getStudentAdmissionNo = (student) =>
-  normalizeText(student?.admissionNo || student?.admissionNumber || student?.admNo || "");
+  normalizeText(
+    student?.admissionNo || student?.admissionNumber || student?.admNo || ""
+  );
 
 export const getStudentGrade = (student) => parseGrade(student?.grade);
 
@@ -269,6 +198,24 @@ export const getStudentClassName = (student) =>
 
 export const isActiveStatus = (value) =>
   normalizeLower(value || "active") === "active";
+
+export const uniqueSubjects = (subjects = []) => {
+  const seen = new Set();
+  const result = [];
+
+  for (const subject of subjects) {
+    const value = normalizeText(subject);
+    if (!value) continue;
+
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result;
+};
 
 export const getGradeLetter = (marks, grade) => {
   if (grade >= 10) {
@@ -294,17 +241,15 @@ export const getStudentSubjects = (student) => {
   const grade = getStudentGrade(student);
 
   if (grade >= 6 && grade <= 9) {
-    const subjects = [
+    return uniqueSubjects([
       ...COMPULSORY_CORE_6_9,
       normalizeText(student?.religion),
       normalizeText(student?.aesthetic || student?.aestheticChoice),
-    ].filter(Boolean);
-
-    return [...new Set(subjects)];
+    ]);
   }
 
   if (grade >= 10 && grade <= 11) {
-    const subjects = [
+    return uniqueSubjects([
       ...COMPULSORY_CORE_10_11,
       normalizeText(student?.religion),
       normalizeText(student?.basket1),
@@ -313,9 +258,7 @@ export const getStudentSubjects = (student) => {
       normalizeText(student?.basketAChoice),
       normalizeText(student?.basketBChoice),
       normalizeText(student?.basketCChoice),
-    ].filter(Boolean);
-
-    return [...new Set(subjects)];
+    ]);
   }
 
   return SUBJECTS_BY_GRADE[grade] || [];

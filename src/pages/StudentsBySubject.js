@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
-import { GRADES, SUBJECTS_BY_GRADE } from "../constants";
+import {
+  AESTHETIC_SUBJECTS,
+  BASKET_A,
+  BASKET_B,
+  BASKET_C,
+  GRADES,
+  RELIGIONS,
+  SUBJECTS_BY_GRADE,
+} from "../constants";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -94,7 +102,11 @@ function getStudentClassName(student) {
 function getEnrollmentClassName(enrollment) {
   const rawClassName = normalizeText(enrollment?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
-  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
+
+  return buildFullClassName(
+    enrollment?.grade,
+    enrollment?.section || rawClassName
+  );
 }
 
 function getEnrollmentGrade(enrollment) {
@@ -140,23 +152,40 @@ function getMarkYear(mark) {
 function getMarkClassName(mark) {
   const rawClassName = normalizeText(mark?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+
   return buildFullClassName(mark?.grade, mark?.section || rawClassName);
 }
 
 function getMarkValue(mark) {
   const raw = mark?.mark ?? mark?.marks ?? mark?.score ?? null;
   if (raw === null || raw === undefined || raw === "") return null;
+
   const num = Number(raw);
   return Number.isFinite(num) ? num : null;
+}
+
+function isAbsentMark(mark) {
+  return (
+    mark?.isAbsent === true ||
+    normalizeLower(mark?.attendanceStatus) === "absent" ||
+    normalizeLower(mark?.status) === "absent" ||
+    mark?.absent === true
+  );
+}
+
+function isMedicalAbsentMark(mark) {
+  return (
+    mark?.isMedicalAbsent === true ||
+    normalizeLower(mark?.attendanceStatus) === "medical_absent" ||
+    normalizeLower(mark?.attendanceStatus) === "medical absent"
+  );
 }
 
 function hasMarkEntry(mark) {
   return (
     getMarkValue(mark) !== null ||
-    mark?.isAbsent === true ||
-    mark?.isMedicalAbsent === true ||
-    normalizeLower(mark?.attendanceStatus) === "absent" ||
-    normalizeLower(mark?.attendanceStatus) === "medical_absent"
+    isAbsentMark(mark) ||
+    isMedicalAbsentMark(mark)
   );
 }
 
@@ -169,6 +198,26 @@ function getGradeLabel(mark) {
   return { label: "F", color: "error" };
 }
 
+function getBasketSubjects() {
+  return [...BASKET_A, ...BASKET_B, ...BASKET_C];
+}
+
+function getSubjectTypeBadge(subject, grade) {
+  const normalizedSubject = normalizeText(subject);
+
+  const isReligion = RELIGIONS.includes(normalizedSubject);
+  const isAesthetic = AESTHETIC_SUBJECTS.includes(normalizedSubject);
+  const isBasket =
+    grade >= 10 &&
+    grade <= 11 &&
+    getBasketSubjects().includes(normalizedSubject);
+
+  if (isReligion) return { label: "Religion", color: "#7b1fa2" };
+  if (isAesthetic) return { label: "Aesthetic", color: "#1565c0" };
+  if (isBasket) return { label: "Basket", color: "#e65100" };
+  return { label: "Core", color: "#2e7d32" };
+}
+
 function getInitials(name = "") {
   return normalizeText(name)
     .split(" ")
@@ -178,23 +227,8 @@ function getInitials(name = "") {
     .join("");
 }
 
-function getSubjectTypeBadge(subject, grade) {
-  const religionValues = ["Buddhism", "Hinduism", "Islam", "Catholicism", "Christianity"];
-  const aestheticValues = ["Art", "Music", "Dancing", "Drama & Theatre"];
-
-  const isReligion = religionValues.includes(subject);
-  const isAesthetic = aestheticValues.includes(subject);
-  const isBasket =
-    grade >= 10 &&
-    grade <= 11 &&
-    !isReligion &&
-    !isAesthetic &&
-    !["Tamil", "Mathematics", "Science", "History", "English"].includes(subject);
-
-  if (isReligion) return { label: "Religion", color: "#7b1fa2" };
-  if (isAesthetic) return { label: "Aesthetic", color: "#1565c0" };
-  if (isBasket) return { label: "Basket", color: "#e65100" };
-  return { label: "Core", color: "#2e7d32" };
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
 export default function StudentsBySubject() {
@@ -249,7 +283,6 @@ export default function StudentsBySubject() {
         .filter((enrollment) => isEnrollmentActive(enrollment));
 
       const marksData = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
       const termsData = termSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
       setAllStudents(studentsData);
@@ -271,20 +304,19 @@ export default function StudentsBySubject() {
   };
 
   const studentsById = useMemo(() => {
-    return new Map(allStudents.map((student) => [normalizeText(student.id), student]));
+    return new Map(
+      allStudents.map((student) => [normalizeText(student.id), student])
+    );
   }, [allStudents]);
 
   const availableSubjects = useMemo(() => {
     const enrollmentSubjects = allEnrollments
       .filter((enrollment) => getEnrollmentGrade(enrollment) === Number(grade))
-      .map((enrollment) => getEnrollmentSubjectName(enrollment))
-      .filter(Boolean);
+      .map((enrollment) => getEnrollmentSubjectName(enrollment));
 
     const fallbackSubjects = SUBJECTS_BY_GRADE[grade] || [];
 
-    return [...new Set([...enrollmentSubjects, ...fallbackSubjects])].sort((a, b) =>
-      a.localeCompare(b)
-    );
+    return uniqueSorted([...enrollmentSubjects, ...fallbackSubjects]);
   }, [allEnrollments, grade]);
 
   const availableYears = useMemo(() => {
@@ -300,7 +332,10 @@ export default function StudentsBySubject() {
       .map((m) => Number(getMarkYear(m)))
       .filter((y) => Number.isFinite(y));
 
-    const merged = [...new Set([currentYear, ...termYears, ...enrollmentYears, ...markYears])];
+    const merged = [
+      ...new Set([currentYear, ...termYears, ...enrollmentYears, ...markYears]),
+    ];
+
     return merged.sort((a, b) => b - a);
   }, [allTerms, allEnrollments, allMarks, currentYear]);
 
@@ -319,11 +354,11 @@ export default function StudentsBySubject() {
     try {
       const selectedGrade = Number(grade);
       const selectedYear = String(year);
+      const selectedTerm = normalizeText(term);
 
       const matchingEnrollments = allEnrollments.filter((enrollment) => {
         const sameGrade = getEnrollmentGrade(enrollment) === selectedGrade;
-        const sameSubject =
-          getEnrollmentSubjectName(enrollment) === subject;
+        const sameSubject = getEnrollmentSubjectName(enrollment) === subject;
         const sameYear =
           !selectedYear ||
           !getEnrollmentAcademicYear(enrollment) ||
@@ -350,7 +385,9 @@ export default function StudentsBySubject() {
           className: getStudentClassName(student),
         }))
         .sort((a, b) => {
-          const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
+          const sectionDiff = getStudentSection(a).localeCompare(
+            getStudentSection(b)
+          );
           if (sectionDiff !== 0) return sectionDiff;
           return getStudentName(a).localeCompare(getStudentName(b));
         });
@@ -361,75 +398,86 @@ export default function StudentsBySubject() {
             ...student,
             mark: null,
             hasMarks: false,
+            isAbsent: false,
+            isMedicalAbsent: false,
           }))
         );
-      } else {
-        const relevantMarks = allMarks.filter((mark) => {
-          const sameTerm = getMarkTerm(mark) === normalizeText(term);
-          const sameYear = getMarkYear(mark) === selectedYear;
-          const sameSubject =
-            (getMarkSubjectId(mark) &&
-              matchingEnrollments.some(
-                (enrollment) =>
-                  getEnrollmentSubjectId(enrollment) &&
-                  getEnrollmentSubjectId(enrollment) === getMarkSubjectId(mark)
-              )) ||
-            getMarkSubject(mark) === subject;
-
-          const studentId = normalizeText(mark.studentId);
-          const inEligibleSet = eligibleStudentIds.includes(studentId);
-
-          return sameTerm && sameYear && sameSubject && inEligibleSet && hasMarkEntry(mark);
-        });
-
-        const bestMarkByStudentId = new Map();
-
-        relevantMarks.forEach((mark) => {
-          const studentId = normalizeText(mark.studentId);
-          if (!studentId) return;
-
-          const current = bestMarkByStudentId.get(studentId);
-          const currentValue = current ? getMarkValue(current) : null;
-          const nextValue = getMarkValue(mark);
-
-          if (!current) {
-            bestMarkByStudentId.set(studentId, mark);
-            return;
-          }
-
-          if (currentValue === null && nextValue !== null) {
-            bestMarkByStudentId.set(studentId, mark);
-            return;
-          }
-
-          if (currentValue !== null && nextValue !== null && nextValue > currentValue) {
-            bestMarkByStudentId.set(studentId, mark);
-          }
-        });
-
-        const result = eligibleStudents
-          .map((student) => {
-            const matchedMark = bestMarkByStudentId.get(normalizeText(student.id));
-            return matchedMark
-              ? {
-                  ...student,
-                  mark: getMarkValue(matchedMark),
-                  hasMarks: true,
-                  isAbsent: matchedMark?.isAbsent === true,
-                  isMedicalAbsent: matchedMark?.isMedicalAbsent === true,
-                }
-              : null;
-          })
-          .filter(Boolean)
-          .sort((a, b) => {
-            const aMark = a.mark ?? -1;
-            const bMark = b.mark ?? -1;
-            if (bMark !== aMark) return bMark - aMark;
-            return getStudentName(a).localeCompare(getStudentName(b));
-          });
-
-        setStudents(result);
+        return;
       }
+
+      const relevantMarks = allMarks.filter((mark) => {
+        const sameTerm = getMarkTerm(mark) === selectedTerm;
+        const sameYear = getMarkYear(mark) === selectedYear;
+        const markStudentId = normalizeText(mark.studentId);
+        const inEligibleSet = eligibleStudentIds.includes(markStudentId);
+
+        const matchingEnrollmentForSubject = matchingEnrollments.some(
+          (enrollment) =>
+            getEnrollmentSubjectId(enrollment) &&
+            getMarkSubjectId(mark) &&
+            getEnrollmentSubjectId(enrollment) === getMarkSubjectId(mark)
+        );
+
+        const sameSubject =
+          matchingEnrollmentForSubject || getMarkSubject(mark) === subject;
+
+        return sameTerm && sameYear && sameSubject && inEligibleSet && hasMarkEntry(mark);
+      });
+
+      const bestMarkByStudentId = new Map();
+
+      relevantMarks.forEach((mark) => {
+        const studentId = normalizeText(mark.studentId);
+        if (!studentId) return;
+
+        const current = bestMarkByStudentId.get(studentId);
+        const currentValue = current ? getMarkValue(current) : null;
+        const nextValue = getMarkValue(mark);
+
+        if (!current) {
+          bestMarkByStudentId.set(studentId, mark);
+          return;
+        }
+
+        if (currentValue === null && nextValue !== null) {
+          bestMarkByStudentId.set(studentId, mark);
+          return;
+        }
+
+        if (currentValue !== null && nextValue !== null && nextValue > currentValue) {
+          bestMarkByStudentId.set(studentId, mark);
+          return;
+        }
+
+        if (currentValue === null && nextValue === null) {
+          if (!isAbsentMark(current) && isAbsentMark(mark)) {
+            bestMarkByStudentId.set(studentId, mark);
+          }
+        }
+      });
+
+      const result = eligibleStudents
+        .map((student) => {
+          const matchedMark = bestMarkByStudentId.get(normalizeText(student.id));
+          if (!matchedMark) return null;
+
+          return {
+            ...student,
+            mark: getMarkValue(matchedMark),
+            hasMarks: true,
+            isAbsent: isAbsentMark(matchedMark),
+            isMedicalAbsent: isMedicalAbsentMark(matchedMark),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+          const aValue = a.mark ?? -1;
+          const bValue = b.mark ?? -1;
+          if (bValue !== aValue) return bValue - aValue;
+          return getStudentName(a).localeCompare(getStudentName(b));
+        });
+
+      setStudents(result);
     } catch (error) {
       console.error("StudentsBySubject search error:", error);
       setLoadError("Failed to build subject-wise student list.");
@@ -450,6 +498,7 @@ export default function StudentsBySubject() {
   }, [students, search]);
 
   const marksOnly = students.filter((student) => student.mark !== null);
+
   const avgMark =
     mode === "marks" && marksOnly.length > 0
       ? (
@@ -552,7 +601,12 @@ export default function StudentsBySubject() {
           </ToggleButton>
         </ToggleButtonGroup>
 
-        <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          mt={0.5}
+          display="block"
+        >
           {mode === "assigned"
             ? "Enrollment-driven subject list for the selected grade"
             : "Students with marks for the selected subject, term, and year"}
@@ -849,12 +903,18 @@ export default function StudentsBySubject() {
                         <>
                           <TableCell>
                             <Typography fontWeight={700}>
-                              {student.mark !== null ? `${student.mark}/100` : "—"}
+                              {student.isMedicalAbsent
+                                ? "Medical"
+                                : student.isAbsent
+                                ? "Absent"
+                                : student.mark !== null
+                                ? `${student.mark}/100`
+                                : "—"}
                             </Typography>
                           </TableCell>
 
                           <TableCell>
-                            {gradeInfo && (
+                            {gradeInfo && !student.isAbsent && !student.isMedicalAbsent && (
                               <Chip
                                 label={gradeInfo.label}
                                 size="small"
@@ -898,10 +958,7 @@ export default function StudentsBySubject() {
 
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell
-                      colSpan={mode === "marks" ? 6 : 4}
-                      align="center"
-                    >
+                    <TableCell colSpan={mode === "marks" ? 6 : 4} align="center">
                       No students match your search.
                     </TableCell>
                   </TableRow>
