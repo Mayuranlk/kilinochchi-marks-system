@@ -5,12 +5,21 @@ const collectionsToExport = [
   "users",
   "students",
   "subjects",
+  "classrooms",
   "studentSubjectEnrollments",
+  "teacherAssignments",
   "marks",
   "academicTerms",
-  "terms",
-  "teacherAssignments",
+  "promotionHistory",
 ];
+
+function safeSortDocs(rows) {
+  return [...rows].sort((a, b) => {
+    const aName = String(a.name || a.fullName || a.subjectName || a.term || a.id || "");
+    const bName = String(b.name || b.fullName || b.subjectName || b.term || b.id || "");
+    return aName.localeCompare(bName);
+  });
+}
 
 export const exportFirestoreSamples = async () => {
   const result = {
@@ -23,10 +32,12 @@ export const exportFirestoreSamples = async () => {
       const q = query(collection(db, collectionName), limit(20));
       const snap = await getDocs(q);
 
-      result.collections[collectionName] = snap.docs.map((docSnap) => ({
+      const rows = snap.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
+
+      result.collections[collectionName] = safeSortDocs(rows);
     } catch (error) {
       result.collections[collectionName] = {
         error: error.message,
@@ -41,7 +52,7 @@ export const exportFirestoreSamples = async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "firestore-samples.json";
+  a.download = "kilinochchi-marks-firestore-samples.json";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
