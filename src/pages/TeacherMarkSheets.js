@@ -32,8 +32,7 @@ import autoTable from "jspdf-autotable";
 /* -------------------------------------------------------------------------- */
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
-const HALF_PAGE_MAX_ROWS = 14;
-const FULL_PAGE_MAX_ROWS = 32;
+const ROWS_PER_HALF_PAGE = 15;
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
@@ -143,6 +142,31 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/* -------------------------------------------------------------------------- */
+/* Layout helpers                                                              */
+/* -------------------------------------------------------------------------- */
+
+function buildHalfPageBlocks(sheetData) {
+  const blocks = [];
+
+  sheetData.forEach((sheet) => {
+    const chunks = chunkArray(sheet.rows, ROWS_PER_HALF_PAGE);
+
+    chunks.forEach((chunk, index) => {
+      blocks.push({
+        ...sheet,
+        rows: chunk,
+        subjectName:
+          chunks.length > 1
+            ? `${sheet.subjectName} (${index + 1}/${chunks.length})`
+            : sheet.subjectName,
+      });
+    });
+  });
+
+  return chunkArray(blocks, 2);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -357,24 +381,17 @@ export default function TeacherMarkSheets() {
       });
   }, [filteredEnrollmentsByYear, selectedClass, selectedSubject, studentMap]);
 
-  const smallSheets = useMemo(
-    () => sheetData.filter((sheet) => sheet.rows.length <= HALF_PAGE_MAX_ROWS),
-    [sheetData]
-  );
-
-  const largeSheets = useMemo(
-    () => sheetData.filter((sheet) => sheet.rows.length > HALF_PAGE_MAX_ROWS),
-    [sheetData]
-  );
+  const pageBlocks = useMemo(() => buildHalfPageBlocks(sheetData), [sheetData]);
 
   const summaryText = useMemo(() => {
     const subjects = sheetData.length;
-    const studentsCount = sheetData.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+    const rowsCount = sheetData.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+    const pages = pageBlocks.length;
 
-    return `${subjects} subject sheet${subjects !== 1 ? "s" : ""} · ${studentsCount} total row${
-      studentsCount !== 1 ? "s" : ""
-    }`;
-  }, [sheetData]);
+    return `${subjects} subject sheet${subjects !== 1 ? "s" : ""} · ${rowsCount} total row${
+      rowsCount !== 1 ? "s" : ""
+    } · ${pages} page${pages !== 1 ? "s" : ""}`;
+  }, [sheetData, pageBlocks]);
 
   function buildSheetTableRows(sheet) {
     return sheet.rows.map((row, index) => [
@@ -386,44 +403,41 @@ export default function TeacherMarkSheets() {
     ]);
   }
 
-  function drawSheetToPdf(doc, sheet, x, y, width, blockHeight, options = {}) {
-    const { compact = false } = options;
+  function drawSheetToPdf(doc, sheet, x, y, width, blockHeight) {
     const pageWidth = doc.internal.pageSize.getWidth();
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(compact ? 10.5 : 12);
+    doc.setFontSize(10.5);
     doc.text(SCHOOL_NAME, pageWidth / 2, y, { align: "center" });
 
-    doc.setFontSize(compact ? 10 : 11);
-    doc.text(`Teacher Mark Sheet - ${selectedYear}`, pageWidth / 2, y + 5.5, {
+    doc.setFontSize(10);
+    doc.text(`Teacher Mark Sheet - ${selectedYear}`, pageWidth / 2, y + 5.2, {
       align: "center",
     });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(compact ? 9 : 10);
+    doc.setFontSize(9);
     doc.text(
       `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}`,
       pageWidth / 2,
-      y + 11,
+      y + 10.4,
       { align: "center" }
     );
 
-    const rows = buildSheetTableRows(sheet);
-
     autoTable(doc, {
-      startY: y + 16,
+      startY: y + 15,
       margin: {
         left: x,
         right: doc.internal.pageSize.getWidth() - (x + width),
       },
       head: [["No", "Index No", "Student Name", "Marks", "Absent"]],
-      body: rows,
+      body: buildSheetTableRows(sheet),
       theme: "grid",
       styles: {
-        fontSize: compact ? 8.2 : 9,
-        cellPadding: compact ? 1.6 : 2.2,
-        lineColor: [90, 90, 90],
-        lineWidth: 0.1,
+        fontSize: 8.2,
+        cellPadding: 1.55,
+        lineColor: [80, 80, 80],
+        lineWidth: 0.12,
         valign: "middle",
         textColor: [0, 0, 0],
       },
@@ -434,25 +448,20 @@ export default function TeacherMarkSheets() {
       },
       columnStyles: {
         0: { cellWidth: 12, halign: "center" },
-        1: { cellWidth: 32, halign: "center" },
-        2: { cellWidth: width - 12 - 32 - 26 - 18, halign: "left" },
-        3: { cellWidth: 26, halign: "center" },
-        4: { cellWidth: 18, halign: "center" },
+        1: { cellWidth: 31, halign: "center" },
+        2: { cellWidth: width - 12 - 31 - 24 - 16, halign: "left" },
+        3: { cellWidth: 24, halign: "center" },
+        4: { cellWidth: 16, halign: "center" },
       },
       tableWidth: width,
       pageBreak: "avoid",
     });
 
     const finalY = doc.lastAutoTable?.finalY || y + 25;
-    let footerY = finalY + 8;
-
-    const maxFooterY = y + blockHeight - 8;
-    if (footerY > maxFooterY) {
-      footerY = maxFooterY;
-    }
+    const footerY = Math.min(finalY + 7, y + blockHeight - 6);
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(compact ? 9 : 10);
+    doc.setFontSize(9);
     doc.text("Date: ____________________", x, footerY);
     doc.text("Teacher Signature: ____________________", x + width - 78, footerY);
   }
@@ -472,49 +481,19 @@ export default function TeacherMarkSheets() {
       const marginX = 12;
       const contentWidth = pageWidth - marginX * 2;
 
-      let isFirstPage = true;
+      pageBlocks.forEach((pair, pageIndex) => {
+        if (pageIndex > 0) doc.addPage();
 
-      const smallPairs = chunkArray(smallSheets, 2);
-
-      for (const pair of smallPairs) {
-        if (!isFirstPage) doc.addPage();
-        isFirstPage = false;
-
-        drawSheetToPdf(doc, pair[0], marginX, 14, contentWidth, 128, {
-          compact: true,
-        });
+        drawSheetToPdf(doc, pair[0], marginX, 14, contentWidth, 128);
 
         if (pair[1]) {
-          doc.setDrawColor(170, 170, 170);
+          doc.setDrawColor(120, 120, 120);
+          doc.setLineWidth(0.15);
           doc.line(marginX, 145, pageWidth - marginX, 145);
 
-          drawSheetToPdf(doc, pair[1], marginX, 152, contentWidth, 128, {
-            compact: true,
-          });
+          drawSheetToPdf(doc, pair[1], marginX, 152, contentWidth, 128);
         }
-      }
-
-      for (const sheet of largeSheets) {
-        const chunks = chunkArray(sheet.rows, FULL_PAGE_MAX_ROWS);
-
-        for (let i = 0; i < chunks.length; i++) {
-          if (!isFirstPage) doc.addPage();
-          isFirstPage = false;
-
-          const partialSheet = {
-            ...sheet,
-            subjectName:
-              chunks.length > 1
-                ? `${sheet.subjectName} (${i + 1}/${chunks.length})`
-                : sheet.subjectName,
-            rows: chunks[i],
-          };
-
-          drawSheetToPdf(doc, partialSheet, marginX, 16, contentWidth, 260, {
-            compact: false,
-          });
-        }
-      }
+      });
 
       const fileName = `TeacherMarkSheets_${selectedClass}_${selectedTerm || "Term"}_${selectedYear}.pdf`;
       doc.save(fileName);
@@ -526,7 +505,7 @@ export default function TeacherMarkSheets() {
     }
   }
 
-  function renderPrintableSheet(sheet, compact = false) {
+  function renderPrintableSheet(sheet) {
     const rowsHtml = buildSheetTableRows(sheet)
       .map(
         (row) => `
@@ -542,7 +521,7 @@ export default function TeacherMarkSheets() {
       .join("");
 
     return `
-      <div class="sheet-block ${compact ? "compact" : "full"}">
+      <div class="sheet-block">
         <div class="header">
           <div class="school">${escapeHtml(SCHOOL_NAME)}</div>
           <div class="title">Teacher Mark Sheet - ${escapeHtml(selectedYear)}</div>
@@ -575,42 +554,19 @@ export default function TeacherMarkSheets() {
   }
 
   function buildPrintableHtml() {
-    const smallPairs = chunkArray(smallSheets, 2);
-
-    const pairPagesHtml = smallPairs
+    const pagesHtml = pageBlocks
       .map(
         (pair) => `
           <div class="page">
-            ${renderPrintableSheet(pair[0], true)}
+            ${renderPrintableSheet(pair[0])}
             ${
               pair[1]
-                ? `<div class="divider"></div>${renderPrintableSheet(pair[1], true)}`
+                ? `<div class="divider"></div>${renderPrintableSheet(pair[1])}`
                 : ""
             }
           </div>
         `
       )
-      .join("");
-
-    const fullPagesHtml = largeSheets
-      .map((sheet) => {
-        const chunks = chunkArray(sheet.rows, FULL_PAGE_MAX_ROWS);
-
-        return chunks
-          .map((chunk, idx) => {
-            const partialSheet = {
-              ...sheet,
-              subjectName:
-                chunks.length > 1
-                  ? `${sheet.subjectName} (${idx + 1}/${chunks.length})`
-                  : sheet.subjectName,
-              rows: chunk,
-            };
-
-            return `<div class="page">${renderPrintableSheet(partialSheet, false)}</div>`;
-          })
-          .join("");
-      })
       .join("");
 
     return `
@@ -635,18 +591,13 @@ export default function TeacherMarkSheets() {
               page-break-after: auto;
             }
             .divider {
-              border-top: 1px dashed #999;
-              margin: 8mm 0 6mm 0;
+              border-top: 1px solid #777;
+              margin: 7mm 0 5mm 0;
             }
             .sheet-block {
               width: 100%;
               box-sizing: border-box;
-            }
-            .sheet-block.compact {
               min-height: 126mm;
-            }
-            .sheet-block.full {
-              min-height: 248mm;
             }
             .header {
               text-align: center;
@@ -672,10 +623,6 @@ export default function TeacherMarkSheets() {
             }
             th, td {
               border: 1px solid #333;
-              padding: 5px 7px;
-              font-size: 12px;
-            }
-            .compact th, .compact td {
               padding: 4px 6px;
               font-size: 11px;
             }
@@ -683,17 +630,14 @@ export default function TeacherMarkSheets() {
               background: #f2f2f2;
             }
             td {
-              height: 22px;
-            }
-            .compact td {
               height: 18px;
             }
             .center {
               text-align: center;
             }
             .no { width: 7%; }
-            .index { width: 15%; }
-            .name { width: 54%; }
+            .index { width: 16%; }
+            .name { width: 53%; }
             .marks { width: 14%; }
             .absent { width: 10%; }
             .footer {
@@ -705,8 +649,7 @@ export default function TeacherMarkSheets() {
           </style>
         </head>
         <body>
-          ${pairPagesHtml}
-          ${fullPagesHtml}
+          ${pagesHtml}
         </body>
       </html>
     `;
@@ -755,14 +698,15 @@ export default function TeacherMarkSheets() {
           </Stack>
 
           <Typography variant="body2" color="text.secondary">
-            Generate printable and downloadable PDF mark sheets using subject enrollments.
+            Generate printable and downloadable PDF mark sheets using the forced
+            two stacked subject blocks per A4 page layout.
           </Typography>
         </Box>
 
         {error && <Alert severity="error">{error}</Alert>}
 
         <Alert severity="info">
-          This page uses <strong>studentSubjectEnrollments</strong> so each sheet contains
+          This page uses <strong>studentSubjectEnrollments</strong> so each sheet includes
           only students enrolled in that subject.
         </Alert>
 
@@ -914,44 +858,41 @@ export default function TeacherMarkSheets() {
           </Alert>
         ) : (
           <Grid container spacing={2}>
-            {sheetData.map((sheet) => (
-              <Grid
-                item
-                xs={12}
-                md={6}
-                key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}`}
-              >
-                <Paper
-                  sx={{
-                    p: 2,
-                    borderRadius: 3,
-                    border: "1px solid #e8eaf6",
-                    boxShadow: "0 2px 8px rgba(26,35,126,0.05)",
-                    height: "100%",
-                  }}
+            {sheetData.map((sheet) => {
+              const parts = Math.ceil(sheet.rows.length / ROWS_PER_HALF_PAGE);
+
+              return (
+                <Grid
+                  item
+                  xs={12}
+                  md={6}
+                  key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}`}
                 >
-                  <Typography variant="subtitle1" fontWeight={700} color="#1a237e">
-                    {sheet.subjectName}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" mb={1}>
-                    Class {sheet.className} · {selectedTerm || "Term"} · {selectedYear}
-                  </Typography>
-                  <Typography variant="body2">
-                    Students: <strong>{sheet.rows.length}</strong>
-                  </Typography>
-                  <Typography variant="body2">
-                    Layout:{" "}
-                    <strong>
-                      {sheet.rows.length <= HALF_PAGE_MAX_ROWS
-                        ? "Half-page packed sheet"
-                        : sheet.rows.length <= FULL_PAGE_MAX_ROWS
-                        ? "Full-page sheet"
-                        : "Multi-page sheet"}
-                    </strong>
-                  </Typography>
-                </Paper>
-              </Grid>
-            ))}
+                  <Paper
+                    sx={{
+                      p: 2,
+                      borderRadius: 3,
+                      border: "1px solid #e8eaf6",
+                      boxShadow: "0 2px 8px rgba(26,35,126,0.05)",
+                      height: "100%",
+                    }}
+                  >
+                    <Typography variant="subtitle1" fontWeight={700} color="#1a237e">
+                      {sheet.subjectName}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" mb={1}>
+                      Class {sheet.className} · {selectedTerm || "Term"} · {selectedYear}
+                    </Typography>
+                    <Typography variant="body2">
+                      Students: <strong>{sheet.rows.length}</strong>
+                    </Typography>
+                    <Typography variant="body2">
+                      Half-page blocks: <strong>{parts}</strong>
+                    </Typography>
+                  </Paper>
+                </Grid>
+              );
+            })}
           </Grid>
         )}
 
@@ -965,6 +906,9 @@ export default function TeacherMarkSheets() {
         >
           <Typography variant="subtitle2" fontWeight={700} mb={1}>
             Output Format
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Layout: forced two stacked subject blocks per A4 page
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Columns: No, Index No, Student Name, Marks, Absent
