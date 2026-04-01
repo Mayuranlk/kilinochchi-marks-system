@@ -24,6 +24,7 @@ import AcademicTerms from "./pages/AcademicTerms";
 import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
 import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
 import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
+import TeacherMarkSheets from "./pages/TeacherMarkSheets";
 
 function LoadingScreen() {
   return (
@@ -216,6 +217,15 @@ export default function App() {
               element={
                 <AdminRoute>
                   <YearEndPromotion />
+                </AdminRoute>
+              }
+            />
+
+            <Route
+              path="teacher-mark-sheets"
+              element={
+                <AdminRoute>
+                  <TeacherMarkSheets />
                 </AdminRoute>
               }
             />

@@ -42,6 +42,7 @@ import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest";
 import DownloadIcon from "@mui/icons-material/Download";
+import DescriptionIcon from "@mui/icons-material/Description";
 
 const DRAWER_WIDTH = 240;
 
@@ -70,6 +71,12 @@ export default function Layout() {
     { label: "Class Teachers", icon: <HomeWorkIcon />, path: "/class-teachers" },
     { label: "Promotion", icon: <UpgradeIcon />, path: "/promotion" },
     { label: "Academic Terms", icon: <CalendarMonthIcon />, path: "/terms" },
+    {
+      label: "Teacher Mark Sheets",
+      icon: <DescriptionIcon />,
+      path: "/teacher-mark-sheets",
+      badge: "NEW",
+    },
     {
       label: "Subject Enrollments",
       icon: <AutoFixHighIcon />,
@@ -164,6 +171,16 @@ export default function Layout() {
     if (item.badge === "DEV") {
       bg = "#90caf9";
       color = "#0d47a1";
+    }
+
+    if (item.badge === "SETUP") {
+      bg = "#c5e1a5";
+      color = "#33691e";
+    }
+
+    if (item.badge === "AUTO") {
+      bg = "#b39ddb";
+      color = "#311b92";
     }
 
     return (
