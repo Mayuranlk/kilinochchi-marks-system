@@ -77,7 +77,9 @@ function isStudentActive(student) {
 }
 
 function getStudentAdmissionNo(student) {
-  return normalizeText(student?.admissionNo || student?.admissionNumber || student?.admNo);
+  return normalizeText(
+    student?.admissionNo || student?.admissionNumber || student?.admNo
+  );
 }
 
 function getMarkSubject(mark) {
@@ -165,7 +167,21 @@ function getEnrollmentSubjectId(enrollment) {
 }
 
 function isEnrollmentActive(enrollment) {
-  return normalizeLower(enrollment?.status || "active") === "active";
+  const status = normalizeLower(enrollment?.status || "active");
+  return ["", "active", "current", "promoted"].includes(status);
+}
+
+function normalizeSubjectKey(subjectId, subjectName) {
+  const id = normalizeText(subjectId);
+  if (id) return `id:${id}`;
+  return `name:${normalizeLower(subjectName).replace(/\s+/g, "")}`;
+}
+
+function subjectMatches(subjectAId, subjectAName, subjectBId, subjectBName) {
+  return (
+    normalizeSubjectKey(subjectAId, subjectAName) ===
+    normalizeSubjectKey(subjectBId, subjectBName)
+  );
 }
 
 function getInitials(name = "") {
@@ -178,34 +194,33 @@ function getInitials(name = "") {
 }
 
 function statusColor(status) {
-  return status === "done"
-    ? "success"
-    : status === "partial"
-    ? "warning"
-    : "error";
+  if (status === "done") return "success";
+  if (status === "partial") return "warning";
+  if (status === "pending") return "error";
+  return "default";
 }
 
 function statusLabel(status) {
-  return status === "done"
-    ? "Done"
-    : status === "partial"
-    ? "Partial"
-    : "Pending";
+  if (status === "done") return "Done";
+  if (status === "partial") return "Partial";
+  if (status === "pending") return "Pending";
+  return "No Data";
 }
 
 function progressBarColor(status) {
-  return status === "done"
-    ? "#2e7d32"
-    : status === "partial"
-    ? "#f57f17"
-    : "#c62828";
+  if (status === "done") return "#2e7d32";
+  if (status === "partial") return "#f57f17";
+  if (status === "pending") return "#c62828";
+  return "#90a4ae";
 }
 
 function teacherMatchesProfile(record, profile) {
   const recordTeacherId = normalizeText(
     record?.teacherId || record?.classTeacherId || record?.teacherDocId
   );
-  const recordUid = normalizeText(record?.teacherUid || record?.classTeacherUid || record?.uid);
+  const recordUid = normalizeText(
+    record?.teacherUid || record?.classTeacherUid || record?.uid
+  );
   const recordEmail = normalizeLower(
     record?.teacherEmail || record?.classTeacherEmail || record?.email
   );
@@ -227,7 +242,9 @@ function teacherMatchesProfile(record, profile) {
     .filter(Boolean);
 
   const profileEmails = [profile?.email].map(normalizeLower).filter(Boolean);
-  const profileNames = [profile?.name, profile?.displayName].map(normalizeLower).filter(Boolean);
+  const profileNames = [profile?.name, profile?.displayName]
+    .map(normalizeLower)
+    .filter(Boolean);
   const profileSignatureNos = [
     profile?.signatureNo,
     profile?.teacherSignatureNo,
@@ -247,7 +264,9 @@ function teacherMatchesProfile(record, profile) {
 
 function normalizeClassroom(classroom) {
   const grade = parseGrade(classroom?.grade);
-  const section = normalizeSection(classroom?.section || classroom?.className || "");
+  const section = normalizeSection(
+    classroom?.section || classroom?.className || ""
+  );
   const year = String(classroom?.year || classroom?.academicYear || "");
   return {
     ...classroom,
@@ -284,7 +303,12 @@ function StatCard({ title, value, subtitle, icon, bg }) {
         </Typography>
 
         {subtitle ? (
-          <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            display="block"
+            mt={1}
+          >
             {subtitle}
           </Typography>
         ) : null}
@@ -328,6 +352,10 @@ function QuickActionCard({ title, description, buttonText, onClick, icon }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
+
 export default function TeacherDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -337,6 +365,7 @@ export default function TeacherDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [activeTerm, setActiveTerm] = useState(null);
   const [subjectProgress, setSubjectProgress] = useState([]);
   const [classTeacherClass, setClassTeacherClass] = useState(null);
@@ -383,7 +412,9 @@ export default function TeacherDashboard() {
           .sort((a, b) => {
             const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
             if (gradeDiff !== 0) return gradeDiff;
-            return getTeacherAssignmentSection(a).localeCompare(getTeacherAssignmentSection(b));
+            return getTeacherAssignmentSection(a).localeCompare(
+              getTeacherAssignmentSection(b)
+            );
           });
 
         setAssignments(myAssignments);
@@ -410,14 +441,12 @@ export default function TeacherDashboard() {
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((enrollment) => isEnrollmentActive(enrollment));
 
+        setEnrollments(allEnrollments);
+
         const allMarks = marksSnap.docs.map((d) => ({
           id: d.id,
           ...d.data(),
         }));
-
-        const myAssignmentClassKeys = [
-          ...new Set(myAssignments.map((assignment) => getTeacherAssignmentClassName(assignment))),
-        ];
 
         const myAssignmentPairs = myAssignments.map((assignment) => ({
           className: getTeacherAssignmentClassName(assignment),
@@ -434,15 +463,21 @@ export default function TeacherDashboard() {
 
           return myAssignmentPairs.some((pair) => {
             const sameClass = pair.className === enrollmentClassName;
-            const sameSubject =
-              (pair.subjectId && enrollmentSubjectId && pair.subjectId === enrollmentSubjectId) ||
-              (!!pair.subjectName && pair.subjectName === enrollmentSubjectName);
-
+            const sameSubject = subjectMatches(
+              pair.subjectId,
+              pair.subjectName,
+              enrollmentSubjectId,
+              enrollmentSubjectName
+            );
             return sameClass && sameSubject;
           });
         });
 
-        const myStudentIds = [...new Set(myEnrollments.map((e) => normalizeText(e.studentId)).filter(Boolean))];
+        const myStudentIds = [
+          ...new Set(
+            myEnrollments.map((e) => normalizeText(e.studentId)).filter(Boolean)
+          ),
+        ];
 
         const myStudents = myStudentIds
           .map((studentId) => studentsById.get(studentId))
@@ -452,7 +487,9 @@ export default function TeacherDashboard() {
             const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
             if (gradeDiff !== 0) return gradeDiff;
 
-            const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
+            const sectionDiff = getStudentSection(a).localeCompare(
+              getStudentSection(b)
+            );
             if (sectionDiff !== 0) return sectionDiff;
 
             return getStudentName(a).localeCompare(getStudentName(b));
@@ -467,9 +504,12 @@ export default function TeacherDashboard() {
 
           return myAssignmentPairs.some((pair) => {
             const sameClass = pair.className === markClassName;
-            const sameSubject =
-              (pair.subjectId && markSubjectId && pair.subjectId === markSubjectId) ||
-              (!!pair.subjectName && pair.subjectName === markSubjectName);
+            const sameSubject = subjectMatches(
+              pair.subjectId,
+              pair.subjectName,
+              markSubjectId,
+              markSubjectName
+            );
 
             return sameClass && sameSubject;
           });
@@ -479,22 +519,25 @@ export default function TeacherDashboard() {
 
         if (matchedClassTeacherClass && active) {
           const className = matchedClassTeacherClass.className;
+
           const classAssignments = allAssignments.filter(
             (assignment) => getTeacherAssignmentClassName(assignment) === className
           );
 
-          const classEnrollments = allEnrollments.filter(
-            (enrollment) =>
-              getEnrollmentClassName(enrollment) === className &&
-              String(enrollment.academicYear || "") === String(active.year || enrollment.academicYear || "")
-          );
+          const classEnrollments = allEnrollments.filter((enrollment) => {
+            const sameClass = getEnrollmentClassName(enrollment) === className;
+            const enrollmentYear = String(enrollment.academicYear || "");
+            const sameYear =
+              !enrollmentYear || enrollmentYear === String(active.year || "");
+            return sameClass && sameYear;
+          });
 
           const groupedSubjectsMap = new Map();
 
           classAssignments.forEach((assignment) => {
             const subjectId = getTeacherAssignmentSubjectId(assignment);
             const subjectName = getTeacherAssignmentSubject(assignment);
-            const key = subjectId || subjectName;
+            const key = normalizeSubjectKey(subjectId, subjectName);
             if (!key) return;
 
             if (!groupedSubjectsMap.has(key)) {
@@ -508,7 +551,7 @@ export default function TeacherDashboard() {
           classEnrollments.forEach((enrollment) => {
             const subjectId = getEnrollmentSubjectId(enrollment);
             const subjectName = getEnrollmentSubject(enrollment);
-            const key = subjectId || subjectName;
+            const key = normalizeSubjectKey(subjectId, subjectName);
             if (!key) return;
 
             if (!groupedSubjectsMap.has(key)) {
@@ -521,16 +564,14 @@ export default function TeacherDashboard() {
 
           const progress = Array.from(groupedSubjectsMap.values())
             .map((subjectInfo) => {
-              const eligibleEnrollments = classEnrollments.filter((enrollment) => {
-                const sameSubject =
-                  (subjectInfo.subjectId &&
-                    getEnrollmentSubjectId(enrollment) &&
-                    subjectInfo.subjectId === getEnrollmentSubjectId(enrollment)) ||
-                  (!!subjectInfo.subjectName &&
-                    subjectInfo.subjectName === getEnrollmentSubject(enrollment));
-
-                return sameSubject;
-              });
+              const eligibleEnrollments = classEnrollments.filter((enrollment) =>
+                subjectMatches(
+                  subjectInfo.subjectId,
+                  subjectInfo.subjectName,
+                  getEnrollmentSubjectId(enrollment),
+                  getEnrollmentSubject(enrollment)
+                )
+              );
 
               const eligibleStudentIds = new Set(
                 eligibleEnrollments
@@ -538,29 +579,48 @@ export default function TeacherDashboard() {
                   .filter(Boolean)
               );
 
+              const total = eligibleStudentIds.size;
+
+              if (total === 0) {
+                return {
+                  subject: subjectInfo.subjectName || "Unnamed Subject",
+                  entered: 0,
+                  total: 0,
+                  percent: 0,
+                  status: "no_students",
+                };
+              }
+
               const markedStudentIds = new Set(
                 allMarks
                   .filter((mark) => {
                     const sameClass = getMarkClassName(mark) === className;
-                    const sameTerm = !active?.term || getMarkTerm(mark) === normalizeText(active.term);
-                    const sameYear = !active?.year || getMarkYear(mark) === String(active.year);
+                    const sameTerm =
+                      !active?.term || getMarkTerm(mark) === normalizeText(active.term);
+                    const sameYear =
+                      !active?.year || getMarkYear(mark) === String(active.year);
 
-                    const sameSubject =
-                      (subjectInfo.subjectId &&
-                        getMarkSubjectId(mark) &&
-                        subjectInfo.subjectId === getMarkSubjectId(mark)) ||
-                      (!!subjectInfo.subjectName &&
-                        subjectInfo.subjectName === getMarkSubject(mark));
+                    const sameSubject = subjectMatches(
+                      subjectInfo.subjectId,
+                      subjectInfo.subjectName,
+                      getMarkSubjectId(mark),
+                      getMarkSubject(mark)
+                    );
 
-                    return sameClass && sameTerm && sameYear && sameSubject && hasMarkEntry(mark);
+                    return (
+                      sameClass &&
+                      sameTerm &&
+                      sameYear &&
+                      sameSubject &&
+                      hasMarkEntry(mark)
+                    );
                   })
                   .map((mark) => normalizeText(mark.studentId))
                   .filter((studentId) => studentId && eligibleStudentIds.has(studentId))
               );
 
               const entered = markedStudentIds.size;
-              const total = eligibleStudentIds.size;
-              const percent = total > 0 ? Math.round((entered / total) * 100) : 0;
+              const percent = Math.round((entered / total) * 100);
               const status =
                 entered === 0 ? "pending" : entered < total ? "partial" : "done";
 
@@ -572,6 +632,7 @@ export default function TeacherDashboard() {
                 status,
               };
             })
+            .filter((row) => row.status !== "no_students")
             .sort((a, b) => {
               const order = { pending: 0, partial: 1, done: 2 };
               return order[a.status] - order[b.status] || a.subject.localeCompare(b.subject);
@@ -609,7 +670,9 @@ export default function TeacherDashboard() {
 
   const groupedClasses = useMemo(() => {
     return assignments.reduce((acc, assignment) => {
-      const classLabel = `Grade ${parseGrade(assignment.grade)}-${getTeacherAssignmentSection(assignment)}`;
+      const classLabel = `Grade ${parseGrade(assignment.grade)}-${getTeacherAssignmentSection(
+        assignment
+      )}`;
       if (!acc[classLabel]) acc[classLabel] = [];
       acc[classLabel].push(getTeacherAssignmentSubject(assignment));
       return acc;
@@ -625,13 +688,26 @@ export default function TeacherDashboard() {
       const subjectName = getTeacherAssignmentSubject(assignment);
 
       const eligibleStudentIds = new Set(
-        students
-          .filter((student) => {
-            const studentClassName = buildFullClassName(student.grade, getStudentSection(student));
-            return studentClassName === className;
+        enrollments
+          .filter((enrollment) => {
+            const sameClass = getEnrollmentClassName(enrollment) === className;
+            const enrollmentYear = String(enrollment.academicYear || "");
+            const sameYear =
+              !enrollmentYear || enrollmentYear === String(activeTerm.year || "");
+            const sameSubject = subjectMatches(
+              subjectId,
+              subjectName,
+              getEnrollmentSubjectId(enrollment),
+              getEnrollmentSubject(enrollment)
+            );
+
+            return sameClass && sameYear && sameSubject && isEnrollmentActive(enrollment);
           })
-          .map((student) => normalizeText(student.id))
+          .map((enrollment) => normalizeText(enrollment.studentId))
+          .filter(Boolean)
       );
+
+      if (eligibleStudentIds.size === 0) return false;
 
       const markedStudentIds = new Set(
         marks
@@ -639,9 +715,12 @@ export default function TeacherDashboard() {
             const sameClass = getMarkClassName(mark) === className;
             const sameTerm = getMarkTerm(mark) === normalizeText(activeTerm.term);
             const sameYear = getMarkYear(mark) === String(activeTerm.year);
-            const sameSubject =
-              (subjectId && getMarkSubjectId(mark) && subjectId === getMarkSubjectId(mark)) ||
-              (!!subjectName && subjectName === getMarkSubject(mark));
+            const sameSubject = subjectMatches(
+              subjectId,
+              subjectName,
+              getMarkSubjectId(mark),
+              getMarkSubject(mark)
+            );
 
             return sameClass && sameTerm && sameYear && sameSubject && hasMarkEntry(mark);
           })
@@ -649,12 +728,27 @@ export default function TeacherDashboard() {
           .filter((studentId) => studentId && eligibleStudentIds.has(studentId))
       );
 
-      return eligibleStudentIds.size > 0 && markedStudentIds.size >= eligibleStudentIds.size;
+      return markedStudentIds.size === eligibleStudentIds.size;
     }).length;
-  }, [assignments, students, marks, activeTerm]);
+  }, [assignments, enrollments, marks, activeTerm]);
 
   const marksCount = marks.length;
   const isClassTeacher = !!classTeacherClass;
+
+  const monitorStats = useMemo(() => {
+    const totalSubjects = subjectProgress.length;
+    const done = subjectProgress.filter((s) => s.status === "done").length;
+    const partial = subjectProgress.filter((s) => s.status === "partial").length;
+    const pending = subjectProgress.filter((s) => s.status === "pending").length;
+    const averagePercent = totalSubjects
+      ? Math.round(
+          subjectProgress.reduce((sum, row) => sum + Number(row.percent || 0), 0) /
+            totalSubjects
+        )
+      : 0;
+
+    return { totalSubjects, done, partial, pending, averagePercent };
+  }, [subjectProgress]);
 
   const statCards = [
     {
@@ -736,7 +830,11 @@ export default function TeacherDashboard() {
           <Box>
             <Stack direction="row" spacing={1} alignItems="center" mb={1}>
               <SchoolIcon sx={{ color: "#1a237e" }} />
-              <Typography variant={isMobile ? "h6" : "h4"} fontWeight={800} color="#1a237e">
+              <Typography
+                variant={isMobile ? "h6" : "h4"}
+                fontWeight={800}
+                color="#1a237e"
+              >
                 Welcome, {profile?.name || "Teacher"}
               </Typography>
             </Stack>
@@ -748,7 +846,9 @@ export default function TeacherDashboard() {
             <Stack direction="row" spacing={1} flexWrap="wrap" mt={1.5}>
               <Chip
                 icon={<MenuBookIcon />}
-                label={`${assignments.length} Assignment${assignments.length !== 1 ? "s" : ""}`}
+                label={`${assignments.length} Assignment${
+                  assignments.length !== 1 ? "s" : ""
+                }`}
                 color="primary"
                 size="small"
               />
@@ -873,76 +973,50 @@ export default function TeacherDashboard() {
             </Stack>
 
             {!activeTerm ? (
-              <Alert severity="warning">No active term. Ask admin to activate a term.</Alert>
+              <Alert severity="warning">
+                No active term. Ask admin to activate a term.
+              </Alert>
             ) : subjectProgress.length === 0 ? (
               <Alert severity="info">No class progress data available yet.</Alert>
-            ) : isMobile ? (
-              <Box>
-                {subjectProgress.map((sp) => (
-                  <Card
-                    key={sp.subject}
-                    variant="outlined"
-                    sx={{
-                      mb: 1.2,
-                      borderRadius: 2,
-                      bgcolor:
-                        sp.status === "done"
-                          ? "#f1f8f1"
-                          : sp.status === "partial"
-                          ? "#fffde7"
-                          : "#fff5f5",
-                    }}
-                  >
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                        <Typography variant="body2" fontWeight={700}>
-                          {sp.subject}
-                        </Typography>
-                        <Chip
-                          label={statusLabel(sp.status)}
-                          size="small"
-                          color={statusColor(sp.status)}
-                        />
-                      </Box>
-
-                      <LinearProgress
-                        variant="determinate"
-                        value={sp.percent}
-                        sx={{
-                          height: 7,
-                          borderRadius: 4,
-                          bgcolor: "#e0e0e0",
-                          "& .MuiLinearProgress-bar": {
-                            bgcolor: progressBarColor(sp.status),
-                          },
-                        }}
-                      />
-
-                      <Typography variant="caption" color="text.secondary" display="block" mt={0.8}>
-                        {sp.entered}/{sp.total} students · {sp.percent}%
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
             ) : (
-              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: "#1a237e" }}>
-                    <TableRow>
-                      {["#", "Subject", "Progress", "Students", "%", "Status"].map((head) => (
-                        <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
-                          {head}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {subjectProgress.map((sp, idx) => (
-                      <TableRow
+              <>
+                <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
+                  <Chip
+                    label={`Subjects: ${monitorStats.totalSubjects}`}
+                    color="primary"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Done: ${monitorStats.done}`}
+                    color="success"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Partial: ${monitorStats.partial}`}
+                    color="warning"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Pending: ${monitorStats.pending}`}
+                    color="error"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Average Progress: ${monitorStats.averagePercent}%`}
+                    size="small"
+                    variant="outlined"
+                  />
+                </Box>
+
+                {isMobile ? (
+                  <Box>
+                    {subjectProgress.map((sp) => (
+                      <Card
                         key={sp.subject}
-                        hover
+                        variant="outlined"
                         sx={{
+                          mb: 1.2,
+                          borderRadius: 2,
                           bgcolor:
                             sp.status === "done"
                               ? "#f1f8f1"
@@ -951,18 +1025,28 @@ export default function TeacherDashboard() {
                               : "#fff5f5",
                         }}
                       >
-                        <TableCell>{idx + 1}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={700}>
-                            {sp.subject}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 160 }}>
+                        <CardContent>
+                          <Box
+                            display="flex"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            mb={1}
+                          >
+                            <Typography variant="body2" fontWeight={700}>
+                              {sp.subject}
+                            </Typography>
+                            <Chip
+                              label={statusLabel(sp.status)}
+                              size="small"
+                              color={statusColor(sp.status)}
+                            />
+                          </Box>
+
                           <LinearProgress
                             variant="determinate"
                             value={sp.percent}
                             sx={{
-                              height: 8,
+                              height: 7,
                               borderRadius: 4,
                               bgcolor: "#e0e0e0",
                               "& .MuiLinearProgress-bar": {
@@ -970,31 +1054,101 @@ export default function TeacherDashboard() {
                               },
                             }}
                           />
-                        </TableCell>
-                        <TableCell>
-                          {sp.entered} / {sp.total}
-                        </TableCell>
-                        <TableCell>
-                          <Typography
-                            variant="body2"
-                            fontWeight={700}
-                            color={progressBarColor(sp.status)}
+
+                          <Box
+                            display="flex"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            mt={0.8}
                           >
-                            {sp.percent}%
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={statusLabel(sp.status)}
-                            size="small"
-                            color={statusColor(sp.status)}
-                          />
-                        </TableCell>
-                      </TableRow>
+                            <Typography variant="caption" color="text.secondary">
+                              {sp.entered}/{sp.total} students
+                            </Typography>
+                            <Typography variant="caption" fontWeight={700}>
+                              {sp.percent}%
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
                     ))}
-                  </TableBody>
-                </Table>
-              </Paper>
+                  </Box>
+                ) : (
+                  <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: "#1a237e" }}>
+                        <TableRow>
+                          {["#", "Subject", "Progress", "Students", "%", "Status"].map(
+                            (head) => (
+                              <TableCell
+                                key={head}
+                                sx={{ color: "white", fontWeight: 600 }}
+                              >
+                                {head}
+                              </TableCell>
+                            )
+                          )}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {subjectProgress.map((sp, idx) => (
+                          <TableRow
+                            key={sp.subject}
+                            hover
+                            sx={{
+                              bgcolor:
+                                sp.status === "done"
+                                  ? "#f1f8f1"
+                                  : sp.status === "partial"
+                                  ? "#fffde7"
+                                  : "#fff5f5",
+                            }}
+                          >
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={700}>
+                                {sp.subject}
+                              </Typography>
+                            </TableCell>
+                            <TableCell sx={{ minWidth: 160 }}>
+                              <LinearProgress
+                                variant="determinate"
+                                value={sp.percent}
+                                sx={{
+                                  height: 8,
+                                  borderRadius: 4,
+                                  bgcolor: "#e0e0e0",
+                                  "& .MuiLinearProgress-bar": {
+                                    bgcolor: progressBarColor(sp.status),
+                                  },
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {sp.entered} / {sp.total}
+                            </TableCell>
+                            <TableCell>
+                              <Typography
+                                variant="body2"
+                                fontWeight={700}
+                                color={progressBarColor(sp.status)}
+                              >
+                                {sp.percent}%
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={statusLabel(sp.status)}
+                                size="small"
+                                color={statusColor(sp.status)}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                )}
+              </>
             )}
           </Paper>
         </Box>
@@ -1018,7 +1172,12 @@ export default function TeacherDashboard() {
                     height: "100%",
                   }}
                 >
-                  <Typography variant="subtitle2" fontWeight={700} color="#1a237e" mb={1}>
+                  <Typography
+                    variant="subtitle2"
+                    fontWeight={700}
+                    color="#1a237e"
+                    mb={1}
+                  >
                     {classLabel}
                   </Typography>
 
@@ -1077,7 +1236,12 @@ export default function TeacherDashboard() {
             {isMobile ? (
               <Box p={1.5}>
                 {students.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" textAlign="center" py={2}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    textAlign="center"
+                    py={2}
+                  >
                     No students found in your assigned classes.
                   </Typography>
                 ) : (
@@ -1094,8 +1258,8 @@ export default function TeacherDashboard() {
                               {getStudentName(student)}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Adm: {getStudentAdmissionNo(student) || "—"} · G{parseGrade(student.grade)}-
-                              {getStudentSection(student)}
+                              Adm: {getStudentAdmissionNo(student) || "—"} · G
+                              {parseGrade(student.grade)}-{getStudentSection(student)}
                             </Typography>
                           </Box>
 
@@ -1293,7 +1457,11 @@ export default function TeacherDashboard() {
                 variant="outlined"
                 fullWidth
                 onClick={() => navigate("/teacher/marks")}
-                sx={{ justifyContent: "space-between", borderColor: "#e8eaf6", color: "#1a237e" }}
+                sx={{
+                  justifyContent: "space-between",
+                  borderColor: "#e8eaf6",
+                  color: "#1a237e",
+                }}
                 endIcon={<ArrowForwardIcon />}
               >
                 Marks Entry
@@ -1304,7 +1472,11 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   fullWidth
                   onClick={() => navigate("/teacher/class-report")}
-                  sx={{ justifyContent: "space-between", borderColor: "#e8eaf6", color: "#1a237e" }}
+                  sx={{
+                    justifyContent: "space-between",
+                    borderColor: "#e8eaf6",
+                    color: "#1a237e",
+                  }}
                   endIcon={<ArrowForwardIcon />}
                 >
                   Class Report

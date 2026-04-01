@@ -33,61 +33,77 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 const safeString = (value) => (value == null ? "" : String(value).trim());
 const lower = (value) => safeString(value).toLowerCase();
+
 const normalizeGrade = (value) => {
   const match = safeString(value).match(/\d+/);
   return match ? Number(match[0]) : null;
 };
+
 const normalizeAcademicYear = (value) => {
   const match = safeString(value).match(/\d{4}/);
   return match ? String(match[0]) : "";
 };
+
 const normalizeSection = (value) => {
   const raw = safeString(value).toUpperCase();
   const match = raw.match(/[A-Z]+/);
   return match ? match[0] : raw;
 };
-const normalizeSubjectName = (value) => safeString(value).replace(/\s+/g, "").toLowerCase();
-const buildFullClassName = (grade, section) => {
-  const g = normalizeGrade(grade);
-  const s = normalizeSection(section);
-  return g && s ? `${g}${s}` : "";
-};
+
+const normalizeSubjectName = (value) =>
+  safeString(value).replace(/\s+/g, "").toLowerCase();
 
 const getMarkSubject = (mark) => safeString(mark?.subjectName || mark?.subject);
 const getMarkSubjectId = (mark) => safeString(mark?.subjectId);
-const getMarkTerm = (mark) => safeString(mark?.term || mark?.termName || mark?.termLabel);
-const getMarkYear = (mark) => normalizeAcademicYear(mark?.academicYear || mark?.year);
+const getMarkTerm = (mark) =>
+  safeString(mark?.term || mark?.termName || mark?.termLabel);
+const getMarkYear = (mark) =>
+  normalizeAcademicYear(mark?.academicYear || mark?.year);
+
 const getMarkValue = (mark) => {
   const raw = mark?.mark ?? mark?.marks ?? mark?.score ?? "";
   if (raw === "" || raw == null) return null;
   const num = Number(raw);
   return Number.isFinite(num) ? num : null;
 };
+
 const getMarkStatus = (mark) => {
   if (mark?.isMedicalAbsent) return "medical_absent";
   if (mark?.isAbsent) return "absent";
+
   const status = lower(mark?.attendanceStatus || mark?.status);
   if (status === "medical_absent") return "medical_absent";
   if (status === "absent") return "absent";
+
   return "present";
 };
 
-const getEnrollmentSubjectName = (row) => safeString(row?.subjectName || row?.subject);
+const getEnrollmentSubjectName = (row) =>
+  safeString(row?.subjectName || row?.subject);
+
 const getEnrollmentSubjectId = (row) => safeString(row?.subjectId);
-const getEnrollmentAcademicYear = (row) => normalizeAcademicYear(row?.academicYear || row?.year);
+
+const getEnrollmentAcademicYear = (row) =>
+  normalizeAcademicYear(row?.academicYear || row?.year);
+
 const getEnrollmentStatus = (row) => lower(row?.status || "active");
-const isEnrollmentActive = (row) => ["", "active", "promoted", "current"].includes(getEnrollmentStatus(row));
+
+const isEnrollmentActive = (row) =>
+  ["", "active", "promoted", "current"].includes(getEnrollmentStatus(row));
 
 const getStudentDisplayClass = (student) => {
   const grade = normalizeGrade(student?.grade);
   const section = safeString(student?.section || student?.className);
+
   if (!grade && !section) return "—";
   if (grade && section) return `Grade ${grade}-${section}`;
   if (grade) return `Grade ${grade}`;
   return section;
 };
 
-const getStudentAesthetic = (student) => safeString(student?.aestheticChoice || student?.aesthetic);
+const getStudentAesthetic = (student) =>
+  safeString(student?.aestheticChoice || student?.aesthetic);
+
 const getStudentBaskets = (student) =>
   [student?.basket1, student?.basket2, student?.basket3]
     .map((x) => safeString(x))
@@ -96,6 +112,7 @@ const getStudentBaskets = (student) =>
 
 const getGradeMeta = (mark, studentGrade) => {
   const grade = normalizeGrade(studentGrade);
+
   const lowerGrades = [
     { min: 75, label: "A", color: "#2e7d32", bg: "#e8f5e9", desc: "Excellent" },
     { min: 65, label: "B", color: "#1565c0", bg: "#e3f2fd", desc: "Good" },
@@ -103,6 +120,7 @@ const getGradeMeta = (mark, studentGrade) => {
     { min: 40, label: "D", color: "#555", bg: "#f5f5f5", desc: "Below Average" },
     { min: 0, label: "E", color: "#c62828", bg: "#ffebee", desc: "Fail" },
   ];
+
   const upperGrades = [
     { min: 75, label: "A", color: "#2e7d32", bg: "#e8f5e9", desc: "Distinction" },
     { min: 65, label: "B", color: "#1565c0", bg: "#e3f2fd", desc: "Very Good" },
@@ -110,10 +128,13 @@ const getGradeMeta = (mark, studentGrade) => {
     { min: 40, label: "S", color: "#555", bg: "#f5f5f5", desc: "Simple Pass" },
     { min: 0, label: "F", color: "#c62828", bg: "#ffebee", desc: "Failure" },
   ];
+
   const labels = grade >= 6 && grade <= 9 ? lowerGrades : upperGrades;
+
   for (const row of labels) {
     if (Number(mark) >= row.min) return row;
   }
+
   return labels[labels.length - 1];
 };
 
@@ -142,6 +163,7 @@ export default function ReportCard() {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+
       try {
         const [studentSnap, marksSnap, termsSnap, enrollmentsSnap] = await Promise.all([
           getDoc(doc(db, "students", studentId)),
@@ -150,7 +172,9 @@ export default function ReportCard() {
           getDocs(collection(db, "studentSubjectEnrollments")),
         ]);
 
-        const loadedStudent = studentSnap.exists() ? { id: studentSnap.id, ...studentSnap.data() } : null;
+        const loadedStudent = studentSnap.exists()
+          ? { id: studentSnap.id, ...studentSnap.data() }
+          : null;
         setStudent(loadedStudent);
 
         const loadedMarks = marksSnap.docs
@@ -167,11 +191,13 @@ export default function ReportCard() {
         setAllEnrollments(loadedEnrollments);
 
         const activeTerm = loadedTerms.find((row) => row.isActive === true) || null;
+
         const bestYear =
           normalizeAcademicYear(activeTerm?.year) ||
           normalizeAcademicYear(loadedStudent?.academicYear || loadedStudent?.year) ||
           normalizeAcademicYear(loadedMarks[0]?.academicYear || loadedMarks[0]?.year) ||
           String(new Date().getFullYear());
+
         setSelectedYear(bestYear);
       } catch (error) {
         console.error("ReportCard fetch error:", error);
@@ -179,6 +205,7 @@ export default function ReportCard() {
         setLoading(false);
       }
     }
+
     fetchData();
   }, [studentId]);
 
@@ -195,85 +222,137 @@ export default function ReportCard() {
 
   const marksForYear = useMemo(() => {
     if (!selectedYear) return allMarks;
-    return allMarks.filter((mark) => !getMarkYear(mark) || getMarkYear(mark) === selectedYear);
+    return allMarks.filter(
+      (mark) => !getMarkYear(mark) || getMarkYear(mark) === selectedYear
+    );
   }, [allMarks, selectedYear]);
 
   const availableTerms = useMemo(() => {
     const termSet = new Set();
+
     allTerms
       .filter((row) => !selectedYear || normalizeAcademicYear(row.year) === selectedYear)
       .forEach((row) => {
         if (safeString(row.term)) termSet.add(safeString(row.term));
       });
+
     marksForYear.forEach((row) => {
       if (getMarkTerm(row)) termSet.add(getMarkTerm(row));
     });
+
     return Array.from(termSet);
   }, [allTerms, marksForYear, selectedYear]);
 
   const expectedSubjects = useMemo(() => {
     const rows = allEnrollments
       .filter((row) => isEnrollmentActive(row))
-      .filter((row) => !selectedYear || !getEnrollmentAcademicYear(row) || getEnrollmentAcademicYear(row) === selectedYear);
+      .filter(
+        (row) =>
+          !selectedYear ||
+          !getEnrollmentAcademicYear(row) ||
+          getEnrollmentAcademicYear(row) === selectedYear
+      );
 
     const map = new Map();
+
     rows.forEach((row) => {
       const subjectId = getEnrollmentSubjectId(row);
       const subjectName = getEnrollmentSubjectName(row);
       const key = subjectId || normalizeSubjectName(subjectName);
+
       if (!key || !subjectName) return;
+
       if (!map.has(key)) {
         map.set(key, { subjectId, subjectName });
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+    return Array.from(map.values()).sort((a, b) =>
+      a.subjectName.localeCompare(b.subjectName)
+    );
   }, [allEnrollments, selectedYear]);
 
-  const subjectSortForStudent = (marksList) => {
-    const expectedOrder = expectedSubjects.map((row) => row.subjectId || normalizeSubjectName(row.subjectName));
-    return [...marksList].sort((a, b) => {
+  const expectedOrder = useMemo(() => {
+    return expectedSubjects.map(
+      (row) => row.subjectId || normalizeSubjectName(row.subjectName)
+    );
+  }, [expectedSubjects]);
+
+  const sortedAllMarks = useMemo(() => {
+    return [...marksForYear].sort((a, b) => {
       const aKey = getMarkSubjectId(a) || normalizeSubjectName(getMarkSubject(a));
       const bKey = getMarkSubjectId(b) || normalizeSubjectName(getMarkSubject(b));
+
       const ai = expectedOrder.indexOf(aKey);
       const bi = expectedOrder.indexOf(bKey);
-      if (ai === -1 && bi === -1) return getMarkSubject(a).localeCompare(getMarkSubject(b));
+
+      if (ai === -1 && bi === -1) {
+        return getMarkSubject(a).localeCompare(getMarkSubject(b));
+      }
       if (ai === -1) return 1;
       if (bi === -1) return -1;
       return ai - bi;
     });
-  };
-
-  const sortedAllMarks = useMemo(() => subjectSortForStudent(marksForYear), [marksForYear, expectedSubjects]);
+  }, [marksForYear, expectedOrder]);
 
   const filteredMarks = useMemo(() => {
-    const rows = term === "All" ? sortedAllMarks : sortedAllMarks.filter((mark) => getMarkTerm(mark) === term);
-    return rows;
+    return term === "All"
+      ? sortedAllMarks
+      : sortedAllMarks.filter((mark) => getMarkTerm(mark) === term);
   }, [sortedAllMarks, term]);
 
   const groupedByTerm = useMemo(() => {
     const result = {};
+
     availableTerms.forEach((t) => {
-      result[t] = subjectSortForStudent(marksForYear.filter((mark) => getMarkTerm(mark) === t));
+      result[t] = [...marksForYear.filter((mark) => getMarkTerm(mark) === t)].sort(
+        (a, b) => {
+          const aKey = getMarkSubjectId(a) || normalizeSubjectName(getMarkSubject(a));
+          const bKey = getMarkSubjectId(b) || normalizeSubjectName(getMarkSubject(b));
+
+          const ai = expectedOrder.indexOf(aKey);
+          const bi = expectedOrder.indexOf(bKey);
+
+          if (ai === -1 && bi === -1) {
+            return getMarkSubject(a).localeCompare(getMarkSubject(b));
+          }
+          if (ai === -1) return 1;
+          if (bi === -1) return -1;
+          return ai - bi;
+        }
+      );
     });
+
     return result;
-  }, [availableTerms, marksForYear, expectedSubjects]);
+  }, [availableTerms, marksForYear, expectedOrder]);
 
   const missingSubjects = useMemo(() => {
-    const scopeMarks = term === "All" ? marksForYear : marksForYear.filter((mark) => getMarkTerm(mark) === term);
+    const scopeMarks =
+      term === "All"
+        ? marksForYear
+        : marksForYear.filter((mark) => getMarkTerm(mark) === term);
+
     const enteredSubjects = new Set(
-      scopeMarks.map((mark) => getMarkSubjectId(mark) || normalizeSubjectName(getMarkSubject(mark))).filter(Boolean)
+      scopeMarks
+        .map((mark) => getMarkSubjectId(mark) || normalizeSubjectName(getMarkSubject(mark)))
+        .filter(Boolean)
     );
+
     return expectedSubjects
-      .filter((row) => !enteredSubjects.has(row.subjectId || normalizeSubjectName(row.subjectName)))
+      .filter(
+        (row) =>
+          !enteredSubjects.has(row.subjectId || normalizeSubjectName(row.subjectName))
+      )
       .map((row) => row.subjectName);
   }, [expectedSubjects, marksForYear, term]);
 
   const handlePrint = () => {
     if (!printRef.current) return;
+
     const content = printRef.current.innerHTML;
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
+
     printWindow.document.write(`
       <html>
         <head>
@@ -291,6 +370,7 @@ export default function ReportCard() {
         <body>${content}</body>
       </html>
     `);
+
     printWindow.document.close();
     printWindow.print();
   };
@@ -304,13 +384,27 @@ export default function ReportCard() {
       const label = status === "absent" ? "AB" : "MA";
       const bg = status === "absent" ? "#ffebee" : "#f3e5f5";
       const color = status === "absent" ? "#c62828" : "#6a1b9a";
-      const remarks = safeString(mark.absentReason || mark.remarks) || (status === "absent" ? "Absent" : "Medical Absent");
+      const remarks =
+        safeString(mark.absentReason || mark.remarks) ||
+        (status === "absent" ? "Absent" : "Medical Absent");
+
       return (
         <TableRow key={rowKey} hover>
           <TableCell>{getMarkSubject(mark)}</TableCell>
-          <TableCell><strong>{status === "absent" ? "Absent" : "Medical Absent"}</strong></TableCell>
           <TableCell>
-            <span style={{ color, fontWeight: 700, background: bg, padding: "2px 10px", borderRadius: 12, fontSize: 13 }}>
+            <strong>{status === "absent" ? "Absent" : "Medical Absent"}</strong>
+          </TableCell>
+          <TableCell>
+            <span
+              style={{
+                color,
+                fontWeight: 700,
+                background: bg,
+                padding: "2px 10px",
+                borderRadius: 12,
+                fontSize: 13,
+              }}
+            >
               {label}
             </span>
           </TableCell>
@@ -320,12 +414,22 @@ export default function ReportCard() {
     }
 
     const gradeMeta = getGradeMeta(value, student?.grade);
+
     return (
       <TableRow key={rowKey} hover>
         <TableCell>{getMarkSubject(mark)}</TableCell>
         <TableCell>{value}</TableCell>
         <TableCell>
-          <span style={{ color: gradeMeta.color, fontWeight: 700, background: gradeMeta.bg, padding: "2px 10px", borderRadius: 12, fontSize: 13 }}>
+          <span
+            style={{
+              color: gradeMeta.color,
+              fontWeight: 700,
+              background: gradeMeta.bg,
+              padding: "2px 10px",
+              borderRadius: 12,
+              fontSize: 13,
+            }}
+          >
             {gradeMeta.label}
           </span>
         </TableCell>
@@ -337,24 +441,55 @@ export default function ReportCard() {
   const renderMobileRow = (mark) => {
     const status = getMarkStatus(mark);
     const rowKey = `${mark.id || getMarkSubject(mark)}-${getMarkTerm(mark)}`;
+
     if (status === "absent" || status === "medical_absent") {
       const label = status === "absent" ? "AB" : "MA";
+
       return (
-        <Box key={rowKey} display="flex" justifyContent="space-between" alignItems="center" py={1} sx={{ borderBottom: "1px solid #eee" }}>
+        <Box
+          key={rowKey}
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          py={1}
+          sx={{ borderBottom: "1px solid #eee" }}
+        >
           <Typography variant="body2">{getMarkSubject(mark)}</Typography>
-          <Chip label={label} size="small" sx={{ bgcolor: status === "absent" ? "#ffebee" : "#f3e5f5", color: status === "absent" ? "#c62828" : "#6a1b9a", fontWeight: 700 }} />
+          <Chip
+            label={label}
+            size="small"
+            sx={{
+              bgcolor: status === "absent" ? "#ffebee" : "#f3e5f5",
+              color: status === "absent" ? "#c62828" : "#6a1b9a",
+              fontWeight: 700,
+            }}
+          />
         </Box>
       );
     }
 
     const value = getMarkValue(mark);
     const gradeMeta = getGradeMeta(value, student?.grade);
+
     return (
-      <Box key={rowKey} display="flex" justifyContent="space-between" alignItems="center" py={1} sx={{ borderBottom: "1px solid #eee" }}>
+      <Box
+        key={rowKey}
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        py={1}
+        sx={{ borderBottom: "1px solid #eee" }}
+      >
         <Typography variant="body2">{getMarkSubject(mark)}</Typography>
         <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="body2" fontWeight={700}>{value}/100</Typography>
-          <Chip label={gradeMeta.label} size="small" sx={{ bgcolor: gradeMeta.bg, color: gradeMeta.color, fontWeight: 700 }} />
+          <Typography variant="body2" fontWeight={700}>
+            {value}/100
+          </Typography>
+          <Chip
+            label={gradeMeta.label}
+            size="small"
+            sx={{ bgcolor: gradeMeta.bg, color: gradeMeta.color, fontWeight: 700 }}
+          />
         </Box>
       </Box>
     );
@@ -363,12 +498,20 @@ export default function ReportCard() {
   const backPath = isAdmin ? "/students" : "/teacher";
 
   if (loading) {
-    return <Box display="flex" justifyContent="center" mt={5}><CircularProgress /></Box>;
+    return (
+      <Box display="flex" justifyContent="center" mt={5}>
+        <CircularProgress />
+      </Box>
+    );
   }
 
   return (
     <Box>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ mb: 2 }}>
+      <Button
+        startIcon={<ArrowBackIcon />}
+        onClick={() => navigate(backPath)}
+        sx={{ mb: 2 }}
+      >
         Back
       </Button>
 
@@ -376,7 +519,14 @@ export default function ReportCard() {
         <Typography>Student not found.</Typography>
       ) : (
         <>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            mb={2}
+            flexWrap="wrap"
+            gap={1}
+          >
             <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
               Report Card
             </Typography>
@@ -384,8 +534,16 @@ export default function ReportCard() {
             <Box display="flex" gap={1} flexWrap="wrap">
               <FormControl size="small" sx={{ minWidth: 120 }}>
                 <InputLabel>Year</InputLabel>
-                <Select value={selectedYear} label="Year" onChange={(e) => setSelectedYear(e.target.value)}>
-                  {availableYears.map((year) => <MenuItem key={year} value={year}>{year}</MenuItem>)}
+                <Select
+                  value={selectedYear}
+                  label="Year"
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                >
+                  {availableYears.map((year) => (
+                    <MenuItem key={year} value={year}>
+                      {year}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
 
@@ -393,12 +551,21 @@ export default function ReportCard() {
                 <InputLabel>Term</InputLabel>
                 <Select value={term} label="Term" onChange={(e) => setTerm(e.target.value)}>
                   <MenuItem value="All">All Terms</MenuItem>
-                  {availableTerms.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  {availableTerms.map((t) => (
+                    <MenuItem key={t} value={t}>
+                      {t}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
 
               {!isMobile && (
-                <Button variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} sx={{ bgcolor: "#1a237e" }}>
+                <Button
+                  variant="contained"
+                  startIcon={<PrintIcon />}
+                  onClick={handlePrint}
+                  sx={{ bgcolor: "#1a237e" }}
+                >
                   Print
                 </Button>
               )}
@@ -407,15 +574,23 @@ export default function ReportCard() {
 
           {missingSubjects.length > 0 && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              Marks not yet entered for {term === "All" ? `academic year ${selectedYear}` : `${term} ${selectedYear}`}: <strong>{missingSubjects.join(", ")}</strong>
+              Marks not yet entered for{" "}
+              {term === "All" ? `academic year ${selectedYear}` : `${term} ${selectedYear}`}:{" "}
+              <strong>{missingSubjects.join(", ")}</strong>
             </Alert>
           )}
 
           <Paper sx={{ p: { xs: 2, sm: 3 } }} ref={printRef}>
             <Box textAlign="center" mb={2}>
-              <Typography variant={isMobile ? "subtitle1" : "h5"} fontWeight={700} color="#1a237e">{SCHOOL_NAME}</Typography>
-              <Typography variant="body2" color="text.secondary">{SCHOOL_SUBTITLE}</Typography>
-              <Typography variant="body2" color="text.secondary" mt={0.5}>Student Report Card</Typography>
+              <Typography variant={isMobile ? "subtitle1" : "h5"} fontWeight={700} color="#1a237e">
+                {SCHOOL_NAME}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {SCHOOL_SUBTITLE}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" mt={0.5}>
+                Student Report Card
+              </Typography>
               <Box display="flex" justifyContent="center" gap={1} mt={1} flexWrap="wrap">
                 <Chip label={`Year ${selectedYear || "—"}`} size="small" color="primary" />
                 <Chip label={term === "All" ? "All Terms" : term} size="small" />
@@ -435,8 +610,12 @@ export default function ReportCard() {
                       ["Religion", student.religion || "—"],
                     ].map(([label, value]) => (
                       <Grid item xs={6} key={label}>
-                        <Typography variant="caption" color="text.secondary">{label}</Typography>
-                        <Typography variant="body2" fontWeight={600}>{value}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {label}
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {value}
+                        </Typography>
                       </Grid>
                     ))}
                   </Grid>
@@ -451,11 +630,17 @@ export default function ReportCard() {
                   ["Gender", student.gender || "—"],
                   ["Date of Birth", student.dob || "—"],
                   ["Religion", student.religion || "—"],
-                  normalizeGrade(student.grade) <= 9 ? ["Aesthetic", getStudentAesthetic(student) || "—"] : ["Baskets", getStudentBaskets(student) || "—"],
+                  normalizeGrade(student.grade) <= 9
+                    ? ["Aesthetic", getStudentAesthetic(student) || "—"]
+                    : ["Baskets", getStudentBaskets(student) || "—"],
                 ].map(([label, value]) => (
                   <Grid item xs={6} sm={4} key={label}>
-                    <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="body1" fontWeight={600}>{value}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {label}
+                    </Typography>
+                    <Typography variant="body1" fontWeight={600}>
+                      {value}
+                    </Typography>
                   </Grid>
                 ))}
               </Grid>
@@ -465,58 +650,103 @@ export default function ReportCard() {
 
             {term !== "All" ? (
               <>
-                <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={600} mb={1}>{term} Results</Typography>
+                <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={600} mb={1}>
+                  {term} Results
+                </Typography>
+
                 {isMobile ? (
                   <Box>
                     {filteredMarks.map(renderMobileRow)}
-                    {filteredMarks.length === 0 && <Typography variant="body2" color="text.secondary" align="center" py={2}>No marks recorded for {term}.</Typography>}
+                    {filteredMarks.length === 0 && (
+                      <Typography variant="body2" color="text.secondary" align="center" py={2}>
+                        No marks recorded for {term}.
+                      </Typography>
+                    )}
                   </Box>
                 ) : (
                   <Paper sx={{ overflowX: "auto" }}>
                     <Table size="small">
                       <TableHead sx={{ bgcolor: "#1a237e" }}>
                         <TableRow>
-                          {["Subject", "Marks", "Grade", "Remarks"].map((h) => <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>{h}</TableCell>)}
+                          {["Subject", "Marks", "Grade", "Remarks"].map((h) => (
+                            <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
+                              {h}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {filteredMarks.map(renderDesktopRow)}
-                        {filteredMarks.length === 0 && <TableRow><TableCell colSpan={4} align="center">No marks for {term}.</TableCell></TableRow>}
+                        {filteredMarks.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} align="center">
+                              No marks for {term}.
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </Paper>
                 )}
+
                 {filteredMarks.length > 0 && calcAverage(filteredMarks) !== null && (
-                  <Box mt={1} textAlign="right"><Typography variant="body2" fontWeight={700}>Average: {calcAverage(filteredMarks)} / 100</Typography></Box>
+                  <Box mt={1} textAlign="right">
+                    <Typography variant="body2" fontWeight={700}>
+                      Average: {calcAverage(filteredMarks)} / 100
+                    </Typography>
+                  </Box>
                 )}
               </>
             ) : (
               availableTerms.map((t) => (
                 <Box key={t} mb={3}>
-                  <Typography variant="subtitle1" fontWeight={600} color="#1a237e" mb={1}>{t}</Typography>
+                  <Typography variant="subtitle1" fontWeight={600} color="#1a237e" mb={1}>
+                    {t}
+                  </Typography>
+
                   {isMobile ? (
                     <Box>
                       {(groupedByTerm[t] || []).map(renderMobileRow)}
-                      {(groupedByTerm[t] || []).length === 0 && <Typography variant="caption" color="text.secondary">No marks recorded.</Typography>}
+                      {(groupedByTerm[t] || []).length === 0 && (
+                        <Typography variant="caption" color="text.secondary">
+                          No marks recorded.
+                        </Typography>
+                      )}
                     </Box>
                   ) : (
                     <Paper sx={{ overflowX: "auto" }}>
                       <Table size="small">
                         <TableHead sx={{ bgcolor: "#e8eaf6" }}>
                           <TableRow>
-                            {["Subject", "Marks", "Grade", "Remarks"].map((h) => <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>)}
+                            {["Subject", "Marks", "Grade", "Remarks"].map((h) => (
+                              <TableCell key={h} sx={{ fontWeight: 600 }}>
+                                {h}
+                              </TableCell>
+                            ))}
                           </TableRow>
                         </TableHead>
                         <TableBody>
                           {(groupedByTerm[t] || []).map(renderDesktopRow)}
-                          {(groupedByTerm[t] || []).length === 0 && <TableRow><TableCell colSpan={4} align="center">No marks recorded.</TableCell></TableRow>}
+                          {(groupedByTerm[t] || []).length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={4} align="center">
+                                No marks recorded.
+                              </TableCell>
+                            </TableRow>
+                          )}
                         </TableBody>
                       </Table>
                     </Paper>
                   )}
-                  {(groupedByTerm[t] || []).length > 0 && calcAverage(groupedByTerm[t]) !== null && (
-                    <Box mt={0.5} textAlign="right"><Typography variant="body2" fontWeight={600}>{t} Average: {calcAverage(groupedByTerm[t])} / 100</Typography></Box>
-                  )}
+
+                  {(groupedByTerm[t] || []).length > 0 &&
+                    calcAverage(groupedByTerm[t]) !== null && (
+                      <Box mt={0.5} textAlign="right">
+                        <Typography variant="body2" fontWeight={600}>
+                          {t} Average: {calcAverage(groupedByTerm[t])} / 100
+                        </Typography>
+                      </Box>
+                    )}
                 </Box>
               ))
             )}
@@ -525,7 +755,9 @@ export default function ReportCard() {
               <>
                 <Divider sx={{ my: 2 }} />
                 <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={700}>Overall Average</Typography>
+                  <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={700}>
+                    Overall Average
+                  </Typography>
                   <Chip label={`${calcAverage(marksForYear)} / 100`} color="primary" />
                 </Box>
               </>
@@ -534,7 +766,13 @@ export default function ReportCard() {
 
           {isMobile && (
             <Box mt={2}>
-              <Button fullWidth variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} sx={{ bgcolor: "#1a237e" }}>
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ bgcolor: "#1a237e" }}
+              >
                 Print Report Card
               </Button>
             </Box>

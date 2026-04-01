@@ -18,6 +18,7 @@ import {
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ReplayIcon from "@mui/icons-material/Replay";
 import BuildIcon from "@mui/icons-material/Build";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -196,7 +197,9 @@ export default function GenerateSubjectEnrollments() {
       const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
       if (sectionDiff !== 0) return sectionDiff;
 
-      return getStudentName(a).toLowerCase().localeCompare(getStudentName(b).toLowerCase());
+      return getStudentName(a)
+        .toLowerCase()
+        .localeCompare(getStudentName(b).toLowerCase());
     });
   }, [students]);
 
@@ -205,9 +208,24 @@ export default function GenerateSubjectEnrollments() {
     setStudents(refreshedStudents);
 
     if (selectedStudent?.id) {
-      const refreshedSelected = refreshedStudents.find((s) => s.id === selectedStudent.id) || null;
+      const refreshedSelected =
+        refreshedStudents.find((s) => s.id === selectedStudent.id) || null;
       setSelectedStudent(refreshedSelected);
     }
+  }
+
+  function applySummary(mode, result) {
+    setSummary({
+      mode: result?.mode || mode,
+      totalProcessed: result?.totalProcessed || 0,
+      created: result?.created || 0,
+      reactivated: result?.reactivated || 0,
+      updated: result?.updated || 0,
+      deactivated: result?.deactivated || 0,
+      skipped: result?.skipped || 0,
+      errors: result?.errors || 0,
+      logs: Array.isArray(result?.logs) ? result.logs : [],
+    });
   }
 
   async function runMode(mode) {
@@ -243,8 +261,47 @@ export default function GenerateSubjectEnrollments() {
       }
 
       setAcademicYear(normalizedYear);
+      applySummary(mode, result);
+      await refreshStudents();
+    } catch (error) {
+      console.error(error);
       setSummary({
-        mode: result?.mode || mode,
+        mode,
+        totalProcessed: 0,
+        created: 0,
+        reactivated: 0,
+        updated: 0,
+        deactivated: 0,
+        skipped: 0,
+        errors: 1,
+        logs: [
+          {
+            type: "error",
+            message: "Operation failed",
+            details: error.message,
+          },
+        ],
+      });
+    } finally {
+      setRunning("");
+    }
+  }
+
+  async function handlePostPromotionGenerate() {
+    const mode = "post_promotion_generate_missing";
+    setRunning(mode);
+
+    try {
+      const normalizedYear = normalizeAcademicYear(academicYear);
+
+      const result = await generateMissingEnrollments({
+        academicYear: normalizedYear,
+      });
+
+      setAcademicYear(normalizedYear);
+
+      setSummary({
+        mode,
         totalProcessed: result?.totalProcessed || 0,
         created: result?.created || 0,
         reactivated: result?.reactivated || 0,
@@ -252,7 +309,15 @@ export default function GenerateSubjectEnrollments() {
         deactivated: result?.deactivated || 0,
         skipped: result?.skipped || 0,
         errors: result?.errors || 0,
-        logs: Array.isArray(result?.logs) ? result.logs : [],
+        logs: [
+          {
+            type: "success",
+            message: `Post-promotion enrollment generation completed for ${normalizedYear}`,
+            details:
+              "Use this after Year End Promotion so newly promoted students get their correct current-year subject enrollments.",
+          },
+          ...(Array.isArray(result?.logs) ? result.logs : []),
+        ],
       });
 
       await refreshStudents();
@@ -270,7 +335,7 @@ export default function GenerateSubjectEnrollments() {
         logs: [
           {
             type: "error",
-            message: "Operation failed",
+            message: "Post-promotion generation failed",
             details: error.message,
           },
         ],
@@ -297,8 +362,14 @@ export default function GenerateSubjectEnrollments() {
 
         <Alert severity="info">
           This page rebuilds <strong>studentSubjectEnrollments</strong> using the current
-          student profile, subject definitions, and academic year. Marks Entry remains safe
-          when it reads only <strong>active</strong> enrollments.
+          student profile, subject definitions, and academic year.
+        </Alert>
+
+        <Alert severity="warning">
+          After using <strong>Year End Promotion</strong>, run{" "}
+          <strong>Post-Promotion Generate Missing</strong> for the new academic year.
+          Promotion should move students to the new year, and this page should then create
+          the correct current-year subject enrollments.
         </Alert>
 
         <Grid container spacing={2}>
@@ -332,7 +403,38 @@ export default function GenerateSubjectEnrollments() {
         </Grid>
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
+            <Card variant="outlined">
+              <CardContent>
+                <Stack spacing={2}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CheckCircleIcon color="success" />
+                    <Typography variant="h6">Post-Promotion Generate</Typography>
+                  </Stack>
+
+                  <Typography variant="body2" color="text.secondary">
+                    Best choice after Year End Promotion. Creates current-year missing
+                    enrollments safely.
+                  </Typography>
+
+                  <Button
+                    variant="contained"
+                    color="success"
+                    onClick={handlePostPromotionGenerate}
+                    disabled={isRunning}
+                  >
+                    {running === "post_promotion_generate_missing" ? (
+                      <CircularProgress size={22} color="inherit" />
+                    ) : (
+                      "Post-Promotion Generate Missing"
+                    )}
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={3}>
             <Card variant="outlined">
               <CardContent>
                 <Stack spacing={2}>
@@ -361,7 +463,7 @@ export default function GenerateSubjectEnrollments() {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <Card variant="outlined">
               <CardContent>
                 <Stack spacing={2}>
@@ -391,7 +493,7 @@ export default function GenerateSubjectEnrollments() {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <Card variant="outlined" sx={{ borderColor: "error.main" }}>
               <CardContent>
                 <Stack spacing={2}>

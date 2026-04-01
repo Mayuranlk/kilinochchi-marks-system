@@ -286,204 +286,123 @@ export default function YearEndPromotion() {
     setConfirmOpen(true);
   };
 
-  const executePromotion = async () => {
-    setConfirmOpen(false);
-    setPromoting(true);
-    setError("");
-    setSuccess("");
+ const executePromotion = async () => {
+  setConfirmOpen(false);
+  setPromoting(true);
+  setError("");
+  setSuccess("");
 
-    try {
-      const batch = writeBatch(db);
-      let promoted = 0;
-      let detained = 0;
-      let graduated = 0;
+  try {
+    const batch = writeBatch(db);
 
-      for (const student of students) {
-        const status = studentStatus[student.id];
-        const studentRef = doc(db, "students", student.id);
+    let promoted = 0;
+    let detained = 0;
+    let graduated = 0;
 
-        const currentStudentGrade = getStudentGrade(student);
-        const currentStudentSection = getStudentSection(student);
-        const currentClassName = buildFullClassName(currentStudentGrade, currentStudentSection);
-        const nextStudentGrade = getNextGrade(currentStudentGrade);
-        const nextClassName = nextStudentGrade
-          ? buildFullClassName(nextStudentGrade, currentStudentSection)
-          : "";
+    for (const student of students) {
+      const status = studentStatus[student.id];
+      const studentRef = doc(db, "students", student.id);
 
-        const currentEnrollments = allEnrollments.filter((enrollment) => {
-          const sameStudent = normalizeText(enrollment.studentId) === normalizeText(student.id);
-          const sameYear =
-            !getEnrollmentAcademicYear(enrollment) ||
-            getEnrollmentAcademicYear(enrollment) === String(fromYear);
+      const currentGrade = getStudentGrade(student);
+      const currentSection = getStudentSection(student);
+      const nextGrade = getNextGrade(currentGrade);
 
-          return sameStudent && sameYear && isEnrollmentActive(enrollment);
+      const currentEnrollments = allEnrollments.filter((e) => {
+        return (
+          normalizeText(e.studentId) === normalizeText(student.id) &&
+          (!getEnrollmentAcademicYear(e) ||
+            getEnrollmentAcademicYear(e) === String(fromYear)) &&
+          isEnrollmentActive(e)
+        );
+      });
+
+      // ✅ PROMOTE
+      if (status === "promote" && transitionType !== "graduate") {
+        batch.update(studentRef, {
+          grade: nextGrade,
+          section: currentSection,
+          className: currentSection,
+          academicYear: toYear,
+          year: toYear,
+          promotionStatus: "active",
+          previousGrade: currentGrade,
+          previousYear: fromYear,
+          updatedAt: new Date().toISOString(),
+          ...(transitionType === "al" && {
+            stream: normalizeText(streams[student.id]),
+          }),
         });
 
-        if (status === "promote" && transitionType !== "graduate") {
-          const updateData = {
-            grade: nextStudentGrade,
-            section: currentStudentSection,
-            className: currentStudentSection,
-            academicYear: toYear,
-            year: toYear,
-            promotionStatus: "active",
-            previousGrade: currentStudentGrade,
-            previousYear: fromYear,
-            updatedAt: new Date().toISOString(),
-          };
+        // 🔥 DO NOT MODIFY SUBJECTS → mark old as completed
+        currentEnrollments.forEach((enrollment) => {
+          const ref = doc(db, "studentSubjectEnrollments", enrollment.id);
 
-          if (transitionType === "al") {
-            updateData.stream = normalizeText(streams[student.id]);
-          }
-
-          batch.update(studentRef, updateData);
-
-          currentEnrollments.forEach((enrollment) => {
-            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
-
-            batch.update(enrollmentRef, {
-              grade: nextStudentGrade,
-              section: getEnrollmentSection(enrollment) || currentStudentSection,
-              className: nextClassName || getEnrollmentClassName(enrollment),
-              academicYear: toYear,
-              year: toYear,
-              status: "promoted",
-              previousGrade: currentStudentGrade,
-              previousYear: fromYear,
-              updatedAt: new Date().toISOString(),
-            });
-          });
-
-          await addDoc(collection(db, "promotionHistory"), {
-            studentId: student.id,
-            studentName: getStudentName(student),
-            admissionNo: getStudentAdmissionNo(student),
-            fromGrade: currentStudentGrade,
-            toGrade: nextStudentGrade,
-            fromSection: currentStudentSection,
-            toSection: currentStudentSection,
-            fromYear,
-            toYear,
-            fromClassName: currentClassName,
-            toClassName: nextClassName,
-            stream: transitionType === "al" ? normalizeText(streams[student.id]) : null,
-            transitionType,
-            promotedAt: new Date().toISOString(),
-            detained: false,
-            graduated: false,
-          });
-
-          promoted += 1;
-        } else if (status === "detain") {
-          batch.update(studentRef, {
-            grade: currentStudentGrade,
-            section: currentStudentSection,
-            className: currentStudentSection,
-            academicYear: toYear,
-            year: toYear,
-            promotionStatus: "detained",
-            previousGrade: currentStudentGrade,
-            previousYear: fromYear,
+          batch.update(ref, {
+            status: "completed",
+            completedYear: toYear,
             updatedAt: new Date().toISOString(),
           });
+        });
 
-          currentEnrollments.forEach((enrollment) => {
-            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
+        promoted++;
+      }
 
-            batch.update(enrollmentRef, {
-              grade: currentStudentGrade,
-              section: getEnrollmentSection(enrollment) || currentStudentSection,
-              className: currentClassName || getEnrollmentClassName(enrollment),
-              academicYear: toYear,
-              year: toYear,
-              status: "detained",
-              previousGrade: currentStudentGrade,
-              previousYear: fromYear,
-              updatedAt: new Date().toISOString(),
-            });
-          });
+      // ✅ DETAIN
+      else if (status === "detain") {
+        batch.update(studentRef, {
+          grade: currentGrade,
+          section: currentSection,
+          className: currentSection,
+          academicYear: toYear,
+          year: toYear,
+          promotionStatus: "detained",
+          previousYear: fromYear,
+          updatedAt: new Date().toISOString(),
+        });
 
-          await addDoc(collection(db, "promotionHistory"), {
-            studentId: student.id,
-            studentName: getStudentName(student),
-            admissionNo: getStudentAdmissionNo(student),
-            fromGrade: currentStudentGrade,
-            toGrade: currentStudentGrade,
-            fromSection: currentStudentSection,
-            toSection: currentStudentSection,
-            fromYear,
-            toYear,
-            fromClassName: currentClassName,
-            toClassName: currentClassName,
-            transitionType: "detain",
-            promotedAt: new Date().toISOString(),
-            detained: true,
-            graduated: false,
-          });
+        detained++;
+      }
 
-          detained += 1;
-        } else if (status === "promote" && transitionType === "graduate") {
-          batch.update(studentRef, {
-            grade: currentStudentGrade,
-            section: currentStudentSection,
-            className: currentStudentSection,
-            academicYear: toYear,
-            year: toYear,
-            promotionStatus: "completed",
+      // ✅ GRADUATE
+      else if (status === "promote" && transitionType === "graduate") {
+        batch.update(studentRef, {
+          status: "completed",
+          promotionStatus: "completed",
+          academicYear: toYear,
+          year: toYear,
+          updatedAt: new Date().toISOString(),
+        });
+
+        currentEnrollments.forEach((enrollment) => {
+          const ref = doc(db, "studentSubjectEnrollments", enrollment.id);
+
+          batch.update(ref, {
             status: "completed",
             updatedAt: new Date().toISOString(),
           });
+        });
 
-          currentEnrollments.forEach((enrollment) => {
-            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
-
-            batch.update(enrollmentRef, {
-              academicYear: toYear,
-              year: toYear,
-              status: "completed",
-              updatedAt: new Date().toISOString(),
-            });
-          });
-
-          await addDoc(collection(db, "promotionHistory"), {
-            studentId: student.id,
-            studentName: getStudentName(student),
-            admissionNo: getStudentAdmissionNo(student),
-            fromGrade: currentStudentGrade,
-            toGrade: null,
-            fromSection: currentStudentSection,
-            toSection: null,
-            fromYear,
-            toYear,
-            fromClassName: currentClassName,
-            toClassName: null,
-            transitionType: "graduate",
-            promotedAt: new Date().toISOString(),
-            detained: false,
-            graduated: true,
-          });
-
-          graduated += 1;
-        }
+        graduated++;
       }
-
-      await batch.commit();
-
-      setSuccess(
-        `✅ Promotion complete! ${promoted} promoted` +
-          `${detained ? `, ${detained} detained` : ""}` +
-          `${graduated ? `, ${graduated} graduated` : ""}.`
-      );
-
-      setStep(2);
-      setStudents([]);
-      await loadBaseData();
-    } catch (err) {
-      setError(`Promotion failed: ${err.message}`);
-    } finally {
-      setPromoting(false);
     }
-  };
+
+    await batch.commit();
+
+    setSuccess(
+      `✅ Promotion complete! ${promoted} promoted` +
+        `${detained ? `, ${detained} detained` : ""}` +
+        `${graduated ? `, ${graduated} graduated` : ""}`
+    );
+
+    setStep(2);
+    setStudents([]);
+
+  } catch (err) {
+    setError(`Promotion failed: ${err.message}`);
+  } finally {
+    setPromoting(false);
+  }
+};
 
   const promotingCount = Object.values(studentStatus).filter((status) => status === "promote").length;
   const detainedCount = Object.values(studentStatus).filter((status) => status === "detain").length;

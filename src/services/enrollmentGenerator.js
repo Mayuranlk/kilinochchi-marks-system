@@ -520,7 +520,7 @@ function hasPayloadChanged(existingEnrollment, payload) {
     existingEnrollment.grade !== payload.grade ||
     existingEnrollment.section !== payload.section ||
     existingEnrollment.className !== payload.className ||
-    existingEnrollment.status !== "active" ||
+    existingEnrollment.status !== "active" || // 🔥 IMPORTANT FIX
     (existingEnrollment.subjectCategory || "") !== (payload.subjectCategory || "") ||
     (existingEnrollment.basketGroup || "") !== (payload.basketGroup || "") ||
     (existingEnrollment.stream || "") !== (payload.stream || "") ||
