@@ -32,7 +32,7 @@ import autoTable from "jspdf-autotable";
 /* -------------------------------------------------------------------------- */
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
-const ROWS_PER_PANEL = 15;
+const ROWS_PER_PANEL = 30;
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
