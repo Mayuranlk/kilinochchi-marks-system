@@ -1,16 +1,44 @@
 /* eslint-disable no-unused-vars */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  collection, getDocs, updateDoc, doc, addDoc, writeBatch
+  collection,
+  getDocs,
+  updateDoc,
+  doc,
+  addDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { GRADES, SECTIONS } from "../constants";
+import { GRADES } from "../constants";
 import {
-  Box, Typography, Button, Select, MenuItem, FormControl, InputLabel,
-  Table, TableHead, TableRow, TableCell, TableBody, Paper, Dialog,
-  DialogTitle, DialogContent, DialogActions, Chip, CircularProgress,
-  Grid, Alert, Card, CardContent, Stepper, Step, StepLabel,
-  FormControlLabel, Checkbox, useMediaQuery, useTheme
+  Box,
+  Typography,
+  Button,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
+  CircularProgress,
+  Grid,
+  Alert,
+  Card,
+  CardContent,
+  Stepper,
+  Step,
+  StepLabel,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import SchoolIcon from "@mui/icons-material/School";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -20,32 +48,96 @@ import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 
 const STREAMS = ["Maths", "Bio", "Technology", "Arts", "Commerce"];
 
-// Subject groups by grade range
-const SUBJECT_GROUPS = {
-  "6-9":  ["Tamil", "English", "Mathematics", "Science", "History",
-            "Geography", "Civic Education", "Health & PE", "Art"],
-  "10-11": ["Tamil", "English", "Mathematics", "Science", "History",
-             "Geography", "Civic Education", "Health & PE",
-             "Optional Subject 1", "Optional Subject 2"],
-  "AL":   ["Common General Test", "Common IT", "Stream Subject 1",
-            "Stream Subject 2", "Stream Subject 3"],
-};
+function normalizeText(value) {
+  return String(value || "").trim();
+}
 
-function getSubjectGroup(grade) {
-  if (grade <= 9) return "6-9";
-  if (grade <= 11) return "10-11";
-  return "AL";
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function buildFullClassName(grade, section) {
+  const g = parseGrade(grade);
+  const s = normalizeSection(section);
+  return g && s ? `${g}${s}` : "";
+}
+
+function getStudentName(student) {
+  return normalizeText(student?.name || student?.fullName || "Unnamed Student");
+}
+
+function getStudentAdmissionNo(student) {
+  return normalizeText(
+    student?.admissionNo || student?.admissionNumber || student?.admNo || ""
+  );
+}
+
+function getStudentGrade(student) {
+  return parseGrade(student?.grade);
+}
+
+function getStudentSection(student) {
+  return normalizeSection(student?.section || student?.className || "");
+}
+
+function getStudentAcademicYear(student) {
+  return String(student?.academicYear || student?.year || "");
+}
+
+function isStudentActive(student) {
+  return normalizeLower(student?.status || "active") === "active";
+}
+
+function getEnrollmentAcademicYear(enrollment) {
+  return String(enrollment?.academicYear || enrollment?.year || "");
+}
+
+function getEnrollmentClassName(enrollment) {
+  const rawClassName = normalizeText(enrollment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
+}
+
+function getEnrollmentGrade(enrollment) {
+  return parseGrade(enrollment?.grade || enrollment?.className);
+}
+
+function getEnrollmentSection(enrollment) {
+  return normalizeSection(enrollment?.section || enrollment?.className || "");
+}
+
+function getEnrollmentSubjectName(enrollment) {
+  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
+}
+
+function getEnrollmentSubjectId(enrollment) {
+  return normalizeText(enrollment?.subjectId || "");
+}
+
+function isEnrollmentActive(enrollment) {
+  return normalizeLower(enrollment?.status || "active") === "active";
 }
 
 function getNextGrade(grade) {
-  if (grade >= 13) return null; // graduated
+  if (grade >= 13) return null;
   return grade + 1;
 }
 
 function getTransitionType(fromGrade) {
-  if (fromGrade === 9)  return "critical"; // 9→10 subject change
-  if (fromGrade === 11) return "al";       // 11→12 stream selection
-  if (fromGrade === 13) return "graduate"; // 13→ completed
+  if (fromGrade === 9) return "critical";
+  if (fromGrade === 11) return "al";
+  if (fromGrade === 13) return "graduate";
   return "normal";
 }
 
@@ -53,195 +145,369 @@ export default function YearEndPromotion() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const [fromYear, setFromYear] = useState(2026);
-  const [toYear, setToYear] = useState(2027);
+  const currentYear = new Date().getFullYear();
+
+  const [fromYear, setFromYear] = useState(currentYear);
+  const [toYear, setToYear] = useState(currentYear + 1);
   const [grade, setGrade] = useState(6);
   const [section, setSection] = useState("A");
   const [students, setStudents] = useState([]);
+  const [allClassrooms, setAllClassrooms] = useState([]);
+  const [allEnrollments, setAllEnrollments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [step, setStep] = useState(0);
 
-  // Per-student status
   const [studentStatus, setStudentStatus] = useState({});
-  // For AL stream dialog
-  const [streamDialog, setStreamDialog] = useState(false);
   const [streams, setStreams] = useState({});
-  // Confirm dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const transitionType = getTransitionType(grade);
   const nextGrade = getNextGrade(grade);
 
+  useEffect(() => {
+    loadBaseData();
+  }, []);
+
+  const loadBaseData = async () => {
+    try {
+      const [classroomSnap, enrollmentSnap] = await Promise.all([
+        getDocs(collection(db, "classrooms")),
+        getDocs(collection(db, "studentSubjectEnrollments")),
+      ]);
+
+      const classrooms = classroomSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      const enrollments = enrollmentSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      setAllClassrooms(classrooms);
+      setAllEnrollments(enrollments);
+    } catch (err) {
+      setError(`Failed to load promotion data: ${err.message}`);
+    }
+  };
+
+  const availableYears = useMemo(() => {
+    const studentYears = students
+      .map((s) => Number(getStudentAcademicYear(s)))
+      .filter((y) => Number.isFinite(y));
+
+    const enrollmentYears = allEnrollments
+      .map((e) => Number(getEnrollmentAcademicYear(e)))
+      .filter((y) => Number.isFinite(y));
+
+    const classYears = allClassrooms
+      .map((c) => Number(c.year || c.academicYear))
+      .filter((y) => Number.isFinite(y));
+
+    return [...new Set([currentYear - 1, currentYear, currentYear + 1, ...studentYears, ...enrollmentYears, ...classYears])]
+      .sort((a, b) => a - b);
+  }, [students, allEnrollments, allClassrooms, currentYear]);
+
+  const availableSections = useMemo(() => {
+    const classroomSections = allClassrooms
+      .filter((c) => parseGrade(c.grade) === Number(grade))
+      .map((c) => normalizeSection(c.section || c.className))
+      .filter(Boolean);
+
+    const fallback = ["A", "B", "C", "D"];
+    return [...new Set([...classroomSections, ...fallback])].sort((a, b) => a.localeCompare(b));
+  }, [allClassrooms, grade]);
+
   const fetchStudents = async () => {
     if (!grade || !section) return;
-    setLoading(true); setSuccess(""); setError("");
-    const snap = await getDocs(collection(db, "students"));
-    const list = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(s =>
-        s.grade === grade &&
-        s.section === section &&
-        (s.academicYear === fromYear || !s.academicYear)
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
-    setStudents(list);
 
-    // Default all to promote
-    const statusMap = {};
-    list.forEach(s => { statusMap[s.id] = "promote"; });
-    setStudentStatus(statusMap);
+    setLoading(true);
+    setSuccess("");
+    setError("");
 
-    // Default streams for AL
-    const streamMap = {};
-    list.forEach(s => { streamMap[s.id] = s.stream || ""; });
-    setStreams(streamMap);
+    try {
+      const snap = await getDocs(collection(db, "students"));
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((student) => {
+          const sameGrade = getStudentGrade(student) === Number(grade);
+          const sameSection = getStudentSection(student) === normalizeSection(section);
+          const sameYear =
+            !getStudentAcademicYear(student) ||
+            getStudentAcademicYear(student) === String(fromYear);
 
-    setLoading(false);
-    setStep(1);
+          return sameGrade && sameSection && sameYear && isStudentActive(student);
+        })
+        .sort((a, b) => getStudentName(a).localeCompare(getStudentName(b)));
+
+      setStudents(list);
+
+      const statusMap = {};
+      list.forEach((student) => {
+        statusMap[student.id] = "promote";
+      });
+      setStudentStatus(statusMap);
+
+      const streamMap = {};
+      list.forEach((student) => {
+        streamMap[student.id] = normalizeText(student.stream);
+      });
+      setStreams(streamMap);
+
+      setStep(1);
+    } catch (err) {
+      setError(`Failed to load students: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleStatusChange = (studentId, status) => {
-    setStudentStatus(prev => ({ ...prev, [studentId]: status }));
+    setStudentStatus((prev) => ({ ...prev, [studentId]: status }));
   };
 
   const handlePromoteAll = async () => {
-    // For AL transition, check all streams selected
     if (transitionType === "al") {
-      const promoting = Object.entries(studentStatus)
-        .filter(([, s]) => s === "promote").map(([id]) => id);
-      const missingStream = promoting.some(id => !streams[id]);
-      if (missingStream) {
-        return setError("Please select A/L stream for all students being promoted.");
+      const promotingIds = Object.entries(studentStatus)
+        .filter(([, status]) => status === "promote")
+        .map(([id]) => id);
+
+      const hasMissingStream = promotingIds.some((id) => !normalizeText(streams[id]));
+      if (hasMissingStream) {
+        setError("Please select A/L stream for all students being promoted.");
+        return;
       }
     }
+
     setConfirmOpen(true);
   };
 
   const executePromotion = async () => {
     setConfirmOpen(false);
-    setPromoting(true); setError(""); setSuccess("");
+    setPromoting(true);
+    setError("");
+    setSuccess("");
+
     try {
       const batch = writeBatch(db);
-      let promoted = 0, detained = 0, graduated = 0;
+      let promoted = 0;
+      let detained = 0;
+      let graduated = 0;
 
-      for (const s of students) {
-        const status = studentStatus[s.id];
-        const studentRef = doc(db, "students", s.id);
+      for (const student of students) {
+        const status = studentStatus[student.id];
+        const studentRef = doc(db, "students", student.id);
+
+        const currentStudentGrade = getStudentGrade(student);
+        const currentStudentSection = getStudentSection(student);
+        const currentClassName = buildFullClassName(currentStudentGrade, currentStudentSection);
+        const nextStudentGrade = getNextGrade(currentStudentGrade);
+        const nextClassName = nextStudentGrade
+          ? buildFullClassName(nextStudentGrade, currentStudentSection)
+          : "";
+
+        const currentEnrollments = allEnrollments.filter((enrollment) => {
+          const sameStudent = normalizeText(enrollment.studentId) === normalizeText(student.id);
+          const sameYear =
+            !getEnrollmentAcademicYear(enrollment) ||
+            getEnrollmentAcademicYear(enrollment) === String(fromYear);
+
+          return sameStudent && sameYear && isEnrollmentActive(enrollment);
+        });
 
         if (status === "promote" && transitionType !== "graduate") {
-          const newGrade = nextGrade;
-          const newGroup = getSubjectGroup(newGrade);
-          const oldGroup = getSubjectGroup(grade);
-          const subjectsChanged = newGroup !== oldGroup;
-
           const updateData = {
-            grade: newGrade,
+            grade: nextStudentGrade,
+            section: currentStudentSection,
+            className: currentStudentSection,
             academicYear: toYear,
+            year: toYear,
             promotionStatus: "active",
-            previousGrade: grade,
+            previousGrade: currentStudentGrade,
             previousYear: fromYear,
+            updatedAt: new Date().toISOString(),
           };
 
-          // Subject group change
-          if (subjectsChanged) {
-            updateData.subjectGroup = newGroup;
-          }
-
-          // AL stream
           if (transitionType === "al") {
-            updateData.stream = streams[s.id];
-            updateData.subjectGroup = "AL";
+            updateData.stream = normalizeText(streams[student.id]);
           }
 
           batch.update(studentRef, updateData);
 
-          // Log promotion history
+          currentEnrollments.forEach((enrollment) => {
+            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
+
+            batch.update(enrollmentRef, {
+              grade: nextStudentGrade,
+              section: getEnrollmentSection(enrollment) || currentStudentSection,
+              className: nextClassName || getEnrollmentClassName(enrollment),
+              academicYear: toYear,
+              year: toYear,
+              status: "promoted",
+              previousGrade: currentStudentGrade,
+              previousYear: fromYear,
+              updatedAt: new Date().toISOString(),
+            });
+          });
+
           await addDoc(collection(db, "promotionHistory"), {
-            studentId: s.id,
-            studentName: s.name,
-            fromGrade: grade,
-            toGrade: newGrade,
+            studentId: student.id,
+            studentName: getStudentName(student),
+            admissionNo: getStudentAdmissionNo(student),
+            fromGrade: currentStudentGrade,
+            toGrade: nextStudentGrade,
+            fromSection: currentStudentSection,
+            toSection: currentStudentSection,
             fromYear,
             toYear,
-            stream: streams[s.id] || null,
-            subjectsChanged,
+            fromClassName: currentClassName,
+            toClassName: nextClassName,
+            stream: transitionType === "al" ? normalizeText(streams[student.id]) : null,
+            transitionType,
             promotedAt: new Date().toISOString(),
+            detained: false,
+            graduated: false,
           });
-          promoted++;
 
+          promoted += 1;
         } else if (status === "detain") {
           batch.update(studentRef, {
+            grade: currentStudentGrade,
+            section: currentStudentSection,
+            className: currentStudentSection,
             academicYear: toYear,
+            year: toYear,
             promotionStatus: "detained",
-            previousGrade: grade,
+            previousGrade: currentStudentGrade,
             previousYear: fromYear,
+            updatedAt: new Date().toISOString(),
           });
+
+          currentEnrollments.forEach((enrollment) => {
+            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
+
+            batch.update(enrollmentRef, {
+              grade: currentStudentGrade,
+              section: getEnrollmentSection(enrollment) || currentStudentSection,
+              className: currentClassName || getEnrollmentClassName(enrollment),
+              academicYear: toYear,
+              year: toYear,
+              status: "detained",
+              previousGrade: currentStudentGrade,
+              previousYear: fromYear,
+              updatedAt: new Date().toISOString(),
+            });
+          });
+
           await addDoc(collection(db, "promotionHistory"), {
-            studentId: s.id,
-            studentName: s.name,
-            fromGrade: grade,
-            toGrade: grade, // stays same
+            studentId: student.id,
+            studentName: getStudentName(student),
+            admissionNo: getStudentAdmissionNo(student),
+            fromGrade: currentStudentGrade,
+            toGrade: currentStudentGrade,
+            fromSection: currentStudentSection,
+            toSection: currentStudentSection,
             fromYear,
             toYear,
+            fromClassName: currentClassName,
+            toClassName: currentClassName,
+            transitionType: "detain",
             promotedAt: new Date().toISOString(),
             detained: true,
+            graduated: false,
           });
-          detained++;
 
+          detained += 1;
         } else if (status === "promote" && transitionType === "graduate") {
           batch.update(studentRef, {
-            grade: 13,
+            grade: currentStudentGrade,
+            section: currentStudentSection,
+            className: currentStudentSection,
             academicYear: toYear,
+            year: toYear,
             promotionStatus: "completed",
+            status: "completed",
+            updatedAt: new Date().toISOString(),
           });
+
+          currentEnrollments.forEach((enrollment) => {
+            const enrollmentRef = doc(db, "studentSubjectEnrollments", enrollment.id);
+
+            batch.update(enrollmentRef, {
+              academicYear: toYear,
+              year: toYear,
+              status: "completed",
+              updatedAt: new Date().toISOString(),
+            });
+          });
+
           await addDoc(collection(db, "promotionHistory"), {
-            studentId: s.id,
-            studentName: s.name,
-            fromGrade: 13,
+            studentId: student.id,
+            studentName: getStudentName(student),
+            admissionNo: getStudentAdmissionNo(student),
+            fromGrade: currentStudentGrade,
             toGrade: null,
+            fromSection: currentStudentSection,
+            toSection: null,
             fromYear,
             toYear,
-            graduated: true,
+            fromClassName: currentClassName,
+            toClassName: null,
+            transitionType: "graduate",
             promotedAt: new Date().toISOString(),
+            detained: false,
+            graduated: true,
           });
-          graduated++;
+
+          graduated += 1;
         }
       }
 
       await batch.commit();
+
       setSuccess(
-        `✅ Promotion complete! ` +
-        `${promoted} promoted${detained ? `, ${detained} detained` : ""}` +
-        `${graduated ? `, ${graduated} graduated` : ""}.`
+        `✅ Promotion complete! ${promoted} promoted` +
+          `${detained ? `, ${detained} detained` : ""}` +
+          `${graduated ? `, ${graduated} graduated` : ""}.`
       );
+
       setStep(2);
       setStudents([]);
+      await loadBaseData();
     } catch (err) {
-      setError("Promotion failed: " + err.message);
+      setError(`Promotion failed: ${err.message}`);
+    } finally {
+      setPromoting(false);
     }
-    setPromoting(false);
   };
 
-  const promotingCount = Object.values(studentStatus).filter(s => s === "promote").length;
-  const detainedCount = Object.values(studentStatus).filter(s => s === "detain").length;
+  const promotingCount = Object.values(studentStatus).filter((status) => status === "promote").length;
+  const detainedCount = Object.values(studentStatus).filter((status) => status === "detain").length;
 
   return (
     <Box>
-      <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e" gutterBottom>
+      <Typography
+        variant={isMobile ? "h6" : "h5"}
+        fontWeight={700}
+        color="#1a237e"
+        gutterBottom
+      >
         Year End Promotion
       </Typography>
+
       <Typography variant="body2" color="text.secondary" mb={2}>
-        Promote students to next grade at the end of academic year.
+        Promote students to the next grade and carry forward their enrollment year safely.
       </Typography>
 
-      {/* Stepper */}
-      <Stepper activeStep={step} sx={{ mb: 3 }}
-        orientation={isMobile ? "vertical" : "horizontal"}>
-        {["Select Class", "Review Students", "Done"].map(label => (
-          <Step key={label}><StepLabel>{label}</StepLabel></Step>
+      <Stepper activeStep={step} sx={{ mb: 3 }} orientation={isMobile ? "vertical" : "horizontal"}>
+        {["Select Class", "Review Students", "Done"].map((label) => (
+          <Step key={label}>
+            <StepLabel>{label}</StepLabel>
+          </Step>
         ))}
       </Stepper>
 
@@ -250,25 +516,42 @@ export default function YearEndPromotion() {
           {success}
         </Alert>
       )}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {/* Step 0 — Select Class */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       {step === 0 && (
-        <Card sx={{ maxWidth: 500 }}>
+        <Card sx={{ maxWidth: 560 }}>
           <CardContent>
             <Typography variant="subtitle1" fontWeight={600} mb={2}>
               Select Class to Promote
             </Typography>
+
             <Grid container spacing={2}>
               <Grid item xs={6}>
                 <FormControl fullWidth>
                   <InputLabel>From Year</InputLabel>
-                  <Select value={fromYear} label="From Year"
-                    onChange={(e) => { setFromYear(e.target.value); setToYear(e.target.value + 1); }}>
-                    {[2024, 2025, 2026].map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                  <Select
+                    value={fromYear}
+                    label="From Year"
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      setFromYear(value);
+                      setToYear(value + 1);
+                    }}
+                  >
+                    {availableYears.map((y) => (
+                      <MenuItem key={y} value={y}>
+                        {y}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
+
               <Grid item xs={6}>
                 <FormControl fullWidth>
                   <InputLabel>To Year</InputLabel>
@@ -277,136 +560,172 @@ export default function YearEndPromotion() {
                   </Select>
                 </FormControl>
               </Grid>
+
               <Grid item xs={6}>
                 <FormControl fullWidth>
                   <InputLabel>Grade</InputLabel>
-                  <Select value={grade} label="Grade"
-                    onChange={(e) => setGrade(e.target.value)}>
-                    {GRADES.map(g => (
-                      <MenuItem key={g} value={g}>Grade {g}</MenuItem>
+                  <Select
+                    value={grade}
+                    label="Grade"
+                    onChange={(e) => setGrade(Number(e.target.value))}
+                  >
+                    {GRADES.map((g) => (
+                      <MenuItem key={g} value={g}>
+                        Grade {g}
+                      </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
+
               <Grid item xs={6}>
                 <FormControl fullWidth>
                   <InputLabel>Section</InputLabel>
-                  <Select value={section} label="Section"
-                    onChange={(e) => setSection(e.target.value)}>
-                    {SECTIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  <Select
+                    value={section}
+                    label="Section"
+                    onChange={(e) => setSection(e.target.value)}
+                  >
+                    {availableSections.map((s) => (
+                      <MenuItem key={s} value={s}>
+                        {s}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
 
-              {/* Transition info */}
               <Grid item xs={12}>
                 {transitionType === "normal" && (
                   <Alert severity="info" icon={<ArrowForwardIcon />}>
-                    Grade {grade} → Grade {nextGrade} | No subject changes
+                    Grade {grade} → Grade {nextGrade}
                   </Alert>
                 )}
+
                 {transitionType === "critical" && (
                   <Alert severity="warning" icon={<WarningIcon />}>
-                    Grade 9 → Grade 10 | ⚠️ Subject group changes to O/L subjects!
+                    Grade 9 → Grade 10. Review optional subject enrollments after promotion.
                   </Alert>
                 )}
+
                 {transitionType === "al" && (
                   <Alert severity="warning" icon={<WarningIcon />}>
-                    Grade 11 → Grade 12 | ⚠️ Students must select A/L Stream!
+                    Grade 11 → Grade 12. Select an A/L stream for each promoted student.
                   </Alert>
                 )}
+
                 {transitionType === "graduate" && (
                   <Alert severity="success" icon={<EmojiEventsIcon />}>
-                    Grade 13 → 🎓 Students will be marked as Graduated!
+                    Grade 13 students will be marked as completed.
                   </Alert>
                 )}
               </Grid>
             </Grid>
           </CardContent>
+
           <Box px={2} pb={2}>
-            <Button variant="contained" fullWidth onClick={fetchStudents}
-              disabled={loading} sx={{ bgcolor: "#1a237e" }}>
+            <Button
+              variant="contained"
+              fullWidth
+              onClick={fetchStudents}
+              disabled={loading}
+              sx={{ bgcolor: "#1a237e" }}
+            >
               {loading ? <CircularProgress size={22} color="inherit" /> : "Load Students →"}
             </Button>
           </Box>
         </Card>
       )}
 
-      {/* Step 1 — Review Students */}
       {step === 1 && students.length > 0 && (
         <Box>
-          {/* Summary bar */}
           <Card sx={{ mb: 2, bgcolor: "#e8eaf6" }}>
             <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
               <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
                 <Typography variant="body2" fontWeight={600}>
                   Grade {grade}-{section} → Grade {transitionType === "graduate" ? "🎓" : nextGrade}-{section}
                 </Typography>
+
                 <Chip label={`${promotingCount} Promoting`} color="success" size="small" />
-                {detainedCount > 0 && <Chip label={`${detainedCount} Detained`} color="error" size="small" />}
-                {transitionType === "critical" && (
-                  <Chip label="⚠️ Subject Change" color="warning" size="small" />
+
+                {detainedCount > 0 && (
+                  <Chip label={`${detainedCount} Detained`} color="error" size="small" />
                 )}
+
+                {transitionType === "critical" && (
+                  <Chip label="Review Enrollments After Move" color="warning" size="small" />
+                )}
+
                 {transitionType === "al" && (
-                  <Chip label="⚠️ Stream Required" color="warning" size="small" />
+                  <Chip label="A/L Stream Required" color="warning" size="small" />
                 )}
               </Box>
             </CardContent>
           </Card>
 
-          {/* AL Stream selector */}
           {transitionType === "al" && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              ⚠️ Select A/L Stream for each student below before promoting.
+              Select A/L stream for each student below before promotion.
             </Alert>
           )}
 
-          {/* Subject change notice */}
           {transitionType === "critical" && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              ⚠️ These students will move from <strong>Grade 9 (Junior)</strong> subjects
-              to <strong>Grade 10 (O/L)</strong> subjects automatically.
+              Grade 9 → 10 and similar subject-structure changes should be reviewed with enrollment tools after promotion.
             </Alert>
           )}
 
           {isMobile ? (
-            /* Mobile card view */
             <Box>
-              {students.map((s) => (
-                <Card key={s.id} sx={{ mb: 1.5, boxShadow: 2,
-                  border: studentStatus[s.id] === "detain" ? "2px solid #c62828" : "1px solid #e0e0e0" }}>
+              {students.map((student) => (
+                <Card
+                  key={student.id}
+                  sx={{
+                    mb: 1.5,
+                    boxShadow: 2,
+                    border:
+                      studentStatus[student.id] === "detain"
+                        ? "2px solid #c62828"
+                        : "1px solid #e0e0e0",
+                  }}
+                >
                   <CardContent sx={{ pb: 1 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                       <Box>
-                        <Typography variant="subtitle2" fontWeight={700}>{s.name}</Typography>
+                        <Typography variant="subtitle2" fontWeight={700}>
+                          {getStudentName(student)}
+                        </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Adm: {s.admissionNo}
+                          Adm: {getStudentAdmissionNo(student) || "—"}
                         </Typography>
                       </Box>
+
                       <FormControl size="small" sx={{ minWidth: 110 }}>
-                        <Select value={studentStatus[s.id] || "promote"}
-                          onChange={(e) => handleStatusChange(s.id, e.target.value)}>
-                          <MenuItem value="promote">
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                              <CheckCircleIcon sx={{ fontSize: 14, color: "green" }} /> Promote
-                            </Box>
-                          </MenuItem>
-                          <MenuItem value="detain">
-                            <Box display="flex" alignItems="center" gap={0.5}>
-                              <WarningIcon sx={{ fontSize: 14, color: "red" }} /> Detain
-                            </Box>
-                          </MenuItem>
+                        <Select
+                          value={studentStatus[student.id] || "promote"}
+                          onChange={(e) => handleStatusChange(student.id, e.target.value)}
+                        >
+                          <MenuItem value="promote">Promote</MenuItem>
+                          <MenuItem value="detain">Detain</MenuItem>
                         </Select>
                       </FormControl>
                     </Box>
 
-                    {/* AL Stream picker */}
-                    {transitionType === "al" && studentStatus[s.id] === "promote" && (
+                    {transitionType === "al" && studentStatus[student.id] === "promote" && (
                       <FormControl fullWidth size="small" sx={{ mt: 1 }}>
                         <InputLabel>A/L Stream *</InputLabel>
-                        <Select value={streams[s.id] || ""} label="A/L Stream *"
-                          onChange={(e) => setStreams(prev => ({ ...prev, [s.id]: e.target.value }))}>
-                          {STREAMS.map(st => <MenuItem key={st} value={st}>{st}</MenuItem>)}
+                        <Select
+                          value={streams[student.id] || ""}
+                          label="A/L Stream *"
+                          onChange={(e) =>
+                            setStreams((prev) => ({ ...prev, [student.id]: e.target.value }))
+                          }
+                        >
+                          {STREAMS.map((stream) => (
+                            <MenuItem key={stream} value={stream}>
+                              {stream}
+                            </MenuItem>
+                          ))}
                         </Select>
                       </FormControl>
                     )}
@@ -415,42 +734,62 @@ export default function YearEndPromotion() {
               ))}
             </Box>
           ) : (
-            /* Desktop table view */
             <Paper sx={{ overflowX: "auto", mb: 2 }}>
               <Table size="small">
                 <TableHead sx={{ bgcolor: "#1a237e" }}>
                   <TableRow>
-                    {["#", "Admission No", "Name",
-                      transitionType === "al" ? "A/L Stream" : "Current Grade",
-                      "Status"].map(h => (
-                      <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>{h}</TableCell>
-                    ))}
+                    {["#", "Admission No", "Name", transitionType === "al" ? "A/L Stream" : "Current Grade", "Status"].map(
+                      (head) => (
+                        <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
+                          {head}
+                        </TableCell>
+                      )
+                    )}
                   </TableRow>
                 </TableHead>
+
                 <TableBody>
-                  {students.map((s, idx) => (
-                    <TableRow key={s.id} hover
-                      sx={{ bgcolor: studentStatus[s.id] === "detain" ? "#ffebee" : "inherit" }}>
+                  {students.map((student, idx) => (
+                    <TableRow
+                      key={student.id}
+                      hover
+                      sx={{
+                        bgcolor: studentStatus[student.id] === "detain" ? "#ffebee" : "inherit",
+                      }}
+                    >
                       <TableCell>{idx + 1}</TableCell>
-                      <TableCell>{s.admissionNo}</TableCell>
-                      <TableCell fontWeight={600}>{s.name}</TableCell>
+                      <TableCell>{getStudentAdmissionNo(student) || "—"}</TableCell>
+                      <TableCell fontWeight={600}>{getStudentName(student)}</TableCell>
+
                       <TableCell>
-                        {transitionType === "al" && studentStatus[s.id] === "promote" ? (
+                        {transitionType === "al" && studentStatus[student.id] === "promote" ? (
                           <FormControl size="small" sx={{ minWidth: 140 }}>
                             <InputLabel>Stream *</InputLabel>
-                            <Select value={streams[s.id] || ""} label="Stream *"
-                              onChange={(e) => setStreams(prev => ({ ...prev, [s.id]: e.target.value }))}>
-                              {STREAMS.map(st => <MenuItem key={st} value={st}>{st}</MenuItem>)}
+                            <Select
+                              value={streams[student.id] || ""}
+                              label="Stream *"
+                              onChange={(e) =>
+                                setStreams((prev) => ({ ...prev, [student.id]: e.target.value }))
+                              }
+                            >
+                              {STREAMS.map((stream) => (
+                                <MenuItem key={stream} value={stream}>
+                                  {stream}
+                                </MenuItem>
+                              ))}
                             </Select>
                           </FormControl>
                         ) : (
-                          <Chip label={`Grade ${s.grade}`} size="small" color="primary" />
+                          <Chip label={`Grade ${getStudentGrade(student)}`} size="small" color="primary" />
                         )}
                       </TableCell>
+
                       <TableCell>
                         <FormControl size="small" sx={{ minWidth: 120 }}>
-                          <Select value={studentStatus[s.id] || "promote"}
-                            onChange={(e) => handleStatusChange(s.id, e.target.value)}>
+                          <Select
+                            value={studentStatus[student.id] || "promote"}
+                            onChange={(e) => handleStatusChange(student.id, e.target.value)}
+                          >
                             <MenuItem value="promote">✅ Promote</MenuItem>
                             <MenuItem value="detain">⚠️ Detain</MenuItem>
                           </Select>
@@ -465,24 +804,37 @@ export default function YearEndPromotion() {
 
           <Grid container spacing={2} mt={1}>
             <Grid item xs={6}>
-              <Button fullWidth variant="outlined"
-                onClick={() => { setStep(0); setStudents([]); }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={() => {
+                  setStep(0);
+                  setStudents([]);
+                }}
+              >
                 ← Back
               </Button>
             </Grid>
+
             <Grid item xs={6}>
-              <Button fullWidth variant="contained" onClick={handlePromoteAll}
-                disabled={promoting} sx={{ bgcolor: "#1a237e" }}>
-                {promoting
-                  ? <CircularProgress size={22} color="inherit" />
-                  : `Promote ${promotingCount} Students →`}
+              <Button
+                fullWidth
+                variant="contained"
+                onClick={handlePromoteAll}
+                disabled={promoting}
+                sx={{ bgcolor: "#1a237e" }}
+              >
+                {promoting ? (
+                  <CircularProgress size={22} color="inherit" />
+                ) : (
+                  `Promote ${promotingCount} Students →`
+                )}
               </Button>
             </Grid>
           </Grid>
         </Box>
       )}
 
-      {/* Step 1 — No students found */}
       {step === 1 && students.length === 0 && !loading && (
         <Box textAlign="center" py={4}>
           <SchoolIcon sx={{ fontSize: 48, color: "text.secondary" }} />
@@ -495,7 +847,6 @@ export default function YearEndPromotion() {
         </Box>
       )}
 
-      {/* Step 2 — Done */}
       {step === 2 && (
         <Box textAlign="center" py={4}>
           <EmojiEventsIcon sx={{ fontSize: 64, color: "#ffd54f" }} />
@@ -505,47 +856,77 @@ export default function YearEndPromotion() {
           <Typography variant="body2" color="text.secondary" mt={1}>
             Students have been moved to {toYear}.
           </Typography>
-          <Button variant="contained" sx={{ bgcolor: "#1a237e", mt: 3 }}
-            onClick={() => { setStep(0); setSuccess(""); }}>
+          <Button
+            variant="contained"
+            sx={{ bgcolor: "#1a237e", mt: 3 }}
+            onClick={() => {
+              setStep(0);
+              setSuccess("");
+            }}
+          >
             Promote Another Class
           </Button>
         </Box>
       )}
 
-      {/* Confirm Dialog */}
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}
-        fullScreen={isMobile} maxWidth="xs" fullWidth>
+      <Dialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        fullScreen={isMobile}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Confirm Promotion</DialogTitle>
         <DialogContent>
           <Typography variant="body1" mb={1}>
             Are you sure you want to promote students?
           </Typography>
+
           <Box display="flex" flexDirection="column" gap={1}>
-            <Chip icon={<ArrowForwardIcon />}
+            <Chip
+              icon={<ArrowForwardIcon />}
               label={`Grade ${grade}-${section} (${fromYear}) → Grade ${nextGrade || "🎓"}-${section} (${toYear})`}
-              color="primary" />
-            <Chip icon={<CheckCircleIcon />}
-              label={`${promotingCount} students will be promoted`} color="success" />
+              color="primary"
+            />
+
+            <Chip
+              icon={<CheckCircleIcon />}
+              label={`${promotingCount} students will be promoted`}
+              color="success"
+            />
+
             {detainedCount > 0 && (
-              <Chip icon={<WarningIcon />}
-                label={`${detainedCount} students will be detained`} color="error" />
+              <Chip
+                icon={<WarningIcon />}
+                label={`${detainedCount} students will be detained`}
+                color="error"
+              />
             )}
+
             {transitionType === "critical" && (
               <Alert severity="warning" sx={{ mt: 1 }}>
-                Subject group will change to O/L subjects for Grade 10.
+                Review subject enrollments after promotion for changed grade structures.
               </Alert>
             )}
+
             {transitionType === "al" && (
               <Alert severity="warning" sx={{ mt: 1 }}>
-                Students will be assigned their selected A/L streams.
+                Students will be assigned their selected A/L streams on the student record.
               </Alert>
             )}
           </Box>
         </DialogContent>
+
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setConfirmOpen(false)} fullWidth={isMobile}>Cancel</Button>
-          <Button onClick={executePromotion} variant="contained"
-            fullWidth={isMobile} sx={{ bgcolor: "#1a237e" }}>
+          <Button onClick={() => setConfirmOpen(false)} fullWidth={isMobile}>
+            Cancel
+          </Button>
+          <Button
+            onClick={executePromotion}
+            variant="contained"
+            fullWidth={isMobile}
+            sx={{ bgcolor: "#1a237e" }}
+          >
             Yes, Promote Now
           </Button>
         </DialogActions>
