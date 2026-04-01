@@ -28,10 +28,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
+/* Constants                                                                   */
 /* -------------------------------------------------------------------------- */
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
+const HALF_PAGE_MAX_ROWS = 14;
+const FULL_PAGE_MAX_ROWS = 32;
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -70,7 +76,11 @@ function getStudentName(student) {
 
 function getStudentIndexNo(student) {
   return normalizeText(
-    student?.indexNo || student?.indexNumber || student?.admissionNo || student?.admNo || ""
+    student?.indexNo ||
+      student?.indexNumber ||
+      student?.admissionNo ||
+      student?.admNo ||
+      ""
   );
 }
 
@@ -126,6 +136,13 @@ function chunkArray(items, size) {
     result.push(items.slice(i, i + size));
   }
   return result;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -340,6 +357,25 @@ export default function TeacherMarkSheets() {
       });
   }, [filteredEnrollmentsByYear, selectedClass, selectedSubject, studentMap]);
 
+  const smallSheets = useMemo(
+    () => sheetData.filter((sheet) => sheet.rows.length <= HALF_PAGE_MAX_ROWS),
+    [sheetData]
+  );
+
+  const largeSheets = useMemo(
+    () => sheetData.filter((sheet) => sheet.rows.length > HALF_PAGE_MAX_ROWS),
+    [sheetData]
+  );
+
+  const summaryText = useMemo(() => {
+    const subjects = sheetData.length;
+    const studentsCount = sheetData.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+
+    return `${subjects} subject sheet${subjects !== 1 ? "s" : ""} · ${studentsCount} total row${
+      studentsCount !== 1 ? "s" : ""
+    }`;
+  }, [sheetData]);
+
   function buildSheetTableRows(sheet) {
     return sheet.rows.map((row, index) => [
       index + 1,
@@ -350,37 +386,43 @@ export default function TeacherMarkSheets() {
     ]);
   }
 
-  function drawSheetToPdf(doc, sheet, x, y, width, pageHeight, isHalfPage = false) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(SCHOOL_NAME, x + width / 2, y, { align: "center" });
+  function drawSheetToPdf(doc, sheet, x, y, width, blockHeight, options = {}) {
+    const { compact = false } = options;
+    const pageWidth = doc.internal.pageSize.getWidth();
 
-    doc.setFontSize(11);
-    doc.text(`Teacher Mark Sheet - ${selectedYear}`, x + width / 2, y + 6, {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(compact ? 10.5 : 12);
+    doc.text(SCHOOL_NAME, pageWidth / 2, y, { align: "center" });
+
+    doc.setFontSize(compact ? 10 : 11);
+    doc.text(`Teacher Mark Sheet - ${selectedYear}`, pageWidth / 2, y + 5.5, {
       align: "center",
     });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(compact ? 9 : 10);
     doc.text(
-      `Class ${sheet.className} - ${selectedTerm || "Term"}${sheet.subjectName ? ` - ${sheet.subjectName}` : ""}`,
-      x + width / 2,
-      y + 12,
+      `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}`,
+      pageWidth / 2,
+      y + 11,
       { align: "center" }
     );
 
     const rows = buildSheetTableRows(sheet);
 
     autoTable(doc, {
-      startY: y + 18,
-      margin: { left: x, right: doc.internal.pageSize.getWidth() - (x + width) },
+      startY: y + 16,
+      margin: {
+        left: x,
+        right: doc.internal.pageSize.getWidth() - (x + width),
+      },
       head: [["No", "Index No", "Student Name", "Marks", "Absent"]],
       body: rows,
       theme: "grid",
       styles: {
-        fontSize: 9,
-        cellPadding: 2.5,
-        lineColor: [80, 80, 80],
+        fontSize: compact ? 8.2 : 9,
+        cellPadding: compact ? 1.6 : 2.2,
+        lineColor: [90, 90, 90],
         lineWidth: 0.1,
         valign: "middle",
         textColor: [0, 0, 0],
@@ -392,21 +434,27 @@ export default function TeacherMarkSheets() {
       },
       columnStyles: {
         0: { cellWidth: 12, halign: "center" },
-        1: { cellWidth: 28, halign: "center" },
-        2: { cellWidth: width - 12 - 28 - 28 - 18, halign: "left" },
-        3: { cellWidth: 28, halign: "center" },
+        1: { cellWidth: 32, halign: "center" },
+        2: { cellWidth: width - 12 - 32 - 26 - 18, halign: "left" },
+        3: { cellWidth: 26, halign: "center" },
         4: { cellWidth: 18, halign: "center" },
       },
       tableWidth: width,
       pageBreak: "avoid",
     });
 
-    const finalY = doc.lastAutoTable?.finalY || y + 30;
-    const footerY = Math.min(finalY + 10, isHalfPage ? y + 122 : pageHeight - 20);
+    const finalY = doc.lastAutoTable?.finalY || y + 25;
+    let footerY = finalY + 8;
 
-    doc.setFontSize(10);
+    const maxFooterY = y + blockHeight - 8;
+    if (footerY > maxFooterY) {
+      footerY = maxFooterY;
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(compact ? 9 : 10);
     doc.text("Date: ____________________", x, footerY);
-    doc.text("Teacher Signature: ____________________", x + width - 70, footerY);
+    doc.text("Teacher Signature: ____________________", x + width - 78, footerY);
   }
 
   async function handleDownloadPdf() {
@@ -421,37 +469,49 @@ export default function TeacherMarkSheets() {
     try {
       const doc = new jsPDF("p", "mm", "a4");
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
       const marginX = 12;
       const contentWidth = pageWidth - marginX * 2;
 
-      let firstPage = true;
+      let isFirstPage = true;
 
-      for (const sheet of sheetData) {
-        const shouldUseHalfPage = sheet.rows.length <= 30;
+      const smallPairs = chunkArray(smallSheets, 2);
 
-        if (shouldUseHalfPage) {
-          if (!firstPage) doc.addPage();
+      for (const pair of smallPairs) {
+        if (!isFirstPage) doc.addPage();
+        isFirstPage = false;
 
-          drawSheetToPdf(doc, sheet, marginX, 16, contentWidth, pageHeight, true);
-          firstPage = false;
-        } else {
-          const chunks = chunkArray(sheet.rows, 34);
+        drawSheetToPdf(doc, pair[0], marginX, 14, contentWidth, 128, {
+          compact: true,
+        });
 
-          chunks.forEach((chunk, chunkIndex) => {
-            if (!firstPage) doc.addPage();
+        if (pair[1]) {
+          doc.setDrawColor(170, 170, 170);
+          doc.line(marginX, 145, pageWidth - marginX, 145);
 
-            const partialSheet = {
-              ...sheet,
-              rows: chunk,
-              subjectName:
-                chunks.length > 1
-                  ? `${sheet.subjectName} (${chunkIndex + 1}/${chunks.length})`
-                  : sheet.subjectName,
-            };
+          drawSheetToPdf(doc, pair[1], marginX, 152, contentWidth, 128, {
+            compact: true,
+          });
+        }
+      }
 
-            drawSheetToPdf(doc, partialSheet, marginX, 16, contentWidth, pageHeight, false);
-            firstPage = false;
+      for (const sheet of largeSheets) {
+        const chunks = chunkArray(sheet.rows, FULL_PAGE_MAX_ROWS);
+
+        for (let i = 0; i < chunks.length; i++) {
+          if (!isFirstPage) doc.addPage();
+          isFirstPage = false;
+
+          const partialSheet = {
+            ...sheet,
+            subjectName:
+              chunks.length > 1
+                ? `${sheet.subjectName} (${i + 1}/${chunks.length})`
+                : sheet.subjectName,
+            rows: chunks[i],
+          };
+
+          drawSheetToPdf(doc, partialSheet, marginX, 16, contentWidth, 260, {
+            compact: false,
           });
         }
       }
@@ -466,60 +526,90 @@ export default function TeacherMarkSheets() {
     }
   }
 
+  function renderPrintableSheet(sheet, compact = false) {
+    const rowsHtml = buildSheetTableRows(sheet)
+      .map(
+        (row) => `
+          <tr>
+            <td class="center">${escapeHtml(row[0])}</td>
+            <td class="center">${escapeHtml(row[1])}</td>
+            <td>${escapeHtml(row[2])}</td>
+            <td></td>
+            <td></td>
+          </tr>
+        `
+      )
+      .join("");
+
+    return `
+      <div class="sheet-block ${compact ? "compact" : "full"}">
+        <div class="header">
+          <div class="school">${escapeHtml(SCHOOL_NAME)}</div>
+          <div class="title">Teacher Mark Sheet - ${escapeHtml(selectedYear)}</div>
+          <div class="meta">Class ${escapeHtml(sheet.className)} - ${escapeHtml(
+      selectedTerm || "Term"
+    )} - ${escapeHtml(sheet.subjectName)}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th class="no">No</th>
+              <th class="index">Index No</th>
+              <th class="name">Student Name</th>
+              <th class="marks">Marks</th>
+              <th class="absent">Absent</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div>Date: ____________________</div>
+          <div>Teacher Signature: ____________________</div>
+        </div>
+      </div>
+    `;
+  }
+
   function buildPrintableHtml() {
-    const safe = (value) =>
-      String(value || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+    const smallPairs = chunkArray(smallSheets, 2);
 
-    const sections = sheetData
-      .map((sheet) => {
-        const rowsHtml = buildSheetTableRows(sheet)
-          .map(
-            (row) => `
-              <tr>
-                <td class="center">${safe(row[0])}</td>
-                <td class="center">${safe(row[1])}</td>
-                <td>${safe(row[2])}</td>
-                <td></td>
-                <td></td>
-              </tr>
-            `
-          )
-          .join("");
-
-        return `
-          <div class="sheet ${sheet.rows.length <= 30 ? "half" : "full"}">
-            <div class="header">
-              <div class="school">${safe(SCHOOL_NAME)}</div>
-              <div class="title">Teacher Mark Sheet - ${safe(selectedYear)}</div>
-              <div class="meta">Class ${safe(sheet.className)} - ${safe(
-                selectedTerm || "Term"
-              )} - ${safe(sheet.subjectName)}</div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th class="no">No</th>
-                  <th class="index">Index No</th>
-                  <th class="name">Student Name</th>
-                  <th class="marks">Marks</th>
-                  <th class="absent">Absent</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
-            </table>
-
-            <div class="footer">
-              <div>Date: ____________________</div>
-              <div>Teacher Signature: ____________________</div>
-            </div>
+    const pairPagesHtml = smallPairs
+      .map(
+        (pair) => `
+          <div class="page">
+            ${renderPrintableSheet(pair[0], true)}
+            ${
+              pair[1]
+                ? `<div class="divider"></div>${renderPrintableSheet(pair[1], true)}`
+                : ""
+            }
           </div>
-        `;
+        `
+      )
+      .join("");
+
+    const fullPagesHtml = largeSheets
+      .map((sheet) => {
+        const chunks = chunkArray(sheet.rows, FULL_PAGE_MAX_ROWS);
+
+        return chunks
+          .map((chunk, idx) => {
+            const partialSheet = {
+              ...sheet,
+              subjectName:
+                chunks.length > 1
+                  ? `${sheet.subjectName} (${idx + 1}/${chunks.length})`
+                  : sheet.subjectName,
+              rows: chunk,
+            };
+
+            return `<div class="page">${renderPrintableSheet(partialSheet, false)}</div>`;
+          })
+          .join("");
       })
       .join("");
 
@@ -535,17 +625,32 @@ export default function TeacherMarkSheets() {
               margin: 0;
               padding: 0;
             }
-            .sheet {
+            .page {
               page-break-after: always;
+              min-height: 277mm;
               box-sizing: border-box;
               width: 100%;
             }
-            .sheet:last-child {
+            .page:last-child {
               page-break-after: auto;
+            }
+            .divider {
+              border-top: 1px dashed #999;
+              margin: 8mm 0 6mm 0;
+            }
+            .sheet-block {
+              width: 100%;
+              box-sizing: border-box;
+            }
+            .sheet-block.compact {
+              min-height: 126mm;
+            }
+            .sheet-block.full {
+              min-height: 248mm;
             }
             .header {
               text-align: center;
-              margin-bottom: 8px;
+              margin-bottom: 6px;
             }
             .school {
               font-size: 16px;
@@ -567,25 +672,32 @@ export default function TeacherMarkSheets() {
             }
             th, td {
               border: 1px solid #333;
-              padding: 6px 8px;
+              padding: 5px 7px;
               font-size: 12px;
+            }
+            .compact th, .compact td {
+              padding: 4px 6px;
+              font-size: 11px;
             }
             th {
               background: #f2f2f2;
             }
             td {
-              height: 26px;
+              height: 22px;
+            }
+            .compact td {
+              height: 18px;
             }
             .center {
               text-align: center;
             }
-            .no { width: 8%; }
-            .index { width: 18%; }
-            .name { width: 48%; }
-            .marks { width: 16%; }
+            .no { width: 7%; }
+            .index { width: 15%; }
+            .name { width: 54%; }
+            .marks { width: 14%; }
             .absent { width: 10%; }
             .footer {
-              margin-top: 16px;
+              margin-top: 10px;
               display: flex;
               justify-content: space-between;
               font-size: 12px;
@@ -593,7 +705,8 @@ export default function TeacherMarkSheets() {
           </style>
         </head>
         <body>
-          ${sections}
+          ${pairPagesHtml}
+          ${fullPagesHtml}
         </body>
       </html>
     `;
@@ -622,15 +735,6 @@ export default function TeacherMarkSheets() {
     }, 300);
   }
 
-  const summaryText = useMemo(() => {
-    const subjects = sheetData.length;
-    const studentsCount = sheetData.reduce((sum, sheet) => sum + sheet.rows.length, 0);
-
-    return `${subjects} subject sheet${subjects !== 1 ? "s" : ""} · ${studentsCount} total row${
-      studentsCount !== 1 ? "s" : ""
-    }`;
-  }, [sheetData]);
-
   if (!isAdmin) {
     return (
       <Box>
@@ -651,16 +755,15 @@ export default function TeacherMarkSheets() {
           </Stack>
 
           <Typography variant="body2" color="text.secondary">
-            Generate printable and downloadable PDF mark sheets for teachers using
-            subject enrollments.
+            Generate printable and downloadable PDF mark sheets using subject enrollments.
           </Typography>
         </Box>
 
         {error && <Alert severity="error">{error}</Alert>}
 
         <Alert severity="info">
-          This page uses <strong>studentSubjectEnrollments</strong> so each subject sheet
-          includes only students actually enrolled in that subject.
+          This page uses <strong>studentSubjectEnrollments</strong> so each sheet contains
+          only students enrolled in that subject.
         </Alert>
 
         <Card
@@ -778,7 +881,11 @@ export default function TeacherMarkSheets() {
                 <Button
                   variant="contained"
                   startIcon={
-                    generating ? <CircularProgress size={18} color="inherit" /> : <PictureAsPdfIcon />
+                    generating ? (
+                      <CircularProgress size={18} color="inherit" />
+                    ) : (
+                      <PictureAsPdfIcon />
+                    )
                   }
                   onClick={handleDownloadPdf}
                   disabled={loading || generating || !selectedClass || !sheetData.length}
@@ -808,7 +915,12 @@ export default function TeacherMarkSheets() {
         ) : (
           <Grid container spacing={2}>
             {sheetData.map((sheet) => (
-              <Grid item xs={12} md={6} key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}`}>
+              <Grid
+                item
+                xs={12}
+                md={6}
+                key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}`}
+              >
                 <Paper
                   sx={{
                     p: 2,
@@ -828,7 +940,14 @@ export default function TeacherMarkSheets() {
                     Students: <strong>{sheet.rows.length}</strong>
                   </Typography>
                   <Typography variant="body2">
-                    Layout: <strong>{sheet.rows.length <= 30 ? "Compact single sheet" : "Multi-page sheet"}</strong>
+                    Layout:{" "}
+                    <strong>
+                      {sheet.rows.length <= HALF_PAGE_MAX_ROWS
+                        ? "Half-page packed sheet"
+                        : sheet.rows.length <= FULL_PAGE_MAX_ROWS
+                        ? "Full-page sheet"
+                        : "Multi-page sheet"}
+                    </strong>
                   </Typography>
                 </Paper>
               </Grid>
