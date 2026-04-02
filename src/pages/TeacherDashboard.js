@@ -11,6 +11,11 @@ import {
   Typography,
   Button,
   Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  LinearProgress,
+  Chip,
 } from "@mui/material";
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
@@ -36,17 +41,21 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
-import { FormControl, InputLabel, Select, LinearProgress, Chip } from "@mui/material";
 
-const pick = (...values) => values.find((value) => value !== undefined && value !== null && value !== "");
+const pick = (...values) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
 const normalize = (value) => String(value || "").trim().toLowerCase();
+
 const asNumber = (value) => {
   if (value === "" || value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isNaN(parsed) ? null : parsed;
 };
+
 const makeClassName = (item = {}) =>
   pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+
 const isSameTeacher = (item, user) => {
   const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
   const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
@@ -55,16 +64,106 @@ const isSameTeacher = (item, user) => {
     itemTeacherEmail === normalize(user.email)
   );
 };
+
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
   if (typeof raw === "boolean") return raw;
   return normalize(raw) === "active" || normalize(raw) === "true";
 };
+
 const buildTermLabel = (term) => {
   const termName = pick(term.term, term.termName, term.name, "Term");
   const year = pick(term.year, term.academicYear, "");
   return year ? `${termName} - ${year}` : termName;
 };
+
+function buildSubjectProgressRow({
+  assignment,
+  enrollments,
+  marks,
+  profile,
+  targetTerm,
+}) {
+  const className = makeClassName(assignment);
+  const subjectName = pick(assignment.subjectName, assignment.subject, "");
+  const subjectId = pick(assignment.subjectId, "");
+  const grade = pick(assignment.grade, "");
+  const section = pick(assignment.section, "");
+
+  const enrolledStudents = enrollments.filter((enrollment) => {
+    const enrollmentClass = makeClassName(enrollment);
+    const sameClass = normalize(enrollmentClass) === normalize(className);
+
+    const sameSubject =
+      normalize(pick(enrollment.subjectId, "")) === normalize(subjectId) ||
+      normalize(pick(enrollment.subjectName, "")) === normalize(subjectName);
+
+    const sameYear =
+      !targetTerm.year ||
+      normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
+        normalize(targetTerm.year);
+
+    const status = normalize(pick(enrollment.status, "active"));
+
+    return sameClass && sameSubject && sameYear && (!status || status === "active");
+  });
+
+  const relatedMarks = marks.filter((mark) => {
+    const sameClass = normalize(makeClassName(mark)) === normalize(className);
+
+    const sameSubject =
+      normalize(pick(mark.subjectId, "")) === normalize(subjectId) ||
+      normalize(pick(mark.subjectName, mark.subject, "")) === normalize(subjectName);
+
+    const sameTerm =
+      !targetTerm.term ||
+      normalize(pick(mark.term, mark.termName, "")) === normalize(targetTerm.term);
+
+    const sameYear =
+      !targetTerm.year ||
+      normalize(pick(mark.academicYear, mark.year, "")) === normalize(targetTerm.year);
+
+    return sameClass && sameSubject && sameTerm && sameYear;
+  });
+
+  const markedStudentIds = new Set(
+    relatedMarks
+      .filter((m) => {
+        const score = asNumber(pick(m.mark, m.marks, m.score));
+        return score !== null || Boolean(pick(m.absent, m.isAbsent, false));
+      })
+      .map((m) => String(pick(m.studentId, "")))
+      .filter(Boolean)
+  );
+
+  const totalStudents = enrolledStudents.length;
+  const completedStudents = markedStudentIds.size;
+  const pendingStudents = Math.max(0, totalStudents - completedStudents);
+  const progress =
+    totalStudents > 0 ? Math.min(100, Math.round((completedStudents / totalStudents) * 100)) : 0;
+
+  return {
+    id: assignment.id,
+    className,
+    grade,
+    section,
+    subjectName,
+    subjectId,
+    teacherName: pick(
+      assignment.teacherName,
+      assignment.name,
+      profile?.fullName,
+      profile?.name,
+      auth.currentUser?.displayName,
+      "Teacher"
+    ),
+    totalStudents,
+    completedStudents,
+    pendingStudents,
+    progress,
+    status: totalStudents > 0 && completedStudents >= totalStudents ? "completed" : "pending",
+  };
+}
 
 export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
@@ -81,208 +180,218 @@ export default function TeacherDashboard() {
   const [classTeacherRows, setClassTeacherRows] = useState([]);
 
   const activeTerm = useMemo(
-    () => terms.find((t) => `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` === selectedTermKey) || null,
+    () =>
+      terms.find(
+        (t) =>
+          `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` === selectedTermKey
+      ) || null,
     [terms, selectedTermKey]
   );
 
-  const loadDashboard = useCallback(async (silent = false) => {
-    try {
-      setError("");
-      if (silent) setRefreshing(true);
-      else setLoading(true);
+  const loadDashboard = useCallback(
+    async (silent = false) => {
+      try {
+        setError("");
+        if (silent) setRefreshing(true);
+        else setLoading(true);
 
-      const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error("User is not logged in.");
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("User is not logged in.");
 
-      const [
-        usersSnap,
-        teacherAssignmentsSnap,
-        classTeacherAssignmentsSnap,
-        academicTermsSnap,
-        enrollmentsSnap,
-        marksSnap,
-      ] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "teacherAssignments")),
-        getDocs(collection(db, "classTeacherAssignments")),
-        getDocs(query(collection(db, "academicTerms"), orderBy("year", "desc"))).catch(() =>
-          getDocs(collection(db, "academicTerms"))
-        ),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "marks")),
-      ]);
+        const [
+          usersSnap,
+          teacherAssignmentsSnap,
+          classTeacherAssignmentsSnap,
+          academicTermsSnap,
+          enrollmentsSnap,
+          marksSnap,
+        ] = await Promise.all([
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "teacherAssignments")),
+          getDocs(collection(db, "classTeacherAssignments")),
+          getDocs(query(collection(db, "academicTerms"), orderBy("year", "desc"))).catch(() =>
+            getDocs(collection(db, "academicTerms"))
+          ),
+          getDocs(collection(db, "studentSubjectEnrollments")),
+          getDocs(collection(db, "marks")),
+        ]);
 
-      const allUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const profile =
-        allUsers.find((u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)) ||
-        allUsers.find((u) => normalize(u.email) === normalize(currentUser.email)) || {
-          id: currentUser.uid,
-          uid: currentUser.uid,
-          email: currentUser.email || "",
-          fullName: currentUser.displayName || "Teacher",
-          name: currentUser.displayName || "Teacher",
-        };
-      setTeacherProfile(profile);
-
-      const allTeacherAssignments = teacherAssignmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const allClassTeacherAssignments = classTeacherAssignmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const allTerms = academicTermsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const allEnrollments = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const allMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-      const mySubjectAssignments = allTeacherAssignments.filter((item) => isSameTeacher(item, currentUser));
-      const myClassTeacherAssignments = allClassTeacherAssignments.filter((item) => isSameTeacher(item, currentUser));
-
-      setSubjectAssignments(mySubjectAssignments);
-      setClassTeacherAssignments(myClassTeacherAssignments);
-
-      const sortedTerms = allTerms.sort((a, b) => {
-        const yearDiff = Number(pick(b.year, b.academicYear, 0)) - Number(pick(a.year, a.academicYear, 0));
-        if (yearDiff !== 0) return yearDiff;
-        return String(pick(a.term, a.termName, "")).localeCompare(String(pick(b.term, b.termName, "")));
-      });
-      setTerms(sortedTerms);
-
-      const defaultTerm =
-        sortedTerms.find(isActiveTerm) ||
-        sortedTerms[0] ||
-        null;
-
-      if (!selectedTermKey && defaultTerm) {
-        setSelectedTermKey(`${pick(defaultTerm.term, defaultTerm.termName)}__${pick(defaultTerm.year, defaultTerm.academicYear)}`);
-      }
-
-      const targetTerm = defaultTerm
-        ? {
-            term: pick(defaultTerm.term, defaultTerm.termName),
-            year: pick(defaultTerm.year, defaultTerm.academicYear),
-          }
-        : {
-            term: "",
-            year: "",
+        const allUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const profile =
+          allUsers.find((u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)) ||
+          allUsers.find((u) => normalize(u.email) === normalize(currentUser.email)) || {
+            id: currentUser.uid,
+            uid: currentUser.uid,
+            email: currentUser.email || "",
+            fullName: currentUser.displayName || "Teacher",
+            name: currentUser.displayName || "Teacher",
           };
 
-      const rows = mySubjectAssignments.map((assignment) => {
-        const className = makeClassName(assignment);
-        const subjectName = pick(assignment.subjectName, assignment.subject, "");
-        const subjectId = pick(assignment.subjectId, "");
-        const grade = pick(assignment.grade, "");
-        const section = pick(assignment.section, "");
+        setTeacherProfile(profile);
 
-        const enrolledStudents = allEnrollments.filter((enrollment) => {
-          const enrollmentClass = makeClassName(enrollment);
-          const sameClass = normalize(enrollmentClass) === normalize(className);
-          const sameSubject =
-            normalize(pick(enrollment.subjectId, "")) === normalize(subjectId) ||
-            normalize(pick(enrollment.subjectName, "")) === normalize(subjectName);
-          const sameYear =
-            !targetTerm.year ||
-            normalize(pick(enrollment.academicYear, enrollment.year, "")) === normalize(targetTerm.year);
+        const allTeacherAssignments = teacherAssignmentsSnap.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-          return sameClass && sameSubject && sameYear;
-        });
+        const allClassTeacherAssignments = classTeacherAssignmentsSnap.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-        const relatedMarks = allMarks.filter((mark) => {
-          const sameClass =
-            normalize(makeClassName(mark)) === normalize(className);
-          const sameSubject =
-            normalize(pick(mark.subjectId, "")) === normalize(subjectId) ||
-            normalize(pick(mark.subjectName, mark.subject, "")) === normalize(subjectName);
-          const sameTerm =
-            !targetTerm.term ||
-            normalize(pick(mark.term, mark.termName, "")) === normalize(targetTerm.term);
-          const sameYear =
-            !targetTerm.year ||
-            normalize(pick(mark.academicYear, mark.year, "")) === normalize(targetTerm.year);
+        const allTerms = academicTermsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const allEnrollments = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const allMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
-          return sameClass && sameSubject && sameTerm && sameYear;
-        });
-
-        const markedStudentIds = new Set(
-          relatedMarks
-            .filter((m) => {
-              const score = asNumber(pick(m.mark, m.marks, m.score));
-              return score !== null || Boolean(pick(m.absent, m.isAbsent, false));
-            })
-            .map((m) => String(pick(m.studentId, m.admissionNo, m.indexNo, m.id)))
+        const mySubjectAssignments = allTeacherAssignments.filter((item) =>
+          isSameTeacher(item, currentUser)
         );
 
-        const totalStudents = enrolledStudents.length;
-        const completedStudents = markedStudentIds.size;
-        const progress = totalStudents > 0 ? Math.min(100, Math.round((completedStudents / totalStudents) * 100)) : 0;
+        const myClassTeacherAssignments = allClassTeacherAssignments.filter((item) =>
+          isSameTeacher(item, currentUser)
+        );
 
-        return {
-          id: assignment.id,
-          className,
-          grade,
-          section,
-          subjectName,
-          teacherName: pick(profile.fullName, profile.name, currentUser.displayName, "Teacher"),
-          totalStudents,
-          completedStudents,
-          pendingStudents: Math.max(0, totalStudents - completedStudents),
-          progress,
-          status: totalStudents > 0 && completedStudents >= totalStudents ? "completed" : "pending",
-        };
-      });
+        setSubjectAssignments(mySubjectAssignments);
+        setClassTeacherAssignments(myClassTeacherAssignments);
 
-      setDashboardRows(rows);
+        const sortedTerms = allTerms.sort((a, b) => {
+          const yearDiff =
+            Number(pick(b.year, b.academicYear, 0)) -
+            Number(pick(a.year, a.academicYear, 0));
+          if (yearDiff !== 0) return yearDiff;
+          return String(pick(a.term, a.termName, "")).localeCompare(
+            String(pick(b.term, b.termName, ""))
+          );
+        });
 
-      const classRows = myClassTeacherAssignments.map((assignment) => {
-        const className = makeClassName(assignment);
-        const grade = pick(assignment.grade, "");
-        const section = pick(assignment.section, "");
+        setTerms(sortedTerms);
 
-        const subjectsForClass = rows.filter((row) => normalize(row.className) === normalize(className));
-        const totalSubjects = subjectsForClass.length;
-        const completedSubjects = subjectsForClass.filter((row) => row.status === "completed").length;
-        const totalStudents = Array.from(
-          new Set(
+        const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+
+        const effectiveSelectedTermKey =
+          selectedTermKey ||
+          (defaultTerm
+            ? `${pick(defaultTerm.term, defaultTerm.termName)}__${pick(
+                defaultTerm.year,
+                defaultTerm.academicYear
+              )}`
+            : "");
+
+        if (!selectedTermKey && defaultTerm) {
+          setSelectedTermKey(effectiveSelectedTermKey);
+        }
+
+        const chosenTerm =
+          sortedTerms.find(
+            (t) =>
+              `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` ===
+              effectiveSelectedTermKey
+          ) || defaultTerm;
+
+        const targetTerm = chosenTerm
+          ? {
+              term: pick(chosenTerm.term, chosenTerm.termName),
+              year: pick(chosenTerm.year, chosenTerm.academicYear),
+            }
+          : {
+              term: "",
+              year: "",
+            };
+
+        const mySubjectRows = mySubjectAssignments.map((assignment) =>
+          buildSubjectProgressRow({
+            assignment,
+            enrollments: allEnrollments,
+            marks: allMarks,
+            profile,
+            targetTerm,
+          })
+        );
+
+        setDashboardRows(mySubjectRows);
+
+        const classRows = myClassTeacherAssignments.map((classTeacherAssignment) => {
+          const className = makeClassName(classTeacherAssignment);
+          const grade = pick(classTeacherAssignment.grade, "");
+          const section = pick(classTeacherAssignment.section, "");
+
+          const allAssignmentsForThisClass = allTeacherAssignments.filter(
+            (assignment) => normalize(makeClassName(assignment)) === normalize(className)
+          );
+
+          const subjectRowsForClass = allAssignmentsForThisClass
+            .map((assignment) =>
+              buildSubjectProgressRow({
+                assignment,
+                enrollments: allEnrollments,
+                marks: allMarks,
+                profile,
+                targetTerm,
+              })
+            )
+            .sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+
+          const totalSubjects = subjectRowsForClass.length;
+          const completedSubjects = subjectRowsForClass.filter(
+            (row) => row.status === "completed"
+          ).length;
+
+          const uniqueStudents = new Set(
             allEnrollments
-              .filter((enrollment) => normalize(makeClassName(enrollment)) === normalize(className))
-              .map((enrollment) => String(pick(enrollment.studentId, enrollment.id)))
-          )
-        ).length;
+              .filter((enrollment) => {
+                const sameClass = normalize(makeClassName(enrollment)) === normalize(className);
+                const sameYear =
+                  !targetTerm.year ||
+                  normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
+                    normalize(targetTerm.year);
+                return sameClass && sameYear;
+              })
+              .map((enrollment) => String(pick(enrollment.studentId, "")))
+              .filter(Boolean)
+          );
 
-        return {
-          id: assignment.id,
-          className,
-          grade,
-          section,
-          totalStudents,
-          totalSubjects,
-          completedSubjects,
-          pendingSubjects: Math.max(0, totalSubjects - completedSubjects),
-          progress: totalSubjects > 0 ? Math.round((completedSubjects / totalSubjects) * 100) : 0,
-          subjects: subjectsForClass,
-          status: totalSubjects > 0 && completedSubjects >= totalSubjects ? "completed" : "pending",
-        };
-      });
+          return {
+            id: classTeacherAssignment.id,
+            className,
+            grade,
+            section,
+            totalStudents: uniqueStudents.size,
+            totalSubjects,
+            completedSubjects,
+            pendingSubjects: Math.max(0, totalSubjects - completedSubjects),
+            progress:
+              totalSubjects > 0
+                ? Math.round((completedSubjects / totalSubjects) * 100)
+                : 0,
+            subjects: subjectRowsForClass,
+            status:
+              totalSubjects > 0 && completedSubjects >= totalSubjects
+                ? "completed"
+                : "pending",
+          };
+        });
 
-      setClassTeacherRows(classRows);
-    } catch (err) {
-      console.error(err);
-      setError(err.message || "Failed to load teacher dashboard.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [selectedTermKey]);
+        setClassTeacherRows(classRows);
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Failed to load teacher dashboard.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [selectedTermKey]
+  );
 
   useEffect(() => {
     loadDashboard(false);
   }, [loadDashboard]);
 
-  const filteredDashboardRows = useMemo(() => {
-    if (!activeTerm) return dashboardRows;
-    return dashboardRows;
-  }, [activeTerm, dashboardRows]);
-
   const stats = useMemo(() => {
-    const totalClasses = new Set(filteredDashboardRows.map((row) => row.className)).size;
-    const totalAssignedSubjects = filteredDashboardRows.length;
-    const completedSubjects = filteredDashboardRows.filter((row) => row.status === "completed").length;
-    const pendingSubjects = filteredDashboardRows.filter((row) => row.status !== "completed").length;
+    const totalClasses = new Set(dashboardRows.map((row) => row.className)).size;
+    const totalAssignedSubjects = dashboardRows.length;
+    const completedSubjects = dashboardRows.filter((row) => row.status === "completed").length;
+    const pendingSubjects = dashboardRows.filter((row) => row.status !== "completed").length;
 
     return {
       totalClasses,
@@ -290,7 +399,7 @@ export default function TeacherDashboard() {
       completedSubjects,
       pendingSubjects,
     };
-  }, [filteredDashboardRows]);
+  }, [dashboardRows]);
 
   if (loading) {
     return (
@@ -310,13 +419,17 @@ export default function TeacherDashboard() {
   return (
     <PageContainer
       title="Teacher Dashboard"
-      subtitle={`Welcome ${pick(teacherProfile?.fullName, teacherProfile?.name, auth.currentUser?.displayName, "Teacher")}`}
+      subtitle={`Welcome ${pick(
+        teacherProfile?.fullName,
+        teacherProfile?.name,
+        auth.currentUser?.displayName,
+        "Teacher"
+      )}`}
       actions={
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
           onClick={() => loadDashboard(true)}
-          fullWidth={false}
         >
           Refresh
         </Button>
@@ -339,7 +452,10 @@ export default function TeacherDashboard() {
                 onChange={(e) => setSelectedTermKey(e.target.value)}
               >
                 {terms.map((term) => {
-                  const key = `${pick(term.term, term.termName)}__${pick(term.year, term.academicYear)}`;
+                  const key = `${pick(term.term, term.termName)}__${pick(
+                    term.year,
+                    term.academicYear
+                  )}`;
                   return (
                     <MenuItem key={term.id} value={key}>
                       {buildTermLabel(term)}
@@ -349,6 +465,7 @@ export default function TeacherDashboard() {
               </Select>
             </FormControl>
           </Grid>
+
           <Grid item xs={12} sm={6} md={8}>
             <Stack
               direction="row"
@@ -412,19 +529,27 @@ export default function TeacherDashboard() {
             scrollButtons="auto"
             sx={{ mb: 2 }}
           >
-            <Tab icon={<DashboardRoundedIcon fontSize="small" />} iconPosition="start" label="My Subject Work" />
-            <Tab icon={<SchoolRoundedIcon fontSize="small" />} iconPosition="start" label="Class Teacher View" />
+            <Tab
+              icon={<DashboardRoundedIcon fontSize="small" />}
+              iconPosition="start"
+              label="My Subject Work"
+            />
+            <Tab
+              icon={<SchoolRoundedIcon fontSize="small" />}
+              iconPosition="start"
+              label="Class Teacher View"
+            />
           </Tabs>
 
           {tab === 0 ? (
-            filteredDashboardRows.length === 0 ? (
+            dashboardRows.length === 0 ? (
               <EmptyState
                 title="No subject assignments found"
                 description="This teacher does not currently have subject assignments for the selected term."
               />
             ) : (
               <Grid container spacing={1.5}>
-                {filteredDashboardRows.map((row) => (
+                {dashboardRows.map((row) => (
                   <Grid item xs={12} md={6} xl={4} key={row.id}>
                     <MobileListRow
                       title={`${row.className} - ${row.subjectName}`}
