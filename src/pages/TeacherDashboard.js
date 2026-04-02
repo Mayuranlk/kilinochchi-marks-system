@@ -2,31 +2,30 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
-  CircularProgress,
-  Grid,
-  MenuItem,
-  Stack,
-  Tab,
-  Tabs,
-  Typography,
   Button,
+  CircularProgress,
   Divider,
   FormControl,
+  Grid,
   InputLabel,
-  Select,
   LinearProgress,
+  MenuItem,
+  Select,
+  Stack,
+  Typography,
   Chip,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import HourglassBottomRoundedIcon from "@mui/icons-material/HourglassBottomRounded";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
+import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
+import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import {
   collection,
   getDocs,
@@ -221,7 +220,6 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState(0);
 
   const [teacherProfile, setTeacherProfile] = useState(null);
   const [subjectAssignments, setSubjectAssignments] = useState([]);
@@ -447,7 +445,7 @@ export default function TeacherDashboard() {
     loadDashboard(false);
   }, [loadDashboard]);
 
-  const stats = useMemo(() => {
+  const subjectStats = useMemo(() => {
     const totalClasses = new Set(dashboardRows.map((row) => row.className)).size;
     const totalAssignedSubjects = dashboardRows.length;
     const completedSubjects = dashboardRows.filter((row) => row.status === "completed").length;
@@ -547,7 +545,7 @@ export default function TeacherDashboard() {
           <Grid item xs={6} md={3}>
             <StatCard
               title="Assigned Classes"
-              value={stats.totalClasses}
+              value={subjectStats.totalClasses}
               icon={<ClassRoundedIcon />}
               color="primary"
             />
@@ -555,7 +553,7 @@ export default function TeacherDashboard() {
           <Grid item xs={6} md={3}>
             <StatCard
               title="Assigned Subjects"
-              value={stats.totalAssignedSubjects}
+              value={subjectStats.totalAssignedSubjects}
               icon={<MenuBookRoundedIcon />}
               color="secondary"
             />
@@ -563,7 +561,7 @@ export default function TeacherDashboard() {
           <Grid item xs={6} md={3}>
             <StatCard
               title="Completed"
-              value={stats.completedSubjects}
+              value={subjectStats.completedSubjects}
               icon={<TaskAltRoundedIcon />}
               color="success"
             />
@@ -571,214 +569,203 @@ export default function TeacherDashboard() {
           <Grid item xs={6} md={3}>
             <StatCard
               title="Pending"
-              value={stats.pendingSubjects}
+              value={subjectStats.pendingSubjects}
               icon={<HourglassBottomRoundedIcon />}
               color="warning"
             />
           </Grid>
         </Grid>
 
-        <SectionCard
-          title="Work Overview"
-          subtitle="Subject teacher status and class teacher monitoring."
-        >
-          <Tabs
-            value={tab}
-            onChange={(_, newValue) => setTab(newValue)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ mb: 2 }}
+        {classTeacherAssignments.length > 0 && (
+          <SectionCard
+            title="Class Teacher Monitoring"
+            subtitle="Track whether subject teachers have entered marks for your class."
           >
-            <Tab
-              icon={<DashboardRoundedIcon fontSize="small" />}
-              iconPosition="start"
-              label="My Subject Work"
-            />
-            <Tab
-              icon={<SchoolRoundedIcon fontSize="small" />}
-              iconPosition="start"
-              label="Class Teacher View"
-            />
-          </Tabs>
-
-          {tab === 0 ? (
-            dashboardRows.length === 0 ? (
-              <EmptyState
-                title="No subject assignments found"
-                description="This teacher does not currently have subject assignments for the selected term."
-              />
-            ) : (
-              <Grid container spacing={1.5}>
-                {dashboardRows.map((row) => (
-                  <Grid item xs={12} md={6} xl={4} key={row.id}>
-                    <MobileListRow
-                      title={`${row.className} - ${row.subjectName}`}
-                      subtitle={`${row.completedStudents}/${row.totalStudents} students completed`}
-                      right={<StatusChip status={row.status} />}
-                      footer={
-                        <Stack spacing={1}>
-                          <LinearProgress
-                            variant="determinate"
-                            value={row.progress}
-                            sx={{ height: 8, borderRadius: 999 }}
+            <Stack spacing={1.5}>
+              {classTeacherRows.length === 0 ? (
+                <EmptyState
+                  title="No class teacher monitoring data found"
+                  description="You are assigned as a class teacher, but no subject assignment data could be found for the selected term."
+                />
+              ) : (
+                classTeacherRows.map((row) => (
+                  <SectionCard
+                    key={row.id}
+                    title={`Class ${row.className}`}
+                    subtitle={`${row.completedSubjects}/${row.totalSubjects} subject mark entries completed`}
+                    action={<StatusChip status={row.status} />}
+                    contentSx={{ pt: 2 }}
+                    sx={{ boxShadow: "none" }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Grid container spacing={1.25}>
+                        <Grid item xs={6} sm={3}>
+                          <StatCard
+                            title="Students"
+                            value={row.totalStudents}
+                            icon={<GroupsRoundedIcon />}
+                            color="primary"
+                            sx={{ boxShadow: "none" }}
                           />
-                          <Stack
-                            direction="row"
-                            spacing={1}
-                            justifyContent="space-between"
-                            alignItems="center"
-                            flexWrap="wrap"
-                            useFlexGap
-                          >
-                            <Typography variant="body2" color="text.secondary">
-                              {row.progress}% completed
-                            </Typography>
-                            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                              <Chip size="small" label={`Total ${row.totalStudents}`} />
-                              <Chip size="small" color="success" label={`Done ${row.completedStudents}`} />
-                              <Chip size="small" color="warning" label={`Pending ${row.pendingStudents}`} />
-                            </Stack>
-                          </Stack>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <StatCard
+                            title="Subjects"
+                            value={row.totalSubjects}
+                            icon={<MenuBookRoundedIcon />}
+                            color="secondary"
+                            sx={{ boxShadow: "none" }}
+                          />
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <StatCard
+                            title="Completed"
+                            value={row.completedSubjects}
+                            icon={<AssignmentTurnedInRoundedIcon />}
+                            color="success"
+                            sx={{ boxShadow: "none" }}
+                          />
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <StatCard
+                            title="Pending"
+                            value={row.pendingSubjects}
+                            icon={<HourglassBottomRoundedIcon />}
+                            color="warning"
+                            sx={{ boxShadow: "none" }}
+                          />
+                        </Grid>
+                      </Grid>
 
-                          <Button
-                            variant="contained"
-                            size="small"
-                            startIcon={<EditNoteRoundedIcon />}
-                            onClick={() => navigate("/teacher/marks")}
-                          >
-                            Enter Marks
-                          </Button>
+                      <Box>
+                        <LinearProgress
+                          variant="determinate"
+                          value={row.progress}
+                          sx={{ height: 8, borderRadius: 999, mb: 1 }}
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                          {row.progress}% overall class completion
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      {row.subjects.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                          No subject teacher assignments found for this class.
+                        </Typography>
+                      ) : (
+                        <Stack spacing={1}>
+                          {row.subjects.map((subjectRow) => (
+                            <Stack
+                              key={`${row.id}-${subjectRow.subjectName}`}
+                              direction={{ xs: "column", sm: "row" }}
+                              justifyContent="space-between"
+                              alignItems={{ xs: "flex-start", sm: "center" }}
+                              spacing={1.25}
+                              sx={{
+                                p: 1.25,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                borderRadius: 2,
+                              }}
+                            >
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                  {subjectRow.subjectName}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {subjectRow.completedStudents}/{subjectRow.totalStudents} students
+                                </Typography>
+                              </Box>
+
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                alignItems={{ xs: "flex-start", sm: "center" }}
+                                sx={{ width: { xs: "100%", sm: "auto" } }}
+                              >
+                                <Typography variant="body2" color="text.secondary">
+                                  {subjectRow.progress}%
+                                </Typography>
+                                <StatusChip status={subjectRow.status} />
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<EditNoteRoundedIcon />}
+                                  onClick={() => navigate("/teacher/marks")}
+                                >
+                                  Marks Entry
+                                </Button>
+                              </Stack>
+                            </Stack>
+                          ))}
                         </Stack>
-                      }
-                    />
-                  </Grid>
-                ))}
-              </Grid>
-            )
-          ) : classTeacherRows.length === 0 ? (
+                      )}
+                    </Stack>
+                  </SectionCard>
+                ))
+              )}
+            </Stack>
+          </SectionCard>
+        )}
+
+        <SectionCard
+          title="My Subject Work"
+          subtitle="Enter marks for the subjects assigned to you."
+        >
+          {dashboardRows.length === 0 ? (
             <EmptyState
-              title="No class teacher assignments found"
-              description="This teacher is not currently assigned as a class teacher."
+              title="No subject assignments found"
+              description="This teacher does not currently have subject assignments for the selected term."
             />
           ) : (
-            <Stack spacing={1.5}>
-              {classTeacherRows.map((row) => (
-                <SectionCard
-                  key={row.id}
-                  title={`Class ${row.className}`}
-                  subtitle={`${row.completedSubjects}/${row.totalSubjects} subject mark entries completed`}
-                  action={<StatusChip status={row.status} />}
-                  contentSx={{ pt: 2 }}
-                >
-                  <Stack spacing={1.5}>
-                    <Grid container spacing={1.25}>
-                      <Grid item xs={6} sm={3}>
-                        <StatCard
-                          title="Students"
-                          value={row.totalStudents}
-                          icon={<SchoolRoundedIcon />}
-                          color="primary"
-                          sx={{ boxShadow: "none" }}
-                        />
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <StatCard
-                          title="Subjects"
-                          value={row.totalSubjects}
-                          icon={<MenuBookRoundedIcon />}
-                          color="secondary"
-                          sx={{ boxShadow: "none" }}
-                        />
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <StatCard
-                          title="Completed"
-                          value={row.completedSubjects}
-                          icon={<AssignmentTurnedInRoundedIcon />}
-                          color="success"
-                          sx={{ boxShadow: "none" }}
-                        />
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <StatCard
-                          title="Pending"
-                          value={row.pendingSubjects}
-                          icon={<HourglassBottomRoundedIcon />}
-                          color="warning"
-                          sx={{ boxShadow: "none" }}
-                        />
-                      </Grid>
-                    </Grid>
-
-                    <Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={row.progress}
-                        sx={{ height: 8, borderRadius: 999, mb: 1 }}
-                      />
-                      <Typography variant="body2" color="text.secondary">
-                        {row.progress}% overall class completion
-                      </Typography>
-                    </Box>
-
-                    <Divider />
-
-                    {row.subjects.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">
-                        No subject teacher assignments found for this class.
-                      </Typography>
-                    ) : (
+            <Grid container spacing={1.5}>
+              {dashboardRows.map((row) => (
+                <Grid item xs={12} md={6} xl={4} key={row.id}>
+                  <MobileListRow
+                    title={`${row.className} - ${row.subjectName}`}
+                    subtitle={`${row.completedStudents}/${row.totalStudents} students completed`}
+                    right={<StatusChip status={row.status} />}
+                    footer={
                       <Stack spacing={1}>
-                        {row.subjects.map((subjectRow) => (
-                          <Stack
-                            key={`${row.id}-${subjectRow.subjectName}`}
-                            direction={{ xs: "column", sm: "row" }}
-                            justifyContent="space-between"
-                            alignItems={{ xs: "flex-start", sm: "center" }}
-                            spacing={1.25}
-                            sx={{
-                              p: 1.25,
-                              border: "1px solid",
-                              borderColor: "divider",
-                              borderRadius: 2,
-                            }}
-                          >
-                            <Box sx={{ minWidth: 0 }}>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                {subjectRow.subjectName}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {subjectRow.completedStudents}/{subjectRow.totalStudents} students
-                              </Typography>
-                            </Box>
-
-                            <Stack
-                              direction={{ xs: "column", sm: "row" }}
-                              spacing={1}
-                              alignItems={{ xs: "flex-start", sm: "center" }}
-                              sx={{ width: { xs: "100%", sm: "auto" } }}
-                            >
-                              <Typography variant="body2" color="text.secondary">
-                                {subjectRow.progress}%
-                              </Typography>
-                              <StatusChip status={subjectRow.status} />
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<EditNoteRoundedIcon />}
-                                onClick={() => navigate("/teacher/marks")}
-                              >
-                                Marks Entry
-                              </Button>
-                            </Stack>
+                        <LinearProgress
+                          variant="determinate"
+                          value={row.progress}
+                          sx={{ height: 8, borderRadius: 999 }}
+                        />
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          justifyContent="space-between"
+                          alignItems="center"
+                          flexWrap="wrap"
+                          useFlexGap
+                        >
+                          <Typography variant="body2" color="text.secondary">
+                            {row.progress}% completed
+                          </Typography>
+                          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                            <Chip size="small" label={`Total ${row.totalStudents}`} />
+                            <Chip size="small" color="success" label={`Done ${row.completedStudents}`} />
+                            <Chip size="small" color="warning" label={`Pending ${row.pendingStudents}`} />
                           </Stack>
-                        ))}
+                        </Stack>
+
+                        <Button
+                          variant="contained"
+                          size="small"
+                          startIcon={<EditNoteRoundedIcon />}
+                          onClick={() => navigate("/teacher/marks")}
+                        >
+                          Enter Marks
+                        </Button>
                       </Stack>
-                    )}
-                  </Stack>
-                </SectionCard>
+                    }
+                  />
+                </Grid>
               ))}
-            </Stack>
+            </Grid>
           )}
         </SectionCard>
       </Stack>
