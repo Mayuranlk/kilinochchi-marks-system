@@ -54,16 +54,13 @@ const asNumber = (value) => {
 };
 
 const makeClassName = (item = {}) =>
-  pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
-
-const isSameTeacher = (item, user) => {
-  const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
-  const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
-  return (
-    itemTeacherId === normalize(user.uid) ||
-    itemTeacherEmail === normalize(user.email)
+  pick(
+    item.className,
+    item.assignedClass,
+    item.classLabel,
+    `${pick(item.grade, "")}${pick(item.section, "")}`.trim(),
+    `${pick(item.classGrade, "")}${pick(item.classSection, "")}`.trim()
   );
-};
 
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
@@ -76,6 +73,61 @@ const buildTermLabel = (term) => {
   const year = pick(term.year, term.academicYear, "");
   return year ? `${termName} - ${year}` : termName;
 };
+
+function isTeacherMatch(item, currentUser, profile) {
+  const candidates = [
+    pick(item.teacherId),
+    pick(item.teacherUid),
+    pick(item.userId),
+    pick(item.classTeacherId),
+    pick(item.assignedTeacherId),
+    pick(item.uid),
+    pick(item.teacherDocId),
+  ]
+    .map(normalize)
+    .filter(Boolean);
+
+  const emailCandidates = [
+    pick(item.teacherEmail),
+    pick(item.email),
+    pick(item.classTeacherEmail),
+  ]
+    .map(normalize)
+    .filter(Boolean);
+
+  const nameCandidates = [
+    pick(item.teacherName),
+    pick(item.name),
+    pick(item.classTeacherName),
+    pick(item.fullName),
+  ]
+    .map(normalize)
+    .filter(Boolean);
+
+  const currentUserIds = [
+    normalize(currentUser?.uid),
+    normalize(profile?.uid),
+    normalize(profile?.userId),
+    normalize(profile?.id),
+  ].filter(Boolean);
+
+  const currentEmails = [
+    normalize(currentUser?.email),
+    normalize(profile?.email),
+  ].filter(Boolean);
+
+  const currentNames = [
+    normalize(profile?.fullName),
+    normalize(profile?.name),
+    normalize(currentUser?.displayName),
+  ].filter(Boolean);
+
+  const idMatch = candidates.some((value) => currentUserIds.includes(value));
+  const emailMatch = emailCandidates.some((value) => currentEmails.includes(value));
+  const nameMatch = nameCandidates.some((value) => currentNames.includes(value));
+
+  return idMatch || emailMatch || nameMatch;
+}
 
 function buildSubjectProgressRow({
   assignment,
@@ -152,6 +204,7 @@ function buildSubjectProgressRow({
     teacherName: pick(
       assignment.teacherName,
       assignment.name,
+      assignment.classTeacherName,
       profile?.fullName,
       profile?.name,
       auth.currentUser?.displayName,
@@ -244,11 +297,11 @@ export default function TeacherDashboard() {
         const allMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
         const mySubjectAssignments = allTeacherAssignments.filter((item) =>
-          isSameTeacher(item, currentUser)
+          isTeacherMatch(item, currentUser, profile)
         );
 
         const myClassTeacherAssignments = allClassTeacherAssignments.filter((item) =>
-          isSameTeacher(item, currentUser)
+          isTeacherMatch(item, currentUser, profile)
         );
 
         setSubjectAssignments(mySubjectAssignments);
@@ -259,6 +312,7 @@ export default function TeacherDashboard() {
             Number(pick(b.year, b.academicYear, 0)) -
             Number(pick(a.year, a.academicYear, 0));
           if (yearDiff !== 0) return yearDiff;
+
           return String(pick(a.term, a.termName, "")).localeCompare(
             String(pick(b.term, b.termName, ""))
           );
@@ -298,22 +352,28 @@ export default function TeacherDashboard() {
               year: "",
             };
 
-        const mySubjectRows = mySubjectAssignments.map((assignment) =>
-          buildSubjectProgressRow({
-            assignment,
-            enrollments: allEnrollments,
-            marks: allMarks,
-            profile,
-            targetTerm,
-          })
-        );
+        const mySubjectRows = mySubjectAssignments
+          .map((assignment) =>
+            buildSubjectProgressRow({
+              assignment,
+              enrollments: allEnrollments,
+              marks: allMarks,
+              profile,
+              targetTerm,
+            })
+          )
+          .sort((a, b) => {
+            const classDiff = a.className.localeCompare(b.className);
+            if (classDiff !== 0) return classDiff;
+            return a.subjectName.localeCompare(b.subjectName);
+          });
 
         setDashboardRows(mySubjectRows);
 
         const classRows = myClassTeacherAssignments.map((classTeacherAssignment) => {
           const className = makeClassName(classTeacherAssignment);
-          const grade = pick(classTeacherAssignment.grade, "");
-          const section = pick(classTeacherAssignment.section, "");
+          const grade = pick(classTeacherAssignment.grade, classTeacherAssignment.classGrade, "");
+          const section = pick(classTeacherAssignment.section, classTeacherAssignment.classSection, "");
 
           const allAssignmentsForThisClass = allTeacherAssignments.filter(
             (assignment) => normalize(makeClassName(assignment)) === normalize(className)
@@ -359,10 +419,7 @@ export default function TeacherDashboard() {
             totalSubjects,
             completedSubjects,
             pendingSubjects: Math.max(0, totalSubjects - completedSubjects),
-            progress:
-              totalSubjects > 0
-                ? Math.round((completedSubjects / totalSubjects) * 100)
-                : 0,
+            progress: totalSubjects > 0 ? Math.round((completedSubjects / totalSubjects) * 100) : 0,
             subjects: subjectRowsForClass,
             status:
               totalSubjects > 0 && completedSubjects >= totalSubjects
