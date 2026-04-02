@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -90,6 +90,7 @@ const isSameTeacher = (item, user) => {
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const { isAdmin } = useAuth();
+  const markInputRefs = useRef({});
 
   const [bootLoading, setBootLoading] = useState(true);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -198,6 +199,40 @@ export default function MarksEntry() {
 
     return { total, saved, absent, draftCount };
   }, [filteredRows]);
+
+  const focusRowInput = useCallback((rowKey) => {
+    const input = markInputRefs.current[rowKey];
+    if (input) {
+      input.focus();
+      try {
+        input.select();
+      } catch (error) {
+        // ignore select issues on some mobile browsers
+      }
+    }
+  }, []);
+
+  const handleMarkInputKeyDown = useCallback(
+    (event, rowIndex) => {
+      if (event.key !== "Enter") return;
+
+      event.preventDefault();
+
+      const nextRow = filteredRows[rowIndex + 1];
+      if (nextRow) {
+        focusRowInput(nextRow.key);
+      }
+    },
+    [filteredRows, focusRowInput]
+  );
+
+  const setMarkInputRef = useCallback((rowKey, element) => {
+    if (element) {
+      markInputRefs.current[rowKey] = element;
+    } else {
+      delete markInputRefs.current[rowKey];
+    }
+  }, []);
 
   const loadBase = useCallback(async () => {
     try {
@@ -352,8 +387,7 @@ export default function MarksEntry() {
             allStudents.find((s) => String(s.id) === studentId) || {};
 
           const existingMark = marksDocs.find((mark) => {
-            const sameStudent =
-              String(pick(mark.studentId, "")) === studentId;
+            const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
             const sameClass =
               normalize(makeClassName(mark)) === normalize(selectedClass);
@@ -434,6 +468,7 @@ export default function MarksEntry() {
         };
       });
 
+      markInputRefs.current = {};
       setStudentRows(rows);
       setDrafts(nextDrafts);
     } catch (err) {
@@ -822,8 +857,12 @@ export default function MarksEntry() {
                             label="Mark"
                             value={drafts[row.key]?.mark ?? row.mark ?? ""}
                             onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                            onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
                             disabled={drafts[row.key]?.absent ?? row.absent}
-                            inputProps={{ inputMode: "decimal" }}
+                            inputProps={{
+                              inputMode: "decimal",
+                              ref: (element) => setMarkInputRef(row.key, element),
+                            }}
                           />
                         </Grid>
                         <Grid item xs={5}>
@@ -886,8 +925,12 @@ export default function MarksEntry() {
                             <TextField
                               value={drafts[row.key]?.mark ?? row.mark ?? ""}
                               onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                              onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
                               disabled={drafts[row.key]?.absent ?? row.absent}
-                              inputProps={{ inputMode: "decimal" }}
+                              inputProps={{
+                                inputMode: "decimal",
+                                ref: (element) => setMarkInputRef(row.key, element),
+                              }}
                               size="small"
                             />
                           </TableCell>
