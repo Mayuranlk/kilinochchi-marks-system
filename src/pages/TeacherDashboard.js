@@ -17,6 +17,7 @@ import {
   LinearProgress,
   Chip,
 } from "@mui/material";
+import { useNavigate } from "react-router-dom";
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
@@ -25,6 +26,7 @@ import HourglassBottomRoundedIcon from "@mui/icons-material/HourglassBottomRound
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import {
   collection,
   getDocs,
@@ -56,10 +58,10 @@ const asNumber = (value) => {
 const makeClassName = (item = {}) =>
   pick(
     item.className,
+    item.fullClassName,
     item.assignedClass,
     item.classLabel,
-    `${pick(item.grade, "")}${pick(item.section, "")}`.trim(),
-    `${pick(item.classGrade, "")}${pick(item.classSection, "")}`.trim()
+    `${pick(item.grade, item.classGrade, "")}${pick(item.section, item.classSection, "")}`.trim()
   );
 
 const isActiveTerm = (term) => {
@@ -75,76 +77,74 @@ const buildTermLabel = (term) => {
 };
 
 function isTeacherMatch(item, currentUser, profile) {
-  const candidates = [
+  const idCandidates = [
     pick(item.teacherId),
     pick(item.teacherUid),
     pick(item.userId),
     pick(item.classTeacherId),
+    pick(item.classTeacherUid),
     pick(item.assignedTeacherId),
     pick(item.uid),
-    pick(item.teacherDocId),
   ]
     .map(normalize)
     .filter(Boolean);
 
   const emailCandidates = [
     pick(item.teacherEmail),
-    pick(item.email),
     pick(item.classTeacherEmail),
+    pick(item.email),
   ]
     .map(normalize)
     .filter(Boolean);
 
   const nameCandidates = [
     pick(item.teacherName),
-    pick(item.name),
     pick(item.classTeacherName),
+    pick(item.name),
     pick(item.fullName),
   ]
     .map(normalize)
     .filter(Boolean);
 
-  const currentUserIds = [
+  const myIds = [
     normalize(currentUser?.uid),
     normalize(profile?.uid),
     normalize(profile?.userId),
     normalize(profile?.id),
   ].filter(Boolean);
 
-  const currentEmails = [
+  const myEmails = [
     normalize(currentUser?.email),
     normalize(profile?.email),
   ].filter(Boolean);
 
-  const currentNames = [
+  const myNames = [
     normalize(profile?.fullName),
     normalize(profile?.name),
     normalize(currentUser?.displayName),
   ].filter(Boolean);
 
-  const idMatch = candidates.some((value) => currentUserIds.includes(value));
-  const emailMatch = emailCandidates.some((value) => currentEmails.includes(value));
-  const nameMatch = nameCandidates.some((value) => currentNames.includes(value));
-
-  return idMatch || emailMatch || nameMatch;
+  return (
+    idCandidates.some((value) => myIds.includes(value)) ||
+    emailCandidates.some((value) => myEmails.includes(value)) ||
+    nameCandidates.some((value) => myNames.includes(value))
+  );
 }
 
 function buildSubjectProgressRow({
   assignment,
   enrollments,
   marks,
-  profile,
   targetTerm,
 }) {
   const className = makeClassName(assignment);
   const subjectName = pick(assignment.subjectName, assignment.subject, "");
   const subjectId = pick(assignment.subjectId, "");
-  const grade = pick(assignment.grade, "");
-  const section = pick(assignment.section, "");
+  const grade = pick(assignment.grade, assignment.classGrade, "");
+  const section = pick(assignment.section, assignment.classSection, "");
 
   const enrolledStudents = enrollments.filter((enrollment) => {
-    const enrollmentClass = makeClassName(enrollment);
-    const sameClass = normalize(enrollmentClass) === normalize(className);
+    const sameClass = normalize(makeClassName(enrollment)) === normalize(className);
 
     const sameSubject =
       normalize(pick(enrollment.subjectId, "")) === normalize(subjectId) ||
@@ -180,11 +180,11 @@ function buildSubjectProgressRow({
 
   const markedStudentIds = new Set(
     relatedMarks
-      .filter((m) => {
-        const score = asNumber(pick(m.mark, m.marks, m.score));
-        return score !== null || Boolean(pick(m.absent, m.isAbsent, false));
+      .filter((mark) => {
+        const score = asNumber(pick(mark.mark, mark.marks, mark.score));
+        return score !== null || Boolean(pick(mark.absent, mark.isAbsent, false));
       })
-      .map((m) => String(pick(m.studentId, "")))
+      .map((mark) => String(pick(mark.studentId, "")))
       .filter(Boolean)
   );
 
@@ -203,11 +203,8 @@ function buildSubjectProgressRow({
     subjectId,
     teacherName: pick(
       assignment.teacherName,
-      assignment.name,
       assignment.classTeacherName,
-      profile?.fullName,
-      profile?.name,
-      auth.currentUser?.displayName,
+      assignment.name,
       "Teacher"
     ),
     totalStudents,
@@ -219,6 +216,8 @@ function buildSubjectProgressRow({
 }
 
 export default function TeacherDashboard() {
+  const navigate = useNavigate();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -254,14 +253,14 @@ export default function TeacherDashboard() {
         const [
           usersSnap,
           teacherAssignmentsSnap,
-          classTeacherAssignmentsSnap,
+          classroomsSnap,
           academicTermsSnap,
           enrollmentsSnap,
           marksSnap,
         ] = await Promise.all([
           getDocs(collection(db, "users")),
           getDocs(collection(db, "teacherAssignments")),
-          getDocs(collection(db, "classTeacherAssignments")),
+          getDocs(collection(db, "classrooms")),
           getDocs(query(collection(db, "academicTerms"), orderBy("year", "desc"))).catch(() =>
             getDocs(collection(db, "academicTerms"))
           ),
@@ -287,7 +286,7 @@ export default function TeacherDashboard() {
           ...doc.data(),
         }));
 
-        const allClassTeacherAssignments = classTeacherAssignmentsSnap.docs.map((doc) => ({
+        const allClassrooms = classroomsSnap.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         }));
@@ -300,7 +299,7 @@ export default function TeacherDashboard() {
           isTeacherMatch(item, currentUser, profile)
         );
 
-        const myClassTeacherAssignments = allClassTeacherAssignments.filter((item) =>
+        const myClassTeacherAssignments = allClassrooms.filter((item) =>
           isTeacherMatch(item, currentUser, profile)
         );
 
@@ -358,7 +357,6 @@ export default function TeacherDashboard() {
               assignment,
               enrollments: allEnrollments,
               marks: allMarks,
-              profile,
               targetTerm,
             })
           )
@@ -370,63 +368,68 @@ export default function TeacherDashboard() {
 
         setDashboardRows(mySubjectRows);
 
-        const classRows = myClassTeacherAssignments.map((classTeacherAssignment) => {
-          const className = makeClassName(classTeacherAssignment);
-          const grade = pick(classTeacherAssignment.grade, classTeacherAssignment.classGrade, "");
-          const section = pick(classTeacherAssignment.section, classTeacherAssignment.classSection, "");
+        const classRows = myClassTeacherAssignments
+          .map((classroom) => {
+            const className = makeClassName(classroom);
+            const grade = pick(classroom.grade, "");
+            const section = pick(classroom.section, "");
 
-          const allAssignmentsForThisClass = allTeacherAssignments.filter(
-            (assignment) => normalize(makeClassName(assignment)) === normalize(className)
-          );
+            const allAssignmentsForThisClass = allTeacherAssignments.filter(
+              (assignment) => normalize(makeClassName(assignment)) === normalize(className)
+            );
 
-          const subjectRowsForClass = allAssignmentsForThisClass
-            .map((assignment) =>
-              buildSubjectProgressRow({
-                assignment,
-                enrollments: allEnrollments,
-                marks: allMarks,
-                profile,
-                targetTerm,
-              })
-            )
-            .sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+            const subjectRowsForClass = allAssignmentsForThisClass
+              .map((assignment) =>
+                buildSubjectProgressRow({
+                  assignment,
+                  enrollments: allEnrollments,
+                  marks: allMarks,
+                  targetTerm,
+                })
+              )
+              .sort((a, b) => a.subjectName.localeCompare(b.subjectName));
 
-          const totalSubjects = subjectRowsForClass.length;
-          const completedSubjects = subjectRowsForClass.filter(
-            (row) => row.status === "completed"
-          ).length;
+            const totalSubjects = subjectRowsForClass.length;
+            const completedSubjects = subjectRowsForClass.filter(
+              (row) => row.status === "completed"
+            ).length;
 
-          const uniqueStudents = new Set(
-            allEnrollments
-              .filter((enrollment) => {
-                const sameClass = normalize(makeClassName(enrollment)) === normalize(className);
-                const sameYear =
-                  !targetTerm.year ||
-                  normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
-                    normalize(targetTerm.year);
-                return sameClass && sameYear;
-              })
-              .map((enrollment) => String(pick(enrollment.studentId, "")))
-              .filter(Boolean)
-          );
+            const uniqueStudents = new Set(
+              allEnrollments
+                .filter((enrollment) => {
+                  const sameClass =
+                    normalize(makeClassName(enrollment)) === normalize(className);
+                  const sameYear =
+                    !targetTerm.year ||
+                    normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
+                      normalize(targetTerm.year);
+                  return sameClass && sameYear;
+                })
+                .map((enrollment) => String(pick(enrollment.studentId, "")))
+                .filter(Boolean)
+            );
 
-          return {
-            id: classTeacherAssignment.id,
-            className,
-            grade,
-            section,
-            totalStudents: uniqueStudents.size,
-            totalSubjects,
-            completedSubjects,
-            pendingSubjects: Math.max(0, totalSubjects - completedSubjects),
-            progress: totalSubjects > 0 ? Math.round((completedSubjects / totalSubjects) * 100) : 0,
-            subjects: subjectRowsForClass,
-            status:
-              totalSubjects > 0 && completedSubjects >= totalSubjects
-                ? "completed"
-                : "pending",
-          };
-        });
+            return {
+              id: classroom.id,
+              className,
+              grade,
+              section,
+              totalStudents: uniqueStudents.size,
+              totalSubjects,
+              completedSubjects,
+              pendingSubjects: Math.max(0, totalSubjects - completedSubjects),
+              progress:
+                totalSubjects > 0
+                  ? Math.round((completedSubjects / totalSubjects) * 100)
+                  : 0,
+              subjects: subjectRowsForClass,
+              status:
+                totalSubjects > 0 && completedSubjects >= totalSubjects
+                  ? "completed"
+                  : "pending",
+            };
+          })
+          .sort((a, b) => a.className.localeCompare(b.className));
 
         setClassTeacherRows(classRows);
       } catch (err) {
@@ -636,6 +639,15 @@ export default function TeacherDashboard() {
                               <Chip size="small" color="warning" label={`Pending ${row.pendingStudents}`} />
                             </Stack>
                           </Stack>
+
+                          <Button
+                            variant="contained"
+                            size="small"
+                            startIcon={<EditNoteRoundedIcon />}
+                            onClick={() => navigate("/teacher/marks")}
+                          >
+                            Enter Marks
+                          </Button>
                         </Stack>
                       }
                     />
@@ -720,9 +732,9 @@ export default function TeacherDashboard() {
                         {row.subjects.map((subjectRow) => (
                           <Stack
                             key={`${row.id}-${subjectRow.subjectName}`}
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
                             spacing={1.25}
                             sx={{
                               p: 1.25,
@@ -740,11 +752,24 @@ export default function TeacherDashboard() {
                               </Typography>
                             </Box>
 
-                            <Stack direction="row" spacing={1} alignItems="center">
+                            <Stack
+                              direction={{ xs: "column", sm: "row" }}
+                              spacing={1}
+                              alignItems={{ xs: "flex-start", sm: "center" }}
+                              sx={{ width: { xs: "100%", sm: "auto" } }}
+                            >
                               <Typography variant="body2" color="text.secondary">
                                 {subjectRow.progress}%
                               </Typography>
                               <StatusChip status={subjectRow.status} />
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<EditNoteRoundedIcon />}
+                                onClick={() => navigate("/teacher/marks")}
+                              >
+                                Marks Entry
+                              </Button>
                             </Stack>
                           </Stack>
                         ))}

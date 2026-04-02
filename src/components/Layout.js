@@ -13,7 +13,6 @@ import {
   ListItemText,
   IconButton,
   Avatar,
-  Divider,
   useMediaQuery,
   useTheme,
   BottomNavigation,
@@ -160,7 +159,7 @@ export default function Layout() {
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       ];
 
-  const hideBottomNavRoutes = ["/", "/teacher"];
+  const hideBottomNavRoutes = ["/", "/teacher", "/teacher/marks"];
   const shouldShowBottomNav =
     isMobile && !hideBottomNavRoutes.includes(location.pathname);
 
