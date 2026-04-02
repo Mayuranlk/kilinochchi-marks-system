@@ -160,6 +160,10 @@ export default function Layout() {
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       ];
 
+  const hideBottomNavRoutes = ["/", "/teacher"];
+  const shouldShowBottomNav =
+    isMobile && !hideBottomNavRoutes.includes(location.pathname);
+
   const currentBottomNav = useMemo(() => {
     const index = bottomNavItems.findIndex((item) => {
       if (!item.path) return false;
@@ -594,7 +598,7 @@ export default function Layout() {
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
           minHeight: "100vh",
           pt: { xs: "72px", md: 0 },
-          pb: { xs: "86px", md: 0 },
+          pb: { xs: shouldShowBottomNav ? "86px" : 0, md: 0 },
           px: { xs: 0, md: 0 },
           overflowX: "hidden",
           bgcolor: "background.default",
@@ -603,7 +607,7 @@ export default function Layout() {
         <Outlet />
       </Box>
 
-      {isMobile && (
+      {shouldShowBottomNav && (
         <Paper
           elevation={0}
           sx={{
