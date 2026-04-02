@@ -38,6 +38,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
+import { useLocation } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -87,10 +88,18 @@ const isSameTeacher = (item, user) => {
   );
 };
 
+const buildSubjectKey = (item = {}) => {
+  const subjectId = pick(item.subjectId, "");
+  const subjectName = pick(item.subjectName, item.subject, "");
+  return `${subjectId}__${subjectName}`;
+};
+
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const { isAdmin } = useAuth();
+  const location = useLocation();
   const markInputRefs = useRef({});
+  const appliedNavigationSelectionRef = useRef("");
 
   const [bootLoading, setBootLoading] = useState(true);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -111,6 +120,16 @@ export default function MarksEntry() {
 
   const [studentRows, setStudentRows] = useState([]);
   const [drafts, setDrafts] = useState({});
+
+  const navigationSelection = useMemo(
+    () => ({
+      className: pick(location.state?.className, ""),
+      subjectName: pick(location.state?.subjectName, ""),
+      subjectId: pick(location.state?.subjectId, ""),
+      termKey: pick(location.state?.termKey, ""),
+    }),
+    [location.state]
+  );
 
   const activeTerm = useMemo(
     () =>
@@ -206,7 +225,7 @@ export default function MarksEntry() {
       input.focus();
       try {
         input.select();
-      } catch (error) {
+      } catch (err) {
         // ignore select issues on some mobile browsers
       }
     }
@@ -233,6 +252,87 @@ export default function MarksEntry() {
       delete markInputRefs.current[rowKey];
     }
   }, []);
+
+  const applyNavigationSelection = useCallback(() => {
+    const signature = JSON.stringify(navigationSelection);
+
+    if (
+      !navigationSelection.className &&
+      !navigationSelection.subjectName &&
+      !navigationSelection.subjectId &&
+      !navigationSelection.termKey
+    ) {
+      return;
+    }
+
+    if (appliedNavigationSelectionRef.current === signature) {
+      return;
+    }
+
+    let nextClass = "";
+    let nextSubjectKey = "";
+    let nextTermKey = "";
+
+    if (navigationSelection.className) {
+      const matchedClass = classOptions.find(
+        (option) => normalize(option.className) === normalize(navigationSelection.className)
+      );
+      nextClass = matchedClass?.className || "";
+    }
+
+    const assignmentsForClass = teacherAssignments.filter((assignment) => {
+      if (!nextClass) return true;
+      return normalize(makeClassName(assignment)) === normalize(nextClass);
+    });
+
+    const matchedSubjectAssignment = assignmentsForClass.find((assignment) => {
+      const subjectIdMatch =
+        navigationSelection.subjectId &&
+        normalize(pick(assignment.subjectId, "")) === normalize(navigationSelection.subjectId);
+
+      const subjectNameMatch =
+        navigationSelection.subjectName &&
+        normalize(pick(assignment.subjectName, assignment.subject, "")) ===
+          normalize(navigationSelection.subjectName);
+
+      return subjectIdMatch || subjectNameMatch;
+    });
+
+    if (matchedSubjectAssignment) {
+      nextSubjectKey = buildSubjectKey(matchedSubjectAssignment);
+      if (!nextClass) {
+        nextClass = makeClassName(matchedSubjectAssignment);
+      }
+    }
+
+    if (navigationSelection.termKey) {
+      const matchedTerm = terms.find(
+        (term) =>
+          `${pick(term.term, term.termName)}__${pick(term.year, term.academicYear)}` ===
+          navigationSelection.termKey
+      );
+      nextTermKey = matchedTerm
+        ? `${pick(matchedTerm.term, matchedTerm.termName)}__${pick(
+            matchedTerm.year,
+            matchedTerm.academicYear
+          )}`
+        : "";
+    }
+
+    if (nextClass) {
+      setSelectedClass(nextClass);
+    }
+
+    if (nextTermKey) {
+      setSelectedTermKey(nextTermKey);
+    }
+
+    if (nextSubjectKey) {
+      setSelectedSubjectKey(nextSubjectKey);
+    }
+
+    appliedNavigationSelectionRef.current = signature;
+  }, [navigationSelection, classOptions, teacherAssignments, terms]);
 
   const loadBase = useCallback(async () => {
     try {
@@ -484,6 +584,12 @@ export default function MarksEntry() {
   useEffect(() => {
     loadBase();
   }, [loadBase]);
+
+  useEffect(() => {
+    if (!bootLoading && teacherAssignments.length > 0 && terms.length > 0) {
+      applyNavigationSelection();
+    }
+  }, [bootLoading, teacherAssignments, terms, applyNavigationSelection]);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -838,7 +944,10 @@ export default function MarksEntry() {
                     <MobileListRow
                       key={row.key}
                       title={`${index + 1}. ${row.studentName}`}
-                      subtitle={[row.indexNo ? `Index: ${row.indexNo}` : null, row.admissionNo ? `Admission: ${row.admissionNo}` : null]
+                      subtitle={[
+                        row.indexNo ? `Index: ${row.indexNo}` : null,
+                        row.admissionNo ? `Admission: ${row.admissionNo}` : null,
+                      ]
                         .filter(Boolean)
                         .join(" • ")}
                       right={
