@@ -25,6 +25,7 @@ import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
 import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
 import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
 import TeacherMarkSheets from "./pages/TeacherMarkSheets";
+import BulkMarksUpload from "./pages/BulkMarksUpload";
 
 function LoadingScreen() {
   return (
@@ -276,6 +277,8 @@ export default function App() {
               }
             />
           </Route>
+          
+          <Route path="/bulk-marks-upload" element={<BulkMarksUpload />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
