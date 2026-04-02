@@ -22,12 +22,78 @@ export const ENROLLMENT_MODES = {
 };
 
 /* -------------------------------------------------------------------------- */
+/* Canonical aliases / typo safety                                             */
+/* -------------------------------------------------------------------------- */
+
+const COMMON_SUBJECT_ALIASES = {
+  "business studies": "Business & Accounting Studies",
+  "business and accounting studies": "Business & Accounting Studies",
+  "business & accounting": "Business & Accounting Studies",
+
+  "civics": "Civic Education",
+  "civic": "Civic Education",
+
+  "entrepreneurship": "Entrepreneurship Studies",
+
+  "music": "Music (Carnatic)",
+  "carnatic music": "Music (Carnatic)",
+
+  "dancing": "Dancing (Bharata)",
+  "bharata": "Dancing (Bharata)",
+  "bharata dancing": "Dancing (Bharata)",
+
+  "drama & theatre": "Drama and Theatre (Tamil)",
+  "drama and theatre": "Drama and Theatre (Tamil)",
+  "drama theatre": "Drama and Theatre (Tamil)",
+  "drama": "Drama and Theatre (Tamil)",
+
+  "appreciation of english literature": "Appreciation of English Literary Texts",
+  "appreciation of english literary text": "Appreciation of English Literary Texts",
+
+  "appreciation of tamil literature": "Appreciation of Tamil Literary Texts",
+  "appreciation of tamil literary text": "Appreciation of Tamil Literary Texts",
+
+  "ict": "Information & Communication Technology",
+  "information communication technology": "Information & Communication Technology",
+  "information and communication technology": "Information & Communication Technology",
+
+  "agriculture": "Agriculture & Food Technology",
+  "agriculture food technology": "Agriculture & Food Technology",
+
+  "home science": "Home Economics",
+
+  "health and physical education": "Health & Physical Education",
+  "health & physical education science": "Health & Physical Education",
+  "physical education": "Health & Physical Education",
+  "hpe": "Health & Physical Education",
+
+  "media studies": "Communication & Media Studies",
+  "communication media studies": "Communication & Media Studies",
+
+  "design construction technology": "Design & Construction Technology",
+  "construction technology": "Design & Construction Technology",
+
+  "design mechanical technology": "Design & Mechanical Technology",
+  "mechanical technology": "Design & Mechanical Technology",
+
+  "design electrical and electronic technology":
+    "Design, Electrical & Electronic Technology",
+  "design electrical & electronic technology":
+    "Design, Electrical & Electronic Technology",
+  "electrical and electronic technology":
+    "Design, Electrical & Electronic Technology",
+  "electrical & electronic technology":
+    "Design, Electrical & Electronic Technology",
+};
+
+/* -------------------------------------------------------------------------- */
 /* Normalizers                                                                 */
 /* -------------------------------------------------------------------------- */
 
 function normalize(value) {
   return String(value ?? "")
     .replace(/&/g, " and ")
+    .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
@@ -58,6 +124,19 @@ function normalizeSection(value) {
   const raw = String(value ?? "").trim().toUpperCase();
   const match = raw.match(/[A-Z]+/);
   return match ? match[0] : raw;
+}
+
+function canonicalizeChoiceValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+
+  const loose = normalizeLoose(text);
+
+  for (const [alias, canonical] of Object.entries(COMMON_SUBJECT_ALIASES)) {
+    if (normalizeLoose(alias) === loose) return canonical;
+  }
+
+  return text;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -97,18 +176,26 @@ function getStudentReligion(student) {
 }
 
 function getStudentAestheticChoice(student) {
-  return student?.aestheticChoice || student?.aesthetic || "";
+  return canonicalizeChoiceValue(
+    student?.aestheticChoice || student?.aesthetic || ""
+  );
 }
 
 function getStudentBasketChoice(student, bucket) {
-  if (bucket === "A") return student?.basketAChoice || student?.basket1 || "";
-  if (bucket === "B") return student?.basketBChoice || student?.basket2 || "";
-  if (bucket === "C") return student?.basketCChoice || student?.basket3 || "";
+  if (bucket === "A") {
+    return canonicalizeChoiceValue(student?.basketAChoice || student?.basket1 || "");
+  }
+  if (bucket === "B") {
+    return canonicalizeChoiceValue(student?.basketBChoice || student?.basket2 || "");
+  }
+  if (bucket === "C") {
+    return canonicalizeChoiceValue(student?.basketCChoice || student?.basket3 || "");
+  }
   return "";
 }
 
 function getStudentALChoices(student) {
-  return toArray(student?.alSubjectChoices);
+  return toArray(student?.alSubjectChoices).map(canonicalizeChoiceValue);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -154,12 +241,24 @@ function tokenSet(values) {
         if (!v) return;
         set.add(normalize(v));
         set.add(normalizeLoose(v));
+
+        const canonical = canonicalizeChoiceValue(v);
+        if (canonical) {
+          set.add(normalize(canonical));
+          set.add(normalizeLoose(canonical));
+        }
       });
       return;
     }
 
     set.add(normalize(value));
     set.add(normalizeLoose(value));
+
+    const canonical = canonicalizeChoiceValue(value);
+    if (canonical) {
+      set.add(normalize(canonical));
+      set.add(normalizeLoose(canonical));
+    }
   });
 
   return set;
@@ -178,12 +277,13 @@ function valueMatches(subjectValue, studentValue) {
 
 function subjectTokens(subject) {
   const set = new Set();
+  const subjectName = getSubjectName(subject);
 
   [
     getSubjectId(subject),
     getSubjectCode(subject),
     subject?.subjectCode,
-    getSubjectName(subject),
+    subjectName,
     subject?.shortName,
   ]
     .filter(Boolean)
@@ -192,10 +292,29 @@ function subjectTokens(subject) {
       set.add(normalizeLoose(value));
     });
 
+  const canonicalFromName = canonicalizeChoiceValue(subjectName);
+  if (canonicalFromName) {
+    set.add(normalize(canonicalFromName));
+    set.add(normalizeLoose(canonicalFromName));
+  }
+
   toArray(subject?.aliases).forEach((value) => {
     set.add(normalize(value));
     set.add(normalizeLoose(value));
+
+    const canonical = canonicalizeChoiceValue(value);
+    if (canonical) {
+      set.add(normalize(canonical));
+      set.add(normalizeLoose(canonical));
+    }
   });
+
+  for (const [alias, canonical] of Object.entries(COMMON_SUBJECT_ALIASES)) {
+    if (normalizeLoose(canonical) === normalizeLoose(subjectName)) {
+      set.add(normalize(alias));
+      set.add(normalizeLoose(alias));
+    }
+  }
 
   return set;
 }
@@ -301,7 +420,6 @@ function buildSubjectIndex(subjects) {
   const activeSubjects = subjects.filter(isSubjectActive);
 
   const categoryIs = (subject, values) => values.includes(getSubjectCategory(subject));
-  const bucketIs = (subject, bucket) => getNormalizedBasketBucket(subject) === bucket;
 
   return {
     all: activeSubjects,
@@ -310,9 +428,13 @@ function buildSubjectIndex(subjects) {
       categoryIs(subject, ["core", "compulsory", "mandatory", "common"])
     ),
 
-    religion: activeSubjects.filter((subject) => categoryIs(subject, ["religion"])),
+    religion: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["religion"])
+    ),
 
-    aesthetic: activeSubjects.filter((subject) => categoryIs(subject, ["aesthetic"])),
+    aesthetic: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["aesthetic"])
+    ),
 
     basketA: activeSubjects.filter((subject) => {
       const category = getSubjectCategory(subject);
