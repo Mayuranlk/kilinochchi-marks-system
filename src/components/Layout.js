@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -8,7 +8,7 @@ import {
   Toolbar,
   Typography,
   List,
-  ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   IconButton,
@@ -20,31 +20,34 @@ import {
   BottomNavigationAction,
   Paper,
   Chip,
+  Stack,
+  Tooltip,
 } from "@mui/material";
 
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import PeopleIcon from "@mui/icons-material/People";
-import GradeIcon from "@mui/icons-material/Grade";
-import PersonIcon from "@mui/icons-material/Person";
-import MenuIcon from "@mui/icons-material/Menu";
-import LogoutIcon from "@mui/icons-material/Logout";
-import SchoolIcon from "@mui/icons-material/School";
-import UpgradeIcon from "@mui/icons-material/Upgrade";
-import BookIcon from "@mui/icons-material/Book";
-import MeetingRoomIcon from "@mui/icons-material/MeetingRoom";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
-import HomeWorkIcon from "@mui/icons-material/HomeWork";
-import BarChartIcon from "@mui/icons-material/BarChart";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
-import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
-import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest";
-import DownloadIcon from "@mui/icons-material/Download";
-import DescriptionIcon from "@mui/icons-material/Description";
+import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
+import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
+import GradingRoundedIcon from "@mui/icons-material/GradingRounded";
+import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
+import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import UpgradeRoundedIcon from "@mui/icons-material/UpgradeRounded";
+import BookRoundedIcon from "@mui/icons-material/BookRounded";
+import MeetingRoomRoundedIcon from "@mui/icons-material/MeetingRoomRounded";
+import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
+import AssignmentIndRoundedIcon from "@mui/icons-material/AssignmentIndRounded";
+import HomeWorkRoundedIcon from "@mui/icons-material/HomeWorkRounded";
+import BarChartRoundedIcon from "@mui/icons-material/BarChartRounded";
+import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
+import CleaningServicesRoundedIcon from "@mui/icons-material/CleaningServicesRounded";
+import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
+import PlaylistAddRoundedIcon from "@mui/icons-material/PlaylistAddRounded";
+import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
+import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 
-const DRAWER_WIDTH = 240;
+const DRAWER_WIDTH = 280;
 
 export default function Layout() {
   const { profile, isAdmin, isClassTeacher, logout } = useAuth();
@@ -55,62 +58,78 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const adminMenu = [
-    { label: "Dashboard", icon: <DashboardIcon />, path: "/" },
-    { label: "Classrooms", icon: <MeetingRoomIcon />, path: "/classrooms" },
-    { label: "Subjects", icon: <BookIcon />, path: "/subjects" },
-    { label: "Students", icon: <PeopleIcon />, path: "/students" },
-    { label: "Marks Entry", icon: <GradeIcon />, path: "/marks" },
-    { label: "Teachers", icon: <PersonIcon />, path: "/teachers" },
+    { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" },
+    { label: "Classrooms", icon: <MeetingRoomRoundedIcon />, path: "/classrooms" },
+    { label: "Subjects", icon: <BookRoundedIcon />, path: "/subjects" },
+    { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
+    { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
+    { label: "Teachers", icon: <PersonRoundedIcon />, path: "/teachers" },
     {
       label: "School Setup",
-      icon: <SettingsSuggestIcon />,
+      icon: <SettingsSuggestRoundedIcon />,
       path: "/setup-school-defaults",
       badge: "SETUP",
     },
-    { label: "Assignments", icon: <AssignmentIndIcon />, path: "/assignments" },
-    { label: "Class Teachers", icon: <HomeWorkIcon />, path: "/class-teachers" },
-    { label: "Promotion", icon: <UpgradeIcon />, path: "/promotion" },
-    { label: "Academic Terms", icon: <CalendarMonthIcon />, path: "/terms" },
+    {
+      label: "Assignments",
+      icon: <AssignmentIndRoundedIcon />,
+      path: "/assignments",
+    },
+    {
+      label: "Class Teachers",
+      icon: <HomeWorkRoundedIcon />,
+      path: "/class-teachers",
+    },
+    {
+      label: "Promotion",
+      icon: <UpgradeRoundedIcon />,
+      path: "/promotion",
+    },
+    {
+      label: "Academic Terms",
+      icon: <CalendarMonthRoundedIcon />,
+      path: "/terms",
+    },
     {
       label: "Teacher Mark Sheets",
-      icon: <DescriptionIcon />,
+      icon: <DescriptionRoundedIcon />,
       path: "/teacher-mark-sheets",
       badge: "NEW",
     },
     {
       label: "Subject Enrollments",
-      icon: <AutoFixHighIcon />,
+      icon: <AutoFixHighRoundedIcon />,
       path: "/student-subject-enrollments",
       badge: "AUTO",
     },
     {
       label: "Manual Enrollments",
-      icon: <PlaylistAddIcon />,
+      icon: <PlaylistAddRoundedIcon />,
       path: "/manual-student-subject-enrollments",
       badge: "MANUAL",
     },
     {
       label: "Migrate Student Subjects",
-      icon: <CleaningServicesIcon />,
+      icon: <CleaningServicesRoundedIcon />,
       path: "/migrate-student-subjects",
     },
     {
       label: "Export Samples",
-      icon: <DownloadIcon />,
+      icon: <DownloadRoundedIcon />,
       path: "/export-firestore-samples",
       badge: "DEV",
     },
   ];
 
   const teacherMenu = [
-    { label: "Dashboard", icon: <DashboardIcon />, path: "/teacher" },
-    { label: "Marks Entry", icon: <GradeIcon />, path: "/teacher/marks" },
+    { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
+    { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
   ];
 
   if (isClassTeacher) {
     teacherMenu.push({
       label: "Class Report",
-      icon: <BarChartIcon />,
+      icon: <BarChartRoundedIcon />,
       path: "/teacher/class-report",
       badge: "NEW",
     });
@@ -120,31 +139,41 @@ export default function Layout() {
 
   const bottomNavItems = isAdmin
     ? [
-        { label: "Home", icon: <DashboardIcon />, path: "/" },
-        { label: "Students", icon: <PeopleIcon />, path: "/students" },
-        { label: "Marks", icon: <GradeIcon />, path: "/marks" },
-        { label: "Enroll", icon: <MenuBookIcon />, path: "/student-subject-enrollments" },
-        { label: "More", icon: <MenuIcon />, path: null },
+        { label: "Home", icon: <DashboardRoundedIcon />, path: "/" },
+        { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
+        { label: "Marks", icon: <GradingRoundedIcon />, path: "/marks" },
+        {
+          label: "Enroll",
+          icon: <MenuBookRoundedIcon />,
+          path: "/student-subject-enrollments",
+        },
+        { label: "More", icon: <MoreHorizRoundedIcon />, path: null },
       ]
     : isClassTeacher
     ? [
-        { label: "Dashboard", icon: <DashboardIcon />, path: "/teacher" },
-        { label: "Marks", icon: <GradeIcon />, path: "/teacher/marks" },
-        { label: "Report", icon: <BarChartIcon />, path: "/teacher/class-report" },
+        { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
+        { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+        { label: "Report", icon: <BarChartRoundedIcon />, path: "/teacher/class-report" },
       ]
     : [
-        { label: "Dashboard", icon: <DashboardIcon />, path: "/teacher" },
-        { label: "Marks", icon: <GradeIcon />, path: "/teacher/marks" },
+        { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
+        { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       ];
+
+  const currentBottomNav = useMemo(() => {
+    const index = bottomNavItems.findIndex((item) => {
+      if (!item.path) return false;
+      if (item.path === "/") return location.pathname === "/";
+      if (item.path === "/teacher") return location.pathname === "/teacher";
+      return location.pathname.startsWith(item.path);
+    });
+    return index === -1 ? 0 : index;
+  }, [bottomNavItems, location.pathname]);
 
   const handleLogout = async () => {
     await logout();
     navigate("/login");
   };
-
-  const currentBottomNav = bottomNavItems.findIndex(
-    (item) => item.path === location.pathname
-  );
 
   const isActive = (path) => {
     if (path === "/") return location.pathname === "/";
@@ -152,79 +181,93 @@ export default function Layout() {
     return location.pathname.startsWith(path);
   };
 
-  function renderBadge(item) {
+  const getBadgeStyles = (badge) => {
+    switch (badge) {
+      case "MANUAL":
+        return {
+          bgcolor: "grey.200",
+          color: "text.primary",
+        };
+      case "NEW":
+        return {
+          bgcolor: "warning.light",
+          color: "warning.dark",
+        };
+      case "DEV":
+        return {
+          bgcolor: "info.light",
+          color: "info.dark",
+        };
+      case "SETUP":
+        return {
+          bgcolor: "success.light",
+          color: "success.dark",
+        };
+      case "AUTO":
+        return {
+          bgcolor: "secondary.light",
+          color: "secondary.dark",
+        };
+      default:
+        return {
+          bgcolor: "grey.200",
+          color: "text.primary",
+        };
+    }
+  };
+
+  const renderBadge = (item) => {
     if (!item.badge) return null;
-
-    let bg = "#ffd54f";
-    let color = "#1a237e";
-
-    if (item.badge === "MANUAL") {
-      bg = "#e0e0e0";
-      color = "#1a237e";
-    }
-
-    if (item.badge === "NEW") {
-      bg = "#ffd54f";
-      color = "#1a237e";
-    }
-
-    if (item.badge === "DEV") {
-      bg = "#90caf9";
-      color = "#0d47a1";
-    }
-
-    if (item.badge === "SETUP") {
-      bg = "#c5e1a5";
-      color = "#33691e";
-    }
-
-    if (item.badge === "AUTO") {
-      bg = "#b39ddb";
-      color = "#311b92";
-    }
 
     return (
       <Chip
         label={item.badge}
         size="small"
         sx={{
-          bgcolor: bg,
-          color,
-          fontWeight: 700,
-          fontSize: 9,
-          height: 16,
-          "& .MuiChip-label": { px: 0.8 },
+          height: 20,
+          fontSize: 10,
+          fontWeight: 800,
+          borderRadius: 999,
+          ...getBadgeStyles(item.badge),
+          "& .MuiChip-label": {
+            px: 1,
+          },
         }}
       />
     );
-  }
+  };
 
-  function renderMenuItem(item) {
+  const handleNavigate = (path) => {
+    navigate(path);
+    setMobileOpen(false);
+  };
+
+  const renderMenuItem = (item) => {
     const active = isActive(item.path);
 
     return (
-      <ListItem
-        button
+      <ListItemButton
         key={item.label}
-        onClick={() => {
-          navigate(item.path);
-          setMobileOpen(false);
-        }}
+        onClick={() => handleNavigate(item.path)}
         sx={{
-          mx: 1,
-          mb: 0.3,
-          borderRadius: 2,
-          cursor: "pointer",
-          py: 0.8,
-          width: "calc(100% - 16px)",
-          bgcolor: active ? "rgba(255,255,255,0.2)" : "transparent",
-          "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
+          mx: 1.25,
+          mb: 0.5,
+          minHeight: 46,
+          borderRadius: 3,
+          px: 1.25,
+          py: 0.75,
+          alignItems: "center",
+          bgcolor: active ? "rgba(37, 99, 235, 0.12)" : "transparent",
+          border: active ? "1px solid rgba(37, 99, 235, 0.18)" : "1px solid transparent",
+          "&:hover": {
+            bgcolor: active ? "rgba(37, 99, 235, 0.16)" : "rgba(148, 163, 184, 0.08)",
+          },
         }}
       >
         <ListItemIcon
           sx={{
-            color: active ? "#ffd54f" : "rgba(255,255,255,0.8)",
-            minWidth: 36,
+            minWidth: 38,
+            color: active ? "primary.main" : "text.secondary",
           }}
         >
           {item.icon}
@@ -233,229 +276,281 @@ export default function Layout() {
         <ListItemText
           primary={item.label}
           primaryTypographyProps={{
-            fontSize: 13,
-            fontWeight: active ? 700 : 400,
-            color: "white",
+            fontSize: 14,
+            fontWeight: active ? 800 : 600,
+            color: active ? "text.primary" : "text.secondary",
             noWrap: true,
           }}
         />
 
         {renderBadge(item)}
-      </ListItem>
+      </ListItemButton>
     );
-  }
+  };
+
+  const SidebarSectionLabel = ({ children }) => (
+    <Typography
+      variant="caption"
+      sx={{
+        px: 2.25,
+        pb: 0.75,
+        pt: 1.25,
+        display: "block",
+        color: "text.secondary",
+        fontWeight: 800,
+        fontSize: 11,
+        letterSpacing: 0.8,
+        textTransform: "uppercase",
+      }}
+    >
+      {children}
+    </Typography>
+  );
 
   const drawer = (
     <Box
       sx={{
         height: "100%",
-        bgcolor: "#1a237e",
-        color: "white",
         display: "flex",
         flexDirection: "column",
-        overflowX: "hidden",
-        overflowY: "hidden",
-        width: DRAWER_WIDTH,
+        bgcolor: "background.paper",
       }}
     >
       <Box
         sx={{
-          p: 2.5,
-          display: "flex",
-          alignItems: "center",
-          gap: 1.5,
-          flexShrink: 0,
+          px: 2,
+          py: 2,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          background:
+            "linear-gradient(135deg, rgba(37,99,235,0.12) 0%, rgba(124,58,237,0.08) 100%)",
         }}
       >
-        <SchoolIcon sx={{ fontSize: 32, color: "#ffd54f" }} />
-        <Box>
-          <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-            Kilinochchi
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.8 }}>
-            Marks System
-          </Typography>
-        </Box>
-      </Box>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Box
+            sx={{
+              width: 44,
+              height: 44,
+              borderRadius: 3,
+              display: "grid",
+              placeItems: "center",
+              bgcolor: "primary.main",
+              color: "white",
+              boxShadow: "0px 10px 24px rgba(37, 99, 235, 0.22)",
+            }}
+          >
+            <SchoolRoundedIcon />
+          </Box>
 
-      <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+              Kilinochchi
+            </Typography>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              Marks Management System
+            </Typography>
+          </Box>
+        </Stack>
+      </Box>
 
       <Box
         sx={{
-          p: 2,
-          display: "flex",
-          alignItems: "center",
-          gap: 1.5,
-          flexShrink: 0,
+          px: 2,
+          py: 1.75,
+          borderBottom: "1px solid",
+          borderColor: "divider",
         }}
       >
-        <Avatar
-          sx={{
-            bgcolor: "#ffd54f",
-            color: "#1a237e",
-            width: 36,
-            height: 36,
-            fontSize: 14,
-            fontWeight: 700,
-          }}
-        >
-          {profile?.name?.charAt(0)?.toUpperCase() || "U"}
-        </Avatar>
+        <Stack direction="row" spacing={1.25} alignItems="center">
+          <Avatar
+            sx={{
+              width: 42,
+              height: 42,
+              bgcolor: "primary.main",
+              color: "white",
+              fontWeight: 800,
+            }}
+          >
+            {profile?.name?.charAt(0)?.toUpperCase() || "U"}
+          </Avatar>
 
-        <Box sx={{ overflow: "hidden" }}>
-          <Typography variant="body2" fontWeight={600} noWrap>
-            {profile?.name || "User"}
-          </Typography>
-
-          <Box display="flex" gap={0.5} alignItems="center" flexWrap="wrap">
-            <Typography
-              variant="caption"
-              sx={{ opacity: 0.7, textTransform: "capitalize" }}
-            >
-              {profile?.role}
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }} noWrap>
+              {profile?.name || "User"}
             </Typography>
 
-            {isClassTeacher && (
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.35 }}>
               <Chip
-                label={`CT G${profile?.classGrade}-${profile?.classSection}`}
+                label={profile?.role || "user"}
                 size="small"
                 sx={{
-                  bgcolor: "#ffd54f",
-                  color: "#1a237e",
+                  height: 20,
+                  fontSize: 10,
                   fontWeight: 700,
-                  fontSize: 9,
-                  height: 16,
-                  "& .MuiChip-label": { px: 0.8 },
+                  textTransform: "capitalize",
+                  bgcolor: "grey.100",
                 }}
               />
-            )}
+
+              {isClassTeacher && (
+                <Chip
+                  label={`CT G${profile?.classGrade}-${profile?.classSection}`}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    bgcolor: "warning.light",
+                    color: "warning.dark",
+                  }}
+                />
+              )}
+            </Stack>
           </Box>
-        </Box>
+        </Stack>
       </Box>
 
-      <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
-
-      <List sx={{ flex: 1, pt: 1, overflowY: "auto", overflowX: "hidden" }}>
-        {isAdmin && (
+      <Box sx={{ flex: 1, overflowY: "auto", py: 1 }}>
+        {isAdmin ? (
           <>
-            <Typography
-              variant="caption"
-              sx={{
-                px: 2,
-                opacity: 0.5,
-                fontSize: 10,
-                textTransform: "uppercase",
-                letterSpacing: 1,
-              }}
-            >
-              Management
-            </Typography>
-            {adminMenu.slice(0, 6).map((item) => renderMenuItem(item))}
+            <SidebarSectionLabel>Management</SidebarSectionLabel>
+            <List disablePadding>{adminMenu.slice(0, 6).map(renderMenuItem)}</List>
 
-            <Typography
-              variant="caption"
-              sx={{
-                px: 2,
-                mt: 1,
-                display: "block",
-                opacity: 0.5,
-                fontSize: 10,
-                textTransform: "uppercase",
-                letterSpacing: 1,
-              }}
-            >
-              Staff
-            </Typography>
-            {adminMenu.slice(6, 8).map((item) => renderMenuItem(item))}
+            <SidebarSectionLabel>Staff</SidebarSectionLabel>
+            <List disablePadding>{adminMenu.slice(6, 8).map(renderMenuItem)}</List>
 
-            <Typography
-              variant="caption"
-              sx={{
-                px: 2,
-                mt: 1,
-                display: "block",
-                opacity: 0.5,
-                fontSize: 10,
-                textTransform: "uppercase",
-                letterSpacing: 1,
-              }}
-            >
-              System
-            </Typography>
-            {adminMenu.slice(8).map((item) => renderMenuItem(item))}
+            <SidebarSectionLabel>System</SidebarSectionLabel>
+            <List disablePadding>{adminMenu.slice(8).map(renderMenuItem)}</List>
+          </>
+        ) : (
+          <>
+            <SidebarSectionLabel>Teacher Menu</SidebarSectionLabel>
+            <List disablePadding>{menuItems.map(renderMenuItem)}</List>
           </>
         )}
+      </Box>
 
-        {!isAdmin && menuItems.map((item) => renderMenuItem(item))}
-      </List>
-
-      <Divider sx={{ bgcolor: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
-
-      <List sx={{ flexShrink: 0 }}>
-        <ListItem
-          button
-          onClick={handleLogout}
-          sx={{
-            mx: 1,
-            mb: 1,
-            borderRadius: 2,
-            cursor: "pointer",
-            width: "calc(100% - 16px)",
-            "&:hover": { bgcolor: "rgba(255,0,0,0.2)" },
-          }}
-        >
-          <ListItemIcon sx={{ color: "#ef9a9a", minWidth: 36 }}>
-            <LogoutIcon />
-          </ListItemIcon>
-          <ListItemText
-            primary="Logout"
-            primaryTypographyProps={{ fontSize: 13, color: "white" }}
-          />
-        </ListItem>
-      </List>
+      <Box
+        sx={{
+          p: 1.25,
+          borderTop: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.paper",
+        }}
+      >
+        <List disablePadding>
+          <ListItemButton
+            onClick={handleLogout}
+            sx={{
+              borderRadius: 3,
+              minHeight: 46,
+              "&:hover": {
+                bgcolor: "rgba(220, 38, 38, 0.08)",
+              },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 38, color: "error.main" }}>
+              <LogoutRoundedIcon />
+            </ListItemIcon>
+            <ListItemText
+              primary="Logout"
+              primaryTypographyProps={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "text.primary",
+              }}
+            />
+          </ListItemButton>
+        </List>
+      </Box>
     </Box>
   );
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", overflowX: "hidden" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
       {isMobile && (
         <AppBar
           position="fixed"
-          sx={{ bgcolor: "#1a237e", zIndex: theme.zIndex.drawer + 1 }}
+          color="inherit"
+          elevation={0}
+          sx={{
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            bgcolor: "rgba(255,255,255,0.92)",
+            backdropFilter: "blur(10px)",
+            zIndex: theme.zIndex.drawer + 1,
+          }}
         >
-          <Toolbar sx={{ minHeight: 56 }}>
+          <Toolbar
+            sx={{
+              minHeight: 64,
+              px: { xs: 1.25, sm: 2 },
+            }}
+          >
             <IconButton
-              color="inherit"
               edge="start"
-              onClick={() => setMobileOpen(!mobileOpen)}
-              sx={{ mr: 1 }}
-            >
-              <MenuIcon />
-            </IconButton>
-
-            <SchoolIcon sx={{ mr: 1, color: "#ffd54f", fontSize: 22 }} />
-
-            <Typography variant="subtitle1" fontWeight={700} sx={{ flexGrow: 1 }}>
-              Kilinochchi Marks
-            </Typography>
-
-            <Avatar
+              onClick={() => setMobileOpen(true)}
               sx={{
-                bgcolor: "#ffd54f",
-                color: "#1a237e",
-                width: 30,
-                height: 30,
-                fontSize: 13,
-                fontWeight: 700,
+                mr: 1,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 2.5,
               }}
             >
-              {profile?.name?.charAt(0)?.toUpperCase() || "U"}
-            </Avatar>
+              <MenuRoundedIcon />
+            </IconButton>
+
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Box
+                sx={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 2.5,
+                  display: "grid",
+                  placeItems: "center",
+                  bgcolor: "primary.main",
+                  color: "white",
+                  flexShrink: 0,
+                }}
+              >
+                <SchoolRoundedIcon sx={{ fontSize: 20 }} />
+              </Box>
+
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.1 }} noWrap>
+                  Kilinochchi Marks
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {profile?.role ? String(profile.role).toUpperCase() : "USER"}
+                </Typography>
+              </Box>
+            </Stack>
+
+            <Tooltip title={profile?.name || "User"}>
+              <Avatar
+                sx={{
+                  width: 34,
+                  height: 34,
+                  bgcolor: "primary.main",
+                  color: "white",
+                  fontWeight: 800,
+                  fontSize: 14,
+                }}
+              >
+                {profile?.name?.charAt(0)?.toUpperCase() || "U"}
+              </Avatar>
+            </Tooltip>
           </Toolbar>
         </AppBar>
       )}
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
+      <Box
+        component="nav"
+        sx={{
+          width: { md: DRAWER_WIDTH },
+          flexShrink: { md: 0 },
+        }}
+      >
         {isMobile ? (
           <Drawer
             variant="temporary"
@@ -466,8 +561,8 @@ export default function Layout() {
               "& .MuiDrawer-paper": {
                 width: DRAWER_WIDTH,
                 boxSizing: "border-box",
-                overflowX: "hidden",
-                overflowY: "hidden",
+                borderRight: "1px solid",
+                borderColor: "divider",
               },
             }}
           >
@@ -476,13 +571,14 @@ export default function Layout() {
         ) : (
           <Drawer
             variant="permanent"
+            open
             sx={{
               "& .MuiDrawer-paper": {
                 width: DRAWER_WIDTH,
                 boxSizing: "border-box",
-                border: "none",
-                overflowX: "hidden",
-                overflowY: "hidden",
+                borderRight: "1px solid",
+                borderColor: "divider",
+                bgcolor: "background.paper",
               },
             }}
           >
@@ -495,14 +591,13 @@ export default function Layout() {
         component="main"
         sx={{
           flexGrow: 1,
-          p: { xs: 1.5, sm: 2, md: 3 },
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
-          maxWidth: { xs: "100vw", md: `calc(100vw - ${DRAWER_WIDTH}px)` },
-          mt: { xs: 7, md: 0 },
-          mb: { xs: 8, md: 0 },
-          bgcolor: "#f5f5f5",
           minHeight: "100vh",
+          pt: { xs: "72px", md: 0 },
+          pb: { xs: "86px", md: 0 },
+          px: { xs: 0, md: 0 },
           overflowX: "hidden",
+          bgcolor: "background.default",
         }}
       >
         <Outlet />
@@ -510,35 +605,52 @@ export default function Layout() {
 
       {isMobile && (
         <Paper
+          elevation={0}
           sx={{
             position: "fixed",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 1200,
+            left: 12,
+            right: 12,
+            bottom: 12,
+            zIndex: 1300,
+            borderRadius: 4,
+            overflow: "hidden",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: "0px 16px 40px rgba(15, 23, 42, 0.14)",
           }}
-          elevation={8}
         >
           <BottomNavigation
             value={currentBottomNav}
-            onChange={(e, val) => {
-              const item = bottomNavItems[val];
-              if (item?.path) navigate(item.path);
-              else setMobileOpen(true);
+            onChange={(event, value) => {
+              const item = bottomNavItems[value];
+              if (item?.path) {
+                navigate(item.path);
+              } else {
+                setMobileOpen(true);
+              }
             }}
-            sx={{ bgcolor: "#1a237e" }}
+            showLabels
+            sx={{
+              height: 68,
+              bgcolor: "background.paper",
+              "& .MuiBottomNavigationAction-root": {
+                minWidth: 0,
+                color: "text.secondary",
+              },
+              "& .Mui-selected": {
+                color: "primary.main",
+              },
+              "& .MuiBottomNavigationAction-label": {
+                fontSize: 11,
+                fontWeight: 700,
+              },
+            }}
           >
             {bottomNavItems.map((item) => (
               <BottomNavigationAction
                 key={item.label}
                 label={item.label}
                 icon={item.icon}
-                sx={{
-                  color: "rgba(255,255,255,0.6)",
-                  "&.Mui-selected": { color: "#ffd54f" },
-                  minWidth: 0,
-                  fontSize: 10,
-                }}
               />
             ))}
           </BottomNavigation>

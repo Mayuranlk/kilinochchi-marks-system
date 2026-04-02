@@ -3,1283 +3,809 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
-  Chip,
+  Checkbox,
   CircularProgress,
   FormControl,
+  FormControlLabel,
   Grid,
   InputLabel,
+  LinearProgress,
   MenuItem,
-  Paper,
   Select,
-  Snackbar,
   Stack,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   TextField,
   Typography,
-  Tooltip,
+  useMediaQuery,
 } from "@mui/material";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import SaveIcon from "@mui/icons-material/Save";
-import SchoolIcon from "@mui/icons-material/School";
-import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
-import { getAuth } from "firebase/auth";
+import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
+import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
+import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
+import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
+  addDoc,
   collection,
   doc,
-  getDoc,
   getDocs,
+  orderBy,
   query,
   serverTimestamp,
-  where,
+  setDoc,
   writeBatch,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
+import {
+  ActionBar,
+  EmptyState,
+  FilterCard,
+  MobileListRow,
+  PageContainer,
+  ResponsiveTableWrapper,
+  SectionCard,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
-/**
- * ============================================================================
- * MARKS ENTRY - SCHEMA ALIGNED REWRITE
- * ============================================================================
- * Real schema alignment:
- * - students:
- *   - grade
- *   - className = often "B", "D"
- *   - section = "B", "D"
- *
- * - studentSubjectEnrollments:
- *   - grade
- *   - className = often "6B"
- *   - section = "B"
- *   - subjectId
- *   - subjectName
- *
- * - marks (mixed legacy + newer docs):
- *   - old: subject, mark, term, year, grade, section
- *   - newer: subjectId, subjectName, academicYear, isAbsent, isMedicalAbsent
- *
- * - academicTerms:
- *   - term
- *   - year
- *   - isActive
- *
- * Goals:
- * - robust class matching for legacy + new enrollment shapes
- * - subject dropdown strictly driven from enrollments
- * - subject match: subjectId first, then subjectName / subject fallback
- * - marks load/save compatible with old and new marks schemas
- * - absent / medical absent support
- * - teacher assignments optional and safe when collection is empty
- * ============================================================================
- */
-
-/* -------------------------------------------------------------------------- */
-/* Basic helpers                                                               */
-/* -------------------------------------------------------------------------- */
-
-const safeString = (value) => {
-  if (value === undefined || value === null) return "";
-  return String(value).trim();
+const pick = (...values) => values.find((value) => value !== undefined && value !== null && value !== "");
+const normalize = (value) => String(value || "").trim().toLowerCase();
+const asNumber = (value) => {
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
 };
-
-const lower = (value) => safeString(value).toLowerCase();
-const upper = (value) => safeString(value).toUpperCase();
-
-const compactLower = (value) => safeString(value).replace(/\s+/g, "").toLowerCase();
-
-const onlyDigits = (value) => {
-  const match = safeString(value).match(/\d+/g);
-  return match ? match.join("") : "";
+const makeClassName = (item = {}) =>
+  pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+const buildTermLabel = (term) => {
+  const termName = pick(term.term, term.termName, term.name, "Term");
+  const year = pick(term.year, term.academicYear, "");
+  return year ? `${termName} - ${year}` : termName;
 };
-
-const onlyLetters = (value) => {
-  const match = upper(value).match(/[A-Z]+/g);
-  return match ? match.join("") : "";
+const isActiveTerm = (term) => {
+  const raw = pick(term.isActive, term.active, term.status);
+  if (typeof raw === "boolean") return raw;
+  return normalize(raw) === "active" || normalize(raw) === "true";
 };
-
-const normalizeAcademicYear = (value) => {
-  const year = onlyDigits(value);
-  return year ? String(parseInt(year, 10)) : "";
-};
-
-const normalizeGrade = (value) => {
-  const digits = onlyDigits(value);
-  return digits ? String(parseInt(digits, 10)) : "";
-};
-
-const normalizeSection = (value) => {
-  const letters = onlyLetters(value);
-  return letters || "";
-};
-
-const normalizeClassInfo = ({ grade, className, section }) => {
-  const normalizedGrade = normalizeGrade(grade);
-  const normalizedSection =
-    normalizeSection(section) || normalizeSection(className);
-
-  return {
-    grade: normalizedGrade,
-    section: normalizedSection,
-    fullClass:
-      normalizedGrade && normalizedSection
-        ? `${normalizedGrade}${normalizedSection}`
-        : "",
-  };
-};
-
-const normalizeSelectedClass = (selectedClass, selectedGrade) => {
-  const selectedGradeNormalized =
-    normalizeGrade(selectedClass) || normalizeGrade(selectedGrade);
-  const selectedSection = normalizeSection(selectedClass);
-
-  return {
-    grade: selectedGradeNormalized,
-    section: selectedSection,
-    fullClass:
-      selectedGradeNormalized && selectedSection
-        ? `${selectedGradeNormalized}${selectedSection}`
-        : "",
-  };
-};
-
-const normalizeSubjectName = (value) => compactLower(value);
-
-const subjectNamesEqual = (a, b) =>
-  normalizeSubjectName(a) === normalizeSubjectName(b);
-
-const buildSubjectOptionKey = (subjectId, subjectName) => {
-  const sid = safeString(subjectId);
-  if (sid) return `id:${sid}`;
-  return `name:${normalizeSubjectName(subjectName)}`;
-};
-
-const roleLooksAdmin = (role) => {
-  const r = lower(role);
-  return ["admin", "administrator", "superadmin", "principal"].includes(r);
-};
-
-const roleLooksTeacher = (role) => {
-  const r = lower(role);
-  return ["teacher", "staff", "subjectteacher", "classteacher"].includes(r);
-};
-
-const isTruthyActive = (value) => {
-  const v = lower(value);
-  if (!v) return true;
-  return ["active", "enabled", "assigned", "current", "yes", "true", "1"].includes(v);
-};
-
-const sortByName = (rows) => {
-  return [...rows].sort((a, b) =>
-    safeString(a.studentName).localeCompare(safeString(b.studentName))
+const isSameTeacher = (item, user) => {
+  const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
+  const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
+  return (
+    itemTeacherId === normalize(user.uid) ||
+    itemTeacherEmail === normalize(user.email)
   );
 };
-
-const getMarkStatus = (markDoc) => {
-  if (markDoc?.isMedicalAbsent) return "medical_absent";
-  if (markDoc?.isAbsent) return "absent";
-
-  const rawStatus = lower(markDoc?.attendanceStatus || markDoc?.status);
-  if (rawStatus === "medical_absent") return "medical_absent";
-  if (rawStatus === "absent") return "absent";
-
-  return "present";
-};
-
-const getMarkValue = (markDoc) => {
-  const raw = markDoc?.mark ?? markDoc?.marks ?? markDoc?.score ?? "";
-  if (raw === "" || raw === null || raw === undefined) return "";
-  const num = Number(raw);
-  return Number.isFinite(num) ? num : "";
-};
-
-const getTermLabel = (term) =>
-  safeString(term?.term || term?.name || term?.termName || term?.label || "");
-
-const getTermYear = (term) =>
-  normalizeAcademicYear(term?.year || term?.academicYear);
-
-/* -------------------------------------------------------------------------- */
-/* Matching helpers                                                            */
-/* -------------------------------------------------------------------------- */
-
-const matchesAcademicYear = (docYear, selectedYear) => {
-  const a = normalizeAcademicYear(docYear);
-  const b = normalizeAcademicYear(selectedYear);
-  if (!b) return true;
-  return a === b;
-};
-
-const matchesClassSelection = (row, selectedGrade, selectedClass) => {
-  const rowClass = normalizeClassInfo({
-    grade: row.grade,
-    className: row.className,
-    section: row.section,
-  });
-
-  const selected = normalizeSelectedClass(selectedClass, selectedGrade);
-
-  if (!selected.grade) return true;
-  if (rowClass.grade !== selected.grade) return false;
-  if (selected.section && rowClass.section !== selected.section) return false;
-
-  return true;
-};
-
-const enrollmentMatchesSelectedSubject = (enrollment, selectedSubject) => {
-  if (!selectedSubject) return false;
-
-  const enrollmentSubjectId = safeString(enrollment.subjectId);
-  const enrollmentSubjectName = safeString(enrollment.subjectName);
-
-  const selectedSubjectId = safeString(selectedSubject.subjectId);
-  const selectedSubjectName = safeString(selectedSubject.subjectName);
-
-  if (selectedSubjectId && enrollmentSubjectId) {
-    return selectedSubjectId === enrollmentSubjectId;
-  }
-
-  return subjectNamesEqual(enrollmentSubjectName, selectedSubjectName);
-};
-
-const markMatchesTerm = (markDoc, activeTerm) => {
-  const activeYear = getTermYear(activeTerm);
-  const activeLabel = getTermLabel(activeTerm);
-
-  const docYear = normalizeAcademicYear(markDoc.academicYear || markDoc.year);
-  const docTerm = safeString(markDoc.term || markDoc.termName || markDoc.termLabel);
-
-  const yearOk = !activeYear || docYear === activeYear;
-  const termOk = !activeLabel || docTerm === activeLabel;
-
-  return yearOk && termOk;
-};
-
-const markMatchesSubject = (markDoc, selectedSubject) => {
-  const selectedSubjectId = safeString(selectedSubject?.subjectId);
-  const selectedSubjectName = safeString(selectedSubject?.subjectName);
-
-  const docSubjectId = safeString(markDoc?.subjectId);
-  const docSubjectName = safeString(markDoc?.subjectName || markDoc?.subject);
-
-  if (selectedSubjectId && docSubjectId) {
-    return selectedSubjectId === docSubjectId;
-  }
-
-  return subjectNamesEqual(docSubjectName, selectedSubjectName);
-};
-
-/* -------------------------------------------------------------------------- */
-/* Firestore helpers                                                           */
-/* -------------------------------------------------------------------------- */
-
-const fetchUserProfile = async (uid) => {
-  if (!uid) return null;
-
-  try {
-    const snap = await getDoc(doc(db, "users", uid));
-    if (!snap.exists()) return null;
-    return { id: snap.id, ...snap.data() };
-  } catch (error) {
-    console.error("Failed to fetch user profile:", error);
-    return null;
-  }
-};
-
-const fetchCollectionDocs = async (collectionName, whereClauses = []) => {
-  try {
-    const ref = collection(db, collectionName);
-
-    if (!whereClauses.length) {
-      const snap = await getDocs(ref);
-      return snap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    }
-
-    const q = query(
-      ref,
-      ...whereClauses.map((clause) =>
-        where(clause.field, clause.op, clause.value)
-      )
-    );
-
-    const snap = await getDocs(q);
-    return snap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
-  } catch (error) {
-    console.error(`Failed to fetch ${collectionName}:`, error);
-    return [];
-  }
-};
-
-const fetchActiveTerms = async () => {
-  const academicTerms = await fetchCollectionDocs("academicTerms");
-  const fallbackTerms = academicTerms.length
-    ? []
-    : await fetchCollectionDocs("terms");
-
-  const source = academicTerms.length ? academicTerms : fallbackTerms;
-
-  const normalized = source.map((row) => ({
-    id: row.id,
-    term: safeString(row.term || row.name || row.termName),
-    year: normalizeAcademicYear(row.year || row.academicYear),
-    isActive: !!row.isActive || isTruthyActive(row.status),
-    raw: row,
-  }));
-
-  const active = normalized.filter((row) => row.isActive);
-  return active.length ? active : normalized;
-};
-
-const fetchAllEnrollments = async () => {
-  const rows = await fetchCollectionDocs("studentSubjectEnrollments");
-  return rows.filter((row) => isTruthyActive(row.status));
-};
-
-const fetchTeacherAssignments = async (user, userProfile) => {
-  if (!user) return [];
-
-  const teacherValues = [
-    safeString(user.uid),
-    safeString(user.email),
-    safeString(userProfile?.teacherId),
-  ].filter(Boolean);
-
-  const collectionsToTry = [
-    "teacherAssignments",
-    "assignments",
-    "teacherSubjectAssignments",
-    "subjectAssignments",
-  ];
-
-  const keyNames = [
-    "teacherId",
-    "teacherUid",
-    "uid",
-    "userId",
-    "teacherEmail",
-    "email",
-  ];
-
-  const found = [];
-
-  for (const collectionName of collectionsToTry) {
-    for (const key of keyNames) {
-      for (const value of teacherValues) {
-        const rows = await fetchCollectionDocs(collectionName, [
-          { field: key, op: "==", value },
-        ]);
-
-        rows.forEach((row) => {
-          found.push({ ...row, __collection: collectionName });
-        });
-      }
-    }
-  }
-
-  const dedup = new Map();
-  found.forEach((row) => {
-    const key = `${row.__collection}:${row.id}`;
-    if (!dedup.has(key) && isTruthyActive(row.status)) {
-      dedup.set(key, row);
-    }
-  });
-
-  return Array.from(dedup.values());
-};
-
-const fetchExistingMarksForClass = async ({ grade, section }) => {
-  if (!grade || !section) return [];
-
-  const rows = await fetchCollectionDocs("marks", [
-    { field: "grade", op: "==", value: Number(grade) },
-    { field: "section", op: "==", value: section },
-  ]);
-
-  return rows;
-};
-
-/* -------------------------------------------------------------------------- */
-/* Component                                                                   */
-/* -------------------------------------------------------------------------- */
 
 export default function MarksEntry() {
-  const auth = getAuth();
-  const currentUser = auth.currentUser;
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [pageLoading, setPageLoading] = useState(false);
+  const [bootLoading, setBootLoading] = useState(true);
+  const [loadingRows, setLoadingRows] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [userProfile, setUserProfile] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isTeacher, setIsTeacher] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const [terms, setTerms] = useState([]);
-  const [activeTermId, setActiveTermId] = useState("");
-  const [academicYear, setAcademicYear] = useState(String(new Date().getFullYear()));
-
-  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [teacherProfile, setTeacherProfile] = useState(null);
   const [teacherAssignments, setTeacherAssignments] = useState([]);
+  const [terms, setTerms] = useState([]);
+  const [marksDocs, setMarksDocs] = useState([]);
 
-  const [gradeOptions, setGradeOptions] = useState([]);
-  const [classOptions, setClassOptions] = useState([]);
-  const [subjectOptions, setSubjectOptions] = useState([]);
-
-  const [selectedGrade, setSelectedGrade] = useState("");
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
+  const [selectedTermKey, setSelectedTermKey] = useState("");
+  const [searchText, setSearchText] = useState("");
 
   const [studentRows, setStudentRows] = useState([]);
-
-  const [snack, setSnack] = useState({
-    open: false,
-    severity: "success",
-    message: "",
-  });
-
-  const showSnack = useCallback((severity, message) => {
-    setSnack({
-      open: true,
-      severity,
-      message,
-    });
-  }, []);
+  const [drafts, setDrafts] = useState({});
 
   const activeTerm = useMemo(
-    () => terms.find((row) => row.id === activeTermId) || null,
-    [terms, activeTermId]
+    () => terms.find((t) => `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` === selectedTermKey) || null,
+    [terms, selectedTermKey]
   );
 
-  const selectedSubject = useMemo(() => {
-    if (!selectedSubjectKey) return null;
-    return (
-      subjectOptions.find(
-        (row) =>
-          buildSubjectOptionKey(row.subjectId, row.subjectName) === selectedSubjectKey
-      ) || null
-    );
-  }, [selectedSubjectKey, subjectOptions]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Initial load                                                             */
-  /* ------------------------------------------------------------------------ */
-
-  const loadInitialData = useCallback(async () => {
-    setInitialLoading(true);
-
-    try {
-      const profile = await fetchUserProfile(currentUser?.uid);
-      setUserProfile(profile);
-
-      const role = safeString(profile?.role || profile?.userRole);
-      const adminMode = roleLooksAdmin(role);
-      const teacherMode = roleLooksTeacher(role) || !adminMode;
-
-      setIsAdmin(adminMode);
-      setIsTeacher(teacherMode);
-
-      const [loadedTerms, loadedEnrollments, loadedAssignments] = await Promise.all([
-        fetchActiveTerms(),
-        fetchAllEnrollments(),
-        fetchTeacherAssignments(currentUser, profile),
-      ]);
-
-      setTerms(loadedTerms);
-      setAllEnrollments(loadedEnrollments);
-      setTeacherAssignments(loadedAssignments);
-
-      const active = loadedTerms.find((row) => row.isActive) || loadedTerms[0] || null;
-      if (active) {
-        setActiveTermId(active.id);
-        if (active.year) {
-          setAcademicYear(active.year);
-        }
-      }
-
-      const grades = Array.from(
-        new Set(
-          loadedEnrollments
-            .map((row) => normalizeGrade(row.grade))
-            .filter(Boolean)
-            .sort((a, b) => Number(a) - Number(b))
-        )
-      );
-
-      setGradeOptions(grades);
-      if (grades.length) {
-        setSelectedGrade((prev) => prev || grades[0]);
-      }
-    } catch (error) {
-      console.error("Failed to load marks entry page:", error);
-      showSnack("error", "Failed to load marks entry data.");
-    } finally {
-      setInitialLoading(false);
-    }
-  }, [currentUser, showSnack]);
-
-  useEffect(() => {
-    loadInitialData();
-  }, [loadInitialData]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Class options                                                            */
-  /* ------------------------------------------------------------------------ */
-
-  useEffect(() => {
-    const relevant = allEnrollments.filter(
-      (row) =>
-        matchesAcademicYear(row.academicYear, academicYear) &&
-        normalizeGrade(row.grade) === normalizeGrade(selectedGrade)
-    );
-
+  const classOptions = useMemo(() => {
     const map = new Map();
-
-    relevant.forEach((row) => {
-      const classInfo = normalizeClassInfo({
-        grade: row.grade,
-        className: row.className,
-        section: row.section,
-      });
-
-      if (!classInfo.grade || !classInfo.section || !classInfo.fullClass) return;
-
-      if (!map.has(classInfo.fullClass)) {
-        map.set(classInfo.fullClass, {
-          value: classInfo.fullClass,
-          label: classInfo.fullClass,
-          grade: classInfo.grade,
-          section: classInfo.section,
+    teacherAssignments.forEach((assignment) => {
+      const className = makeClassName(assignment);
+      if (!className) return;
+      if (!map.has(className)) {
+        map.set(className, {
+          className,
+          grade: pick(assignment.grade, ""),
+          section: pick(assignment.section, ""),
         });
       }
     });
+    return Array.from(map.values()).sort((a, b) => a.className.localeCompare(b.className));
+  }, [teacherAssignments]);
 
-    const classes = Array.from(map.values()).sort((a, b) =>
-      a.label.localeCompare(b.label, undefined, { numeric: true })
-    );
-
-    setClassOptions(classes);
-
-    if (!classes.find((row) => row.value === selectedClass)) {
-      setSelectedClass(classes[0]?.value || "");
-    }
-  }, [allEnrollments, academicYear, selectedGrade, selectedClass]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Subject dropdown                                                         */
-  /* ------------------------------------------------------------------------ */
-
-  useEffect(() => {
-    if (!selectedGrade || !selectedClass) {
-      setSubjectOptions([]);
-      setSelectedSubjectKey("");
-      return;
-    }
-
-    const selectedClassInfo = normalizeSelectedClass(selectedClass, selectedGrade);
-
-    const baseEnrollments = allEnrollments.filter(
-      (row) =>
-        matchesAcademicYear(row.academicYear, academicYear) &&
-        matchesClassSelection(row, selectedGrade, selectedClass)
-    );
-
-    let scopedEnrollments = baseEnrollments;
-
-    if (!isAdmin && teacherAssignments.length) {
-      scopedEnrollments = baseEnrollments.filter((enrollment) => {
-        return teacherAssignments.some((assignment) => {
-          const assignmentGrade = normalizeGrade(
-            assignment.grade || assignment.classGrade || assignment.gradeName
-          );
-
-          const assignmentSection = normalizeSection(
-            assignment.section || assignment.className || assignment.class
-          );
-
-          const gradeOk =
-            !assignmentGrade || assignmentGrade === selectedClassInfo.grade;
-
-          const sectionOk =
-            !assignmentSection || assignmentSection === selectedClassInfo.section;
-
-          if (!gradeOk || !sectionOk) return false;
-
-          const assignmentSubjectId = safeString(assignment.subjectId);
-          const assignmentSubjectName = safeString(
-            assignment.subjectName || assignment.subject
-          );
-
-          const enrollmentSubjectId = safeString(enrollment.subjectId);
-          const enrollmentSubjectName = safeString(enrollment.subjectName);
-
-          if (assignmentSubjectId && enrollmentSubjectId) {
-            return assignmentSubjectId === enrollmentSubjectId;
-          }
-
-          return subjectNamesEqual(assignmentSubjectName, enrollmentSubjectName);
-        });
-      });
-    }
-
+  const subjectOptions = useMemo(() => {
     const map = new Map();
-
-    scopedEnrollments.forEach((row) => {
-      const subjectId = safeString(row.subjectId);
-      const subjectName = safeString(row.subjectName);
-      const key = buildSubjectOptionKey(subjectId, subjectName);
-
-      if (!subjectName && !subjectId) return;
-
-      if (!map.has(key)) {
-        map.set(key, {
-          subjectId,
-          subjectName,
-        });
-      }
-    });
-
-    const subjects = Array.from(map.values()).sort((a, b) =>
-      safeString(a.subjectName).localeCompare(safeString(b.subjectName))
-    );
-
-    setSubjectOptions(subjects);
-
-    const stillValid = subjects.find(
-      (row) =>
-        buildSubjectOptionKey(row.subjectId, row.subjectName) === selectedSubjectKey
-    );
-
-    if (!stillValid) {
-      setSelectedSubjectKey(
-        subjects.length
-          ? buildSubjectOptionKey(subjects[0].subjectId, subjects[0].subjectName)
-          : ""
-      );
-    }
-  }, [
-    allEnrollments,
-    academicYear,
-    selectedGrade,
-    selectedClass,
-    selectedSubjectKey,
-    teacherAssignments,
-    isAdmin,
-  ]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Load rows                                                                */
-  /* ------------------------------------------------------------------------ */
-
-  const loadStudentRows = useCallback(async () => {
-    if (!selectedGrade || !selectedClass || !selectedSubject || !activeTerm) {
-      setStudentRows([]);
-      return;
-    }
-
-    setPageLoading(true);
-
-    try {
-      const selectedClassInfo = normalizeSelectedClass(selectedClass, selectedGrade);
-
-      const enrollmentRows = allEnrollments.filter(
-        (row) =>
-          matchesAcademicYear(row.academicYear, academicYear) &&
-          matchesClassSelection(row, selectedGrade, selectedClass) &&
-          enrollmentMatchesSelectedSubject(row, selectedSubject)
-      );
-
-      const map = new Map();
-
-      enrollmentRows.forEach((row) => {
-        const studentId = safeString(row.studentId);
-        if (!studentId) return;
-
-        if (!map.has(studentId)) {
-          map.set(studentId, {
-            studentId,
-            studentName: safeString(row.studentName),
-            admissionNo: safeString(row.admissionNo),
-            grade: normalizeGrade(row.grade),
-            className: safeString(row.className),
-            section:
-              normalizeSection(row.section) ||
-              normalizeSection(row.className) ||
-              selectedClassInfo.section,
-            status: "present",
-            marks: "",
-            remarks: "",
-            existingMarkDocId: null,
+    teacherAssignments
+      .filter((assignment) => !selectedClass || normalize(makeClassName(assignment)) === normalize(selectedClass))
+      .forEach((assignment) => {
+        const subjectKey = `${pick(assignment.subjectId, "")}__${pick(assignment.subjectName, assignment.subject, "")}`;
+        if (!map.has(subjectKey)) {
+          map.set(subjectKey, {
+            key: subjectKey,
+            subjectId: pick(assignment.subjectId, ""),
+            subjectName: pick(assignment.subjectName, assignment.subject, ""),
           });
         }
       });
+    return Array.from(map.values()).sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+  }, [teacherAssignments, selectedClass]);
 
-      const existingMarks = await fetchExistingMarksForClass({
-        grade: selectedClassInfo.grade,
-        section: selectedClassInfo.section,
+  const selectedSubject = useMemo(
+    () => subjectOptions.find((subject) => subject.key === selectedSubjectKey) || null,
+    [selectedSubjectKey, subjectOptions]
+  );
+
+  const filteredRows = useMemo(() => {
+    const term = pick(activeTerm?.term, activeTerm?.termName, "");
+    const search = normalize(searchText);
+
+    return studentRows.filter((row) => {
+      const matchesSearch =
+        !search ||
+        normalize(row.studentName).includes(search) ||
+        normalize(row.indexNo).includes(search) ||
+        normalize(row.admissionNo).includes(search);
+      const matchesTerm = !term || normalize(row.term) === normalize(term);
+      return matchesSearch && matchesTerm;
+    });
+  }, [studentRows, searchText, activeTerm]);
+
+  const stats = useMemo(() => {
+    const total = filteredRows.length;
+    const saved = filteredRows.filter(
+      (row) => row.existingDocId || row.isDirty === false
+    ).length;
+    const absent = filteredRows.filter((row) => Boolean(row.absent)).length;
+    const draftCount = filteredRows.filter((row) => Boolean(row.isDirty)).length;
+
+    return { total, saved, absent, draftCount };
+  }, [filteredRows]);
+
+  const loadBase = useCallback(async () => {
+    try {
+      setError("");
+      setSuccess("");
+      setBootLoading(true);
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error("User is not logged in.");
+
+      const [
+        usersSnap,
+        teacherAssignmentsSnap,
+        academicTermsSnap,
+        marksSnap,
+      ] = await Promise.all([
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "teacherAssignments")),
+        getDocs(query(collection(db, "academicTerms"), orderBy("year", "desc"))).catch(() =>
+          getDocs(collection(db, "academicTerms"))
+        ),
+        getDocs(collection(db, "marks")),
+      ]);
+
+      const allUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const profile =
+        allUsers.find((u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)) ||
+        allUsers.find((u) => normalize(u.email) === normalize(currentUser.email)) || {
+          id: currentUser.uid,
+          uid: currentUser.uid,
+          email: currentUser.email || "",
+          fullName: currentUser.displayName || "Teacher",
+          name: currentUser.displayName || "Teacher",
+        };
+      setTeacherProfile(profile);
+
+      const allAssignments = teacherAssignmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const myAssignments = allAssignments.filter((item) => isSameTeacher(item, currentUser));
+      setTeacherAssignments(myAssignments);
+
+      const allTerms = academicTermsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const sortedTerms = allTerms.sort((a, b) => {
+        const yearDiff = Number(pick(b.year, b.academicYear, 0)) - Number(pick(a.year, a.academicYear, 0));
+        if (yearDiff !== 0) return yearDiff;
+        return String(pick(a.term, a.termName, "")).localeCompare(String(pick(b.term, b.termName, "")));
+      });
+      setTerms(sortedTerms);
+
+      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+      if (!selectedTermKey && defaultTerm) {
+        setSelectedTermKey(`${pick(defaultTerm.term, defaultTerm.termName)}__${pick(defaultTerm.year, defaultTerm.academicYear)}`);
+      }
+
+      const allMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setMarksDocs(allMarks);
+
+      if (!selectedClass && myAssignments.length > 0) {
+        const defaultClass = makeClassName(myAssignments[0]);
+        setSelectedClass(defaultClass);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to load marks entry page.");
+    } finally {
+      setBootLoading(false);
+    }
+  }, [selectedClass, selectedTermKey]);
+
+  const loadStudents = useCallback(async () => {
+    try {
+      setLoadingRows(true);
+      setError("");
+      setSuccess("");
+
+      if (!selectedClass || !selectedSubject || !activeTerm) {
+        setStudentRows([]);
+        setDrafts({});
+        return;
+      }
+
+      const enrollmentsSnap = await getDocs(collection(db, "studentSubjectEnrollments"));
+      const studentSnap = await getDocs(collection(db, "students"));
+
+      const allEnrollments = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const allStudents = studentSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const termName = pick(activeTerm.term, activeTerm.termName, "");
+      const termYear = pick(activeTerm.year, activeTerm.academicYear, "");
+
+      const relevantEnrollments = allEnrollments.filter((enrollment) => {
+        const sameClass = normalize(makeClassName(enrollment)) === normalize(selectedClass);
+        const sameSubject =
+          normalize(pick(enrollment.subjectId, "")) === normalize(selectedSubject.subjectId) ||
+          normalize(pick(enrollment.subjectName, "")) === normalize(selectedSubject.subjectName);
+        const sameYear =
+          !termYear ||
+          normalize(pick(enrollment.academicYear, enrollment.year, "")) === normalize(termYear);
+        const status = normalize(pick(enrollment.status, "active"));
+        return sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
-      existingMarks
-        .filter(
-          (markDoc) =>
-            markMatchesTerm(markDoc, activeTerm) &&
-            markMatchesSubject(markDoc, selectedSubject)
-        )
-        .forEach((markDoc) => {
-          const studentId = safeString(markDoc.studentId);
-          if (!studentId) return;
+      const rows = relevantEnrollments
+        .map((enrollment) => {
+          const studentId = String(pick(enrollment.studentId, ""));
+          const student = allStudents.find((s) => String(s.id) === studentId) || {};
+          const existingMark = marksDocs.find((mark) => {
+            const sameStudent = String(pick(mark.studentId, mark.admissionNo, mark.indexNo, "")) === studentId;
+            const sameClass = normalize(makeClassName(mark)) === normalize(selectedClass);
+            const sameSubject =
+              normalize(pick(mark.subjectId, "")) === normalize(selectedSubject.subjectId) ||
+              normalize(pick(mark.subjectName, mark.subject, "")) === normalize(selectedSubject.subjectName);
+            const sameTerm = normalize(pick(mark.term, mark.termName, "")) === normalize(termName);
+            const sameYear =
+              normalize(pick(mark.academicYear, mark.year, "")) === normalize(termYear);
 
-          const row = map.get(studentId);
-          if (!row) return;
+            return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
+          });
 
-          row.status = getMarkStatus(markDoc);
-          row.marks = getMarkValue(markDoc);
-          row.remarks = safeString(markDoc.remarks || markDoc.absentReason);
-          row.existingMarkDocId = markDoc.id;
+          const studentName = pick(
+            student.fullName,
+            student.name,
+            enrollment.studentName,
+            "Student"
+          );
+          const indexNo = pick(student.indexNo, enrollment.indexNo, "");
+          const admissionNo = pick(student.admissionNo, enrollment.admissionNo, "");
+          const markValue = pick(existingMark?.mark, existingMark?.marks, existingMark?.score, "");
+          const absent = Boolean(pick(existingMark?.absent, existingMark?.isAbsent, false));
+
+          return {
+            key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}`,
+            enrollmentId: enrollment.id,
+            studentId,
+            studentName,
+            indexNo,
+            admissionNo,
+            grade: pick(enrollment.grade, student.grade, ""),
+            section: pick(enrollment.section, student.section, ""),
+            className: selectedClass,
+            subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
+            subjectName: pick(enrollment.subjectName, selectedSubject.subjectName, ""),
+            term: termName,
+            academicYear: termYear,
+            mark: absent ? "" : markValue ?? "",
+            absent,
+            existingDocId: existingMark?.id || "",
+            isDirty: false,
+          };
+        })
+        .sort((a, b) => {
+          const aIndex = String(a.indexNo || "").padStart(10, "0");
+          const bIndex = String(b.indexNo || "").padStart(10, "0");
+          return aIndex.localeCompare(bIndex) || a.studentName.localeCompare(b.studentName);
         });
 
-      setStudentRows(sortByName(Array.from(map.values())));
-    } catch (error) {
-      console.error("Failed to load student marks rows:", error);
+      const nextDrafts = {};
+      rows.forEach((row) => {
+        nextDrafts[row.key] = {
+          mark: row.mark,
+          absent: row.absent,
+        };
+      });
+
+      setStudentRows(rows);
+      setDrafts(nextDrafts);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to load enrolled students.");
       setStudentRows([]);
-      showSnack("error", "Failed to load students for the selected subject.");
+      setDrafts({});
     } finally {
-      setPageLoading(false);
+      setLoadingRows(false);
     }
-  }, [
-    selectedGrade,
-    selectedClass,
-    selectedSubject,
-    activeTerm,
-    allEnrollments,
-    academicYear,
-    showSnack,
-  ]);
+  }, [activeTerm, marksDocs, selectedClass, selectedSubject]);
 
   useEffect(() => {
-    loadStudentRows();
-  }, [loadStudentRows]);
+    loadBase();
+  }, [loadBase]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Row updates                                                              */
-  /* ------------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!selectedClass) return;
+    const currentSubjectStillExists = subjectOptions.some((option) => option.key === selectedSubjectKey);
+    if (!currentSubjectStillExists) {
+      setSelectedSubjectKey(subjectOptions[0]?.key || "");
+    }
+  }, [selectedClass, subjectOptions, selectedSubjectKey]);
 
-  const handleStatusChange = (studentId, nextStatus) => {
-    setStudentRows((prev) =>
-      prev.map((row) => {
-        if (row.studentId !== studentId) return row;
+  useEffect(() => {
+    loadStudents();
+  }, [loadStudents]);
 
-        const status = lower(nextStatus || "present");
-        return {
-          ...row,
-          status,
-          marks: status === "present" ? row.marks : "",
-        };
-      })
-    );
-  };
+  const updateRowDraft = (rowKey, field, value) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [rowKey]: {
+        ...prev[rowKey],
+        [field]: value,
+      },
+    }));
 
-  const handleMarksChange = (studentId, nextMarks) => {
     setStudentRows((prev) =>
       prev.map((row) =>
-        row.studentId === studentId
+        row.key === rowKey
           ? {
               ...row,
-              marks: nextMarks === "" ? "" : nextMarks,
+              [field]: value,
+              isDirty: true,
+              ...(field === "absent" && value ? { mark: "" } : {}),
             }
           : row
       )
     );
   };
 
-  const handleRemarksChange = (studentId, nextRemarks) => {
-    setStudentRows((prev) =>
-      prev.map((row) =>
-        row.studentId === studentId
-          ? {
-              ...row,
-              remarks: nextRemarks,
-            }
-          : row
-      )
-    );
+  const handleMarkChange = (rowKey, value) => {
+    const safeValue = value === "" ? "" : value.replace(/[^\d.]/g, "");
+    updateRowDraft(rowKey, "mark", safeValue);
+    if (safeValue !== "") {
+      updateRowDraft(rowKey, "absent", false);
+    }
   };
 
-  /* ------------------------------------------------------------------------ */
-  /* Save                                                                     */
-  /* ------------------------------------------------------------------------ */
+  const handleAbsentChange = (rowKey, checked) => {
+    updateRowDraft(rowKey, "absent", checked);
+    if (checked) {
+      updateRowDraft(rowKey, "mark", "");
+    }
+  };
 
   const handleSave = async () => {
-    if (!selectedGrade || !selectedClass || !selectedSubject || !activeTerm) {
-      showSnack("warning", "Please select grade, class, subject, and term.");
-      return;
-    }
-
-    if (!studentRows.length) {
-      showSnack("warning", "No students found for the selected subject.");
-      return;
-    }
-
-    setSaving(true);
-
     try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+
+      if (!selectedClass || !selectedSubject || !activeTerm) {
+        throw new Error("Please select class, subject, and term.");
+      }
+
+      const dirtyRows = studentRows.filter((row) => row.isDirty);
+      if (dirtyRows.length === 0) {
+        setSuccess("No changes to save.");
+        return;
+      }
+
       const batch = writeBatch(db);
-      const selectedClassInfo = normalizeSelectedClass(selectedClass, selectedGrade);
-      const termLabel = getTermLabel(activeTerm);
-      const termYear = getTermYear(activeTerm) || normalizeAcademicYear(academicYear);
+      const currentUser = auth.currentUser;
+      const teacherName = pick(
+        teacherProfile?.fullName,
+        teacherProfile?.name,
+        currentUser?.displayName,
+        "Teacher"
+      );
 
-      const rowsToSave = studentRows.filter((row) => {
-        if (row.status === "absent" || row.status === "medical_absent") return true;
-        return row.marks !== "" && row.marks !== null && row.marks !== undefined;
-      });
+      for (const row of dirtyRows) {
+        const markValue = asNumber(row.mark);
+        const absent = Boolean(row.absent);
 
-      rowsToSave.forEach((row) => {
-        const subjectId = safeString(selectedSubject.subjectId);
-        const subjectName = safeString(selectedSubject.subjectName);
-        const subjectKey = subjectId || subjectName;
-        const docId = `${row.studentId}_${subjectKey}_${termLabel}_${termYear}`;
+        if (!absent && row.mark !== "" && markValue === null) {
+          throw new Error(`Invalid mark entered for ${row.studentName}.`);
+        }
 
-        const markRef = doc(db, "marks", docId);
+        const payload = {
+          studentId: row.studentId,
+          studentName: row.studentName,
+          admissionNo: row.admissionNo || "",
+          indexNo: row.indexNo || "",
+          className: row.className,
+          grade: row.grade || "",
+          section: row.section || "",
+          subjectId: row.subjectId || "",
+          subjectName: row.subjectName,
+          subject: row.subjectName,
+          term: row.term,
+          termName: row.term,
+          academicYear: row.academicYear,
+          year: row.academicYear,
+          mark: absent ? null : markValue,
+          marks: absent ? null : markValue,
+          score: absent ? null : markValue,
+          absent,
+          isAbsent: absent,
+          teacherId: currentUser?.uid || "",
+          teacherName,
+          updatedAt: serverTimestamp(),
+        };
 
-        const isAbsent = row.status === "absent";
-        const isMedicalAbsent = row.status === "medical_absent";
-        const numericMark =
-          isAbsent || isMedicalAbsent || row.marks === ""
-            ? null
-            : Number(row.marks);
-
-        batch.set(
-          markRef,
-          {
-            studentId: safeString(row.studentId),
-            studentName: safeString(row.studentName),
-            admissionNo: safeString(row.admissionNo),
-
-            grade: Number(selectedClassInfo.grade),
-            className: selectedClassInfo.section,
-            section: selectedClassInfo.section,
-
-            term: termLabel,
-            termId: safeString(activeTerm.id),
-            termName: termLabel,
-
-            year: Number(termYear),
-            academicYear: termYear,
-
-            subject: subjectName,
-            subjectName,
-            subjectId,
-            subjectCode: safeString(selectedSubject.subjectCode),
-
-            mark: numericMark,
-            marks: numericMark,
-            score: numericMark,
-
-            isAbsent,
-            isMedicalAbsent,
-            absentReason: safeString(row.remarks),
-            remarks: safeString(row.remarks),
-
-            attendanceStatus: row.status,
-            status: row.status,
-
-            approvalStatus: "approved",
-
-            updatedById: safeString(currentUser?.uid),
-            updatedBy:
-              safeString(userProfile?.name) ||
-              safeString(currentUser?.displayName) ||
-              safeString(currentUser?.email),
-            teacherId: safeString(currentUser?.uid),
-            teacherEmail: safeString(currentUser?.email),
-
-            updatedAt: serverTimestamp(),
+        if (row.existingDocId) {
+          batch.set(doc(db, "marks", row.existingDocId), payload, { merge: true });
+        } else {
+          const newRef = doc(collection(db, "marks"));
+          batch.set(newRef, {
+            ...payload,
             createdAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      });
+          });
+        }
+      }
 
       await batch.commit();
-      showSnack("success", "Marks saved successfully.");
-      await loadStudentRows();
-    } catch (error) {
-      console.error("Failed to save marks:", error);
-      showSnack("error", "Failed to save marks.");
+      setSuccess("Marks saved successfully.");
+      await loadBase();
+      await loadStudents();
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to save marks.");
     } finally {
       setSaving(false);
     }
   };
 
-  /* ------------------------------------------------------------------------ */
-  /* Derived                                                                  */
-  /* ------------------------------------------------------------------------ */
+  const dirtyCount = studentRows.filter((row) => row.isDirty).length;
+  const saveProgress = studentRows.length > 0 ? Math.round(((studentRows.length - dirtyCount) / studentRows.length) * 100) : 0;
 
-  const pageModeLabel = useMemo(() => {
-    if (isAdmin) return "Admin Mode";
-    if (isTeacher) return "Teacher Mode";
-    return "User Mode";
-  }, [isAdmin, isTeacher]);
-
-  const activeTermLabel = useMemo(() => {
-    if (!activeTerm) return "No Active Term";
-    const termText = getTermLabel(activeTerm);
-    const yearText = getTermYear(activeTerm);
-    return yearText ? `${termText} - ${yearText}` : termText || activeTerm.id;
-  }, [activeTerm]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Render                                                                   */
-  /* ------------------------------------------------------------------------ */
-
-  if (initialLoading) {
+  if (bootLoading) {
     return (
-      <Box
-        sx={{
-          minHeight: "60vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Stack spacing={2} alignItems="center">
-          <CircularProgress />
-          <Typography>Loading marks entry...</Typography>
-        </Stack>
-      </Box>
+      <PageContainer title="Marks Entry" subtitle="Loading marks entry workspace...">
+        <SectionCard>
+          <Stack alignItems="center" spacing={2} py={6}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Loading marks entry...
+            </Typography>
+          </Stack>
+        </SectionCard>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack spacing={3}>
-        <Card elevation={2}>
-          <CardContent>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
-            >
-              <Box>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <SchoolIcon color="primary" />
-                  <Typography variant="h5" fontWeight={700}>
-                    Marks Entry
-                  </Typography>
-                </Stack>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                  Enrollment-driven marks entry with legacy-safe schema handling
-                </Typography>
-              </Box>
+    <PageContainer
+      title="Marks Entry"
+      subtitle="Mobile-friendly subject-wise mark entry for enrolled students."
+      actions={
+        <Button
+          variant="outlined"
+          startIcon={loadingRows ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
+          onClick={() => {
+            loadBase();
+            loadStudents();
+          }}
+        >
+          Refresh
+        </Button>
+      }
+    >
+      <Stack spacing={2}>
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {success ? <Alert severity="success">{success}</Alert> : null}
 
-              <Stack direction="row" spacing={1} flexWrap="wrap">
-                <Chip
-                  icon={<AssignmentTurnedInIcon />}
-                  label={pageModeLabel}
-                  color={isAdmin ? "secondary" : "primary"}
-                  variant="outlined"
-                />
-                <Chip
-                  label={activeTermLabel}
-                  color={activeTerm ? "success" : "warning"}
-                  variant="outlined"
-                />
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Card elevation={2}>
-          <CardContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  label="Academic Year"
-                  size="small"
-                  fullWidth
-                  value={academicYear}
-                  onChange={(e) => setAcademicYear(e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6} md={2.5}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Term</InputLabel>
-                  <Select
-                    label="Term"
-                    value={activeTermId}
-                    onChange={(e) => setActiveTermId(e.target.value)}
-                  >
-                    {terms.map((term) => (
-                      <MenuItem key={term.id} value={term.id}>
-                        {getTermLabel(term)}
-                        {getTermYear(term) ? ` - ${getTermYear(term)}` : ""}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={6} md={2}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Grade</InputLabel>
-                  <Select
-                    label="Grade"
-                    value={selectedGrade}
-                    onChange={(e) => setSelectedGrade(e.target.value)}
-                  >
-                    {gradeOptions.map((grade) => (
-                      <MenuItem key={grade} value={grade}>
-                        Grade {grade}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={6} md={2}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Class</InputLabel>
-                  <Select
-                    label="Class"
-                    value={selectedClass}
-                    onChange={(e) => setSelectedClass(e.target.value)}
-                  >
-                    {classOptions.map((classRow) => (
-                      <MenuItem key={classRow.value} value={classRow.value}>
-                        {classRow.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={12} md={3.5}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Subject</InputLabel>
-                  <Select
-                    label="Subject"
-                    value={selectedSubjectKey}
-                    onChange={(e) => setSelectedSubjectKey(e.target.value)}
-                  >
-                    {subjectOptions.map((subject) => {
-                      const key = buildSubjectOptionKey(
-                        subject.subjectId,
-                        subject.subjectName
-                      );
-
-                      return (
-                        <MenuItem key={key} value={key}>
-                          {subject.subjectName}
-                        </MenuItem>
-                      );
-                    })}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1.5}
-              sx={{ mt: 2.5 }}
-            >
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={loadStudentRows}
-                disabled={pageLoading}
+        <FilterCard
+          title="Select Mark Entry Context"
+          subtitle="Choose class, subject, and term before entering marks."
+        >
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="marks-entry-class-label">Class</InputLabel>
+              <Select
+                labelId="marks-entry-class-label"
+                label="Class"
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
               >
-                Reload
-              </Button>
+                {classOptions.map((option) => (
+                  <MenuItem key={option.className} value={option.className}>
+                    {option.className}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
 
-              <Button
-                variant="contained"
-                startIcon={saving ? <CircularProgress size={18} /> : <SaveIcon />}
-                onClick={handleSave}
-                disabled={saving || pageLoading || !studentRows.length}
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="marks-entry-subject-label">Subject</InputLabel>
+              <Select
+                labelId="marks-entry-subject-label"
+                label="Subject"
+                value={selectedSubjectKey}
+                onChange={(e) => setSelectedSubjectKey(e.target.value)}
               >
-                {saving ? "Saving..." : "Save Marks"}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+                {subjectOptions.map((option) => (
+                  <MenuItem key={option.key} value={option.key}>
+                    {option.subjectName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
 
-        <Card elevation={2}>
-          <CardContent>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
-              sx={{ mb: 2 }}
-            >
-              <Box>
-                <Typography variant="h6" fontWeight={700}>
-                  Student Marks
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Only enrolled students for the selected class and subject are shown
-                </Typography>
-              </Box>
-
-              <Chip
-                label={`${studentRows.length} Student${studentRows.length === 1 ? "" : "s"}`}
-                color="primary"
-                variant="outlined"
-              />
-            </Stack>
-
-            {pageLoading ? (
-              <Box
-                sx={{
-                  minHeight: 220,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="marks-entry-term-label">Academic Term</InputLabel>
+              <Select
+                labelId="marks-entry-term-label"
+                label="Academic Term"
+                value={selectedTermKey}
+                onChange={(e) => setSelectedTermKey(e.target.value)}
               >
-                <Stack spacing={2} alignItems="center">
-                  <CircularProgress />
+                {terms.map((term) => {
+                  const key = `${pick(term.term, term.termName)}__${pick(term.year, term.academicYear)}`;
+                  return (
+                    <MenuItem key={term.id} value={key}>
+                      {buildTermLabel(term)}
+                    </MenuItem>
+                  );
+                })}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              label="Search student"
+              placeholder="Name, index no, admission no"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              InputProps={{
+                startAdornment: <SearchRoundedIcon fontSize="small" style={{ marginRight: 8, opacity: 0.7 }} />,
+              }}
+            />
+          </Grid>
+        </FilterCard>
+
+        <Grid container spacing={1.5}>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Students" value={stats.total} icon={<GroupRoundedIcon />} color="primary" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Saved Rows" value={stats.saved} icon={<CheckCircleRoundedIcon />} color="success" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Draft Changes" value={stats.draftCount} icon={<EditNoteRoundedIcon />} color="warning" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Absent" value={stats.absent} icon={<ClassRoundedIcon />} color="error" />
+          </Grid>
+        </Grid>
+
+        <SectionCard
+          title="Mark Entry Sheet"
+          subtitle={
+            selectedClass && selectedSubject && activeTerm
+              ? `${selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(activeTerm)}`
+              : "Select class, subject, and term to begin."
+          }
+          action={
+            selectedClass && selectedSubject && activeTerm ? (
+              <StatusChip status={dirtyCount > 0 ? "draft" : "saved"} label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"} />
+            ) : null
+          }
+        >
+          {(loadingRows || saving) && (
+            <Box sx={{ mb: 2 }}>
+              <LinearProgress />
+            </Box>
+          )}
+
+          {selectedClass && selectedSubject && activeTerm ? (
+            <>
+              <Box sx={{ mb: 2 }}>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  spacing={1}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "flex-start", md: "center" }}
+                >
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <StatusChip status="active" label={selectedClass} />
+                    <StatusChip status="active" label={selectedSubject.subjectName} />
+                    <StatusChip status="active" label={buildTermLabel(activeTerm)} />
+                  </Stack>
+
                   <Typography variant="body2" color="text.secondary">
-                    Loading students...
+                    Save progress: {saveProgress}%
                   </Typography>
                 </Stack>
               </Box>
-            ) : !selectedSubject ? (
-              <Alert severity="info">
-                Select grade, class, and subject to load students.
-              </Alert>
-            ) : !studentRows.length ? (
-              <Alert severity="warning">
-                No enrolled students found for the selected class and subject.
-              </Alert>
-            ) : (
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>No</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Student Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Admission No</TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>
-                        Attendance
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 140 }}>
-                        Marks
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 220 }}>
-                        Remarks
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
 
-                  <TableBody>
-                    {studentRows.map((row, index) => {
-                      const marksDisabled =
-                        row.status === "absent" || row.status === "medical_absent";
-
-                      return (
-                        <TableRow key={row.studentId} hover>
+              {filteredRows.length === 0 ? (
+                <EmptyState
+                  title="No enrolled students found"
+                  description="No active student subject enrollments matched the current class, subject, and academic year."
+                />
+              ) : isMobile ? (
+                <Stack spacing={1.25}>
+                  {filteredRows.map((row, index) => (
+                    <MobileListRow
+                      key={row.key}
+                      title={`${index + 1}. ${row.studentName}`}
+                      subtitle={[
+                        row.indexNo ? `Index: ${row.indexNo}` : null,
+                        row.admissionNo ? `Admission: ${row.admissionNo}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
+                      right={
+                        row.isDirty ? (
+                          <StatusChip status="draft" />
+                        ) : row.existingDocId ? (
+                          <StatusChip status="saved" />
+                        ) : (
+                          <StatusChip status="pending" label="New" />
+                        )
+                      }
+                    >
+                      <Grid container spacing={1.25}>
+                        <Grid item xs={7}>
+                          <TextField
+                            label="Mark"
+                            value={drafts[row.key]?.mark ?? row.mark ?? ""}
+                            onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                            disabled={drafts[row.key]?.absent ?? row.absent}
+                            inputProps={{ inputMode: "decimal" }}
+                          />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <Box
+                            sx={{
+                              height: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              border: "1px solid",
+                              borderColor: "divider",
+                              borderRadius: 2,
+                              px: 1,
+                            }}
+                          >
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
+                                  onChange={(e) => handleAbsentChange(row.key, e.target.checked)}
+                                />
+                              }
+                              label="Absent"
+                              sx={{ mr: 0 }}
+                            />
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </MobileListRow>
+                  ))}
+                </Stack>
+              ) : (
+                <ResponsiveTableWrapper minWidth={980}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell width={80}>No</TableCell>
+                        <TableCell>Name</TableCell>
+                        <TableCell width={140}>Index No</TableCell>
+                        <TableCell width={160}>Admission No</TableCell>
+                        <TableCell width={160}>Mark</TableCell>
+                        <TableCell width={120}>Absent</TableCell>
+                        <TableCell width={140}>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filteredRows.map((row, index) => (
+                        <TableRow key={row.key} hover>
                           <TableCell>{index + 1}</TableCell>
-
                           <TableCell>
-                            <Typography variant="body2" fontWeight={600}>
-                              {row.studentName || "-"}
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                              {row.studentName}
                             </Typography>
                           </TableCell>
-
+                          <TableCell>{row.indexNo || "-"}</TableCell>
                           <TableCell>{row.admissionNo || "-"}</TableCell>
-
-                          <TableCell>
-                            <FormControl fullWidth size="small">
-                              <Select
-                                value={row.status}
-                                onChange={(e) =>
-                                  handleStatusChange(row.studentId, e.target.value)
-                                }
-                              >
-                                <MenuItem value="present">Present</MenuItem>
-                                <MenuItem value="absent">Absent</MenuItem>
-                                <MenuItem value="medical_absent">
-                                  Medical Absent
-                                </MenuItem>
-                              </Select>
-                            </FormControl>
-                          </TableCell>
-
-                          <TableCell>
-                            <Tooltip
-                              title={
-                                marksDisabled
-                                  ? "Marks are disabled for absent or medical absent"
-                                  : ""
-                              }
-                            >
-                              <span>
-                                <TextField
-                                  type="number"
-                                  size="small"
-                                  fullWidth
-                                  value={row.marks}
-                                  onChange={(e) =>
-                                    handleMarksChange(row.studentId, e.target.value)
-                                  }
-                                  disabled={marksDisabled}
-                                  inputProps={{ min: 0, step: "any" }}
-                                />
-                              </span>
-                            </Tooltip>
-                          </TableCell>
-
                           <TableCell>
                             <TextField
+                              value={drafts[row.key]?.mark ?? row.mark ?? ""}
+                              onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                              disabled={drafts[row.key]?.absent ?? row.absent}
+                              inputProps={{ inputMode: "decimal" }}
                               size="small"
-                              fullWidth
-                              placeholder="Optional remarks"
-                              value={row.remarks}
-                              onChange={(e) =>
-                                handleRemarksChange(row.studentId, e.target.value)
-                              }
                             />
                           </TableCell>
+                          <TableCell>
+                            <Checkbox
+                              checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
+                              onChange={(e) => handleAbsentChange(row.key, e.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {row.isDirty ? (
+                              <StatusChip status="draft" />
+                            ) : row.existingDocId ? (
+                              <StatusChip status="saved" />
+                            ) : (
+                              <StatusChip status="pending" label="New" />
+                            )}
+                          </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </CardContent>
-        </Card>
-      </Stack>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ResponsiveTableWrapper>
+              )}
 
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={3500}
-        onClose={() => setSnack((prev) => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-      >
-        <Alert
-          severity={snack.severity}
-          variant="filled"
-          onClose={() => setSnack((prev) => ({ ...prev, open: false }))}
-          sx={{ width: "100%" }}
-        >
-          {snack.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+              <ActionBar sticky>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <StatusChip status="active" label={`${filteredRows.length} rows`} />
+                  <StatusChip status={dirtyCount > 0 ? "draft" : "saved"} label={`${dirtyCount} unsaved`} />
+                </Stack>
+
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    variant="outlined"
+                    onClick={() => loadStudents()}
+                    disabled={loadingRows || saving}
+                    startIcon={<RefreshRoundedIcon />}
+                  >
+                    Reload
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={handleSave}
+                    disabled={saving || loadingRows || dirtyCount === 0}
+                    startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
+                  >
+                    Save Marks
+                  </Button>
+                </Stack>
+              </ActionBar>
+            </>
+          ) : (
+            <EmptyState
+              title="Select filters to start"
+              description="Choose class, subject, and academic term to load enrolled students for mark entry."
+            />
+          )}
+        </SectionCard>
+      </Stack>
+    </PageContainer>
   );
 }
