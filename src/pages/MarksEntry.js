@@ -27,21 +27,19 @@ import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
-import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
-  addDoc,
   collection,
   doc,
   getDocs,
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import {
   ActionBar,
   EmptyState,
@@ -54,25 +52,32 @@ import {
   StatusChip,
 } from "../components/ui";
 
-const pick = (...values) => values.find((value) => value !== undefined && value !== null && value !== "");
+const pick = (...values) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
 const normalize = (value) => String(value || "").trim().toLowerCase();
+
 const asNumber = (value) => {
   if (value === "" || value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isNaN(parsed) ? null : parsed;
 };
+
 const makeClassName = (item = {}) =>
   pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+
 const buildTermLabel = (term) => {
   const termName = pick(term.term, term.termName, term.name, "Term");
   const year = pick(term.year, term.academicYear, "");
   return year ? `${termName} - ${year}` : termName;
 };
+
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
   if (typeof raw === "boolean") return raw;
   return normalize(raw) === "active" || normalize(raw) === "true";
 };
+
 const isSameTeacher = (item, user) => {
   const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
   const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
@@ -84,6 +89,7 @@ const isSameTeacher = (item, user) => {
 
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
+  const { isAdmin } = useAuth();
 
   const [bootLoading, setBootLoading] = useState(true);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -106,15 +112,22 @@ export default function MarksEntry() {
   const [drafts, setDrafts] = useState({});
 
   const activeTerm = useMemo(
-    () => terms.find((t) => `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` === selectedTermKey) || null,
+    () =>
+      terms.find(
+        (t) =>
+          `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` ===
+          selectedTermKey
+      ) || null,
     [terms, selectedTermKey]
   );
 
   const classOptions = useMemo(() => {
     const map = new Map();
+
     teacherAssignments.forEach((assignment) => {
       const className = makeClassName(assignment);
       if (!className) return;
+
       if (!map.has(className)) {
         map.set(className, {
           className,
@@ -123,24 +136,38 @@ export default function MarksEntry() {
         });
       }
     });
-    return Array.from(map.values()).sort((a, b) => a.className.localeCompare(b.className));
+
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.className).localeCompare(String(b.className))
+    );
   }, [teacherAssignments]);
 
   const subjectOptions = useMemo(() => {
     const map = new Map();
+
     teacherAssignments
-      .filter((assignment) => !selectedClass || normalize(makeClassName(assignment)) === normalize(selectedClass))
+      .filter(
+        (assignment) =>
+          !selectedClass ||
+          normalize(makeClassName(assignment)) === normalize(selectedClass)
+      )
       .forEach((assignment) => {
-        const subjectKey = `${pick(assignment.subjectId, "")}__${pick(assignment.subjectName, assignment.subject, "")}`;
+        const subjectId = pick(assignment.subjectId, "");
+        const subjectName = pick(assignment.subjectName, assignment.subject, "");
+        const subjectKey = `${subjectId}__${subjectName}`;
+
         if (!map.has(subjectKey)) {
           map.set(subjectKey, {
             key: subjectKey,
-            subjectId: pick(assignment.subjectId, ""),
-            subjectName: pick(assignment.subjectName, assignment.subject, ""),
+            subjectId,
+            subjectName,
           });
         }
       });
-    return Array.from(map.values()).sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.subjectName).localeCompare(String(b.subjectName))
+    );
   }, [teacherAssignments, selectedClass]);
 
   const selectedSubject = useMemo(
@@ -149,19 +176,17 @@ export default function MarksEntry() {
   );
 
   const filteredRows = useMemo(() => {
-    const term = pick(activeTerm?.term, activeTerm?.termName, "");
     const search = normalize(searchText);
 
     return studentRows.filter((row) => {
-      const matchesSearch =
+      return (
         !search ||
         normalize(row.studentName).includes(search) ||
         normalize(row.indexNo).includes(search) ||
-        normalize(row.admissionNo).includes(search);
-      const matchesTerm = !term || normalize(row.term) === normalize(term);
-      return matchesSearch && matchesTerm;
+        normalize(row.admissionNo).includes(search)
+      );
     });
-  }, [studentRows, searchText, activeTerm]);
+  }, [studentRows, searchText]);
 
   const stats = useMemo(() => {
     const total = filteredRows.length;
@@ -183,23 +208,25 @@ export default function MarksEntry() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [
-        usersSnap,
-        teacherAssignmentsSnap,
-        academicTermsSnap,
-        marksSnap,
-      ] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "teacherAssignments")),
-        getDocs(query(collection(db, "academicTerms"), orderBy("year", "desc"))).catch(() =>
-          getDocs(collection(db, "academicTerms"))
-        ),
-        getDocs(collection(db, "marks")),
-      ]);
+      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, marksSnap] =
+        await Promise.all([
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "teacherAssignments")),
+          getDocs(
+            query(collection(db, "academicTerms"), orderBy("year", "desc"))
+          ).catch(() => getDocs(collection(db, "academicTerms"))),
+          getDocs(collection(db, "marks")),
+        ]);
 
-      const allUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const allUsers = usersSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
       const profile =
-        allUsers.find((u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)) ||
+        allUsers.find(
+          (u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)
+        ) ||
         allUsers.find((u) => normalize(u.email) === normalize(currentUser.email)) || {
           id: currentUser.uid,
           uid: currentUser.uid,
@@ -207,30 +234,57 @@ export default function MarksEntry() {
           fullName: currentUser.displayName || "Teacher",
           name: currentUser.displayName || "Teacher",
         };
+
       setTeacherProfile(profile);
 
-      const allAssignments = teacherAssignmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const myAssignments = allAssignments.filter((item) => isSameTeacher(item, currentUser));
-      setTeacherAssignments(myAssignments);
+      const allAssignments = teacherAssignmentsSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
 
-      const allTerms = academicTermsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const scopedAssignments = isAdmin
+        ? allAssignments
+        : allAssignments.filter((item) => isSameTeacher(item, currentUser));
+
+      setTeacherAssignments(scopedAssignments);
+
+      const allTerms = academicTermsSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
       const sortedTerms = allTerms.sort((a, b) => {
-        const yearDiff = Number(pick(b.year, b.academicYear, 0)) - Number(pick(a.year, a.academicYear, 0));
+        const yearDiff =
+          Number(pick(b.year, b.academicYear, 0)) -
+          Number(pick(a.year, a.academicYear, 0));
         if (yearDiff !== 0) return yearDiff;
-        return String(pick(a.term, a.termName, "")).localeCompare(String(pick(b.term, b.termName, "")));
+
+        return String(pick(a.term, a.termName, "")).localeCompare(
+          String(pick(b.term, b.termName, ""))
+        );
       });
+
       setTerms(sortedTerms);
 
       const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+
       if (!selectedTermKey && defaultTerm) {
-        setSelectedTermKey(`${pick(defaultTerm.term, defaultTerm.termName)}__${pick(defaultTerm.year, defaultTerm.academicYear)}`);
+        setSelectedTermKey(
+          `${pick(defaultTerm.term, defaultTerm.termName)}__${pick(
+            defaultTerm.year,
+            defaultTerm.academicYear
+          )}`
+        );
       }
 
-      const allMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const allMarks = marksSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
       setMarksDocs(allMarks);
 
-      if (!selectedClass && myAssignments.length > 0) {
-        const defaultClass = makeClassName(myAssignments[0]);
+      if (!selectedClass && scopedAssignments.length > 0) {
+        const defaultClass = makeClassName(scopedAssignments[0]);
         setSelectedClass(defaultClass);
       }
     } catch (err) {
@@ -239,7 +293,7 @@ export default function MarksEntry() {
     } finally {
       setBootLoading(false);
     }
-  }, [selectedClass, selectedTermKey]);
+  }, [isAdmin, selectedClass, selectedTermKey]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -253,41 +307,74 @@ export default function MarksEntry() {
         return;
       }
 
-      const enrollmentsSnap = await getDocs(collection(db, "studentSubjectEnrollments"));
-      const studentSnap = await getDocs(collection(db, "students"));
+      const [enrollmentsSnap, studentSnap] = await Promise.all([
+        getDocs(collection(db, "studentSubjectEnrollments")),
+        getDocs(collection(db, "students")),
+      ]);
 
-      const allEnrollments = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const allStudents = studentSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const allEnrollments = enrollmentsSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
+      const allStudents = studentSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+
       const termName = pick(activeTerm.term, activeTerm.termName, "");
       const termYear = pick(activeTerm.year, activeTerm.academicYear, "");
 
       const relevantEnrollments = allEnrollments.filter((enrollment) => {
-        const sameClass = normalize(makeClassName(enrollment)) === normalize(selectedClass);
+        const sameClass =
+          normalize(makeClassName(enrollment)) === normalize(selectedClass);
+
         const sameSubject =
-          normalize(pick(enrollment.subjectId, "")) === normalize(selectedSubject.subjectId) ||
-          normalize(pick(enrollment.subjectName, "")) === normalize(selectedSubject.subjectName);
+          normalize(pick(enrollment.subjectId, "")) ===
+            normalize(selectedSubject.subjectId) ||
+          normalize(pick(enrollment.subjectName, "")) ===
+            normalize(selectedSubject.subjectName);
+
         const sameYear =
           !termYear ||
-          normalize(pick(enrollment.academicYear, enrollment.year, "")) === normalize(termYear);
+          normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
+            normalize(termYear);
+
         const status = normalize(pick(enrollment.status, "active"));
+
         return sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
       const rows = relevantEnrollments
         .map((enrollment) => {
           const studentId = String(pick(enrollment.studentId, ""));
-          const student = allStudents.find((s) => String(s.id) === studentId) || {};
-          const existingMark = marksDocs.find((mark) => {
-            const sameStudent = String(pick(mark.studentId, mark.admissionNo, mark.indexNo, "")) === studentId;
-            const sameClass = normalize(makeClassName(mark)) === normalize(selectedClass);
-            const sameSubject =
-              normalize(pick(mark.subjectId, "")) === normalize(selectedSubject.subjectId) ||
-              normalize(pick(mark.subjectName, mark.subject, "")) === normalize(selectedSubject.subjectName);
-            const sameTerm = normalize(pick(mark.term, mark.termName, "")) === normalize(termName);
-            const sameYear =
-              normalize(pick(mark.academicYear, mark.year, "")) === normalize(termYear);
+          const student =
+            allStudents.find((s) => String(s.id) === studentId) || {};
 
-            return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
+          const existingMark = marksDocs.find((mark) => {
+            const sameStudent =
+              String(pick(mark.studentId, "")) === studentId;
+
+            const sameClass =
+              normalize(makeClassName(mark)) === normalize(selectedClass);
+
+            const sameSubject =
+              normalize(pick(mark.subjectId, "")) ===
+                normalize(selectedSubject.subjectId) ||
+              normalize(pick(mark.subjectName, mark.subject, "")) ===
+                normalize(selectedSubject.subjectName);
+
+            const sameTerm =
+              normalize(pick(mark.term, mark.termName, "")) ===
+              normalize(termName);
+
+            const sameYear =
+              normalize(pick(mark.academicYear, mark.year, "")) ===
+              normalize(termYear);
+
+            return (
+              sameStudent && sameClass && sameSubject && sameTerm && sameYear
+            );
           });
 
           const studentName = pick(
@@ -296,10 +383,18 @@ export default function MarksEntry() {
             enrollment.studentName,
             "Student"
           );
+
           const indexNo = pick(student.indexNo, enrollment.indexNo, "");
           const admissionNo = pick(student.admissionNo, enrollment.admissionNo, "");
-          const markValue = pick(existingMark?.mark, existingMark?.marks, existingMark?.score, "");
-          const absent = Boolean(pick(existingMark?.absent, existingMark?.isAbsent, false));
+          const markValue = pick(
+            existingMark?.mark,
+            existingMark?.marks,
+            existingMark?.score,
+            ""
+          );
+          const absent = Boolean(
+            pick(existingMark?.absent, existingMark?.isAbsent, false)
+          );
 
           return {
             key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}`,
@@ -312,7 +407,11 @@ export default function MarksEntry() {
             section: pick(enrollment.section, student.section, ""),
             className: selectedClass,
             subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
-            subjectName: pick(enrollment.subjectName, selectedSubject.subjectName, ""),
+            subjectName: pick(
+              enrollment.subjectName,
+              selectedSubject.subjectName,
+              ""
+            ),
             term: termName,
             academicYear: termYear,
             mark: absent ? "" : markValue ?? "",
@@ -353,7 +452,11 @@ export default function MarksEntry() {
 
   useEffect(() => {
     if (!selectedClass) return;
-    const currentSubjectStillExists = subjectOptions.some((option) => option.key === selectedSubjectKey);
+
+    const currentSubjectStillExists = subjectOptions.some(
+      (option) => option.key === selectedSubjectKey
+    );
+
     if (!currentSubjectStillExists) {
       setSelectedSubjectKey(subjectOptions[0]?.key || "");
     }
@@ -363,12 +466,12 @@ export default function MarksEntry() {
     loadStudents();
   }, [loadStudents]);
 
-  const updateRowDraft = (rowKey, field, value) => {
+  const setRowValue = (rowKey, updates) => {
     setDrafts((prev) => ({
       ...prev,
       [rowKey]: {
         ...prev[rowKey],
-        [field]: value,
+        ...updates,
       },
     }));
 
@@ -377,9 +480,8 @@ export default function MarksEntry() {
         row.key === rowKey
           ? {
               ...row,
-              [field]: value,
+              ...updates,
               isDirty: true,
-              ...(field === "absent" && value ? { mark: "" } : {}),
             }
           : row
       )
@@ -388,17 +490,17 @@ export default function MarksEntry() {
 
   const handleMarkChange = (rowKey, value) => {
     const safeValue = value === "" ? "" : value.replace(/[^\d.]/g, "");
-    updateRowDraft(rowKey, "mark", safeValue);
-    if (safeValue !== "") {
-      updateRowDraft(rowKey, "absent", false);
-    }
+    setRowValue(rowKey, {
+      mark: safeValue,
+      absent: safeValue !== "" ? false : drafts[rowKey]?.absent ?? false,
+    });
   };
 
   const handleAbsentChange = (rowKey, checked) => {
-    updateRowDraft(rowKey, "absent", checked);
-    if (checked) {
-      updateRowDraft(rowKey, "mark", "");
-    }
+    setRowValue(rowKey, {
+      absent: checked,
+      mark: checked ? "" : drafts[rowKey]?.mark ?? "",
+    });
   };
 
   const handleSave = async () => {
@@ -412,6 +514,7 @@ export default function MarksEntry() {
       }
 
       const dirtyRows = studentRows.filter((row) => row.isDirty);
+
       if (dirtyRows.length === 0) {
         setSuccess("No changes to save.");
         return;
@@ -483,11 +586,17 @@ export default function MarksEntry() {
   };
 
   const dirtyCount = studentRows.filter((row) => row.isDirty).length;
-  const saveProgress = studentRows.length > 0 ? Math.round(((studentRows.length - dirtyCount) / studentRows.length) * 100) : 0;
+  const saveProgress =
+    studentRows.length > 0
+      ? Math.round(((studentRows.length - dirtyCount) / studentRows.length) * 100)
+      : 0;
 
   if (bootLoading) {
     return (
-      <PageContainer title="Marks Entry" subtitle="Loading marks entry workspace...">
+      <PageContainer
+        title="Marks Entry"
+        subtitle="Loading marks entry workspace..."
+      >
         <SectionCard>
           <Stack alignItems="center" spacing={2} py={6}>
             <CircularProgress />
@@ -571,7 +680,10 @@ export default function MarksEntry() {
                 onChange={(e) => setSelectedTermKey(e.target.value)}
               >
                 {terms.map((term) => {
-                  const key = `${pick(term.term, term.termName)}__${pick(term.year, term.academicYear)}`;
+                  const key = `${pick(term.term, term.termName)}__${pick(
+                    term.year,
+                    term.academicYear
+                  )}`;
                   return (
                     <MenuItem key={term.id} value={key}>
                       {buildTermLabel(term)}
@@ -589,7 +701,12 @@ export default function MarksEntry() {
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               InputProps={{
-                startAdornment: <SearchRoundedIcon fontSize="small" style={{ marginRight: 8, opacity: 0.7 }} />,
+                startAdornment: (
+                  <SearchRoundedIcon
+                    fontSize="small"
+                    style={{ marginRight: 8, opacity: 0.7 }}
+                  />
+                ),
               }}
             />
           </Grid>
@@ -597,16 +714,36 @@ export default function MarksEntry() {
 
         <Grid container spacing={1.5}>
           <Grid item xs={6} md={3}>
-            <StatCard title="Students" value={stats.total} icon={<GroupRoundedIcon />} color="primary" />
+            <StatCard
+              title="Students"
+              value={stats.total}
+              icon={<GroupRoundedIcon />}
+              color="primary"
+            />
           </Grid>
           <Grid item xs={6} md={3}>
-            <StatCard title="Saved Rows" value={stats.saved} icon={<CheckCircleRoundedIcon />} color="success" />
+            <StatCard
+              title="Saved Rows"
+              value={stats.saved}
+              icon={<CheckCircleRoundedIcon />}
+              color="success"
+            />
           </Grid>
           <Grid item xs={6} md={3}>
-            <StatCard title="Draft Changes" value={stats.draftCount} icon={<EditNoteRoundedIcon />} color="warning" />
+            <StatCard
+              title="Draft Changes"
+              value={stats.draftCount}
+              icon={<EditNoteRoundedIcon />}
+              color="warning"
+            />
           </Grid>
           <Grid item xs={6} md={3}>
-            <StatCard title="Absent" value={stats.absent} icon={<ClassRoundedIcon />} color="error" />
+            <StatCard
+              title="Absent"
+              value={stats.absent}
+              icon={<ClassRoundedIcon />}
+              color="error"
+            />
           </Grid>
         </Grid>
 
@@ -614,12 +751,17 @@ export default function MarksEntry() {
           title="Mark Entry Sheet"
           subtitle={
             selectedClass && selectedSubject && activeTerm
-              ? `${selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(activeTerm)}`
+              ? `${selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(
+                  activeTerm
+                )}`
               : "Select class, subject, and term to begin."
           }
           action={
             selectedClass && selectedSubject && activeTerm ? (
-              <StatusChip status={dirtyCount > 0 ? "draft" : "saved"} label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"} />
+              <StatusChip
+                status={dirtyCount > 0 ? "draft" : "saved"}
+                label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"}
+              />
             ) : null
           }
         >
@@ -661,10 +803,7 @@ export default function MarksEntry() {
                     <MobileListRow
                       key={row.key}
                       title={`${index + 1}. ${row.studentName}`}
-                      subtitle={[
-                        row.indexNo ? `Index: ${row.indexNo}` : null,
-                        row.admissionNo ? `Admission: ${row.admissionNo}` : null,
-                      ]
+                      subtitle={[row.indexNo ? `Index: ${row.indexNo}` : null, row.admissionNo ? `Admission: ${row.admissionNo}` : null]
                         .filter(Boolean)
                         .join(" • ")}
                       right={
@@ -704,7 +843,9 @@ export default function MarksEntry() {
                               control={
                                 <Checkbox
                                   checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
-                                  onChange={(e) => handleAbsentChange(row.key, e.target.checked)}
+                                  onChange={(e) =>
+                                    handleAbsentChange(row.key, e.target.checked)
+                                  }
                                 />
                               }
                               label="Absent"
@@ -753,7 +894,9 @@ export default function MarksEntry() {
                           <TableCell>
                             <Checkbox
                               checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
-                              onChange={(e) => handleAbsentChange(row.key, e.target.checked)}
+                              onChange={(e) =>
+                                handleAbsentChange(row.key, e.target.checked)
+                              }
                             />
                           </TableCell>
                           <TableCell>
@@ -775,7 +918,10 @@ export default function MarksEntry() {
               <ActionBar sticky>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <StatusChip status="active" label={`${filteredRows.length} rows`} />
-                  <StatusChip status={dirtyCount > 0 ? "draft" : "saved"} label={`${dirtyCount} unsaved`} />
+                  <StatusChip
+                    status={dirtyCount > 0 ? "draft" : "saved"}
+                    label={`${dirtyCount} unsaved`}
+                  />
                 </Stack>
 
                 <Stack direction="row" spacing={1}>
@@ -791,7 +937,13 @@ export default function MarksEntry() {
                     variant="contained"
                     onClick={handleSave}
                     disabled={saving || loadingRows || dirtyCount === 0}
-                    startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
+                    startIcon={
+                      saving ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : (
+                        <SaveRoundedIcon />
+                      )
+                    }
                   >
                     Save Marks
                   </Button>
