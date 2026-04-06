@@ -11,6 +11,15 @@ import {
   Stack,
   Typography,
   useMediaQuery,
+  Chip,
+  Divider,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Card,
+  CardContent,
 } from "@mui/material";
 import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
 import GradingRoundedIcon from "@mui/icons-material/GradingRounded";
@@ -22,7 +31,6 @@ import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
-import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import { db } from "../firebase";
 import {
   EmptyState,
@@ -33,17 +41,6 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
-import {
-  Chip,
-  Divider,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Card,
-  CardContent,
-} from "@mui/material";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -110,7 +107,7 @@ function QuickActionCard({ title, description, buttonText, onClick, icon }) {
         boxShadow: "0px 8px 24px rgba(15, 23, 42, 0.06)",
       }}
     >
-      <CardContent sx={{ p: 2.25 }}>
+      <CardContent sx={{ p: { xs: 2, sm: 2.25 } }}>
         <Stack spacing={1.5}>
           <Stack direction="row" spacing={1.2} alignItems="center">
             <Box
@@ -120,8 +117,9 @@ function QuickActionCard({ title, description, buttonText, onClick, icon }) {
                 borderRadius: 3,
                 display: "grid",
                 placeItems: "center",
-                bgcolor: "primary.50",
+                bgcolor: "rgba(37,99,235,0.10)",
                 color: "primary.main",
+                flexShrink: 0,
               }}
             >
               {icon}
@@ -135,16 +133,14 @@ function QuickActionCard({ title, description, buttonText, onClick, icon }) {
             {description}
           </Typography>
 
-          <Box>
-            <Button
-              variant="outlined"
-              endIcon={<ArrowForwardRoundedIcon />}
-              onClick={onClick}
-              fullWidth
-            >
-              {buttonText}
-            </Button>
-          </Box>
+          <Button
+            variant="outlined"
+            endIcon={<ArrowForwardRoundedIcon />}
+            onClick={onClick}
+            fullWidth
+          >
+            {buttonText}
+          </Button>
         </Stack>
       </CardContent>
     </Card>
@@ -374,7 +370,7 @@ export default function Dashboard() {
                 helperText={card.helperText}
                 icon={card.icon}
                 color={card.color}
-                sx={{ cursor: "pointer" }}
+                sx={{ cursor: "pointer", height: "100%" }}
                 onClick={card.onClick}
               />
             </Grid>
@@ -389,7 +385,7 @@ export default function Dashboard() {
           ))}
         </Grid>
 
-        <Grid container spacing={1.5}>
+        <Grid container spacing={1.5} alignItems="stretch">
           <Grid item xs={12} lg={7}>
             <SectionCard
               title="Recent Students"
@@ -401,6 +397,7 @@ export default function Dashboard() {
                   </Button>
                 ) : null
               }
+              sx={{ height: "100%" }}
             >
               {recentStudents.length === 0 ? (
                 <EmptyState
@@ -420,10 +417,10 @@ export default function Dashboard() {
                       right={
                         <Avatar
                           sx={{
-                            width: 38,
-                            height: 38,
+                            width: 52,
+                            height: 52,
                             bgcolor: "primary.main",
-                            fontSize: 14,
+                            fontSize: 20,
                             fontWeight: 800,
                           }}
                         >
@@ -436,6 +433,8 @@ export default function Dashboard() {
                           justifyContent="space-between"
                           alignItems="center"
                           spacing={1}
+                          flexWrap="wrap"
+                          useFlexGap
                         >
                           <StatusChip
                             status={isActiveStudent(student) ? "active" : "inactive"}
@@ -518,6 +517,7 @@ export default function Dashboard() {
             <SectionCard
               title="System Snapshot"
               subtitle="Current totals across the core collections."
+              sx={{ height: "100%" }}
             >
               <Stack spacing={1.25}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">

@@ -27,6 +27,7 @@ import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
 import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
 import TeacherMarkSheets from "./pages/TeacherMarkSheets";
 import BulkMarksUpload from "./pages/BulkMarksUpload";
+import ClassDataManagement from "./pages/ClassDataManagement";
 
 function LoadingScreen() {
   return (
@@ -175,6 +176,15 @@ export default function App() {
                 element={
                   <AdminRoute>
                     <BulkMarksUpload />
+                  </AdminRoute>
+                }
+              />
+
+              <Route
+                path="class-data-management"
+                element={
+                  <AdminRoute>
+                    <ClassDataManagement />
                   </AdminRoute>
                 }
               />

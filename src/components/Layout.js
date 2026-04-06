@@ -45,6 +45,7 @@ import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRound
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
+import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -106,6 +107,12 @@ export default function Layout() {
       icon: <PlaylistAddRoundedIcon />,
       path: "/manual-student-subject-enrollments",
       badge: "MANUAL",
+    },
+    {
+      label: "Class Data Management",
+      icon: <DeleteSweepRoundedIcon />,
+      path: "/class-data-management",
+      badge: "DANGER",
     },
     {
       label: "Migrate Student Subjects",
@@ -210,6 +217,11 @@ export default function Layout() {
         return {
           bgcolor: "secondary.light",
           color: "secondary.dark",
+        };
+      case "DANGER":
+        return {
+          bgcolor: "error.light",
+          color: "error.dark",
         };
       default:
         return {
