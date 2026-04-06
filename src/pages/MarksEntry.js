@@ -619,16 +619,35 @@ export default function MarksEntry() {
   }, [bootLoading, teacherAssignments, terms, applyNavigationSelection]);
 
   useEffect(() => {
-    if (!selectedClass) return;
+  if (!selectedClass) return;
 
-    const currentSubjectStillExists = subjectOptions.some(
-      (option) => option.key === selectedSubjectKey
-    );
+  const currentSubjectStillExists = subjectOptions.some(
+    (option) => option.key === selectedSubjectKey
+  );
 
-    if (!currentSubjectStillExists) {
-      setSelectedSubjectKey(subjectOptions[0]?.key || "");
-    }
-  }, [selectedClass, subjectOptions, selectedSubjectKey]);
+  if (currentSubjectStillExists) return;
+
+  const hasNavigationSubject =
+    navigationSelection.subjectId || navigationSelection.subjectName;
+
+  const navigationApplied =
+    appliedNavigationSelectionRef.current === JSON.stringify(navigationSelection);
+
+  // 🚨 CRITICAL FIX
+  // If navigation is coming (from TeacherDashboard),
+  // DO NOT auto-pick first subject (Art)
+  if (hasNavigationSubject && !navigationApplied) {
+    return;
+  }
+
+  // Only fallback AFTER navigation is done
+  setSelectedSubjectKey(subjectOptions[0]?.key || "");
+}, [
+  selectedClass,
+  subjectOptions,
+  selectedSubjectKey,
+  navigationSelection,
+]);
 
   useEffect(() => {
     loadStudents();
