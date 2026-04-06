@@ -322,18 +322,18 @@ export default function TeacherDashboard() {
   }, [selectedTermKey]);
 
   const openMarks = useCallback(
-    (className, subjectName, subjectId = "") => {
-      navigate("/teacher/marks", {
-        state: {
-          className,
-          subjectName,
-          subjectId,
-          termKey: selectedTermKey || "",
-        },
-      });
-    },
-    [navigate, selectedTermKey]
-  );
+  (className, subjectName, subjectId = "") => {
+    const params = new URLSearchParams();
+
+    if (className) params.set("className", className);
+    if (subjectName) params.set("subjectName", subjectName);
+    if (subjectId) params.set("subjectId", subjectId);
+    if (selectedTermKey) params.set("termKey", selectedTermKey);
+
+    navigate(`/teacher/marks?${params.toString()}`);
+  },
+  [navigate, selectedTermKey]
+);
 
   if (loading) {
     return (

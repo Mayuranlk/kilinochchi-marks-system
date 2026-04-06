@@ -152,14 +152,35 @@ export default function MarksEntry() {
   const [studentRows, setStudentRows] = useState([]);
   const [drafts, setDrafts] = useState({});
 
+  const urlParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search]
+  );
+
   const navigationSelection = useMemo(
     () => ({
-      className: pick(location.state?.className, ""),
-      subjectName: pick(location.state?.subjectName, ""),
-      subjectId: pick(location.state?.subjectId, ""),
-      termKey: pick(location.state?.termKey, ""),
+      className: pick(
+        urlParams.get("className"),
+        location.state?.className,
+        ""
+      ),
+      subjectName: pick(
+        urlParams.get("subjectName"),
+        location.state?.subjectName,
+        ""
+      ),
+      subjectId: pick(
+        urlParams.get("subjectId"),
+        location.state?.subjectId,
+        ""
+      ),
+      termKey: pick(
+        urlParams.get("termKey"),
+        location.state?.termKey,
+        ""
+      ),
     }),
-    [location.state]
+    [urlParams, location.state]
   );
 
   const navigationSignature = useMemo(
@@ -531,6 +552,12 @@ export default function MarksEntry() {
     loadBase();
   }, [loadBase]);
 
+  // Reset navigation application whenever a new dashboard click arrives
+  useEffect(() => {
+    appliedNavigationSelectionRef.current = "";
+    setSelectedSubjectKey("");
+  }, [location.key, location.search]);
+
   useEffect(() => {
     if (bootLoading) return;
     if (!navigationSelection.className) return;
@@ -569,7 +596,6 @@ export default function MarksEntry() {
       Boolean(navigationSelection.subjectId) || Boolean(navigationSelection.subjectName);
 
     if (!hasNavigationSubject) return;
-    if (appliedNavigationSelectionRef.current === navigationSignature) return;
 
     const matchedSubject = subjectOptions.find((option) => {
       const subjectIdMatch =
@@ -583,10 +609,8 @@ export default function MarksEntry() {
       return subjectIdMatch || subjectNameMatch;
     });
 
-    if (matchedSubject) {
-      if (selectedSubjectKey !== matchedSubject.key) {
-        setSelectedSubjectKey(matchedSubject.key);
-      }
+    if (matchedSubject && selectedSubjectKey !== matchedSubject.key) {
+      setSelectedSubjectKey(matchedSubject.key);
       appliedNavigationSelectionRef.current = navigationSignature;
     }
   }, [
