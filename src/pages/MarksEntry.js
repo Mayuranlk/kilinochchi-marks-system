@@ -94,6 +94,32 @@ const buildSubjectKey = (item = {}) => {
   return `${subjectId}__${subjectName}`;
 };
 
+const getStudentSortIndex = (row = {}) =>
+  String(row.indexNo || row.admissionNo || "").trim();
+
+const sortRowsInTeacherMarkSheetOrder = (rows = []) => {
+  return [...rows].sort((a, b) => {
+    const aIndex = getStudentSortIndex(a);
+    const bIndex = getStudentSortIndex(b);
+
+    if (aIndex && bIndex) {
+      const byIndex = aIndex.localeCompare(bIndex, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (byIndex !== 0) return byIndex;
+    } else if (aIndex && !bIndex) {
+      return -1;
+    } else if (!aIndex && bIndex) {
+      return 1;
+    }
+
+    return String(a.studentName || "").localeCompare(String(b.studentName || ""), undefined, {
+      sensitivity: "base",
+    });
+  });
+};
+
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const { isAdmin } = useAuth();
@@ -158,7 +184,10 @@ export default function MarksEntry() {
     });
 
     return Array.from(map.values()).sort((a, b) =>
-      String(a.className).localeCompare(String(b.className))
+      String(a.className).localeCompare(String(b.className), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
     );
   }, [teacherAssignments]);
 
@@ -186,7 +215,9 @@ export default function MarksEntry() {
       });
 
     return Array.from(map.values()).sort((a, b) =>
-      String(a.subjectName).localeCompare(String(b.subjectName))
+      String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
+        sensitivity: "base",
+      })
     );
   }, [teacherAssignments, selectedClass]);
 
@@ -395,7 +426,9 @@ export default function MarksEntry() {
         if (yearDiff !== 0) return yearDiff;
 
         return String(pick(a.term, a.termName, "")).localeCompare(
-          String(pick(b.term, b.termName, ""))
+          String(pick(b.term, b.termName, "")),
+          undefined,
+          { sensitivity: "base" }
         );
       });
 
@@ -480,85 +513,79 @@ export default function MarksEntry() {
         return sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
-      const rows = relevantEnrollments
-        .map((enrollment) => {
-          const studentId = String(pick(enrollment.studentId, ""));
-          const student =
-            allStudents.find((s) => String(s.id) === studentId) || {};
+      const mappedRows = relevantEnrollments.map((enrollment) => {
+        const studentId = String(pick(enrollment.studentId, ""));
+        const student =
+          allStudents.find((s) => String(s.id) === studentId) || {};
 
-          const existingMark = marksDocs.find((mark) => {
-            const sameStudent = String(pick(mark.studentId, "")) === studentId;
+        const existingMark = marksDocs.find((mark) => {
+          const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
-            const sameClass =
-              normalize(makeClassName(mark)) === normalize(selectedClass);
+          const sameClass =
+            normalize(makeClassName(mark)) === normalize(selectedClass);
 
-            const sameSubject =
-              normalize(pick(mark.subjectId, "")) ===
-                normalize(selectedSubject.subjectId) ||
-              normalize(pick(mark.subjectName, mark.subject, "")) ===
-                normalize(selectedSubject.subjectName);
+          const sameSubject =
+            normalize(pick(mark.subjectId, "")) ===
+              normalize(selectedSubject.subjectId) ||
+            normalize(pick(mark.subjectName, mark.subject, "")) ===
+              normalize(selectedSubject.subjectName);
 
-            const sameTerm =
-              normalize(pick(mark.term, mark.termName, "")) ===
-              normalize(termName);
+          const sameTerm =
+            normalize(pick(mark.term, mark.termName, "")) ===
+            normalize(termName);
 
-            const sameYear =
-              normalize(pick(mark.academicYear, mark.year, "")) ===
-              normalize(termYear);
+          const sameYear =
+            normalize(pick(mark.academicYear, mark.year, "")) ===
+            normalize(termYear);
 
-            return (
-              sameStudent && sameClass && sameSubject && sameTerm && sameYear
-            );
-          });
-
-          const studentName = pick(
-            student.fullName,
-            student.name,
-            enrollment.studentName,
-            "Student"
-          );
-
-          const indexNo = pick(student.indexNo, enrollment.indexNo, "");
-          const admissionNo = pick(student.admissionNo, enrollment.admissionNo, "");
-          const markValue = pick(
-            existingMark?.mark,
-            existingMark?.marks,
-            existingMark?.score,
-            ""
-          );
-          const absent = Boolean(
-            pick(existingMark?.absent, existingMark?.isAbsent, false)
-          );
-
-          return {
-            key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}`,
-            enrollmentId: enrollment.id,
-            studentId,
-            studentName,
-            indexNo,
-            admissionNo,
-            grade: pick(enrollment.grade, student.grade, ""),
-            section: pick(enrollment.section, student.section, ""),
-            className: selectedClass,
-            subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
-            subjectName: pick(
-              enrollment.subjectName,
-              selectedSubject.subjectName,
-              ""
-            ),
-            term: termName,
-            academicYear: termYear,
-            mark: absent ? "" : markValue ?? "",
-            absent,
-            existingDocId: existingMark?.id || "",
-            isDirty: false,
-          };
-        })
-        .sort((a, b) => {
-          const aIndex = String(a.indexNo || "").padStart(10, "0");
-          const bIndex = String(b.indexNo || "").padStart(10, "0");
-          return aIndex.localeCompare(bIndex) || a.studentName.localeCompare(b.studentName);
+          return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
         });
+
+        const studentName = pick(
+          student.fullName,
+          student.name,
+          enrollment.studentName,
+          "Student"
+        );
+
+        const indexNo = pick(student.indexNo, enrollment.indexNo, "");
+        const admissionNo = pick(student.admissionNo, enrollment.admissionNo, "");
+        const markValue = pick(
+          existingMark?.mark,
+          existingMark?.marks,
+          existingMark?.score,
+          ""
+        );
+        const absent = Boolean(
+          pick(existingMark?.absent, existingMark?.isAbsent, false)
+        );
+
+        return {
+          key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}`,
+          enrollmentId: enrollment.id,
+          studentId,
+          studentName,
+          indexNo,
+          admissionNo,
+          grade: pick(enrollment.grade, student.grade, ""),
+          section: pick(enrollment.section, student.section, ""),
+          className: selectedClass,
+          subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
+          subjectName: pick(
+            enrollment.subjectName,
+            selectedSubject.subjectName,
+            ""
+          ),
+          term: termName,
+          academicYear: termYear,
+          mark: absent ? "" : markValue ?? "",
+          absent,
+          existingDocId: existingMark?.id || "",
+          isDirty: false,
+        };
+      });
+
+      const rows = sortRowsInTeacherMarkSheetOrder(mappedRows);
 
       const nextDrafts = {};
       rows.forEach((row) => {
