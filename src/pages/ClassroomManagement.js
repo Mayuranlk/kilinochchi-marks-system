@@ -10,6 +10,15 @@ import {
 import { db } from "../firebase";
 import { GRADES } from "../constants";
 import {
+  AL_STREAM_OPTIONS,
+  AL_STREAM_CODES,
+  AL_STREAM_SHORT_NAMES,
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+  normalizeText,
+} from "../constants/constants";
+import {
   Box,
   Typography,
   Button,
@@ -48,7 +57,6 @@ import SchoolIcon from "@mui/icons-material/School";
 import PersonIcon from "@mui/icons-material/Person";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 
-const STREAMS = ["Maths", "Bio", "Technology", "Arts", "Commerce"];
 const YEARS = [2026, 2025, 2024];
 const ALL_SECTIONS = [
   "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
@@ -59,6 +67,9 @@ const emptyForm = {
   grade: 6,
   section: "A",
   stream: "",
+  streamCode: "",
+  alClassName: "",
+  fullClassName: "",
   classTeacherId: "",
   year: 2026,
   notes: "",
@@ -77,7 +88,34 @@ const normalizeYear = (value) => {
   return Number.isFinite(num) ? num : new Date().getFullYear();
 };
 
-const buildClassName = (grade, section) => `${normalizeGrade(grade)}${upper(section)}`;
+const buildRegularClassName = (grade, section) =>
+  `${normalizeGrade(grade)}${upper(section)}`;
+
+const buildStoredClassValues = (grade, section, stream = "") => {
+  const g = normalizeGrade(grade);
+  const s = upper(section);
+  const st = normalizeText(stream);
+
+  if (isALGrade(g) && st) {
+    const alClassName = buildALClassName(g, st, s);
+    return {
+      className: buildRegularClassName(g, s),
+      fullClassName: alClassName,
+      alClassName,
+      streamCode: AL_STREAM_CODES[st] || "",
+      displayClassName: buildALDisplayClassName(g, st, s) || alClassName,
+    };
+  }
+
+  const regular = buildRegularClassName(g, s);
+  return {
+    className: regular,
+    fullClassName: regular,
+    alClassName: "",
+    streamCode: "",
+    displayClassName: regular,
+  };
+};
 
 const normalizeTeacher = (id, data = {}, source = "users") => {
   const name =
@@ -127,10 +165,8 @@ const normalizeClassroom = (id, data = {}) => {
   const grade = normalizeGrade(data.grade);
   const section = upper(data.section || data.classSection || "");
   const year = normalizeYear(data.year || data.academicYear || new Date().getFullYear());
-  const className =
-    safeString(data.className) ||
-    safeString(data.fullClassName) ||
-    buildClassName(grade, section);
+  const stream = safeString(data.stream);
+  const built = buildStoredClassValues(grade, section, stream);
 
   return {
     id,
@@ -138,9 +174,11 @@ const normalizeClassroom = (id, data = {}) => {
     grade,
     section,
     year,
-    className,
-    fullClassName: safeString(data.fullClassName) || className,
-    stream: safeString(data.stream),
+    className: safeString(data.className) || built.className,
+    fullClassName: safeString(data.fullClassName) || built.fullClassName,
+    alClassName: safeString(data.alClassName) || built.alClassName,
+    stream,
+    streamCode: safeString(data.streamCode) || built.streamCode,
     notes: safeString(data.notes),
     classTeacherId:
       safeString(data.classTeacherId) ||
@@ -212,6 +250,7 @@ export default function ClassroomManagement() {
         .map((d) => normalizeClassroom(d.id, d.data()))
         .sort((a, b) => {
           if (a.grade !== b.grade) return a.grade - b.grade;
+          if (a.stream !== b.stream) return a.stream.localeCompare(b.stream);
           if (a.section !== b.section) return a.section.localeCompare(b.section);
           return b.year - a.year;
         });
@@ -255,25 +294,27 @@ export default function ClassroomManagement() {
     const direct = teachersById.get(classroom.classTeacherId);
     if (direct) return direct;
 
-    return teachers.find((teacher) => {
-      const teacherName = safeString(teacher.name).toLowerCase();
-      const teacherEmail = safeString(teacher.email).toLowerCase();
-      const teacherUid = safeString(teacher.uid);
-      const teacherSignatureNo = safeString(teacher.signatureNo);
+    return (
+      teachers.find((teacher) => {
+        const teacherName = safeString(teacher.name).toLowerCase();
+        const teacherEmail = safeString(teacher.email).toLowerCase();
+        const teacherUid = safeString(teacher.uid);
+        const teacherSignatureNo = safeString(teacher.signatureNo);
 
-      return (
-        (classroom.classTeacherUid && teacherUid && classroom.classTeacherUid === teacherUid) ||
-        (classroom.classTeacherEmail &&
-          teacherEmail &&
-          classroom.classTeacherEmail.toLowerCase() === teacherEmail) ||
-        (classroom.classTeacherSignatureNo &&
-          teacherSignatureNo &&
-          classroom.classTeacherSignatureNo === teacherSignatureNo) ||
-        (classroom.classTeacherName &&
-          teacherName &&
-          classroom.classTeacherName.toLowerCase() === teacherName)
-      );
-    }) || null;
+        return (
+          (classroom.classTeacherUid && teacherUid && classroom.classTeacherUid === teacherUid) ||
+          (classroom.classTeacherEmail &&
+            teacherEmail &&
+            classroom.classTeacherEmail.toLowerCase() === teacherEmail) ||
+          (classroom.classTeacherSignatureNo &&
+            teacherSignatureNo &&
+            classroom.classTeacherSignatureNo === teacherSignatureNo) ||
+          (classroom.classTeacherName &&
+            teacherName &&
+            classroom.classTeacherName.toLowerCase() === teacherName)
+        );
+      }) || null
+    );
   };
 
   const getTeacherName = (classroom) => {
@@ -282,20 +323,25 @@ export default function ClassroomManagement() {
   };
 
   const getClassLabel = (classroom) => {
-    let label = `Grade ${classroom.grade} - ${classroom.section}`;
-    if (classroom.stream) label += ` (${classroom.stream})`;
-    return label;
+    if (classroom.alClassName) return classroom.alClassName;
+    return `Grade ${classroom.grade} - ${classroom.section}`;
   };
 
   const getAvailableSections = () => {
     const currentGrade = normalizeGrade(form.grade);
     const currentYear = normalizeYear(form.year);
+    const currentStream = normalizeText(form.stream);
 
-    const existingForGradeYear = classrooms
-      .filter((c) => c.grade === currentGrade && c.year === currentYear)
-      .map((c) => c.section);
+    const existingForScope = classrooms.filter((c) => {
+      if (c.grade !== currentGrade || c.year !== currentYear) return false;
+      if (isALGrade(currentGrade)) {
+        return safeString(c.stream) === currentStream;
+      }
+      return true;
+    });
 
-    const sectionSet = new Set(existingForGradeYear);
+    const existingSections = existingForScope.map((c) => c.section);
+    const sectionSet = new Set(existingSections);
 
     ["A", "B", "C", "D"].forEach((section) => sectionSet.add(section));
 
@@ -324,40 +370,62 @@ export default function ClassroomManagement() {
 
     const grade = normalizeGrade(form.grade);
     const year = normalizeYear(form.year);
+    const stream = safeString(form.stream);
 
-    const existingForGradeYear = classrooms
-      .filter((c) => c.grade === grade && c.year === year)
-      .map((c) => c.section);
+    if (isALGrade(grade) && !stream) {
+      setError("Select a stream first for Grade 12–13 classrooms.");
+      return;
+    }
+
+    const existingForScope = classrooms.filter((c) => {
+      if (c.grade !== grade || c.year !== year) return false;
+      if (isALGrade(grade)) return safeString(c.stream) === stream;
+      return true;
+    });
 
     const nextSection = ALL_SECTIONS.find(
-      (section) => !existingForGradeYear.includes(section)
+      (section) => !existingForScope.map((c) => c.section).includes(section)
     );
 
     if (!nextSection) {
-      setError(`No more section letters available for Grade ${grade} in ${year}.`);
+      setError(
+        isALGrade(grade)
+          ? `No more section letters available for Grade ${grade} ${stream} in ${year}.`
+          : `No more section letters available for Grade ${grade} in ${year}.`
+      );
       return;
     }
 
     const duplicate = classrooms.find(
-      (c) => c.grade === grade && c.section === nextSection && c.year === year
+      (c) =>
+        c.grade === grade &&
+        c.section === nextSection &&
+        c.year === year &&
+        (isALGrade(grade) ? safeString(c.stream) === stream : true)
     );
 
     if (duplicate) {
-      setError(`Grade ${grade}-${nextSection} already exists for ${year}.`);
+      setError(
+        isALGrade(grade)
+          ? `${buildALClassName(grade, stream, nextSection)} already exists for ${year}.`
+          : `Grade ${grade}-${nextSection} already exists for ${year}.`
+      );
       return;
     }
 
     setCreatingSection(true);
 
     try {
-      const className = buildClassName(grade, nextSection);
+      const built = buildStoredClassValues(grade, nextSection, stream);
 
       await addDoc(collection(db, "classrooms"), {
         grade,
         section: nextSection,
-        className,
-        fullClassName: className,
-        stream: grade >= 12 ? safeString(form.stream) : "",
+        className: built.className,
+        fullClassName: built.fullClassName,
+        alClassName: built.alClassName,
+        stream: isALGrade(grade) ? stream : "",
+        streamCode: built.streamCode,
         classTeacherId: "",
         classTeacherUid: "",
         classTeacherName: "",
@@ -371,8 +439,19 @@ export default function ClassroomManagement() {
         updatedAt: new Date().toISOString(),
       });
 
-      setForm((prev) => ({ ...prev, section: nextSection }));
-      setSuccess(`New classroom created: Grade ${grade} - ${nextSection}`);
+      setForm((prev) => ({
+        ...prev,
+        section: nextSection,
+        streamCode: built.streamCode,
+        alClassName: built.alClassName,
+        fullClassName: built.fullClassName,
+      }));
+
+      setSuccess(
+        isALGrade(grade)
+          ? `New classroom created: ${built.fullClassName}`
+          : `New classroom created: Grade ${grade} - ${nextSection}`
+      );
       await fetchData();
     } catch (err) {
       setError(`Failed to create classroom: ${err.message}`);
@@ -385,36 +464,49 @@ export default function ClassroomManagement() {
     const grade = normalizeGrade(form.grade);
     const section = upper(form.section);
     const year = normalizeYear(form.year);
+    const stream = safeString(form.stream);
 
     if (!grade || !section) {
       setError("Grade and Section are required.");
       return;
     }
 
-    const duplicate = classrooms.find(
-      (c) =>
-        c.grade === grade &&
-        c.section === section &&
-        c.year === year &&
-        c.id !== editId
-    );
+    if (isALGrade(grade) && !stream) {
+      setError("Stream is required for Grade 12–13 classrooms.");
+      return;
+    }
+
+    const duplicate = classrooms.find((c) => {
+      if (c.id === editId) return false;
+      if (c.grade !== grade || c.section !== section || c.year !== year) return false;
+      if (isALGrade(grade)) {
+        return safeString(c.stream) === stream;
+      }
+      return true;
+    });
 
     if (duplicate) {
-      setError(`Grade ${grade}-${section} already exists for ${year}.`);
+      setError(
+        isALGrade(grade)
+          ? `${buildALClassName(grade, stream, section)} already exists for ${year}.`
+          : `Grade ${grade}-${section} already exists for ${year}.`
+      );
       return;
     }
 
     const selectedTeacher =
       teachers.find((teacher) => teacher.id === form.classTeacherId) || null;
 
-    const className = buildClassName(grade, section);
+    const built = buildStoredClassValues(grade, section, stream);
 
     const payload = {
       grade,
       section,
-      className,
-      fullClassName: className,
-      stream: grade >= 12 ? safeString(form.stream) : "",
+      className: built.className,
+      fullClassName: built.fullClassName,
+      alClassName: built.alClassName,
+      stream: isALGrade(grade) ? stream : "",
+      streamCode: built.streamCode,
       classTeacherId: selectedTeacher?.id || "",
       classTeacherUid: selectedTeacher?.uid || "",
       classTeacherName: selectedTeacher?.name || "",
@@ -434,13 +526,13 @@ export default function ClassroomManagement() {
     try {
       if (editId) {
         await updateDoc(doc(db, "classrooms", editId), payload);
-        setSuccess("Classroom updated successfully!");
+        setSuccess("Classroom updated successfully.");
       } else {
         await addDoc(collection(db, "classrooms"), {
           ...payload,
           createdAt: new Date().toISOString(),
         });
-        setSuccess("Classroom added successfully!");
+        setSuccess("Classroom added successfully.");
       }
 
       setOpen(false);
@@ -463,6 +555,9 @@ export default function ClassroomManagement() {
       grade: classroom.grade || 6,
       section: classroom.section || "A",
       stream: classroom.stream || "",
+      streamCode: classroom.streamCode || "",
+      alClassName: classroom.alClassName || "",
+      fullClassName: classroom.fullClassName || "",
       classTeacherId: teacher?.id || classroom.classTeacherId || "",
       year: classroom.year || 2026,
       notes: classroom.notes || "",
@@ -637,7 +732,7 @@ export default function ClassroomManagement() {
 
                     {classroom.stream && (
                       <Chip
-                        label={classroom.stream}
+                        label={AL_STREAM_SHORT_NAMES[classroom.stream] || classroom.stream}
                         size="small"
                         color="warning"
                         sx={{ mt: 1, fontWeight: 600 }}
@@ -708,16 +803,21 @@ export default function ClassroomManagement() {
                     <Table size="small">
                       <TableHead sx={{ bgcolor: "#1a237e" }}>
                         <TableRow>
-                          {["Section", "Year", "Class Teacher", "Stream", "Notes", "Actions"].map(
-                            (heading) => (
-                              <TableCell
-                                key={heading}
-                                sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
-                              >
-                                {heading}
-                              </TableCell>
-                            )
-                          )}
+                          {[
+                            "Class",
+                            "Year",
+                            "Class Teacher",
+                            "Stream",
+                            "Notes",
+                            "Actions",
+                          ].map((heading) => (
+                            <TableCell
+                              key={heading}
+                              sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
+                            >
+                              {heading}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       </TableHead>
 
@@ -730,10 +830,10 @@ export default function ClassroomManagement() {
                           >
                             <TableCell>
                               <Chip
-                                label={classroom.section}
+                                label={classroom.fullClassName || getClassLabel(classroom)}
                                 size="small"
                                 color="primary"
-                                sx={{ fontWeight: 800, fontSize: 13 }}
+                                sx={{ fontWeight: 800, fontSize: 12 }}
                               />
                             </TableCell>
 
@@ -770,7 +870,7 @@ export default function ClassroomManagement() {
                             <TableCell>
                               {classroom.stream ? (
                                 <Chip
-                                  label={classroom.stream}
+                                  label={AL_STREAM_SHORT_NAMES[classroom.stream] || classroom.stream}
                                   size="small"
                                   color="warning"
                                   sx={{ fontWeight: 600 }}
@@ -852,13 +952,24 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.grade}
                   label="Grade"
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextGrade = Number(e.target.value);
+                    const built = buildStoredClassValues(
+                      nextGrade,
+                      "A",
+                      isALGrade(nextGrade) ? form.stream : ""
+                    );
+
                     setForm((prev) => ({
                       ...prev,
-                      grade: Number(e.target.value),
+                      grade: nextGrade,
                       section: "A",
-                    }))
-                  }
+                      stream: isALGrade(nextGrade) ? prev.stream : "",
+                      streamCode: built.streamCode,
+                      alClassName: built.alClassName,
+                      fullClassName: built.fullClassName,
+                    }));
+                  }}
                 >
                   {GRADES.map((grade) => (
                     <MenuItem key={grade} value={grade}>
@@ -875,9 +986,18 @@ export default function ClassroomManagement() {
                 <Select
                   value={form.section}
                   label="Section"
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, section: upper(e.target.value) }))
-                  }
+                  onChange={(e) => {
+                    const nextSection = upper(e.target.value);
+                    const built = buildStoredClassValues(form.grade, nextSection, form.stream);
+
+                    setForm((prev) => ({
+                      ...prev,
+                      section: nextSection,
+                      streamCode: built.streamCode,
+                      alClassName: built.alClassName,
+                      fullClassName: built.fullClassName,
+                    }));
+                  }}
                 >
                   {availableSections.map((section) => (
                     <MenuItem key={section} value={section}>
@@ -888,7 +1008,7 @@ export default function ClassroomManagement() {
               </FormControl>
 
               <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                Existing + next available section for selected year
+                Existing + next available section for selected scope
               </Typography>
             </Grid>
 
@@ -911,6 +1031,60 @@ export default function ClassroomManagement() {
               </FormControl>
             </Grid>
 
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth disabled={!isALGrade(form.grade)}>
+                <InputLabel>Stream</InputLabel>
+                <Select
+                  value={form.stream || ""}
+                  label="Stream"
+                  onChange={(e) => {
+                    const nextStream = e.target.value || "";
+                    const built = buildStoredClassValues(form.grade, form.section, nextStream);
+
+                    setForm((prev) => ({
+                      ...prev,
+                      stream: nextStream,
+                      streamCode: built.streamCode,
+                      alClassName: built.alClassName,
+                      fullClassName: built.fullClassName,
+                    }));
+                  }}
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {AL_STREAM_OPTIONS.map((stream) => (
+                    <MenuItem key={stream} value={stream}>
+                      {stream}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <Typography variant="caption" color="text.secondary">
+                {isALGrade(form.grade) ? "Required for Grade 12–13" : "Only for Grade 12–13"}
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Stream Code"
+                value={form.streamCode || ""}
+                InputProps={{ readOnly: true }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Full Class Name"
+                value={
+                  form.fullClassName ||
+                  buildStoredClassValues(form.grade, form.section, form.stream).fullClassName
+                }
+                InputProps={{ readOnly: true }}
+              />
+            </Grid>
+
             <Grid item xs={12}>
               <Button
                 fullWidth
@@ -930,11 +1104,14 @@ export default function ClassroomManagement() {
               >
                 {creatingSection
                   ? "Creating..."
+                  : isALGrade(form.grade) && form.stream
+                  ? `Create New ${AL_STREAM_SHORT_NAMES[form.stream] || form.stream} Division`
                   : `Create New Classroom / Division for Grade ${form.grade}`}
               </Button>
 
               <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
-                This creates the next section automatically for the selected year.
+                This creates the next section automatically for the selected year
+                {isALGrade(form.grade) && form.stream ? ` and stream (${form.stream})` : ""}.
               </Typography>
             </Grid>
 
@@ -971,35 +1148,9 @@ export default function ClassroomManagement() {
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth disabled={form.grade < 12}>
-                <InputLabel>Stream</InputLabel>
-                <Select
-                  value={form.stream || ""}
-                  label="Stream"
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, stream: e.target.value || "" }))
-                  }
-                >
-                  <MenuItem value="">None</MenuItem>
-                  {STREAMS.map((stream) => (
-                    <MenuItem key={stream} value={stream}>
-                      {stream}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Typography variant="caption" color="text.secondary">
-                {form.grade < 12 ? "Only for Grade 12–13" : "Select A/L stream"}
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
               <TextField
                 fullWidth
                 label="Notes (optional)"
-                multiline
-                rows={2}
                 value={form.notes || ""}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, notes: e.target.value }))

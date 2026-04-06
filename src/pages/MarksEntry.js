@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   CircularProgress,
   FormControl,
   FormControlLabel,
@@ -11,6 +12,7 @@ import {
   InputLabel,
   LinearProgress,
   MenuItem,
+  Paper,
   Select,
   Stack,
   Table,
@@ -29,6 +31,9 @@ import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
+import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import {
   collection,
   doc,
@@ -44,7 +49,6 @@ import { useAuth } from "../context/AuthContext";
 import {
   ActionBar,
   EmptyState,
-  FilterCard,
   MobileListRow,
   PageContainer,
   ResponsiveTableWrapper,
@@ -52,6 +56,12 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
+import {
+  normalizeText,
+  isALGrade,
+  buildALClassName,
+  buildALDisplayClassName,
+} from "../constants/constants";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -64,8 +74,47 @@ const asNumber = (value) => {
   return Number.isNaN(parsed) ? null : parsed;
 };
 
-const makeClassName = (item = {}) =>
-  pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+const parseGrade = (value) => {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const normalizeSection = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
+
+const getClassIdentity = (item = {}) =>
+  pick(item.alClassName, item.fullClassName, item.className, "");
+
+const getClassFallback = (item = {}) => {
+  const grade = parseGrade(item.grade);
+  const section = normalizeSection(pick(item.section, item.className, ""));
+  const stream = normalizeText(item.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+};
+
+const getDisplayClassName = (item = {}) => {
+  const explicit = pick(item.alClassName, item.fullClassName, "");
+  if (explicit) {
+    const grade = parseGrade(item.grade);
+    const section = normalizeSection(pick(item.section, item.className, ""));
+    const stream = normalizeText(item.stream);
+
+    if (isALGrade(grade) && stream && section) {
+      return buildALDisplayClassName(grade, stream, section) || explicit;
+    }
+    return explicit;
+  }
+
+  return getClassFallback(item);
+};
 
 const buildTermKey = (term = {}) =>
   `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
@@ -89,12 +138,6 @@ const isSameTeacher = (item, user) => {
     itemTeacherId === normalize(user.uid) ||
     itemTeacherEmail === normalize(user.email)
   );
-};
-
-const buildSubjectKey = (item = {}) => {
-  const subjectId = pick(item.subjectId, "");
-  const subjectName = pick(item.subjectName, item.subject, "");
-  return `${subjectId}__${subjectName}`;
 };
 
 const getStudentSortIndex = (row = {}) =>
@@ -123,6 +166,13 @@ const sortRowsInTeacherMarkSheetOrder = (rows = []) => {
       { sensitivity: "base" }
     );
   });
+};
+
+const sectionCardSx = {
+  borderRadius: 3,
+  border: "1px solid #e8eaf6",
+  boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+  backgroundColor: "white",
 };
 
 export default function MarksEntry() {
@@ -164,6 +214,16 @@ export default function MarksEntry() {
         location.state?.className,
         ""
       ),
+      fullClassName: pick(
+        urlParams.get("fullClassName"),
+        location.state?.fullClassName,
+        ""
+      ),
+      stream: pick(
+        urlParams.get("stream"),
+        location.state?.stream,
+        ""
+      ),
       subjectName: pick(
         urlParams.get("subjectName"),
         location.state?.subjectName,
@@ -197,35 +257,47 @@ export default function MarksEntry() {
     const map = new Map();
 
     teacherAssignments.forEach((assignment) => {
-      const className = makeClassName(assignment);
-      if (!className) return;
+      const classIdentity = getClassIdentity(assignment) || getClassFallback(assignment);
+      if (!classIdentity) return;
 
-      if (!map.has(className)) {
-        map.set(className, {
-          className,
+      if (!map.has(classIdentity)) {
+        map.set(classIdentity, {
+          className: pick(assignment.className, ""),
+          fullClassName: classIdentity,
+          displayClassName: getDisplayClassName(assignment),
           grade: pick(assignment.grade, ""),
           section: pick(assignment.section, ""),
+          stream: pick(assignment.stream, ""),
         });
       }
     });
 
     return Array.from(map.values()).sort((a, b) =>
-      String(a.className).localeCompare(String(b.className), undefined, {
+      String(a.fullClassName).localeCompare(String(b.fullClassName), undefined, {
         numeric: true,
         sensitivity: "base",
       })
     );
   }, [teacherAssignments]);
 
+  const selectedClassRow = useMemo(
+    () =>
+      classOptions.find(
+        (option) => normalize(option.fullClassName) === normalize(selectedClass)
+      ) || null,
+    [classOptions, selectedClass]
+  );
+
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
     teacherAssignments
-      .filter(
-        (assignment) =>
-          !selectedClass ||
-          normalize(makeClassName(assignment)) === normalize(selectedClass)
-      )
+      .filter((assignment) => {
+        if (!selectedClass) return true;
+
+        const assignmentClass = getClassIdentity(assignment) || getClassFallback(assignment);
+        return normalize(assignmentClass) === normalize(selectedClass);
+      })
       .forEach((assignment) => {
         const subjectId = pick(assignment.subjectId, "");
         const subjectName = pick(assignment.subjectName, assignment.subject, "");
@@ -236,6 +308,8 @@ export default function MarksEntry() {
             key: subjectKey,
             subjectId,
             subjectName,
+            subjectNumber: pick(assignment.subjectNumber, ""),
+            stream: pick(assignment.stream, ""),
           });
         }
       });
@@ -392,7 +466,8 @@ export default function MarksEntry() {
       setMarksDocs(allMarks);
 
       if (!selectedClass && scopedAssignments.length > 0) {
-        const defaultClass = makeClassName(scopedAssignments[0]);
+        const defaultClass =
+          getClassIdentity(scopedAssignments[0]) || getClassFallback(scopedAssignments[0]);
         setSelectedClass(defaultClass);
       }
     } catch (err) {
@@ -434,8 +509,10 @@ export default function MarksEntry() {
       const termYear = pick(activeTerm.year, activeTerm.academicYear, "");
 
       const relevantEnrollments = allEnrollments.filter((enrollment) => {
+        const enrollmentClass = getClassIdentity(enrollment) || getClassFallback(enrollment);
+
         const sameClass =
-          normalize(makeClassName(enrollment)) === normalize(selectedClass);
+          normalize(enrollmentClass) === normalize(selectedClass);
 
         const sameSubject =
           normalize(pick(enrollment.subjectId, "")) ===
@@ -448,9 +525,13 @@ export default function MarksEntry() {
           normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
             normalize(termYear);
 
+        const sameStream =
+          !selectedClassRow?.stream ||
+          normalize(pick(enrollment.stream, "")) === normalize(selectedClassRow.stream);
+
         const status = normalize(pick(enrollment.status, "active"));
 
-        return sameClass && sameSubject && sameYear && (!status || status === "active");
+        return sameClass && sameSubject && sameYear && sameStream && (!status || status === "active");
       });
 
       const mappedRows = relevantEnrollments.map((enrollment) => {
@@ -462,7 +543,7 @@ export default function MarksEntry() {
           const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
           const sameClass =
-            normalize(makeClassName(mark)) === normalize(selectedClass);
+            normalize(getClassIdentity(mark) || getClassFallback(mark)) === normalize(selectedClass);
 
           const sameSubject =
             normalize(pick(mark.subjectId, "")) ===
@@ -478,7 +559,11 @@ export default function MarksEntry() {
             normalize(pick(mark.academicYear, mark.year, "")) ===
             normalize(termYear);
 
-          return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
+          const sameStream =
+            !selectedClassRow?.stream ||
+            normalize(pick(mark.stream, "")) === normalize(selectedClassRow.stream);
+
+          return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameStream;
         });
 
         const studentName = pick(
@@ -509,13 +594,16 @@ export default function MarksEntry() {
           admissionNo,
           grade: pick(enrollment.grade, student.grade, ""),
           section: pick(enrollment.section, student.section, ""),
-          className: selectedClass,
+          className: pick(enrollment.className, selectedClassRow?.className, ""),
+          fullClassName: getClassIdentity(enrollment) || selectedClass,
+          stream: pick(enrollment.stream, selectedClassRow?.stream, ""),
           subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
           subjectName: pick(
             enrollment.subjectName,
             selectedSubject.subjectName,
             ""
           ),
+          subjectNumber: pick(enrollment.subjectNumber, selectedSubject.subjectNumber, ""),
           term: termName,
           academicYear: termYear,
           mark: absent ? "" : markValue ?? "",
@@ -546,13 +634,12 @@ export default function MarksEntry() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, marksDocs, selectedClass, selectedSubject]);
+  }, [activeTerm, marksDocs, selectedClass, selectedSubject, selectedClassRow]);
 
   useEffect(() => {
     loadBase();
   }, [loadBase]);
 
-  // Reset navigation application whenever a new dashboard click arrives
   useEffect(() => {
     appliedNavigationSelectionRef.current = "";
     setSelectedSubjectKey("");
@@ -560,16 +647,26 @@ export default function MarksEntry() {
 
   useEffect(() => {
     if (bootLoading) return;
-    if (!navigationSelection.className) return;
+
+    const targetClass = navigationSelection.fullClassName || navigationSelection.className;
+    if (!targetClass) return;
 
     const matchedClass = classOptions.find(
-      (option) => normalize(option.className) === normalize(navigationSelection.className)
+      (option) =>
+        normalize(option.fullClassName) === normalize(targetClass) ||
+        normalize(option.className) === normalize(targetClass)
     );
 
-    if (matchedClass && selectedClass !== matchedClass.className) {
-      setSelectedClass(matchedClass.className);
+    if (matchedClass && selectedClass !== matchedClass.fullClassName) {
+      setSelectedClass(matchedClass.fullClassName);
     }
-  }, [bootLoading, navigationSelection.className, classOptions, selectedClass]);
+  }, [
+    bootLoading,
+    navigationSelection.fullClassName,
+    navigationSelection.className,
+    classOptions,
+    selectedClass,
+  ]);
 
   useEffect(() => {
     if (bootLoading) return;
@@ -732,11 +829,15 @@ export default function MarksEntry() {
           admissionNo: row.admissionNo || "",
           indexNo: row.indexNo || "",
           className: row.className,
+          fullClassName: row.fullClassName || selectedClass,
+          alClassName: row.stream ? row.fullClassName || selectedClass : "",
           grade: row.grade || "",
           section: row.section || "",
+          stream: row.stream || "",
           subjectId: row.subjectId || "",
           subjectName: row.subjectName,
           subject: row.subjectName,
+          subjectNumber: row.subjectNumber || "",
           term: row.term,
           termName: row.term,
           academicYear: row.academicYear,
@@ -815,88 +916,98 @@ export default function MarksEntry() {
         </Button>
       }
     >
-      <Stack spacing={2}>
+      <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
         {success ? <Alert severity="success">{success}</Alert> : null}
 
-        <FilterCard
-          title="Select Mark Entry Context"
-          subtitle="Choose class, subject, and term before entering marks."
-        >
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="marks-entry-class-label">Class</InputLabel>
-              <Select
-                labelId="marks-entry-class-label"
-                label="Class"
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-              >
-                {classOptions.map((option) => (
-                  <MenuItem key={option.className} value={option.className}>
-                    {option.className}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+        <Paper sx={{ ...sectionCardSx, p: 2 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={4}>
+              <Stack spacing={0.75}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                  Select Mark Entry Context
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Choose class, subject, and term before entering marks.
+                </Typography>
+              </Stack>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="marks-entry-subject-label">Subject</InputLabel>
-              <Select
-                labelId="marks-entry-subject-label"
-                label="Subject"
-                value={selectedSubjectKey}
-                onChange={(e) => setSelectedSubjectKey(e.target.value)}
-              >
-                {subjectOptions.map((option) => (
-                  <MenuItem key={option.key} value={option.key}>
-                    {option.subjectName}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="marks-entry-term-label">Academic Term</InputLabel>
-              <Select
-                labelId="marks-entry-term-label"
-                label="Academic Term"
-                value={selectedTermKey}
-                onChange={(e) => setSelectedTermKey(e.target.value)}
-              >
-                {terms.map((term) => {
-                  const key = buildTermKey(term);
-                  return (
-                    <MenuItem key={term.id} value={key}>
-                      {buildTermLabel(term)}
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="marks-entry-class-label">Class</InputLabel>
+                <Select
+                  labelId="marks-entry-class-label"
+                  label="Class"
+                  value={selectedClass}
+                  onChange={(e) => setSelectedClass(e.target.value)}
+                >
+                  {classOptions.map((option) => (
+                    <MenuItem key={option.fullClassName} value={option.fullClassName}>
+                      {option.displayClassName || option.fullClassName}
                     </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
-          </Grid>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              label="Search student"
-              placeholder="Name, index no, admission no"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <SearchRoundedIcon
-                    fontSize="small"
-                    style={{ marginRight: 8, opacity: 0.7 }}
-                  />
-                ),
-              }}
-            />
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="marks-entry-subject-label">Subject</InputLabel>
+                <Select
+                  labelId="marks-entry-subject-label"
+                  label="Subject"
+                  value={selectedSubjectKey}
+                  onChange={(e) => setSelectedSubjectKey(e.target.value)}
+                >
+                  {subjectOptions.map((option) => (
+                    <MenuItem key={option.key} value={option.key}>
+                      {option.subjectName}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="marks-entry-term-label">Academic Term</InputLabel>
+                <Select
+                  labelId="marks-entry-term-label"
+                  label="Academic Term"
+                  value={selectedTermKey}
+                  onChange={(e) => setSelectedTermKey(e.target.value)}
+                >
+                  {terms.map((term) => {
+                    const key = buildTermKey(term);
+                    return (
+                      <MenuItem key={term.id} value={key}>
+                        {buildTermLabel(term)}
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.5}>
+              <TextField
+                label="Search student"
+                placeholder="Name, index no, admission no"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <SearchRoundedIcon
+                      fontSize="small"
+                      style={{ marginRight: 8, opacity: 0.7 }}
+                    />
+                  ),
+                }}
+              />
+            </Grid>
           </Grid>
-        </FilterCard>
+        </Paper>
 
         <Grid container spacing={1.5}>
           <Grid item xs={6} md={3}>
@@ -933,33 +1044,41 @@ export default function MarksEntry() {
           </Grid>
         </Grid>
 
-        <SectionCard
-          title="Mark Entry Sheet"
-          subtitle={
-            selectedClass && selectedSubject && activeTerm
-              ? `${selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(
-                  activeTerm
-                )}`
-              : "Select class, subject, and term to begin."
-          }
-          action={
-            selectedClass && selectedSubject && activeTerm ? (
-              <StatusChip
-                status={dirtyCount > 0 ? "draft" : "saved"}
-                label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"}
-              />
-            ) : null
-          }
-        >
-          {(loadingRows || saving) && (
-            <Box sx={{ mb: 2 }}>
-              <LinearProgress />
-            </Box>
-          )}
+        <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
+          <Stack spacing={2}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              spacing={1}
+            >
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                  Mark Entry Sheet
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedClass && selectedSubject && activeTerm
+                    ? `${selectedClassRow?.displayClassName || selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(activeTerm)}`
+                    : "Select class, subject, and term to begin."}
+                </Typography>
+              </Box>
 
-          {selectedClass && selectedSubject && activeTerm ? (
-            <>
-              <Box sx={{ mb: 2 }}>
+              {selectedClass && selectedSubject && activeTerm ? (
+                <StatusChip
+                  status={dirtyCount > 0 ? "draft" : "saved"}
+                  label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"}
+                />
+              ) : null}
+            </Stack>
+
+            {(loadingRows || saving) && (
+              <Box>
+                <LinearProgress />
+              </Box>
+            )}
+
+            {selectedClass && selectedSubject && activeTerm ? (
+              <>
                 <Stack
                   direction={{ xs: "column", md: "row" }}
                   spacing={1}
@@ -967,193 +1086,236 @@ export default function MarksEntry() {
                   alignItems={{ xs: "flex-start", md: "center" }}
                 >
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <StatusChip status="active" label={selectedClass} />
-                    <StatusChip status="active" label={selectedSubject.subjectName} />
-                    <StatusChip status="active" label={buildTermLabel(activeTerm)} />
+                    <Chip
+                      icon={<SchoolRoundedIcon />}
+                      label={selectedClassRow?.displayClassName || selectedClass}
+                      color="primary"
+                      variant="outlined"
+                    />
+                    {selectedClassRow?.stream ? (
+                      <Chip
+                        icon={<ClassRoundedIcon />}
+                        label={selectedClassRow.stream}
+                        color="secondary"
+                        variant="outlined"
+                      />
+                    ) : null}
+                    <Chip
+                      icon={<AutoStoriesRoundedIcon />}
+                      label={selectedSubject.subjectName}
+                      variant="outlined"
+                    />
+                    {selectedSubject.subjectNumber ? (
+                      <Chip
+                        label={`No. ${selectedSubject.subjectNumber}`}
+                        variant="outlined"
+                      />
+                    ) : null}
+                    <Chip
+                      icon={<TimelineRoundedIcon />}
+                      label={buildTermLabel(activeTerm)}
+                      variant="outlined"
+                    />
                   </Stack>
 
                   <Typography variant="body2" color="text.secondary">
                     Save progress: {saveProgress}%
                   </Typography>
                 </Stack>
-              </Box>
 
-              {filteredRows.length === 0 ? (
-                <EmptyState
-                  title="No enrolled students found"
-                  description="No active student subject enrollments matched the current class, subject, and academic year."
-                />
-              ) : isMobile ? (
-                <Stack spacing={1.25}>
-                  {filteredRows.map((row, index) => (
-                    <MobileListRow
-                      key={row.key}
-                      title={`${index + 1}. ${row.studentName}`}
-                      subtitle={[
-                        row.indexNo ? `Index: ${row.indexNo}` : null,
-                        row.admissionNo ? `Admission: ${row.admissionNo}` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" • ")}
-                      right={
-                        row.isDirty ? (
-                          <StatusChip status="draft" />
-                        ) : row.existingDocId ? (
-                          <StatusChip status="saved" />
+                {filteredRows.length === 0 ? (
+                  <EmptyState
+                    title="No enrolled students found"
+                    description="No active student subject enrollments matched the current class, subject, and academic year."
+                  />
+                ) : isMobile ? (
+                  <Stack spacing={1.25}>
+                    {filteredRows.map((row, index) => (
+                      <MobileListRow
+                        key={row.key}
+                        title={`${index + 1}. ${row.studentName}`}
+                        subtitle={[
+                          row.indexNo ? `Index: ${row.indexNo}` : null,
+                          row.admissionNo ? `Admission: ${row.admissionNo}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
+                        right={
+                          row.isDirty ? (
+                            <StatusChip status="draft" />
+                          ) : row.existingDocId ? (
+                            <StatusChip status="saved" />
+                          ) : (
+                            <StatusChip status="pending" label="New" />
+                          )
+                        }
+                        footer={
+                          <Stack spacing={1.25}>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                              {row.subjectNumber ? (
+                                <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                              ) : null}
+                              {row.stream ? (
+                                <Chip size="small" variant="outlined" label={row.stream} />
+                              ) : null}
+                            </Stack>
+
+                            <Grid container spacing={1.25}>
+                              <Grid item xs={7}>
+                                <TextField
+                                  label="Mark"
+                                  value={drafts[row.key]?.mark ?? row.mark ?? ""}
+                                  onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                                  onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
+                                  disabled={drafts[row.key]?.absent ?? row.absent}
+                                  inputProps={{
+                                    inputMode: "decimal",
+                                  }}
+                                  inputRef={(element) => setMarkInputRef(row.key, element)}
+                                />
+                              </Grid>
+                              <Grid item xs={5}>
+                                <Box
+                                  sx={{
+                                    height: "100%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    borderRadius: 2,
+                                    px: 1,
+                                  }}
+                                >
+                                  <FormControlLabel
+                                    control={
+                                      <Checkbox
+                                        checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
+                                        onChange={(e) =>
+                                          handleAbsentChange(row.key, e.target.checked)
+                                        }
+                                      />
+                                    }
+                                    label="Absent"
+                                    sx={{ mr: 0 }}
+                                  />
+                                </Box>
+                              </Grid>
+                            </Grid>
+                          </Stack>
+                        }
+                      />
+                    ))}
+                  </Stack>
+                ) : (
+                  <ResponsiveTableWrapper minWidth={1080}>
+                    <Table>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell width={80}>No</TableCell>
+                          <TableCell>Name</TableCell>
+                          <TableCell width={140}>Index No</TableCell>
+                          <TableCell width={160}>Admission No</TableCell>
+                          <TableCell width={110}>Subject No</TableCell>
+                          <TableCell width={140}>Stream</TableCell>
+                          <TableCell width={160}>Mark</TableCell>
+                          <TableCell width={120}>Absent</TableCell>
+                          <TableCell width={140}>Status</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredRows.map((row, index) => (
+                          <TableRow key={row.key} hover>
+                            <TableCell>{index + 1}</TableCell>
+                            <TableCell>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                {row.studentName}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{row.indexNo || "-"}</TableCell>
+                            <TableCell>{row.admissionNo || "-"}</TableCell>
+                            <TableCell>{row.subjectNumber || "-"}</TableCell>
+                            <TableCell>{row.stream || "-"}</TableCell>
+                            <TableCell>
+                              <TextField
+                                value={drafts[row.key]?.mark ?? row.mark ?? ""}
+                                onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                                onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
+                                disabled={drafts[row.key]?.absent ?? row.absent}
+                                inputProps={{
+                                  inputMode: "decimal",
+                                }}
+                                inputRef={(element) => setMarkInputRef(row.key, element)}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Checkbox
+                                checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
+                                onChange={(e) =>
+                                  handleAbsentChange(row.key, e.target.checked)
+                                }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {row.isDirty ? (
+                                <StatusChip status="draft" />
+                              ) : row.existingDocId ? (
+                                <StatusChip status="saved" />
+                              ) : (
+                                <StatusChip status="pending" label="New" />
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+                )}
+
+                <ActionBar sticky>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <StatusChip status="active" label={`${filteredRows.length} rows`} />
+                    <StatusChip
+                      status={dirtyCount > 0 ? "draft" : "saved"}
+                      label={`${dirtyCount} unsaved`}
+                    />
+                  </Stack>
+
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => loadStudents()}
+                      disabled={loadingRows || saving}
+                      startIcon={<RefreshRoundedIcon />}
+                    >
+                      Reload
+                    </Button>
+                    <Button
+                      variant="contained"
+                      onClick={handleSave}
+                      disabled={saving || loadingRows || dirtyCount === 0}
+                      startIcon={
+                        saving ? (
+                          <CircularProgress size={16} color="inherit" />
                         ) : (
-                          <StatusChip status="pending" label="New" />
+                          <SaveRoundedIcon />
                         )
                       }
                     >
-                      <Grid container spacing={1.25}>
-                        <Grid item xs={7}>
-                          <TextField
-                            label="Mark"
-                            value={drafts[row.key]?.mark ?? row.mark ?? ""}
-                            onChange={(e) => handleMarkChange(row.key, e.target.value)}
-                            onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
-                            disabled={drafts[row.key]?.absent ?? row.absent}
-                            inputProps={{
-                              inputMode: "decimal",
-                              ref: (element) => setMarkInputRef(row.key, element),
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={5}>
-                          <Box
-                            sx={{
-                              height: "100%",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              border: "1px solid",
-                              borderColor: "divider",
-                              borderRadius: 2,
-                              px: 1,
-                            }}
-                          >
-                            <FormControlLabel
-                              control={
-                                <Checkbox
-                                  checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
-                                  onChange={(e) =>
-                                    handleAbsentChange(row.key, e.target.checked)
-                                  }
-                                />
-                              }
-                              label="Absent"
-                              sx={{ mr: 0 }}
-                            />
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </MobileListRow>
-                  ))}
-                </Stack>
-              ) : (
-                <ResponsiveTableWrapper minWidth={980}>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell width={80}>No</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell width={140}>Index No</TableCell>
-                        <TableCell width={160}>Admission No</TableCell>
-                        <TableCell width={160}>Mark</TableCell>
-                        <TableCell width={120}>Absent</TableCell>
-                        <TableCell width={140}>Status</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredRows.map((row, index) => (
-                        <TableRow key={row.key} hover>
-                          <TableCell>{index + 1}</TableCell>
-                          <TableCell>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                              {row.studentName}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{row.indexNo || "-"}</TableCell>
-                          <TableCell>{row.admissionNo || "-"}</TableCell>
-                          <TableCell>
-                            <TextField
-                              value={drafts[row.key]?.mark ?? row.mark ?? ""}
-                              onChange={(e) => handleMarkChange(row.key, e.target.value)}
-                              onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
-                              disabled={drafts[row.key]?.absent ?? row.absent}
-                              inputProps={{
-                                inputMode: "decimal",
-                                ref: (element) => setMarkInputRef(row.key, element),
-                              }}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Checkbox
-                              checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
-                              onChange={(e) =>
-                                handleAbsentChange(row.key, e.target.checked)
-                              }
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {row.isDirty ? (
-                              <StatusChip status="draft" />
-                            ) : row.existingDocId ? (
-                              <StatusChip status="saved" />
-                            ) : (
-                              <StatusChip status="pending" label="New" />
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ResponsiveTableWrapper>
-              )}
-
-              <ActionBar sticky>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                  <StatusChip status="active" label={`${filteredRows.length} rows`} />
-                  <StatusChip
-                    status={dirtyCount > 0 ? "draft" : "saved"}
-                    label={`${dirtyCount} unsaved`}
-                  />
-                </Stack>
-
-                <Stack direction="row" spacing={1}>
-                  <Button
-                    variant="outlined"
-                    onClick={() => loadStudents()}
-                    disabled={loadingRows || saving}
-                    startIcon={<RefreshRoundedIcon />}
-                  >
-                    Reload
-                  </Button>
-                  <Button
-                    variant="contained"
-                    onClick={handleSave}
-                    disabled={saving || loadingRows || dirtyCount === 0}
-                    startIcon={
-                      saving ? (
-                        <CircularProgress size={16} color="inherit" />
-                      ) : (
-                        <SaveRoundedIcon />
-                      )
-                    }
-                  >
-                    Save Marks
-                  </Button>
-                </Stack>
-              </ActionBar>
-            </>
-          ) : (
-            <EmptyState
-              title="Select filters to start"
-              description="Choose class, subject, and academic term to load enrolled students for mark entry."
-            />
-          )}
-        </SectionCard>
+                      Save Marks
+                    </Button>
+                  </Stack>
+                </ActionBar>
+              </>
+            ) : (
+              <EmptyState
+                title="Select filters to start"
+                description="Choose class, subject, and academic term to load enrolled students for mark entry."
+              />
+            )}
+          </Stack>
+        </Paper>
       </Stack>
     </PageContainer>
   );

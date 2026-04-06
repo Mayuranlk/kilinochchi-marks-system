@@ -62,19 +62,20 @@ const RELIGION_OPTIONS = [
 ];
 
 const STREAM_OPTIONS = [
-  "Science",
+  "Physical Science",
+  "Biological Science",
+  "Engineering Technology",
+  "Bio Systems Technology",
   "Commerce",
   "Arts",
-  "Technology",
-  "Maths",
-  "Bio",
 ];
 
-const GRADE_OPTIONS = Array.from({ length: 13 }, (_, i) => i + 1);
+const GRADE_OPTIONS = Array.from({ length: 8 }, (_, i) => i + 6);
 
 const defaultForm = {
   id: "",
   code: "",
+  subjectNumber: "",
   name: "",
   shortName: "",
   category: "core",
@@ -149,16 +150,20 @@ function getSubjectName(subject) {
   return normalizeText(subject.name || subject.subjectName || "");
 }
 
+function getSubjectNumber(subject) {
+  return normalizeText(subject.subjectNumber || "");
+}
+
 function getInitialsFromName(name) {
   return normalizeText(name)
     .split(" ")
     .filter(Boolean)
     .map((x) => x[0]?.toUpperCase())
     .join("")
-    .slice(0, 6);
+    .slice(0, 8);
 }
 
-function buildAutoCode(name, category) {
+function buildAutoCode(name, category, subjectNumber = "") {
   const initials = getInitialsFromName(name);
   const prefixMap = {
     core: "CORE",
@@ -171,14 +176,20 @@ function buildAutoCode(name, category) {
     general: "GEN",
   };
 
-  return `${prefixMap[category] || "SUB"}_${initials || "SUB"}`;
+  const prefix = prefixMap[category] || "SUB";
+  const numberPart = normalizeText(subjectNumber)
+    ? `${normalizeText(subjectNumber).replace(/\s+/g, "")}_`
+    : "";
+
+  return `${prefix}_${numberPart}${initials || "SUB"}`;
 }
 
 function buildSubjectDocId(form) {
-  const namePart = slugify(form.name || "subject");
   const categoryPart = slugify(form.category || "general");
+  const numberPart = slugify(form.subjectNumber || "");
   const codePart = slugify(form.code || "");
-  return [categoryPart, codePart, namePart].filter(Boolean).join("_");
+  const namePart = slugify(form.name || "subject");
+  return [categoryPart, numberPart, codePart, namePart].filter(Boolean).join("_");
 }
 
 function getCleanGrades(form) {
@@ -235,6 +246,7 @@ function buildFormFromSubject(subject) {
   return {
     id: subject.id || "",
     code: normalizeText(subject.code || subject.subjectCode || ""),
+    subjectNumber: normalizeText(subject.subjectNumber || ""),
     name: normalizeText(subject.name || subject.subjectName || ""),
     shortName: normalizeText(subject.shortName || ""),
     category: derivedCategory,
@@ -309,6 +321,10 @@ function validateForm(form) {
     errors.code = "Code is required";
   }
 
+  if (form.category === "al_main" && !normalizeText(form.subjectNumber)) {
+    errors.subjectNumber = "Subject number is required for A/L";
+  }
+
   if (form.gradeMode === "single" && !toNumberOrEmpty(form.grade)) {
     errors.grade = "Grade is required";
   }
@@ -379,20 +395,17 @@ function buildPayload(form, profile) {
   const category = normalizeText(form.category);
   const basketGroup = canonicalBasketGroup(category, form.basketGroup);
 
-  const normalizedCategory =
-    category === "basket_a" || category === "basket_b" || category === "basket_c"
-      ? category
-      : category;
-
   const payload = {
     code: normalizeText(form.code),
     subjectCode: normalizeText(form.code),
+
+    subjectNumber: normalizeText(form.subjectNumber),
 
     name: normalizeText(form.name),
     subjectName: normalizeText(form.name),
 
     shortName: normalizeText(form.shortName),
-    category: normalizedCategory,
+    category,
     status: normalizeText(form.status || "active"),
 
     grade: grades.grade,
@@ -509,6 +522,7 @@ export default function SubjectManagement() {
     return subjects.filter((subject) => {
       const name = getSubjectName(subject);
       const code = getSubjectCode(subject);
+      const subjectNumber = getSubjectNumber(subject);
       const category = normalizeText(subject.category);
       const status = normalizeLower(subject.status || "active");
 
@@ -516,6 +530,7 @@ export default function SubjectManagement() {
         !normalizeText(search) ||
         name.toLowerCase().includes(search.toLowerCase()) ||
         code.toLowerCase().includes(search.toLowerCase()) ||
+        subjectNumber.toLowerCase().includes(search.toLowerCase()) ||
         category.toLowerCase().includes(search.toLowerCase()) ||
         normalizeText(subject.religion).toLowerCase().includes(search.toLowerCase()) ||
         normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase()) ||
@@ -573,7 +588,7 @@ export default function SubjectManagement() {
   function handleAutoCode() {
     setForm((prev) => ({
       ...prev,
-      code: buildAutoCode(prev.name, prev.category),
+      code: buildAutoCode(prev.name, prev.category, prev.subjectNumber),
     }));
   }
 
@@ -615,6 +630,13 @@ export default function SubjectManagement() {
         const sameCode =
           normalizeLower(getSubjectCode(subject)) === normalizeLower(payload.code);
 
+        const sameNumberForAL =
+          normalizeLower(payload.category) === "al_main" &&
+          normalizeText(payload.subjectNumber) &&
+          normalizeLower(normalizeText(subject.category)) === "al_main" &&
+          normalizeText(subject.subjectNumber) === normalizeText(payload.subjectNumber) &&
+          buildComparableGradeKey(subject) === buildComparableGradeKey(payload);
+
         const sameNameCategoryGrade =
           normalizeLower(getSubjectName(subject)) === normalizeLower(payload.name) &&
           normalizeLower(subject.category) === normalizeLower(payload.category) &&
@@ -624,6 +646,8 @@ export default function SubjectManagement() {
           normalizeText(subject.basketGroup || "") === normalizeText(payload.basketGroup || "");
 
         if (sameCode) return true;
+        if (sameNumberForAL) return true;
+
         if (sameNameCategoryGrade) {
           if (
             ["basket_a", "basket_b", "basket_c"].includes(payload.category)
@@ -785,7 +809,7 @@ export default function SubjectManagement() {
               label="Search subjects"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, code, category, religion, stream"
+              placeholder="Search by number, name, code, category, religion, stream"
             />
           </Grid>
 
@@ -847,11 +871,12 @@ export default function SubjectManagement() {
           <TableHead sx={{ bgcolor: "#1a237e" }}>
             <TableRow>
               {[
+                "No.",
                 "Code",
                 "Subject Name",
                 "Category",
                 "Grade Scope",
-                "Religion / Stream",
+                "Religion / Stream / Basket",
                 "Status",
                 "Actions",
               ].map((head) => (
@@ -865,6 +890,7 @@ export default function SubjectManagement() {
           <TableBody>
             {filteredSubjects.map((subject) => (
               <TableRow key={subject.id} hover>
+                <TableCell>{getSubjectNumber(subject) || "—"}</TableCell>
                 <TableCell>{getSubjectCode(subject) || "—"}</TableCell>
                 <TableCell>
                   <Stack spacing={0.4}>
@@ -952,7 +978,7 @@ export default function SubjectManagement() {
 
             {filteredSubjects.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={8} align="center">
                   No subjects found for the selected filters.
                 </TableCell>
               </TableRow>
@@ -967,7 +993,7 @@ export default function SubjectManagement() {
         <DialogContent dividers>
           <Stack spacing={3}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   label="Subject Code"
@@ -978,7 +1004,19 @@ export default function SubjectManagement() {
                 />
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Subject Number"
+                  value={form.subjectNumber}
+                  onChange={(e) => updateForm("subjectNumber", e.target.value)}
+                  error={!!formErrors.subjectNumber}
+                  helperText={formErrors.subjectNumber || "Needed especially for A/L"}
+                  placeholder="e.g. 01, 02, 10, 20, 65"
+                />
+              </Grid>
+
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Subject Name"

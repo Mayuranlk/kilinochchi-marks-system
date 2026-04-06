@@ -24,6 +24,11 @@ import HomeWorkIcon from "@mui/icons-material/HomeWork";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SchoolIcon from "@mui/icons-material/School";
+import {
+  isALGrade,
+  buildALClassName,
+  normalizeText,
+} from "../constants/constants";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
@@ -72,11 +77,45 @@ const isActiveTeacher = (teacher) => {
   return lower(teacher.status || "active") === "active";
 };
 
+const getRoomFullLabel = (room) => {
+  const explicitFull = safeString(room.fullClassName);
+  if (explicitFull) return explicitFull;
+
+  const explicitAL = safeString(room.alClassName);
+  if (explicitAL) return explicitAL;
+
+  const grade = normalizeGrade(room.grade);
+  const section = normalizeSection(room.section || room.className);
+  const stream = safeString(room.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  if (grade && section) return `${grade}${section}`;
+  return safeString(room.className) || "—";
+};
+
+const getRoomCompactLabel = (room) => {
+  const grade = normalizeGrade(room.grade);
+  const section = normalizeSection(room.section || room.className);
+  const stream = safeString(room.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return `${grade} ${stream} ${section}`;
+  }
+
+  return `G${grade || "-"}-${section || "-"}`;
+};
+
 const sortClassrooms = (rows) => {
   return [...rows].sort((a, b) => {
     const gradeDiff =
       (normalizeGrade(a.grade) || 0) - (normalizeGrade(b.grade) || 0);
     if (gradeDiff !== 0) return gradeDiff;
+
+    const streamDiff = safeString(a.stream).localeCompare(safeString(b.stream));
+    if (streamDiff !== 0) return streamDiff;
 
     return normalizeSection(a.section).localeCompare(normalizeSection(b.section));
   });
@@ -93,10 +132,12 @@ export default function ClassTeacherAssignments() {
   const [classrooms, setClassrooms] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setLoadError("");
 
       try {
         const [classSnap, teacherSnap] = await Promise.all([
@@ -125,6 +166,7 @@ export default function ClassTeacherAssignments() {
         setTeachers(teacherRows);
       } catch (error) {
         console.error("ClassTeacherAssignments fetch error:", error);
+        setLoadError("Failed to load classrooms or teachers.");
       } finally {
         setLoading(false);
       }
@@ -133,16 +175,59 @@ export default function ClassTeacherAssignments() {
     fetchData();
   }, []);
 
-  const getTeacher = (teacherId) =>
-    teachers.find((teacher) => teacher.id === safeString(teacherId)) || null;
+  const getTeacher = (room) => {
+    const teacherId = safeString(room.classTeacherId);
+    const teacherUid = safeString(room.classTeacherUid);
+    const teacherEmail = safeString(room.classTeacherEmail).toLowerCase();
+    const teacherName = safeString(room.classTeacherName).toLowerCase();
+    const signatureNo = safeString(room.classTeacherSignatureNo);
+
+    const direct = teachers.find((teacher) => teacher.id === teacherId);
+    if (direct) return direct;
+
+    return (
+      teachers.find((teacher) => {
+        const rowUid = safeString(teacher.uid || teacher.authUid || teacher.userId);
+        const rowEmail = safeString(teacher.email).toLowerCase();
+        const rowName = safeString(
+          teacher.name || teacher.displayName || teacher.fullName
+        ).toLowerCase();
+        const rowSignature = safeString(
+          teacher.signatureNo ||
+            teacher.signatureNumber ||
+            teacher.teacherSignatureNo ||
+            teacher.teacherNo
+        );
+
+        return (
+          (teacherUid && rowUid && teacherUid === rowUid) ||
+          (teacherEmail && rowEmail && teacherEmail === rowEmail) ||
+          (teacherName && rowName && teacherName === rowName) ||
+          (signatureNo && rowSignature && signatureNo === rowSignature)
+        );
+      }) || null
+    );
+  };
 
   const assignedRooms = useMemo(
-    () => classrooms.filter((room) => safeString(room.classTeacherId)),
+    () =>
+      classrooms.filter(
+        (room) =>
+          safeString(room.classTeacherId) ||
+          safeString(room.classTeacherName) ||
+          safeString(room.classTeacherEmail)
+      ),
     [classrooms]
   );
 
   const unassignedRooms = useMemo(
-    () => classrooms.filter((room) => !safeString(room.classTeacherId)),
+    () =>
+      classrooms.filter(
+        (room) =>
+          !safeString(room.classTeacherId) &&
+          !safeString(room.classTeacherName) &&
+          !safeString(room.classTeacherEmail)
+      ),
     [classrooms]
   );
 
@@ -220,10 +305,15 @@ export default function ClassTeacherAssignments() {
           mt={0.5}
           display="block"
         >
-          To update assignments, go to <strong>Classrooms</strong> and edit the
-          classroom.
+          To update assignments, go to <strong>Classrooms</strong> and edit the classroom.
         </Typography>
       </Box>
+
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+          {loadError}
+        </Alert>
+      )}
 
       {unassignedRooms.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
@@ -235,7 +325,7 @@ export default function ClassTeacherAssignments() {
             {unassignedRooms.map((room) => (
               <Chip
                 key={room.id}
-                label={`G${normalizeGrade(room.grade) || "-"}-${normalizeSection(room.section) || "-"}`}
+                label={getRoomCompactLabel(room)}
                 size="small"
                 color="warning"
                 variant="outlined"
@@ -256,13 +346,11 @@ export default function ClassTeacherAssignments() {
 
       {classrooms.length === 0 ? (
         <Alert severity="info" sx={{ borderRadius: 2 }}>
-          No classrooms created yet. Go to <strong>Classrooms</strong> to add
-          classrooms first.
+          No classrooms created yet. Go to <strong>Classrooms</strong> to add classrooms first.
         </Alert>
       ) : assignedRooms.length === 0 ? (
         <Alert severity="info" sx={{ borderRadius: 2 }}>
-          No class teachers assigned yet. Go to <strong>Classrooms</strong> →
-          Edit each classroom to assign a teacher.
+          No class teachers assigned yet. Go to <strong>Classrooms</strong> → Edit each classroom to assign a teacher.
         </Alert>
       ) : (
         <>
@@ -298,7 +386,7 @@ export default function ClassTeacherAssignments() {
 
                 <TableBody>
                   {assignedRooms.map((room, index) => {
-                    const teacher = getTeacher(room.classTeacherId);
+                    const teacher = getTeacher(room);
 
                     return (
                       <TableRow
@@ -315,9 +403,7 @@ export default function ClassTeacherAssignments() {
                                 sx={{ fontSize: "14px !important" }}
                               />
                             }
-                            label={`Grade ${normalizeGrade(room.grade) || "-"} - ${normalizeSection(room.section) || "-"}${
-                              safeString(room.stream) ? ` (${room.stream})` : ""
-                            }`}
+                            label={getRoomFullLabel(room)}
                             color="primary"
                             size="small"
                             sx={{ fontWeight: 700 }}
@@ -329,23 +415,27 @@ export default function ClassTeacherAssignments() {
                             <Box display="flex" alignItems="center" gap={1.5}>
                               <Avatar
                                 sx={{
-                                  bgcolor: getAvatarColor(teacher.name),
+                                  bgcolor: getAvatarColor(
+                                    safeString(teacher.name || teacher.displayName || teacher.fullName)
+                                  ),
                                   width: 34,
                                   height: 34,
                                   fontSize: 14,
                                   fontWeight: 700,
                                 }}
                               >
-                                {safeString(teacher.name).charAt(0) || "T"}
+                                {safeString(
+                                  teacher.name || teacher.displayName || teacher.fullName
+                                ).charAt(0) || "T"}
                               </Avatar>
 
                               <Typography variant="body2" fontWeight={700}>
-                                {teacher.name}
+                                {teacher.name || teacher.displayName || teacher.fullName || "—"}
                               </Typography>
                             </Box>
                           ) : (
                             <Chip
-                              label="Teacher not found"
+                              label={safeString(room.classTeacherName) || "Teacher not found"}
                               size="small"
                               color="error"
                               variant="outlined"
@@ -355,15 +445,21 @@ export default function ClassTeacherAssignments() {
 
                         <TableCell>
                           <Typography variant="caption" color="text.secondary">
-                            {teacher?.email || "—"}
+                            {teacher?.email || safeString(room.classTeacherEmail) || "—"}
                           </Typography>
                         </TableCell>
 
-                        <TableCell>{teacher?.phone || "—"}</TableCell>
+                        <TableCell>
+                          {teacher?.phone ||
+                            safeString(room.classTeacherPhone) ||
+                            "—"}
+                        </TableCell>
 
                         <TableCell>
                           <Typography variant="body2" fontWeight={600}>
-                            {teacher?.signatureNo || "—"}
+                            {teacher?.signatureNo ||
+                              safeString(room.classTeacherSignatureNo) ||
+                              "—"}
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -375,7 +471,7 @@ export default function ClassTeacherAssignments() {
           ) : (
             <Box mb={3}>
               {assignedRooms.map((room) => {
-                const teacher = getTeacher(room.classTeacherId);
+                const teacher = getTeacher(room);
 
                 return (
                   <Card
@@ -391,14 +487,22 @@ export default function ClassTeacherAssignments() {
                       <Box display="flex" gap={1.5} alignItems="flex-start">
                         <Avatar
                           sx={{
-                            bgcolor: teacher ? getAvatarColor(teacher.name) : "#e0e0e0",
+                            bgcolor: teacher
+                              ? getAvatarColor(
+                                  safeString(
+                                    teacher.name || teacher.displayName || teacher.fullName
+                                  )
+                                )
+                              : "#e0e0e0",
                             width: 44,
                             height: 44,
                             fontSize: 18,
                             fontWeight: 700,
                           }}
                         >
-                          {safeString(teacher?.name).charAt(0) || "?"}
+                          {safeString(
+                            teacher?.name || teacher?.displayName || teacher?.fullName
+                          ).charAt(0) || "?"}
                         </Avatar>
 
                         <Box flex={1}>
@@ -408,7 +512,11 @@ export default function ClassTeacherAssignments() {
                             alignItems="center"
                           >
                             <Typography variant="subtitle2" fontWeight={700}>
-                              {teacher?.name || "Unknown Teacher"}
+                              {teacher?.name ||
+                                teacher?.displayName ||
+                                teacher?.fullName ||
+                                safeString(room.classTeacherName) ||
+                                "Unknown Teacher"}
                             </Typography>
 
                             <Chip
@@ -417,40 +525,49 @@ export default function ClassTeacherAssignments() {
                                   sx={{ fontSize: "12px !important" }}
                                 />
                               }
-                              label={`G${normalizeGrade(room.grade) || "-"}-${normalizeSection(room.section) || "-"}`}
+                              label={getRoomCompactLabel(room)}
                               color="primary"
                               size="small"
                               sx={{ fontWeight: 700 }}
                             />
                           </Box>
 
-                          {teacher?.email && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            display="block"
+                            mt={0.4}
+                          >
+                            {getRoomFullLabel(room)}
+                          </Typography>
+
+                          {(teacher?.email || safeString(room.classTeacherEmail)) && (
                             <Typography
                               variant="caption"
                               color="text.secondary"
                               display="block"
                             >
-                              {teacher.email}
+                              {teacher?.email || safeString(room.classTeacherEmail)}
                             </Typography>
                           )}
 
-                          {teacher?.phone && (
+                          {(teacher?.phone || safeString(room.classTeacherPhone)) && (
                             <Typography
                               variant="caption"
                               color="text.secondary"
                               display="block"
                             >
-                              📞 {teacher.phone}
+                              📞 {teacher?.phone || safeString(room.classTeacherPhone)}
                             </Typography>
                           )}
 
-                          {teacher?.signatureNo && (
+                          {(teacher?.signatureNo || safeString(room.classTeacherSignatureNo)) && (
                             <Typography
                               variant="caption"
                               color="text.secondary"
                               display="block"
                             >
-                              ✍️ {teacher.signatureNo}
+                              ✍️ {teacher?.signatureNo || safeString(room.classTeacherSignatureNo)}
                             </Typography>
                           )}
 
@@ -504,7 +621,7 @@ export default function ClassTeacherAssignments() {
 
                   <Box display="flex" flexWrap="wrap" gap={0.8}>
                     {gradeClassrooms.map((room) => {
-                      const teacher = getTeacher(room.classTeacherId);
+                      const teacher = getTeacher(room);
 
                       return (
                         <Box
@@ -512,7 +629,7 @@ export default function ClassTeacherAssignments() {
                           sx={{
                             p: 1,
                             borderRadius: 2,
-                            minWidth: 85,
+                            minWidth: 110,
                             bgcolor: teacher ? "#e8f5e9" : "#fff3e0",
                             border: `1px solid ${teacher ? "#a5d6a7" : "#ffcc80"}`,
                           }}
@@ -522,7 +639,9 @@ export default function ClassTeacherAssignments() {
                             fontWeight={800}
                             color={teacher ? "#2e7d32" : "#e65100"}
                           >
-                            Section {normalizeSection(room.section) || "-"}
+                            {safeString(room.stream)
+                              ? `${safeString(room.stream)} ${normalizeSection(room.section) || "-"}`
+                              : `Section ${normalizeSection(room.section) || "-"}`}
                           </Typography>
 
                           <Typography
@@ -531,7 +650,11 @@ export default function ClassTeacherAssignments() {
                             color="text.secondary"
                             sx={{ fontSize: 10 }}
                           >
-                            {teacher ? safeString(teacher.name).split(" ")[0] : "None"}
+                            {teacher
+                              ? safeString(
+                                  teacher.name || teacher.displayName || teacher.fullName
+                                ).split(" ")[0]
+                              : "None"}
                           </Typography>
                         </Box>
                       );

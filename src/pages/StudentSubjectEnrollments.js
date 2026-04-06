@@ -4,7 +4,6 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  setDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -17,162 +16,110 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
   Paper,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  IconButton,
   Chip,
   CircularProgress,
   Grid,
   Card,
   CardContent,
-  CardActions,
   useMediaQuery,
   useTheme,
-  Tooltip,
   Divider,
   Stack,
   TextField,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
-
-const SUBJECT_CATEGORIES = [
-  { value: "religion", label: "Religion" },
-  { value: "aesthetic", label: "Aesthetic" },
-  { value: "basket_a", label: "Basket A" },
-  { value: "basket_b", label: "Basket B" },
-  { value: "basket_c", label: "Basket C" },
-  { value: "al_main", label: "A/L Main" },
-  { value: "core", label: "Core" },
-  { value: "general", label: "General" },
-];
-
-const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
-const STREAM_OPTIONS = ["Maths", "Bio", "Commerce", "Technology", "Arts"];
-
-const emptyForm = {
-  studentId: "",
-  studentName: "",
-  admissionNo: "",
-  grade: "",
-  section: "",
-  academicYear: String(new Date().getFullYear()),
-  subjectCategory: "",
-  subjectId: "",
-  subjectName: "",
-  subjectCode: "",
-  medium: "",
-  stream: "",
-  religionKey: "",
-  basketGroup: "",
-};
+import PreviewIcon from "@mui/icons-material/Preview";
+import SchoolIcon from "@mui/icons-material/School";
+import {
+  RELIGIONS,
+  COMPULSORY_CORE_6_9,
+  COMPULSORY_CORE_10_11,
+  getBasketChoiceFields,
+  getStudentName,
+  getStudentAdmissionNo,
+  getStudentGrade,
+  getStudentSection,
+  getStudentClassName,
+  getStudentStream,
+  getStudentALClassName,
+  normalizeText,
+  normalizeLower,
+  normalizeLoose,
+  isActiveStatus,
+  isALGrade,
+  AL_STREAM_OPTIONS,
+  AL_STREAM_CODES,
+  buildALClassName,
+  buildALDisplayClassName,
+  validateALChoices,
+  buildALSubjectPayloadFromStudent,
+  getALStreamShortName,
+} from "../constants/constants";
 
 const BATCH_LIMIT = 400;
 
-const normalizeText = (value) => String(value || "").trim();
-const normalizeLower = (value) => normalizeText(value).toLowerCase();
+const SUBJECT_COLLECTION = "subjects";
+const STUDENT_COLLECTION = "students";
+const ENROLLMENT_COLLECTION = "studentSubjectEnrollments";
 
-const parseGrade = (value) => {
-  const match = String(value ?? "").match(/\d+/);
-  return match ? Number(match[0]) : 0;
+const initialFilters = {
+  academicYear: String(new Date().getFullYear()),
+  grade: "",
+  section: "",
+  stream: "",
+  selectedStudentIds: [],
+  onlyActiveStudents: true,
+  replaceExistingForScope: false,
 };
 
-const normalizeSection = (value) => {
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
   const raw = normalizeText(value).toUpperCase();
   const match = raw.match(/[A-Z]+/);
   return match ? match[0] : raw;
-};
+}
 
-const normalizeAcademicYear = (value) => {
+function normalizeAcademicYear(value) {
   const raw = normalizeText(value);
   const match = raw.match(/\d{4}/);
   return match ? match[0] : String(new Date().getFullYear());
-};
+}
 
-const isActiveLike = (value) => {
+function isActiveLike(value) {
   if (!normalizeText(value)) return true;
   return normalizeLower(value) === "active";
-};
+}
 
-const getStudentName = (student) =>
-  normalizeText(student?.name || student?.fullName || "Unnamed");
+function uniqueByKey(items = [], keyFn) {
+  const seen = new Set();
+  const result = [];
 
-const getStudentSection = (student) =>
-  normalizeSection(student?.section || student?.className || "");
-
-const getStudentFullClass = (student) => {
-  const grade = parseGrade(student?.grade);
-  const section = getStudentSection(student);
-  if (grade && section) return `${grade}${section}`;
-  return section;
-};
-
-const getSubjectName = (subject) =>
-  normalizeText(subject?.name || subject?.subjectName || "");
-
-const getSubjectCode = (subject) =>
-  normalizeText(subject?.code || subject?.subjectCode || "");
-
-const getSubjectCategory = (subject) =>
-  normalizeText(subject?.category || subject?.subjectCategory || "");
-
-const sortStudentsClientSide = (list) => {
-  return [...list].sort((a, b) => {
-    const gradeA = parseGrade(a.grade);
-    const gradeB = parseGrade(b.grade);
-    if (gradeA !== gradeB) return gradeA - gradeB;
-
-    const sectionA = getStudentSection(a);
-    const sectionB = getStudentSection(b);
-    if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
-
-    const nameA = getStudentName(a).toLowerCase();
-    const nameB = getStudentName(b).toLowerCase();
-    if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-    return normalizeText(a.admissionNo).localeCompare(normalizeText(b.admissionNo));
-  });
-};
-
-const sortEnrollments = (list) => {
-  return [...list].sort((a, b) => {
-    const gradeA = parseGrade(a.grade);
-    const gradeB = parseGrade(b.grade);
-    if (gradeA !== gradeB) return gradeA - gradeB;
-
-    const sectionA = normalizeSection(a.section || a.className);
-    const sectionB = normalizeSection(b.section || b.className);
-    if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
-
-    const nameA = normalizeText(a.studentName).toLowerCase();
-    const nameB = normalizeText(b.studentName).toLowerCase();
-    if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-    return normalizeText(a.subjectName).localeCompare(normalizeText(b.subjectName));
-  });
-};
-
-async function commitDeleteInChunks(ids) {
-  for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
-    const chunk = ids.slice(i, i + BATCH_LIMIT);
-    const batch = writeBatch(db);
-
-    chunk.forEach((id) => {
-      batch.delete(doc(db, "studentSubjectEnrollments", id));
-    });
-
-    await batch.commit();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
   }
+
+  return result;
 }
 
 function subjectAppliesToGrade(subject, grade) {
@@ -198,11 +145,484 @@ function subjectAppliesToGrade(subject, grade) {
   return true;
 }
 
+function getSubjectName(subject) {
+  return normalizeText(subject?.name || subject?.subjectName || "");
+}
+
+function getSubjectCode(subject) {
+  return normalizeText(subject?.code || subject?.subjectCode || "");
+}
+
+function getSubjectCategory(subject) {
+  return normalizeText(subject?.category || subject?.subjectCategory || "");
+}
+
+function getSubjectNumber(subject) {
+  return normalizeText(subject?.subjectNumber || "");
+}
+
 function canonicalEnrollmentId({ academicYear, studentId, subjectId }) {
   return `${normalizeAcademicYear(academicYear)}_${studentId}_${subjectId}`;
 }
 
-export default function StudentSubjectEnrollments() {
+async function commitSetInChunks(payloads = []) {
+  for (let i = 0; i < payloads.length; i += BATCH_LIMIT) {
+    const chunk = payloads.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+
+    chunk.forEach(({ id, data }) => {
+      batch.set(doc(db, ENROLLMENT_COLLECTION, id), data, { merge: true });
+    });
+
+    await batch.commit();
+  }
+}
+
+async function commitDeleteInChunks(ids = []) {
+  for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
+    const chunk = ids.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+
+    chunk.forEach((id) => {
+      batch.delete(doc(db, ENROLLMENT_COLLECTION, id));
+    });
+
+    await batch.commit();
+  }
+}
+
+function sortStudentsClientSide(list) {
+  return [...list].sort((a, b) => {
+    const gradeA = getStudentGrade(a);
+    const gradeB = getStudentGrade(b);
+    if (gradeA !== gradeB) return gradeA - gradeB;
+
+    const sectionA = getStudentSection(a);
+    const sectionB = getStudentSection(b);
+    if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
+
+    const streamA = getStudentStream(a);
+    const streamB = getStudentStream(b);
+    if (streamA !== streamB) return streamA.localeCompare(streamB);
+
+    const nameA = getStudentName(a).toLowerCase();
+    const nameB = getStudentName(b).toLowerCase();
+    if (nameA !== nameB) return nameA.localeCompare(nameB);
+
+    return getStudentAdmissionNo(a).localeCompare(getStudentAdmissionNo(b));
+  });
+}
+
+function sortEnrollments(list) {
+  return [...list].sort((a, b) => {
+    const gradeA = parseGrade(a.grade);
+    const gradeB = parseGrade(b.grade);
+    if (gradeA !== gradeB) return gradeA - gradeB;
+
+    const sectionA = normalizeSection(a.section || a.className);
+    const sectionB = normalizeSection(b.section || b.className);
+    if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
+
+    const streamA = normalizeText(a.stream);
+    const streamB = normalizeText(b.stream);
+    if (streamA !== streamB) return streamA.localeCompare(streamB);
+
+    const nameA = normalizeText(a.studentName).toLowerCase();
+    const nameB = normalizeText(b.studentName).toLowerCase();
+    if (nameA !== nameB) return nameA.localeCompare(nameB);
+
+    return normalizeText(a.subjectName).localeCompare(normalizeText(b.subjectName));
+  });
+}
+
+function getCategoryLabel(value) {
+  const labels = {
+    religion: "Religion",
+    aesthetic: "Aesthetic",
+    basket_a: "Basket A",
+    basket_b: "Basket B",
+    basket_c: "Basket C",
+    al_main: "A/L Main",
+    general: "General",
+    core: "Core",
+  };
+  return labels[value] || value || "—";
+}
+
+function buildStudentDisplay(student) {
+  const grade = getStudentGrade(student);
+  const section = getStudentSection(student);
+  const stream = getStudentStream(student);
+  const name = getStudentName(student);
+  const admissionNo = getStudentAdmissionNo(student);
+
+  if (isALGrade(grade)) {
+    const displayClass =
+      buildALDisplayClassName(grade, stream, section) ||
+      buildALClassName(grade, stream, section) ||
+      `${grade} ${section}`;
+    return `${name}${admissionNo ? ` (${admissionNo})` : ""} - ${displayClass}`;
+  }
+
+  return `${name}${admissionNo ? ` (${admissionNo})` : ""} - Grade ${grade}${section ? ` ${section}` : ""}`;
+}
+
+function buildSubjectIndexes(subjects) {
+  const activeSubjects = subjects.filter((subject) => isActiveLike(subject.status));
+
+  const byId = new Map();
+  const byNameLoose = new Map();
+  const byCodeLower = new Map();
+  const byNumber = new Map();
+  const byCategory = new Map();
+
+  activeSubjects.forEach((subject) => {
+    byId.set(subject.id, subject);
+
+    const nameLoose = normalizeLoose(getSubjectName(subject));
+    if (nameLoose && !byNameLoose.has(nameLoose)) {
+      byNameLoose.set(nameLoose, subject);
+    }
+
+    const codeLower = normalizeLower(getSubjectCode(subject));
+    if (codeLower && !byCodeLower.has(codeLower)) {
+      byCodeLower.set(codeLower, subject);
+    }
+
+    const subjectNumber = getSubjectNumber(subject);
+    if (subjectNumber && !byNumber.has(subjectNumber)) {
+      byNumber.set(subjectNumber, subject);
+    }
+
+    const category = getSubjectCategory(subject);
+    if (!byCategory.has(category)) {
+      byCategory.set(category, []);
+    }
+    byCategory.get(category).push(subject);
+  });
+
+  return {
+    activeSubjects,
+    byId,
+    byNameLoose,
+    byCodeLower,
+    byNumber,
+    byCategory,
+  };
+}
+
+function findSubjectByNameAndCategory(indexes, name, category, grade) {
+  const candidates = (indexes.byCategory.get(category) || []).filter((subject) =>
+    subjectAppliesToGrade(subject, grade)
+  );
+
+  const nameKey = normalizeLoose(name);
+
+  const exact = candidates.find(
+    (subject) => normalizeLoose(getSubjectName(subject)) === nameKey
+  );
+  if (exact) return exact;
+
+  return null;
+}
+
+function findReligionSubject(indexes, religionName, grade) {
+  const target = normalizeLoose(religionName);
+  const candidates = (indexes.byCategory.get("religion") || []).filter((subject) =>
+    subjectAppliesToGrade(subject, grade)
+  );
+
+  return (
+    candidates.find(
+      (subject) =>
+        normalizeLoose(subject.religion || subject.religionGroup || getSubjectName(subject)) ===
+        target
+    ) || null
+  );
+}
+
+function findAestheticSubject(indexes, aestheticName, grade) {
+  return findSubjectByNameAndCategory(indexes, aestheticName, "aesthetic", grade);
+}
+
+function findBasketSubject(indexes, basketName, basketGroup, grade) {
+  const categoryMap = {
+    A: "basket_a",
+    B: "basket_b",
+    C: "basket_c",
+  };
+  return findSubjectByNameAndCategory(
+    indexes,
+    basketName,
+    categoryMap[basketGroup] || "",
+    grade
+  );
+}
+
+function findALSubject(indexes, subjectLike, grade, stream) {
+  const candidates = (indexes.byCategory.get("al_main") || []).filter((subject) =>
+    subjectAppliesToGrade(subject, grade)
+  );
+
+  if (subjectLike?.subjectNumber) {
+    const byNumber = candidates.find(
+      (subject) => getSubjectNumber(subject) === normalizeText(subjectLike.subjectNumber)
+    );
+    if (byNumber) return byNumber;
+  }
+
+  const nameKey = normalizeLoose(subjectLike?.subjectName || "");
+  const streamName = normalizeText(stream);
+
+  const streamMatched = candidates.find((subject) => {
+    const subjectNameMatch = normalizeLoose(getSubjectName(subject)) === nameKey;
+    if (!subjectNameMatch) return false;
+
+    const primaryStream = normalizeText(subject.stream);
+    const streams = Array.isArray(subject.streams)
+      ? subject.streams.map(normalizeText).filter(Boolean)
+      : [];
+    const allowedStreams = uniqueByKey(
+      [primaryStream, ...streams].filter(Boolean),
+      (x) => x
+    );
+
+    if (!allowedStreams.length) return true;
+    return allowedStreams.includes(streamName);
+  });
+
+  if (streamMatched) return streamMatched;
+
+  return candidates.find(
+    (subject) => normalizeLoose(getSubjectName(subject)) === nameKey
+  ) || null;
+}
+
+function buildEnrollmentRecord({
+  academicYear,
+  student,
+  subject,
+  subjectCategory,
+  stream = "",
+  generatedBy = "system",
+}) {
+  const grade = getStudentGrade(student);
+  const section = getStudentSection(student);
+  const studentName = getStudentName(student);
+  const admissionNo = getStudentAdmissionNo(student);
+  const className = getStudentClassName(student);
+  const medium = normalizeText(student?.medium || "");
+  const religionKey = normalizeText(student?.religion || "");
+  const basketGroup = normalizeText(subject?.basketGroup || "");
+  const subjectName = getSubjectName(subject);
+  const subjectCode = getSubjectCode(subject);
+  const subjectNumber = getSubjectNumber(subject);
+  const streamValue = normalizeText(stream || getStudentStream(student));
+  const streamCode = AL_STREAM_CODES[streamValue] || "";
+  const alClassName = isALGrade(grade)
+    ? getStudentALClassName(student) || buildALClassName(grade, streamValue, section)
+    : "";
+
+  const id = canonicalEnrollmentId({
+    academicYear,
+    studentId: student.id,
+    subjectId: subject.id,
+  });
+
+  return {
+    id,
+    data: {
+      studentId: student.id,
+      studentName,
+      admissionNo,
+
+      grade,
+      section,
+      className,
+
+      academicYear: normalizeAcademicYear(academicYear),
+
+      subjectCategory: normalizeText(subjectCategory || getSubjectCategory(subject)),
+      subjectId: subject.id,
+      subjectName,
+      subjectCode,
+      subjectNumber,
+
+      medium,
+      stream: streamValue,
+      streamCode,
+      alClassName,
+
+      religionKey,
+      basketGroup,
+
+      generatedBy,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function buildStudentEnrollmentPlan(student, indexes, academicYear) {
+  const grade = getStudentGrade(student);
+  const religion = normalizeText(student?.religion);
+  const aesthetic = normalizeText(student?.aesthetic || student?.aestheticChoice);
+  const basketChoices = getBasketChoiceFields(student);
+  const stream = getStudentStream(student);
+
+  const planned = [];
+  const warnings = [];
+
+  const addSubjectRecord = (subject, category) => {
+    if (!subject) return;
+    planned.push(
+      buildEnrollmentRecord({
+        academicYear,
+        student,
+        subject,
+        subjectCategory: category,
+        stream,
+      })
+    );
+  };
+
+  if (grade >= 6 && grade <= 9) {
+    COMPULSORY_CORE_6_9.forEach((coreName) => {
+      const subject = findSubjectByNameAndCategory(indexes, coreName, "core", grade);
+      if (!subject) {
+        warnings.push(`${getStudentName(student)}: core subject missing -> ${coreName}`);
+        return;
+      }
+      addSubjectRecord(subject, "core");
+    });
+
+    if (religion) {
+      const religionSubject = findReligionSubject(indexes, religion, grade);
+      if (religionSubject) {
+        addSubjectRecord(religionSubject, "religion");
+      } else {
+        warnings.push(`${getStudentName(student)}: religion subject missing -> ${religion}`);
+      }
+    }
+
+    if (aesthetic) {
+      const aestheticSubject = findAestheticSubject(indexes, aesthetic, grade);
+      if (aestheticSubject) {
+        addSubjectRecord(aestheticSubject, "aesthetic");
+      } else {
+        warnings.push(`${getStudentName(student)}: aesthetic subject missing -> ${aesthetic}`);
+      }
+    }
+  } else if (grade >= 10 && grade <= 11) {
+    COMPULSORY_CORE_10_11.forEach((coreName) => {
+      const subject = findSubjectByNameAndCategory(indexes, coreName, "core", grade);
+      if (!subject) {
+        warnings.push(`${getStudentName(student)}: core subject missing -> ${coreName}`);
+        return;
+      }
+      addSubjectRecord(subject, "core");
+    });
+
+    if (religion) {
+      const religionSubject = findReligionSubject(indexes, religion, grade);
+      if (religionSubject) {
+        addSubjectRecord(religionSubject, "religion");
+      } else {
+        warnings.push(`${getStudentName(student)}: religion subject missing -> ${religion}`);
+      }
+    }
+
+    if (basketChoices.A) {
+      const basketA = findBasketSubject(indexes, basketChoices.A, "A", grade);
+      if (basketA) {
+        addSubjectRecord(basketA, "basket_a");
+      } else {
+        warnings.push(`${getStudentName(student)}: basket A subject missing -> ${basketChoices.A}`);
+      }
+    }
+
+    if (basketChoices.B) {
+      const basketB = findBasketSubject(indexes, basketChoices.B, "B", grade);
+      if (basketB) {
+        addSubjectRecord(basketB, "basket_b");
+      } else {
+        warnings.push(`${getStudentName(student)}: basket B subject missing -> ${basketChoices.B}`);
+      }
+    }
+
+    if (basketChoices.C) {
+      const basketC = findBasketSubject(indexes, basketChoices.C, "C", grade);
+      if (basketC) {
+        addSubjectRecord(basketC, "basket_c");
+      } else {
+        warnings.push(`${getStudentName(student)}: basket C subject missing -> ${basketChoices.C}`);
+      }
+    }
+  } else if (isALGrade(grade)) {
+    const validation = validateALChoices({
+      grade,
+      stream,
+      choiceNumbers: student?.alSubjectChoiceNumbers || [],
+      choiceNames: student?.alSubjectChoices || [],
+    });
+
+    if (!stream) {
+      warnings.push(`${getStudentName(student)}: A/L stream missing`);
+      return { planned: [], warnings };
+    }
+
+    if (!validation.valid) {
+      warnings.push(`${getStudentName(student)}: ${validation.reason}`);
+      return { planned: [], warnings };
+    }
+
+    const payload = buildALSubjectPayloadFromStudent(student);
+    if (!payload.valid) {
+      warnings.push(`${getStudentName(student)}: ${payload.reason}`);
+      return { planned: [], warnings };
+    }
+
+    payload.mainSubjects.forEach((subjectLike) => {
+      const subject = findALSubject(indexes, subjectLike, grade, stream);
+      if (subject) {
+        addSubjectRecord(subject, "al_main");
+      } else {
+        warnings.push(
+          `${getStudentName(student)}: A/L subject missing -> ${subjectLike.subjectName || subjectLike.subjectNumber}`
+        );
+      }
+    });
+
+    payload.generalSubjects.forEach((subjectLike) => {
+      const subject = findALSubject(indexes, subjectLike, grade, stream);
+      if (subject) {
+        addSubjectRecord(subject, "general");
+      } else {
+        warnings.push(
+          `${getStudentName(student)}: general subject missing -> ${subjectLike.subjectName || subjectLike.subjectNumber}`
+        );
+      }
+    });
+  }
+
+  return {
+    planned: uniqueByKey(planned, (item) => item.id),
+    warnings,
+  };
+}
+
+function buildScopeLabel(filters) {
+  const parts = [normalizeAcademicYear(filters.academicYear)];
+
+  if (filters.grade) parts.push(`Grade ${filters.grade}`);
+  if (filters.section) parts.push(`Section ${filters.section}`);
+  if (filters.stream) parts.push(filters.stream);
+
+  return parts.join(" • ");
+}
+
+export default function GenerateSubjectEnrollments() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -211,91 +631,113 @@ export default function StudentSubjectEnrollments() {
   const [enrollments, setEnrollments] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [editId, setEditId] = useState(null);
+  const [filters, setFilters] = useState(initialFilters);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState([]);
+  const [previewWarnings, setPreviewWarnings] = useState([]);
 
   const [saving, setSaving] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [search, setSearch] = useState("");
-  const [filterGrade, setFilterGrade] = useState("");
-  const [filterSection, setFilterSection] = useState("");
-  const [filterCategory, setFilterCategory] = useState("");
-
-  const studentMap = useMemo(() => {
-    const map = new Map();
-    students.forEach((student) => map.set(student.id, student));
-    return map;
-  }, [students]);
+  const indexes = useMemo(() => buildSubjectIndexes(subjects), [subjects]);
 
   const gradeOptions = useMemo(() => {
-    return [...new Set(students.map((s) => parseGrade(s.grade)).filter(Boolean))].sort(
+    return [...new Set(students.map((s) => getStudentGrade(s)).filter(Boolean))].sort(
       (a, b) => a - b
     );
   }, [students]);
 
   const sectionOptions = useMemo(() => {
-    const source = filterGrade
-      ? students.filter((s) => String(parseGrade(s.grade)) === String(filterGrade))
+    const source = filters.grade
+      ? students.filter((s) => String(getStudentGrade(s)) === String(filters.grade))
       : students;
 
     return [...new Set(source.map((s) => getStudentSection(s)).filter(Boolean))].sort();
-  }, [students, filterGrade]);
+  }, [students, filters.grade]);
 
-  const filteredStudentsForForm = useMemo(() => students, [students]);
+  const streamOptions = useMemo(() => {
+    const source = students.filter((student) => isALGrade(getStudentGrade(student)));
+    const fromData = [...new Set(source.map((s) => getStudentStream(s)).filter(Boolean))];
+    return uniqueByKey([...AL_STREAM_OPTIONS, ...fromData], (x) => x);
+  }, [students]);
 
-  const filteredEnrollments = useMemo(() => {
-    const q = search.toLowerCase();
+  const filteredStudents = useMemo(() => {
+    return students.filter((student) => {
+      const grade = getStudentGrade(student);
+      const section = getStudentSection(student);
+      const stream = getStudentStream(student);
 
-    return enrollments.filter((item) => {
-      const matchSearch =
-        !q ||
-        normalizeText(item.studentName).toLowerCase().includes(q) ||
-        normalizeText(item.admissionNo).toLowerCase().includes(q) ||
-        normalizeText(item.subjectName).toLowerCase().includes(q) ||
-        normalizeText(item.academicYear).toLowerCase().includes(q);
+      if (filters.onlyActiveStudents && !isActiveStatus(student?.status || "Active")) {
+        return false;
+      }
 
-      const matchGrade = !filterGrade || String(item.grade) === String(filterGrade);
-      const matchSection =
-        !filterSection ||
-        normalizeSection(item.section || item.className) === normalizeSection(filterSection);
-      const matchCategory =
-        !filterCategory ||
-        normalizeText(item.subjectCategory) === normalizeText(filterCategory);
+      if (filters.grade && String(grade) !== String(filters.grade)) {
+        return false;
+      }
 
-      return matchSearch && matchGrade && matchSection && matchCategory;
+      if (filters.section && normalizeSection(filters.section) !== section) {
+        return false;
+      }
+
+      if (filters.stream && normalizeText(filters.stream) !== stream) {
+        return false;
+      }
+
+      if (
+        Array.isArray(filters.selectedStudentIds) &&
+        filters.selectedStudentIds.length > 0 &&
+        !filters.selectedStudentIds.includes(student.id)
+      ) {
+        return false;
+      }
+
+      return true;
     });
-  }, [enrollments, search, filterGrade, filterSection, filterCategory]);
+  }, [students, filters]);
 
-  const availableSubjectsForForm = useMemo(() => {
-    const grade = parseGrade(form.grade);
-    const category = normalizeText(form.subjectCategory);
+  const existingEnrollmentIdsInScope = useMemo(() => {
+    const academicYear = normalizeAcademicYear(filters.academicYear);
+    const studentIdSet = new Set(filteredStudents.map((s) => s.id));
 
-    return subjects
-      .filter((subject) => isActiveLike(subject.status))
-      .filter((subject) => !category || getSubjectCategory(subject) === category)
-      .filter((subject) => subjectAppliesToGrade(subject, grade))
-      .sort((a, b) => getSubjectName(a).localeCompare(getSubjectName(b)));
-  }, [subjects, form.grade, form.subjectCategory]);
+    return enrollments
+      .filter(
+        (item) =>
+          normalizeAcademicYear(item.academicYear) === academicYear &&
+          studentIdSet.has(item.studentId)
+      )
+      .map((item) => item.id);
+  }, [enrollments, filteredStudents, filters.academicYear]);
+
+  const previewSummary = useMemo(() => {
+    const counts = {
+      students: filteredStudents.length,
+      previewEnrollments: previewRows.length,
+      warnings: previewWarnings.length,
+      existingInScope: existingEnrollmentIdsInScope.length,
+    };
+    return counts;
+  }, [filteredStudents, previewRows, previewWarnings, existingEnrollmentIdsInScope]);
 
   useEffect(() => {
     fetchData();
   }, []);
 
   useEffect(() => {
-    setFilterSection("");
-  }, [filterGrade]);
+    setFilters((prev) => ({ ...prev, section: "", stream: "" }));
+  }, [filters.grade]);
 
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
+    setError("");
+
     try {
       const [studentSnap, subjectSnap, enrollmentSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "subjects")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
+        getDocs(collection(db, STUDENT_COLLECTION)),
+        getDocs(collection(db, SUBJECT_COLLECTION)),
+        getDocs(collection(db, ENROLLMENT_COLLECTION)),
       ]);
 
       const loadedStudents = studentSnap.docs.map((d) => ({
@@ -321,128 +763,48 @@ export default function StudentSubjectEnrollments() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const getStudentDisplay = (student) => {
-    if (!student) return "";
-    return `${getStudentName(student)}${
-      student.admissionNo ? ` (${student.admissionNo})` : ""
-    } - Grade ${parseGrade(student.grade) || ""}${
-      getStudentSection(student) ? ` ${getStudentSection(student)}` : ""
-    }`;
-  };
+  function updateFilters(field, value) {
+    setFilters((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
 
-  const handleStudentChange = (studentId) => {
-    const selectedStudent = studentMap.get(studentId);
+  function buildPreview() {
+    setError("");
+    setSuccess("");
 
-    if (!selectedStudent) {
-      setForm((prev) => ({
-        ...prev,
-        studentId: "",
-        studentName: "",
-        admissionNo: "",
-        grade: "",
-        section: "",
-        subjectId: "",
-        subjectName: "",
-        subjectCode: "",
-      }));
+    const allRows = [];
+    const warnings = [];
+
+    filteredStudents.forEach((student) => {
+      const result = buildStudentEnrollmentPlan(
+        student,
+        indexes,
+        normalizeAcademicYear(filters.academicYear)
+      );
+
+      allRows.push(...result.planned);
+      warnings.push(...result.warnings);
+    });
+
+    const dedupedRows = uniqueByKey(allRows, (item) => item.id);
+
+    setPreviewRows(dedupedRows);
+    setPreviewWarnings(warnings);
+    setPreviewOpen(true);
+  }
+
+  async function handleGenerate() {
+    if (!filters.academicYear) {
+      setError("Academic year is required.");
       return;
     }
 
-    setForm((prev) => ({
-      ...prev,
-      studentId: selectedStudent.id,
-      studentName: getStudentName(selectedStudent),
-      admissionNo: selectedStudent.admissionNo || "",
-      grade: parseGrade(selectedStudent.grade) || "",
-      section: getStudentSection(selectedStudent),
-      medium: normalizeText(selectedStudent.medium || prev.medium),
-      subjectId: "",
-      subjectName: "",
-      subjectCode: "",
-    }));
-  };
-
-  const handleSubjectChange = (subjectId) => {
-    const selectedSubject = subjects.find((s) => s.id === subjectId);
-
-    setForm((prev) => ({
-      ...prev,
-      subjectId: selectedSubject?.id || "",
-      subjectName: getSubjectName(selectedSubject),
-      subjectCode: getSubjectCode(selectedSubject),
-      subjectCategory: getSubjectCategory(selectedSubject) || prev.subjectCategory,
-      religionKey: normalizeText(selectedSubject?.religion || ""),
-      basketGroup: normalizeText(selectedSubject?.basketGroup || ""),
-      stream: prev.stream || normalizeText(selectedSubject?.stream || ""),
-    }));
-  };
-
-  const validateForm = () => {
-    if (!form.studentId) return "Student is required.";
-    if (!normalizeText(form.studentName)) return "Student name is required.";
-    if (!form.grade) return "Student grade is required.";
-    if (!normalizeText(form.section)) return "Student section is required.";
-    if (!normalizeText(form.academicYear)) return "Academic year is required.";
-    if (!normalizeText(form.subjectCategory)) return "Subject category is required.";
-    if (!normalizeText(form.subjectId)) return "Subject is required.";
-    if (!normalizeText(form.subjectName)) return "Subject name is required.";
-
-    const canonicalId = canonicalEnrollmentId({
-      academicYear: form.academicYear,
-      studentId: form.studentId,
-      subjectId: form.subjectId,
-    });
-
-    const duplicate = enrollments.find((item) => {
-      if (editId && item.id === editId) return false;
-      return item.id === canonicalId;
-    });
-
-    if (duplicate) {
-      return "This student is already enrolled in the selected subject for this academic year.";
-    }
-
-    return "";
-  };
-
-  const buildPayload = () => {
-    const grade = Number(form.grade);
-    const section = normalizeSection(form.section);
-    const className = grade && section ? `${grade}${section}` : section;
-
-    return {
-      studentId: form.studentId,
-      studentName: normalizeText(form.studentName),
-      admissionNo: normalizeText(form.admissionNo),
-
-      grade,
-      section,
-      className,
-
-      academicYear: normalizeAcademicYear(form.academicYear),
-
-      subjectCategory: normalizeText(form.subjectCategory),
-      subjectId: normalizeText(form.subjectId),
-      subjectName: normalizeText(form.subjectName),
-      subjectCode: normalizeText(form.subjectCode),
-
-      medium: normalizeText(form.medium),
-      stream: normalizeText(form.stream),
-      religionKey: normalizeText(form.religionKey),
-      basketGroup: normalizeText(form.basketGroup),
-
-      generatedBy: "manual",
-      status: "active",
-      updatedAt: new Date().toISOString(),
-    };
-  };
-
-  const handleSave = async () => {
-    const validationError = validateForm();
-    if (validationError) {
-      setError(validationError);
+    if (filteredStudents.length === 0) {
+      setError("No students found for the selected scope.");
       return;
     }
 
@@ -451,119 +813,92 @@ export default function StudentSubjectEnrollments() {
     setSuccess("");
 
     try {
-      const payload = buildPayload();
-      const canonicalId = canonicalEnrollmentId({
-        academicYear: payload.academicYear,
-        studentId: payload.studentId,
-        subjectId: payload.subjectId,
+      const allRows = [];
+      const warnings = [];
+
+      filteredStudents.forEach((student) => {
+        const result = buildStudentEnrollmentPlan(
+          student,
+          indexes,
+          normalizeAcademicYear(filters.academicYear)
+        );
+
+        allRows.push(...result.planned);
+        warnings.push(...result.warnings);
       });
 
-      await setDoc(
-        doc(db, "studentSubjectEnrollments", canonicalId),
-        {
-          ...payload,
-          createdAt: editId ? enrollments.find((e) => e.id === editId)?.createdAt || new Date().toISOString() : new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      const rowsToWrite = uniqueByKey(allRows, (item) => item.id);
 
-      if (editId && editId !== canonicalId) {
-        await deleteDoc(doc(db, "studentSubjectEnrollments", editId));
+      if (rowsToWrite.length === 0) {
+        throw new Error("No enrollments could be generated for this scope.");
       }
 
-      setSuccess(
-        editId
-          ? "Student subject enrollment updated successfully."
-          : "Student subject enrollment added successfully."
+      if (filters.replaceExistingForScope && existingEnrollmentIdsInScope.length > 0) {
+        await commitDeleteInChunks(existingEnrollmentIdsInScope);
+      }
+
+      await commitSetInChunks(
+        rowsToWrite.map((row) => ({
+          id: row.id,
+          data: {
+            ...row.data,
+            createdAt:
+              enrollments.find((e) => e.id === row.id)?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        }))
       );
 
-      setForm({
-        ...emptyForm,
-        academicYear: String(new Date().getFullYear()),
-      });
-      setEditId(null);
-      setOpen(false);
+      setPreviewRows(rowsToWrite);
+      setPreviewWarnings(warnings);
+
+      const message = filters.replaceExistingForScope
+        ? `Generated ${rowsToWrite.length} enrollments after replacing ${existingEnrollmentIdsInScope.length} existing enrollments in scope.`
+        : `Generated ${rowsToWrite.length} enrollments successfully.`;
+
+      setSuccess(message);
       await fetchData();
     } catch (err) {
-      setError("Save failed: " + err.message);
+      setError("Generation failed: " + err.message);
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const handleEdit = (item) => {
-    setForm({
-      studentId: item.studentId || "",
-      studentName: item.studentName || "",
-      admissionNo: item.admissionNo || "",
-      grade: item.grade || "",
-      section: item.section || item.className || "",
-      academicYear: item.academicYear || "",
-      subjectCategory: item.subjectCategory || "",
-      subjectId: item.subjectId || "",
-      subjectName: item.subjectName || "",
-      subjectCode: item.subjectCode || "",
-      medium: item.medium || "",
-      stream: item.stream || "",
-      religionKey: item.religionKey || "",
-      basketGroup: item.basketGroup || "",
-    });
-    setEditId(item.id);
-    setError("");
-    setSuccess("");
-    setOpen(true);
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this subject enrollment? This cannot be undone.")) return;
-
-    try {
-      await deleteDoc(doc(db, "studentSubjectEnrollments", id));
-      setSuccess("Subject enrollment deleted.");
-      await fetchData();
-    } catch (err) {
-      setError("Delete failed: " + err.message);
-    }
-  };
-
-  const handleDeleteAll = async () => {
-    if (enrollments.length === 0) {
-      setError("No enrollments available to delete.");
+  async function handleDeleteScope() {
+    if (existingEnrollmentIdsInScope.length === 0) {
+      setError("No enrollments found for the selected scope.");
       return;
     }
 
-    const confirm1 = window.confirm(
-      `Delete ALL ${enrollments.length} student subject enrollments? This cannot be undone.`
+    const ok = window.confirm(
+      `Delete ${existingEnrollmentIdsInScope.length} enrollments for ${buildScopeLabel(filters)}?`
     );
-    if (!confirm1) return;
-
-    const confirm2 = window.confirm(
-      "Please confirm again: this will remove every document in studentSubjectEnrollments."
-    );
-    if (!confirm2) return;
+    if (!ok) return;
 
     setBulkDeleting(true);
     setError("");
     setSuccess("");
 
     try {
-      const ids = enrollments.map((item) => item.id);
-      await commitDeleteInChunks(ids);
-
-      setSuccess(`Deleted all ${ids.length} subject enrollments successfully.`);
+      await commitDeleteInChunks(existingEnrollmentIdsInScope);
+      setSuccess(
+        `Deleted ${existingEnrollmentIdsInScope.length} enrollments for ${buildScopeLabel(filters)}.`
+      );
       await fetchData();
     } catch (err) {
-      setError("Delete all failed: " + err.message);
+      setError("Delete failed: " + err.message);
     } finally {
       setBulkDeleting(false);
     }
-  };
+  }
 
-  const getCategoryLabel = (value) => {
-    return SUBJECT_CATEGORIES.find((item) => item.value === value)?.label || value || "—";
-  };
+  const scopedStudentLabel = useMemo(() => {
+    if (!filteredStudents.length) return "No students in scope";
 
-  const isALGrade = Number(form.grade) >= 12 && Number(form.grade) <= 13;
+    const alCount = filteredStudents.filter((s) => isALGrade(getStudentGrade(s))).length;
+    return `${filteredStudents.length} student${filteredStudents.length !== 1 ? "s" : ""} in scope • ${alCount} A/L`;
+  }, [filteredStudents]);
 
   return (
     <Box>
@@ -590,22 +925,27 @@ export default function StudentSubjectEnrollments() {
               fontWeight={800}
               color="#1a237e"
             >
-              Student Subject Enrollments
+              Generate Subject Enrollments
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.5}>
-              Manage religion, aesthetic, basket, A/L main, and general subject selections separately from student master data.
+              Automatically generate enrollments from student data for lower grades, O/L, and A/L streams.
             </Typography>
             <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
               <Chip
-                label={`Total Enrollments: ${enrollments.length}`}
+                label={`Students Loaded: ${students.length}`}
+                size="small"
+                color="success"
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`Subjects Loaded: ${subjects.length}`}
                 size="small"
                 color="primary"
                 sx={{ fontWeight: 700 }}
               />
               <Chip
-                label={`Students Loaded: ${students.length}`}
+                label={`Enrollments Loaded: ${enrollments.length}`}
                 size="small"
-                color="success"
                 sx={{ fontWeight: 700 }}
               />
             </Box>
@@ -614,528 +954,423 @@ export default function StudentSubjectEnrollments() {
           <Stack direction="row" spacing={1} flexWrap="wrap">
             <Button
               variant="outlined"
-              color="error"
-              startIcon={<DeleteSweepIcon />}
-              size={isMobile ? "small" : "medium"}
-              onClick={handleDeleteAll}
-              disabled={bulkDeleting || loading || enrollments.length === 0}
-              sx={{ fontWeight: 700, borderRadius: 2 }}
+              startIcon={<RefreshIcon />}
+              onClick={fetchData}
+              disabled={loading}
             >
-              {bulkDeleting ? (
-                <CircularProgress size={18} color="inherit" />
-              ) : isMobile ? (
-                "Delete All"
-              ) : (
-                "Delete All Enrollments"
-              )}
+              Refresh
+            </Button>
+
+            <Button
+              variant="outlined"
+              color="warning"
+              startIcon={<PreviewIcon />}
+              onClick={buildPreview}
+              disabled={loading}
+            >
+              Preview
             </Button>
 
             <Button
               variant="contained"
-              startIcon={<AddIcon />}
-              size={isMobile ? "small" : "medium"}
-              onClick={() => {
-                setForm({
-                  ...emptyForm,
-                  academicYear: String(new Date().getFullYear()),
-                });
-                setEditId(null);
-                setError("");
-                setSuccess("");
-                setOpen(true);
-              }}
-              sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+              startIcon={<AutoAwesomeIcon />}
+              onClick={handleGenerate}
+              disabled={saving || loading}
+              sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
             >
-              {isMobile ? "Add" : "Add Enrollment"}
+              {saving ? <CircularProgress size={18} color="inherit" /> : "Generate"}
+            </Button>
+
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              onClick={handleDeleteScope}
+              disabled={bulkDeleting || loading || existingEnrollmentIdsInScope.length === 0}
+            >
+              {bulkDeleting ? <CircularProgress size={18} color="inherit" /> : "Delete Scope"}
             </Button>
           </Stack>
-        </Box>
-
-        <Box display="flex" flexWrap="wrap" gap={1.5} mt={2} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Search student, admission no, subject, year"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 220, flex: 1 }}
-          />
-
-          <FormControl size="small" sx={{ minWidth: 130 }}>
-            <InputLabel>Grade</InputLabel>
-            <Select
-              value={filterGrade}
-              label="Grade"
-              onChange={(e) => setFilterGrade(e.target.value)}
-            >
-              <MenuItem value="">All Grades</MenuItem>
-              {gradeOptions.map((g) => (
-                <MenuItem key={g} value={g}>
-                  Grade {g}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl size="small" sx={{ minWidth: 130 }}>
-            <InputLabel>Section</InputLabel>
-            <Select
-              value={filterSection}
-              label="Section"
-              onChange={(e) => setFilterSection(e.target.value)}
-            >
-              <MenuItem value="">All Sections</MenuItem>
-              {sectionOptions.map((section) => (
-                <MenuItem key={section} value={section}>
-                  {section}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Category</InputLabel>
-            <Select
-              value={filterCategory}
-              label="Category"
-              onChange={(e) => setFilterCategory(e.target.value)}
-            >
-              <MenuItem value="">All Categories</MenuItem>
-              {SUBJECT_CATEGORIES.map((item) => (
-                <MenuItem key={item.value} value={item.value}>
-                  {item.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => {
-              setSearch("");
-              setFilterGrade("");
-              setFilterSection("");
-              setFilterCategory("");
-            }}
-            sx={{ borderColor: "#e8eaf6", color: "text.secondary" }}
-          >
-            Clear
-          </Button>
-
-          <Typography variant="caption" color="text.secondary">
-            {filteredEnrollments.length} result{filteredEnrollments.length !== 1 ? "s" : ""}
-          </Typography>
         </Box>
       </Box>
 
       {success && (
-        <Alert
-          severity="success"
-          sx={{ mb: 2, borderRadius: 2 }}
-          onClose={() => setSuccess("")}
-        >
+        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
           {success}
         </Alert>
       )}
 
-      {error && !open && (
-        <Alert
-          severity="error"
-          sx={{ mb: 2, borderRadius: 2 }}
-          onClose={() => setError("")}
-        >
+      {error && (
+        <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
           {error}
         </Alert>
       )}
 
-      {loading ? (
-        <Box display="flex" justifyContent="center" p={5}>
-          <CircularProgress />
-        </Box>
-      ) : filteredEnrollments.length === 0 ? (
-        <Box
-          textAlign="center"
-          py={8}
-          sx={{
-            bgcolor: "white",
-            borderRadius: 3,
-            border: "1px solid #e8eaf6",
-          }}
-        >
-          <Typography
-            variant="h6"
-            color="text.secondary"
-            mt={1}
-            fontWeight={600}
+      <Grid container spacing={2} mb={2}>
+        <Grid item xs={12} md={8}>
+          <Paper
+            sx={{
+              p: 2,
+              borderRadius: 3,
+              border: "1px solid #e8eaf6",
+              boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+            }}
           >
-            No subject enrollments found
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Click Add Enrollment to create student subject selections
-          </Typography>
-        </Box>
-      ) : isMobile ? (
-        <Box>
-          {filteredEnrollments.map((item) => (
-            <Card
-              key={item.id}
-              sx={{
-                mb: 1.5,
-                borderRadius: 3,
-                border: "1px solid #e8eaf6",
-                boxShadow: "0 2px 8px rgba(26,35,126,0.07)",
-              }}
-            >
-              <CardContent sx={{ pb: 0 }}>
-                <Typography variant="subtitle1" fontWeight={800}>
-                  {item.studentName || "Unnamed Student"}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  {item.admissionNo || "No Adm#"} • Grade {item.grade || "—"}-
-                  {item.section || normalizeSection(item.className) || "—"}
-                </Typography>
-                <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
-                  <Chip
-                    label={getCategoryLabel(item.subjectCategory)}
-                    size="small"
-                    color="primary"
-                    sx={{ fontWeight: 700 }}
-                  />
-                  <Chip
-                    label={item.subjectName || "No Subject"}
-                    size="small"
-                    color="success"
-                    sx={{ fontWeight: 700 }}
-                  />
-                  <Chip
-                    label={normalizeText(item.status || "active")}
-                    size="small"
-                    color={normalizeLower(item.status || "active") === "active" ? "success" : "default"}
-                  />
-                </Box>
-                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Year: {item.academicYear || "—"}
-                </Typography>
-              </CardContent>
+            <Typography variant="subtitle1" fontWeight={800} color="#1a237e" mb={2}>
+              Generation Scope
+            </Typography>
 
-              <CardActions sx={{ pt: 0.5, pb: 1, px: 2, gap: 1 }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<EditIcon />}
-                  onClick={() => handleEdit(item)}
-                  sx={{ borderColor: "#1a237e", color: "#1a237e" }}
-                >
-                  Edit
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={() => handleDelete(item.id)}
-                >
-                  Delete
-                </Button>
-              </CardActions>
-            </Card>
-          ))}
-        </Box>
-      ) : (
-        <Paper
-          sx={{
-            borderRadius: 3,
-            boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-            border: "1px solid #e8eaf6",
-            overflow: "hidden",
-          }}
-        >
-          <Table size="small">
-            <TableHead sx={{ bgcolor: "#1a237e" }}>
-              <TableRow>
-                {[
-                  "#",
-                  "Student",
-                  "Adm No",
-                  "Grade/Sec",
-                  "Category",
-                  "Subject",
-                  "Academic Year",
-                  "Status",
-                  "Actions",
-                ].map((header) => (
-                  <TableCell
-                    key={header}
-                    sx={{ color: "white", fontWeight: 700, fontSize: 13 }}
-                  >
-                    {header}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredEnrollments.map((item, idx) => (
-                <TableRow
-                  key={item.id}
-                  hover
-                  sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
-                >
-                  <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>
-                    {idx + 1}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={700}>
-                      {item.studentName || "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="#1a237e" fontWeight={700}>
-                      {item.admissionNo || "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={`G${item.grade || "—"}-${item.section || normalizeSection(item.className) || "—"}`}
-                      size="small"
-                      color="primary"
-                      sx={{ fontWeight: 700, fontSize: 12 }}
-                    />
-                  </TableCell>
-                  <TableCell>{getCategoryLabel(item.subjectCategory)}</TableCell>
-                  <TableCell>{item.subjectName || "—"}</TableCell>
-                  <TableCell>{item.academicYear || "—"}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={normalizeText(item.status || "active").toUpperCase()}
-                      size="small"
-                      color={normalizeLower(item.status || "active") === "active" ? "success" : "default"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title="Edit">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => handleEdit(item)}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDelete(item.id)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
-      )}
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Academic Year"
+                  value={filters.academicYear}
+                  onChange={(e) => updateFilters("academicYear", e.target.value)}
+                  placeholder="2026"
+                />
+              </Grid>
 
-      <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
-        maxWidth="md"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "Edit Subject Enrollment" : "Add Subject Enrollment"}
-        </DialogTitle>
-
-        <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-              {error}
-            </Alert>
-          )}
-
-          <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Student
-                </Typography>
-              </Divider>
-            </Grid>
-
-            <Grid item xs={12}>
-              <FormControl fullWidth required>
-                <InputLabel>Student</InputLabel>
-                <Select
-                  value={form.studentId}
-                  label="Student"
-                  onChange={(e) => handleStudentChange(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>Select Student</em>
-                  </MenuItem>
-                  {filteredStudentsForForm.map((student) => (
-                    <MenuItem key={student.id} value={student.id}>
-                      {getStudentDisplay(student)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth label="Student Name" value={form.studentName} InputProps={{ readOnly: true }} />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth label="Admission No." value={form.admissionNo} InputProps={{ readOnly: true }} />
-            </Grid>
-
-            <Grid item xs={12} sm={2}>
-              <TextField fullWidth label="Grade" value={form.grade} InputProps={{ readOnly: true }} />
-            </Grid>
-
-            <Grid item xs={12} sm={2}>
-              <TextField fullWidth label="Section" value={form.section} InputProps={{ readOnly: true }} />
-            </Grid>
-
-            <Grid item xs={12}>
-              <Divider>
-                <Typography variant="caption" color="text.secondary">
-                  Enrollment
-                </Typography>
-              </Divider>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                required
-                label="Academic Year"
-                placeholder="2026"
-                value={form.academicYear}
-                onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required>
-                <InputLabel>Subject Category</InputLabel>
-                <Select
-                  value={form.subjectCategory}
-                  label="Subject Category"
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      subjectCategory: e.target.value,
-                      subjectId: "",
-                      subjectName: "",
-                      subjectCode: "",
-                      religionKey: "",
-                      basketGroup: "",
-                      stream: e.target.value === "al_main" ? form.stream : "",
-                    })
-                  }
-                >
-                  {SUBJECT_CATEGORIES.map((item) => (
-                    <MenuItem key={item.value} value={item.value}>
-                      {item.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth required>
-                <InputLabel>Subject</InputLabel>
-                <Select
-                  value={form.subjectId}
-                  label="Subject"
-                  onChange={(e) => handleSubjectChange(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>Select Subject</em>
-                  </MenuItem>
-                  {availableSubjectsForForm.map((subject) => (
-                    <MenuItem key={subject.id} value={subject.id}>
-                      {getSubjectName(subject)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Selected Subject Name"
-                value={form.subjectName}
-                InputProps={{ readOnly: true }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Medium</InputLabel>
-                <Select
-                  value={form.medium}
-                  label="Medium"
-                  onChange={(e) => setForm({ ...form, medium: e.target.value })}
-                >
-                  <MenuItem value="">None</MenuItem>
-                  {MEDIUM_OPTIONS.map((option) => (
-                    <MenuItem key={option} value={option}>
-                      {option}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            {(isALGrade || form.subjectCategory === "al_main") && (
               <Grid item xs={12} sm={4}>
                 <FormControl fullWidth>
-                  <InputLabel>Stream</InputLabel>
+                  <InputLabel>Grade</InputLabel>
                   <Select
-                    value={form.stream}
-                    label="Stream"
-                    onChange={(e) => setForm({ ...form, stream: e.target.value })}
+                    value={filters.grade}
+                    label="Grade"
+                    onChange={(e) => updateFilters("grade", e.target.value)}
                   >
-                    <MenuItem value="">None</MenuItem>
-                    {STREAM_OPTIONS.map((option) => (
-                      <MenuItem key={option} value={option}>
-                        {option}
+                    <MenuItem value="">All Grades</MenuItem>
+                    {gradeOptions.map((grade) => (
+                      <MenuItem key={grade} value={grade}>
+                        Grade {grade}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
+
+              <Grid item xs={12} sm={4}>
+                <FormControl fullWidth>
+                  <InputLabel>Section</InputLabel>
+                  <Select
+                    value={filters.section}
+                    label="Section"
+                    onChange={(e) => updateFilters("section", e.target.value)}
+                  >
+                    <MenuItem value="">All Sections</MenuItem>
+                    {sectionOptions.map((section) => (
+                      <MenuItem key={section} value={section}>
+                        {section}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth disabled={!(String(filters.grade) === "12" || String(filters.grade) === "13")}>
+                  <InputLabel>A/L Stream</InputLabel>
+                  <Select
+                    value={filters.stream}
+                    label="A/L Stream"
+                    onChange={(e) => updateFilters("stream", e.target.value)}
+                  >
+                    <MenuItem value="">All Streams</MenuItem>
+                    {streamOptions.map((stream) => (
+                      <MenuItem key={stream} value={stream}>
+                        {stream}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Stack spacing={1}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={filters.onlyActiveStudents}
+                        onChange={(e) => updateFilters("onlyActiveStudents", e.target.checked)}
+                      />
+                    }
+                    label="Only active students"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={filters.replaceExistingForScope}
+                        onChange={(e) =>
+                          updateFilters("replaceExistingForScope", e.target.checked)
+                        }
+                      />
+                    }
+                    label="Replace existing enrollments in scope"
+                  />
+                </Stack>
+              </Grid>
+            </Grid>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Stack spacing={2}>
+            <Card
+              sx={{
+                borderRadius: 3,
+                border: "1px solid #e8eaf6",
+                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+              }}
+            >
+              <CardContent>
+                <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                  <SchoolIcon color="primary" />
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Scope Summary
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" fontWeight={700}>
+                  {scopedStudentLabel}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                  {buildScopeLabel(filters)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                  Existing enrollments in scope: {existingEnrollmentIdsInScope.length}
+                </Typography>
+              </CardContent>
+            </Card>
+
+            <Card
+              sx={{
+                borderRadius: 3,
+                border: "1px solid #e8eaf6",
+                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+              }}
+            >
+              <CardContent>
+                <Typography variant="subtitle2" color="text.secondary" mb={1}>
+                  A/L Notes
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  - Uses stream + student A/L choices
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  - Generates main subjects as category `al_main`
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  - Generates General English as category `general` if defined
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  - Saves `subjectNumber`, `streamCode`, and `alClassName`
+                </Typography>
+              </CardContent>
+            </Card>
+          </Stack>
+        </Grid>
+      </Grid>
+
+      <Paper
+        sx={{
+          p: 2,
+          borderRadius: 3,
+          border: "1px solid #e8eaf6",
+          boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+        }}
+      >
+        <Typography variant="subtitle1" fontWeight={800} color="#1a237e" mb={2}>
+          Students in Current Scope
+        </Typography>
+
+        {loading ? (
+          <Box display="flex" justifyContent="center" py={4}>
+            <CircularProgress />
+          </Box>
+        ) : filteredStudents.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No students found for the selected scope.
+          </Typography>
+        ) : isMobile ? (
+          <Stack spacing={1.2}>
+            {filteredStudents.map((student) => {
+              const grade = getStudentGrade(student);
+              const section = getStudentSection(student);
+              const stream = getStudentStream(student);
+
+              return (
+                <Card key={student.id} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <CardContent>
+                    <Typography variant="subtitle2" fontWeight={800}>
+                      {getStudentName(student)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {getStudentAdmissionNo(student) || "No Adm#"}
+                    </Typography>
+                    <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
+                      <Chip label={`G${grade}-${section || "—"}`} size="small" color="primary" />
+                      {isALGrade(grade) && stream ? (
+                        <Chip
+                          label={getALStreamShortName(stream) || stream}
+                          size="small"
+                          color="secondary"
+                        />
+                      ) : null}
+                    </Box>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Stack>
+        ) : (
+          <Table size="small">
+            <TableHead sx={{ bgcolor: "#1a237e" }}>
+              <TableRow>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>#</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Student</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Adm No</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Grade</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Section</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Stream</TableCell>
+                <TableCell sx={{ color: "white", fontWeight: 700 }}>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredStudents.map((student, idx) => (
+                <TableRow key={student.id} hover>
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell>{getStudentName(student)}</TableCell>
+                  <TableCell>{getStudentAdmissionNo(student) || "—"}</TableCell>
+                  <TableCell>{getStudentGrade(student) || "—"}</TableCell>
+                  <TableCell>{getStudentSection(student) || "—"}</TableCell>
+                  <TableCell>{getStudentStream(student) || "—"}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={normalizeText(student.status || "Active").toUpperCase()}
+                      color={isActiveStatus(student.status || "Active") ? "success" : "default"}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Paper>
+
+      <Dialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        fullScreen={isMobile}
+      >
+        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
+          Enrollment Preview
+        </DialogTitle>
+
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Box display="flex" gap={1} flexWrap="wrap">
+              <Chip label={`Students: ${previewSummary.students}`} color="primary" size="small" />
+              <Chip
+                label={`Preview Enrollments: ${previewSummary.previewEnrollments}`}
+                color="success"
+                size="small"
+              />
+              <Chip
+                label={`Warnings: ${previewSummary.warnings}`}
+                color={previewSummary.warnings > 0 ? "warning" : "default"}
+                size="small"
+              />
+              <Chip
+                label={`Existing in Scope: ${previewSummary.existingInScope}`}
+                size="small"
+              />
+            </Box>
+
+            {previewWarnings.length > 0 && (
+              <Alert severity="warning">
+                <Typography variant="body2" fontWeight={700} mb={1}>
+                  Missing or invalid data found:
+                </Typography>
+                <Box component="ul" sx={{ pl: 2, m: 0 }}>
+                  {previewWarnings.slice(0, 20).map((warning, idx) => (
+                    <li key={`${warning}-${idx}`}>
+                      <Typography variant="caption">{warning}</Typography>
+                    </li>
+                  ))}
+                </Box>
+                {previewWarnings.length > 20 && (
+                  <Typography variant="caption" display="block" mt={1}>
+                    + {previewWarnings.length - 20} more warning(s)
+                  </Typography>
+                )}
+              </Alert>
             )}
-          </Grid>
+
+            {previewRows.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No preview rows generated.
+              </Typography>
+            ) : isMobile ? (
+              <Stack spacing={1.2}>
+                {previewRows.map((row) => (
+                  <Card key={row.id} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <CardContent>
+                      <Typography variant="subtitle2" fontWeight={800}>
+                        {row.data.studentName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {row.data.subjectName}
+                      </Typography>
+                      <Box display="flex" gap={0.8} mt={1} flexWrap="wrap">
+                        <Chip label={getCategoryLabel(row.data.subjectCategory)} size="small" />
+                        <Chip label={`G${row.data.grade}-${row.data.section}`} size="small" color="primary" />
+                        {row.data.stream ? (
+                          <Chip label={row.data.stream} size="small" color="secondary" />
+                        ) : null}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            ) : (
+              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: "#1a237e" }}>
+                    <TableRow>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Student</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Adm No</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Grade/Sec</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Stream</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Category</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Subject No.</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Subject</TableCell>
+                      <TableCell sx={{ color: "white", fontWeight: 700 }}>Year</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {previewRows.map((row) => (
+                      <TableRow key={row.id} hover>
+                        <TableCell>{row.data.studentName}</TableCell>
+                        <TableCell>{row.data.admissionNo || "—"}</TableCell>
+                        <TableCell>{`G${row.data.grade}-${row.data.section}`}</TableCell>
+                        <TableCell>{row.data.stream || "—"}</TableCell>
+                        <TableCell>{getCategoryLabel(row.data.subjectCategory)}</TableCell>
+                        <TableCell>{row.data.subjectNumber || "—"}</TableCell>
+                        <TableCell>{row.data.subjectName}</TableCell>
+                        <TableCell>{row.data.academicYear}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            )}
+          </Stack>
         </DialogContent>
 
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            variant="contained"
-            disabled={saving}
-            fullWidth={isMobile}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
-          >
-            {saving ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : editId ? (
-              "Update Enrollment"
-            ) : (
-              "Save Enrollment"
-            )}
-          </Button>
+        <DialogActions>
+          <Button onClick={() => setPreviewOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

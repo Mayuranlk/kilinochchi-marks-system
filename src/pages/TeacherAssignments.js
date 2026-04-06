@@ -44,13 +44,24 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
+import {
+  GRADES,
+  AL_STREAM_OPTIONS,
+  AL_STREAM_CODES,
+  isALGrade,
+  normalizeText,
+  buildALClassName,
+  buildALDisplayClassName,
+} from "../constants/constants";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const GRADES = [6, 7, 8, 9, 10, 11];
-const SECTIONS = ["A", "B", "C", "D", "E", "F"];
+const SECTIONS = [
+  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+];
 
 const safeString = (value) => {
   if (value === undefined || value === null) return "";
@@ -100,6 +111,9 @@ const getSubjectName = (subject) =>
 const getSubjectCode = (subject) =>
   safeString(subject.subjectCode || subject.code);
 
+const getSubjectNumber = (subject) =>
+  safeString(subject.subjectNumber);
+
 const isActiveSubject = (subject) => lower(subject.status || "active") === "active";
 
 const isTeacherActive = (teacher) => lower(teacher.status || "active") === "active";
@@ -131,10 +145,42 @@ const subjectMatchesGrade = (subject, grade) => {
   return true;
 };
 
+const subjectMatchesStream = (subject, stream) => {
+  const cleanStream = safeString(stream);
+  if (!cleanStream) return true;
+
+  const primaryStream = safeString(subject.stream);
+  const additionalStreams = Array.isArray(subject.streams)
+    ? subject.streams.map(safeString).filter(Boolean)
+    : [];
+
+  const allStreams = [...new Set([primaryStream, ...additionalStreams].filter(Boolean))];
+
+  if (!allStreams.length) return true;
+  return allStreams.includes(cleanStream);
+};
+
 const subjectKey = (row) => {
   const sid = safeString(row.subjectId);
   if (sid) return `id:${sid}`;
   return `name:${normalizeSubjectName(row.subjectName || row.subject)}`;
+};
+
+const getAssignmentSubjectName = (row) =>
+  safeString(row.subjectName || row.subject);
+
+const getAssignmentFullClassName = (row) => {
+  if (safeString(row.fullClassName)) return safeString(row.fullClassName);
+
+  const grade = normalizeGrade(row.grade);
+  const section = normalizeSection(row.section);
+  const stream = safeString(row.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return `${grade}${section}`;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -151,10 +197,12 @@ export default function TeacherAssignments() {
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
 
   const [selectedTeacher, setSelectedTeacher] = useState("");
   const [selectedGrades, setSelectedGrades] = useState([]);
   const [selectedSections, setSelectedSections] = useState([]);
+  const [selectedStreams, setSelectedStreams] = useState([]);
   const [selectedSubjectKeys, setSelectedSubjectKeys] = useState([]);
 
   const [error, setError] = useState("");
@@ -165,10 +213,11 @@ export default function TeacherAssignments() {
     setError("");
 
     try {
-      const [teacherSnap, subjectSnap, assignmentSnap] = await Promise.all([
+      const [teacherSnap, subjectSnap, assignmentSnap, classroomSnap] = await Promise.all([
         getDocs(query(collection(db, "users"), where("role", "==", "teacher"))),
         getDocs(collection(db, "subjects")),
         getDocs(collection(db, "teacherAssignments")),
+        getDocs(collection(db, "classrooms")),
       ]);
 
       const teacherRows = teacherSnap.docs
@@ -186,12 +235,18 @@ export default function TeacherAssignments() {
         ...d.data(),
       }));
 
+      const classroomRows = classroomSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
       setTeachers(teacherRows);
       setSubjects(subjectRows);
       setAssignments(assignmentRows);
+      setClassrooms(classroomRows);
     } catch (err) {
       console.error("TeacherAssignments fetch error:", err);
-      setError("Failed to load teachers, subjects, or assignments.");
+      setError("Failed to load teachers, subjects, assignments, or classrooms.");
     } finally {
       setLoading(false);
     }
@@ -206,15 +261,57 @@ export default function TeacherAssignments() {
     [teachers, selectedTeacher]
   );
 
+  const hasALGradeSelected = useMemo(
+    () => selectedGrades.some((grade) => isALGrade(grade)),
+    [selectedGrades]
+  );
+
+  const availableStreams = useMemo(() => {
+    const classroomStreams = classrooms
+      .filter((row) => isALGrade(normalizeGrade(row.grade)))
+      .map((row) => safeString(row.stream))
+      .filter(Boolean);
+
+    return [...new Set([...AL_STREAM_OPTIONS, ...classroomStreams])];
+  }, [classrooms]);
+
+  const availableSections = useMemo(() => {
+    if (!selectedGrades.length) return SECTIONS;
+
+    const derived = classrooms
+      .filter((row) => selectedGrades.includes(normalizeGrade(row.grade)))
+      .filter((row) => {
+        const grade = normalizeGrade(row.grade);
+        if (isALGrade(grade) && selectedStreams.length > 0) {
+          return selectedStreams.includes(safeString(row.stream));
+        }
+        return true;
+      })
+      .map((row) => normalizeSection(row.section || row.className))
+      .filter(Boolean);
+
+    const merged = [...new Set([...SECTIONS, ...derived])];
+    return merged.sort();
+  }, [classrooms, selectedGrades, selectedStreams]);
+
   const availableSubjects = useMemo(() => {
     if (!selectedGrades.length) {
       return subjects;
     }
 
     return subjects.filter((subject) =>
-      selectedGrades.some((grade) => subjectMatchesGrade(subject, grade))
+      selectedGrades.some((grade) => {
+        if (!subjectMatchesGrade(subject, grade)) return false;
+
+        if (isALGrade(grade)) {
+          if (selectedStreams.length === 0) return true;
+          return selectedStreams.some((stream) => subjectMatchesStream(subject, stream));
+        }
+
+        return true;
+      })
     );
-  }, [subjects, selectedGrades]);
+  }, [subjects, selectedGrades, selectedStreams]);
 
   const selectedSubjectRows = useMemo(() => {
     return availableSubjects.filter((subject) =>
@@ -229,23 +326,51 @@ export default function TeacherAssignments() {
     const combos = [];
 
     selectedGrades.forEach((grade) => {
-      selectedSections.forEach((section) => {
-        selectedSubjectRows.forEach((subject) => {
-          if (!subjectMatchesGrade(subject, grade)) return;
+      const alGrade = isALGrade(grade);
 
-          combos.push({
-            grade: Number(grade),
-            section: safeString(section),
-            subjectId: subject.id,
-            subjectName: getSubjectName(subject),
-            subjectCode: getSubjectCode(subject),
+      const streamsForGrade = alGrade
+        ? selectedStreams.length > 0
+          ? selectedStreams
+          : availableStreams
+        : [""];
+
+      selectedSections.forEach((section) => {
+        streamsForGrade.forEach((stream) => {
+          selectedSubjectRows.forEach((subject) => {
+            if (!subjectMatchesGrade(subject, grade)) return;
+            if (alGrade && !subjectMatchesStream(subject, stream)) return;
+
+            const fullClassName =
+              alGrade && stream
+                ? buildALClassName(grade, stream, section)
+                : `${grade}${section}`;
+
+            const displayClassName =
+              alGrade && stream
+                ? buildALDisplayClassName(grade, stream, section) || fullClassName
+                : `${grade}${section}`;
+
+            combos.push({
+              grade: Number(grade),
+              section: safeString(section),
+              stream: alGrade ? safeString(stream) : "",
+              streamCode: alGrade ? safeString(AL_STREAM_CODES[stream] || "") : "",
+              className: `${grade}${section}`,
+              alClassName: alGrade ? fullClassName : "",
+              fullClassName,
+              displayClassName,
+              subjectId: subject.id,
+              subjectName: getSubjectName(subject),
+              subjectCode: getSubjectCode(subject),
+              subjectNumber: getSubjectNumber(subject),
+            });
           });
         });
       });
     });
 
     return combos;
-  }, [selectedGrades, selectedSections, selectedSubjectRows]);
+  }, [selectedGrades, selectedSections, selectedStreams, selectedSubjectRows, availableStreams]);
 
   const previewCount = previewCombos.length;
 
@@ -254,6 +379,11 @@ export default function TeacherAssignments() {
       const next = prev.includes(grade)
         ? prev.filter((g) => g !== grade)
         : [...prev, grade].sort((a, b) => a - b);
+
+      const stillHasAL = next.some((g) => isALGrade(g));
+      if (!stillHasAL) {
+        setSelectedStreams([]);
+      }
 
       return next;
     });
@@ -267,6 +397,15 @@ export default function TeacherAssignments() {
         ? prev.filter((s) => s !== section)
         : [...prev, section].sort()
     );
+  };
+
+  const toggleStream = (stream) => {
+    setSelectedStreams((prev) =>
+      prev.includes(stream)
+        ? prev.filter((s) => s !== stream)
+        : [...prev, stream].sort()
+    );
+    setSelectedSubjectKeys([]);
   };
 
   const toggleSubject = (key) => {
@@ -286,8 +425,15 @@ export default function TeacherAssignments() {
 
   const toggleAllSections = () => {
     setSelectedSections((prev) =>
-      prev.length === SECTIONS.length ? [] : [...SECTIONS]
+      prev.length === availableSections.length ? [] : [...availableSections]
     );
+  };
+
+  const toggleAllStreams = () => {
+    setSelectedStreams((prev) =>
+      prev.length === availableStreams.length ? [] : [...availableStreams]
+    );
+    setSelectedSubjectKeys([]);
   };
 
   const toggleAllSubjects = () => {
@@ -322,6 +468,11 @@ export default function TeacherAssignments() {
       return;
     }
 
+    if (hasALGradeSelected && !selectedStreams.length) {
+      setError("Select at least one stream for A/L grades.");
+      return;
+    }
+
     if (!selectedSubjectRows.length) {
       setError("Select at least one subject.");
       return;
@@ -341,6 +492,11 @@ export default function TeacherAssignments() {
             normalizeSection(assignment.section) === normalizeSection(combo.section);
 
           if (!sameGrade || !sameSection) return false;
+
+          if (isALGrade(combo.grade)) {
+            const existingStream = safeString(assignment.stream);
+            if (existingStream !== safeString(combo.stream)) return false;
+          }
 
           const existingSubjectId = safeString(assignment.subjectId);
           const existingSubjectName = safeString(
@@ -364,13 +520,13 @@ export default function TeacherAssignments() {
 
         if (safeString(existing.teacherId) === selectedTeacher) {
           alreadyAssignedToSameTeacher.push(
-            `${combo.subjectName} - G${combo.grade}-${combo.section}`
+            `${combo.subjectName} - ${combo.displayClassName}`
           );
           return;
         }
 
         conflicts.push(
-          `${combo.subjectName} - G${combo.grade}-${combo.section} already assigned to ${safeString(existing.teacherName) || "another teacher"}`
+          `${combo.subjectName} - ${combo.displayClassName} already assigned to ${safeString(existing.teacherName) || "another teacher"}`
         );
       });
 
@@ -396,13 +552,23 @@ export default function TeacherAssignments() {
             teacherId: selectedTeacher,
             teacherName: safeString(selectedTeacherRow?.name),
             teacherEmail: safeString(selectedTeacherRow?.email),
+
             grade: Number(row.grade),
             section: safeString(row.section),
-            className: `${row.grade}${row.section}`,
+
+            className: safeString(row.className),
+            fullClassName: safeString(row.fullClassName),
+            alClassName: safeString(row.alClassName),
+
+            stream: safeString(row.stream),
+            streamCode: safeString(row.streamCode),
+
             subjectId: safeString(row.subjectId),
             subjectName: safeString(row.subjectName),
             subject: safeString(row.subjectName),
             subjectCode: safeString(row.subjectCode),
+            subjectNumber: safeString(row.subjectNumber),
+
             status: "active",
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
@@ -417,6 +583,7 @@ export default function TeacherAssignments() {
       setSelectedTeacher("");
       setSelectedGrades([]);
       setSelectedSections([]);
+      setSelectedStreams([]);
       setSelectedSubjectKeys([]);
 
       await fetchAll();
@@ -450,12 +617,13 @@ export default function TeacherAssignments() {
           const gradeDiff = Number(a.grade) - Number(b.grade);
           if (gradeDiff !== 0) return gradeDiff;
 
+          const streamDiff = safeString(a.stream).localeCompare(safeString(b.stream));
+          if (streamDiff !== 0) return streamDiff;
+
           const sectionDiff = safeString(a.section).localeCompare(safeString(b.section));
           if (sectionDiff !== 0) return sectionDiff;
 
-          return safeString(a.subjectName || a.subject).localeCompare(
-            safeString(b.subjectName || b.subject)
-          );
+          return getAssignmentSubjectName(a).localeCompare(getAssignmentSubjectName(b));
         }),
     }))
     .filter((teacher) => teacher.assignments.length > 0);
@@ -563,7 +731,7 @@ export default function TeacherAssignments() {
         </Box>
 
         <Grid container spacing={3}>
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -618,7 +786,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -637,12 +805,12 @@ export default function TeacherAssignments() {
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#2e7d32" }}
                   onClick={toggleAllSections}
                 >
-                  {selectedSections.length === SECTIONS.length ? "None" : "All"}
+                  {selectedSections.length === availableSections.length ? "None" : "All"}
                 </Button>
               </Box>
 
               <FormGroup>
-                {SECTIONS.map((section) => (
+                {availableSections.map((section) => (
                   <FormControlLabel
                     key={section}
                     control={
@@ -673,7 +841,69 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
+            <Box
+              sx={{
+                border: "1px solid #e8eaf6",
+                borderRadius: 2,
+                p: 2,
+                bgcolor: selectedStreams.length > 0 ? "#f3e5f5" : "#fafafa",
+                opacity: hasALGradeSelected ? 1 : 0.7,
+              }}
+            >
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="body2" fontWeight={700} color="#6a1b9a">
+                  Step 4 — Stream
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#6a1b9a" }}
+                  onClick={toggleAllStreams}
+                  disabled={!hasALGradeSelected}
+                >
+                  {selectedStreams.length === availableStreams.length ? "None" : "All"}
+                </Button>
+              </Box>
+
+              {!hasALGradeSelected ? (
+                <Typography variant="caption" color="text.secondary">
+                  Select Grade 12 or 13 to enable stream selection.
+                </Typography>
+              ) : (
+                <FormGroup>
+                  {availableStreams.map((stream) => (
+                    <FormControlLabel
+                      key={stream}
+                      control={
+                        <Checkbox
+                          checked={selectedStreams.includes(stream)}
+                          onChange={() => toggleStream(stream)}
+                          size="small"
+                          sx={{
+                            py: 0.3,
+                            color: "#6a1b9a",
+                            "&.Mui-checked": { color: "#6a1b9a" },
+                          }}
+                        />
+                      }
+                      label={<Typography variant="body2">{stream}</Typography>}
+                    />
+                  ))}
+                </FormGroup>
+              )}
+
+              {selectedStreams.length > 0 && (
+                <Chip
+                  label={`${selectedStreams.length} selected`}
+                  size="small"
+                  sx={{ mt: 1, bgcolor: "#6a1b9a", color: "white" }}
+                />
+              )}
+            </Box>
+          </Grid>
+
+          <Grid item xs={12} sm={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -686,7 +916,7 @@ export default function TeacherAssignments() {
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#e65100">
-                  Step 4 — Subject
+                  Step 5 — Subject
                 </Typography>
                 <Button
                   size="small"
@@ -721,9 +951,16 @@ export default function TeacherAssignments() {
                         />
                       }
                       label={
-                        <Typography variant="body2" sx={{ fontSize: 13 }}>
-                          {getSubjectName(subject)}
-                        </Typography>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontSize: 13 }}>
+                            {getSubjectName(subject)}
+                          </Typography>
+                          {getSubjectNumber(subject) && (
+                            <Typography variant="caption" color="text.secondary">
+                              No. {getSubjectNumber(subject)}
+                            </Typography>
+                          )}
+                        </Box>
                       }
                     />
                   );
@@ -833,7 +1070,7 @@ export default function TeacherAssignments() {
                     >
                       <Box display="flex" gap={0.8} flexWrap="wrap" alignItems="center">
                         <Chip
-                          label={`G${assignment.grade}-${assignment.section}`}
+                          label={getAssignmentFullClassName(assignment)}
                           size="small"
                           color="primary"
                         />
@@ -865,7 +1102,7 @@ export default function TeacherAssignments() {
               <Table size="small">
                 <TableHead sx={{ bgcolor: "#1a237e" }}>
                   <TableRow>
-                    {["#", "Teacher", "Grade", "Section", "Subject", "Action"].map((head) => (
+                    {["#", "Teacher", "Class", "Stream", "Subject", "Action"].map((head) => (
                       <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
                         {head}
                       </TableCell>
@@ -880,13 +1117,16 @@ export default function TeacherAssignments() {
                       const gradeDiff = Number(a.grade) - Number(b.grade);
                       if (gradeDiff !== 0) return gradeDiff;
 
+                      const streamDiff = safeString(a.stream).localeCompare(safeString(b.stream));
+                      if (streamDiff !== 0) return streamDiff;
+
                       const sectionDiff = safeString(a.section).localeCompare(
                         safeString(b.section)
                       );
                       if (sectionDiff !== 0) return sectionDiff;
 
-                      return safeString(a.subjectName || a.subject).localeCompare(
-                        safeString(b.subjectName || b.subject)
+                      return getAssignmentSubjectName(a).localeCompare(
+                        getAssignmentSubjectName(b)
                       );
                     })
                     .map((assignment, index) => (
@@ -903,13 +1143,34 @@ export default function TeacherAssignments() {
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={`Grade ${assignment.grade}`}
+                            label={getAssignmentFullClassName(assignment)}
                             size="small"
                             color="primary"
                           />
                         </TableCell>
-                        <TableCell>{assignment.section}</TableCell>
-                        <TableCell>{assignment.subjectName || assignment.subject}</TableCell>
+                        <TableCell>
+                          {safeString(assignment.stream) ? (
+                            <Chip
+                              label={assignment.stream}
+                              size="small"
+                              color="secondary"
+                            />
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="body2">
+                              {assignment.subjectName || assignment.subject}
+                            </Typography>
+                            {safeString(assignment.subjectNumber) && (
+                              <Typography variant="caption" color="text.secondary">
+                                No. {assignment.subjectNumber}
+                              </Typography>
+                            )}
+                          </Box>
+                        </TableCell>
                         <TableCell>
                           <Tooltip title="Remove">
                             <IconButton

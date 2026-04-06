@@ -54,6 +54,28 @@ import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import * as XLSX from "xlsx";
+import {
+  RELIGIONS,
+  AESTHETIC_SUBJECTS,
+  BASKET_A,
+  BASKET_B,
+  BASKET_C,
+  MEDIUM_OPTIONS,
+  normalizeText,
+  normalizeLower,
+  parseGrade,
+  normalizeSection,
+  isALGrade,
+  buildALClassName,
+  buildALDisplayClassName,
+  AL_STREAM_OPTIONS,
+  AL_STREAM_CODES,
+  AL_STREAM_SHORT_NAMES,
+  getALOptionalSubjectsForStream,
+  validateALChoices,
+  convertALChoiceNumbersToSubjects,
+  convertALChoiceNamesToSubjects,
+} from "../constants/constants";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */
@@ -61,16 +83,6 @@ import * as XLSX from "xlsx";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
-const RELIGION_OPTIONS = [
-  "Hinduism",
-  "Catholicism",
-  "Christianity",
-  "Islam",
-  "Buddhism",
-  "Other",
-];
-const STREAM_OPTIONS = ["Maths", "Bio", "Commerce", "Technology", "Arts"];
-const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
 
 const emptyForm = {
   name: "",
@@ -87,6 +99,9 @@ const emptyForm = {
   basketBChoice: "",
   basketCChoice: "",
   stream: "",
+  streamCode: "",
+  alClassName: "",
+  alSubjectChoiceNumbers: [],
   alSubjectChoices: [],
   medium: "",
 };
@@ -94,9 +109,6 @@ const emptyForm = {
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
-
-const normalizeText = (value) => String(value || "").trim();
-const normalizeLower = (value) => normalizeText(value).toLowerCase();
 
 const normalizeGradeValue = (value) => {
   const raw = normalizeText(value);
@@ -120,6 +132,10 @@ const sortStudentsClientSide = (list) => {
     const sectionB = normalizeSectionValue(b.section || b.className);
     if (sectionA !== sectionB) return sectionA.localeCompare(sectionB);
 
+    const streamA = normalizeText(a.stream);
+    const streamB = normalizeText(b.stream);
+    if (streamA !== streamB) return streamA.localeCompare(streamB);
+
     const nameA = normalizeText(a.name || a.fullName).toLowerCase();
     const nameB = normalizeText(b.name || b.fullName).toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
@@ -139,11 +155,6 @@ const isJuniorGrade = (grade) => {
 const isOLGrade = (grade) => {
   const g = Number(grade);
   return g >= 10 && g <= 11;
-};
-
-const isALGrade = (grade) => {
-  const g = Number(grade);
-  return g >= 12 && g <= 13;
 };
 
 const shouldShowReligion = (grade) => {
@@ -213,6 +224,38 @@ const initials = (name = "") =>
     .join("")
     .toUpperCase();
 
+const getStudentName = (student) => student.name || student.fullName || "";
+
+const buildALMetadata = (grade, stream, section) => {
+  if (!isALGrade(grade)) {
+    return {
+      stream: "",
+      streamCode: "",
+      alClassName: "",
+    };
+  }
+
+  const cleanStream = normalizeText(stream);
+  const cleanSection = normalizeSectionValue(section);
+
+  return {
+    stream: cleanStream,
+    streamCode: AL_STREAM_CODES[cleanStream] || "",
+    alClassName: buildALClassName(grade, cleanStream, cleanSection),
+  };
+};
+
+const deriveALChoiceNumbersFromNames = (choiceNames = []) => {
+  return convertALChoiceNamesToSubjects(choiceNames).map((subject) => subject.subjectNumber);
+};
+
+const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) => {
+  return convertALChoiceNumbersToSubjects(choiceNumbers).map((subject) => subject.subjectName);
+};
+
+const dedupeTextArray = (items = []) =>
+  [...new Set((items || []).map(normalizeText).filter(Boolean))];
+
 /* -------------------------------------------------------------------------- */
 /* Component                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -249,8 +292,13 @@ export default function Students() {
     classrooms.forEach((c) => {
       const grade = normalizeGradeValue(c.grade);
       const section = normalizeSectionValue(c.section || c.className);
+      const stream = normalizeText(c.stream);
+
       if (grade && section) {
         map.add(`${grade}__${section}`);
+        if (isALGrade(grade) && stream) {
+          map.add(`${grade}__${section}__${stream}`);
+        }
       }
     });
     return map;
@@ -316,7 +364,7 @@ export default function Students() {
 
   const religionSubjectOptions = useMemo(() => {
     const grade = Number(form.grade);
-    if (!shouldShowReligion(grade)) return RELIGION_OPTIONS;
+    if (!shouldShowReligion(grade)) return RELIGIONS;
 
     const fromSubjects = activeSubjects
       .filter(
@@ -327,7 +375,7 @@ export default function Students() {
       )
       .map((s) => subjectReligion(s));
 
-    const combined = [...new Set([...RELIGION_OPTIONS, ...fromSubjects].filter(Boolean))];
+    const combined = [...new Set([...RELIGIONS, ...fromSubjects].filter(Boolean))];
     return combined;
   }, [activeSubjects, form.grade]);
 
@@ -337,28 +385,45 @@ export default function Students() {
       return { A: [], B: [], C: [] };
     }
 
-    const candidates = activeSubjects.filter((s) => {
-      if (!subjectSupportsGrade(s, grade)) return false;
-
-      const category = subjectCategory(s);
-      const basketGroup = subjectBasketGroup(s);
-
-      return category === "basket" || basketGroup;
-    });
+    const categoryMap = {
+      A: "basket_a",
+      B: "basket_b",
+      C: "basket_c",
+    };
 
     const sortByName = (list) =>
       [...list].sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
 
     return {
-      A: sortByName(candidates.filter((s) => ["A", "1"].includes(subjectBasketGroup(s)))),
-      B: sortByName(candidates.filter((s) => ["B", "2"].includes(subjectBasketGroup(s)))),
-      C: sortByName(candidates.filter((s) => ["C", "3"].includes(subjectBasketGroup(s)))),
+      A: sortByName(
+        activeSubjects.filter(
+          (s) =>
+            subjectSupportsGrade(s, grade) &&
+            (subjectCategory(s) === categoryMap.A || subjectBasketGroup(s) === "A")
+        )
+      ),
+      B: sortByName(
+        activeSubjects.filter(
+          (s) =>
+            subjectSupportsGrade(s, grade) &&
+            (subjectCategory(s) === categoryMap.B || subjectBasketGroup(s) === "B")
+        )
+      ),
+      C: sortByName(
+        activeSubjects.filter(
+          (s) =>
+            subjectSupportsGrade(s, grade) &&
+            (subjectCategory(s) === categoryMap.C || subjectBasketGroup(s) === "C")
+        )
+      ),
     };
   }, [activeSubjects, form.grade]);
 
   const alMainSubjectOptions = useMemo(() => {
     const grade = Number(form.grade);
     if (!shouldShowALFields(grade)) return [];
+
+    const stream = normalizeText(form.stream);
 
     return activeSubjects
       .filter((s) => {
@@ -367,13 +432,27 @@ export default function Students() {
         const category = subjectCategory(s);
         if (category !== "al_main" && category !== "al") return false;
 
-        if (!normalizeText(form.stream)) return true;
-        if (!normalizeText(s.stream)) return true;
+        if (!stream) return true;
 
-        return normalizeLower(s.stream) === normalizeLower(form.stream);
+        const primaryStream = normalizeText(s.stream);
+        const additionalStreams = Array.isArray(s.streams)
+          ? s.streams.map(normalizeText).filter(Boolean)
+          : [];
+
+        const allStreams = [...new Set([primaryStream, ...additionalStreams].filter(Boolean))];
+        if (allStreams.length === 0) return true;
+
+        return allStreams.includes(stream);
       })
       .sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
   }, [activeSubjects, form.grade, form.stream]);
+
+  const alOptionalChoiceOptions = useMemo(() => {
+    const grade = Number(form.grade);
+    if (!shouldShowALFields(grade) || !normalizeText(form.stream)) return [];
+
+    return getALOptionalSubjectsForStream(form.stream);
+  }, [form.grade, form.stream]);
 
   const enrollmentWarnings = useMemo(() => {
     const grade = Number(form.grade);
@@ -389,8 +468,12 @@ export default function Students() {
       if (basketOptions.C.length === 0) warnings.push("No Basket C subjects found for this grade.");
     }
 
-    if (shouldShowALFields(grade) && normalizeText(form.stream) && alMainSubjectOptions.length === 0) {
-      warnings.push("No active A/L main subjects found for the selected stream and grade.");
+    if (shouldShowALFields(grade)) {
+      if (!normalizeText(form.stream)) {
+        warnings.push("Select an A/L stream to load the correct subject choices.");
+      } else if (alMainSubjectOptions.length === 0) {
+        warnings.push("No active A/L subjects found for the selected stream and grade.");
+      }
     }
 
     return warnings;
@@ -427,7 +510,15 @@ export default function Students() {
           basketAChoice: raw.basketAChoice || raw.basket1 || "",
           basketBChoice: raw.basketBChoice || raw.basket2 || "",
           basketCChoice: raw.basketCChoice || raw.basket3 || "",
-          alSubjectChoices: Array.isArray(raw.alSubjectChoices) ? raw.alSubjectChoices : [],
+          alSubjectChoiceNumbers: Array.isArray(raw.alSubjectChoiceNumbers)
+            ? raw.alSubjectChoiceNumbers
+            : [],
+          alSubjectChoices: Array.isArray(raw.alSubjectChoices)
+            ? raw.alSubjectChoices
+            : [],
+          stream: raw.stream || "",
+          streamCode: raw.streamCode || "",
+          alClassName: raw.alClassName || "",
           status: raw.status || "Active",
         };
       });
@@ -450,17 +541,24 @@ export default function Students() {
     }
   };
 
-  const isValidClassroom = (grade, section) => {
+  const isValidClassroom = (grade, section, stream = "") => {
     if (!grade || !section) return false;
-    return classroomLookup.has(`${Number(grade)}__${normalizeSectionValue(section)}`);
-  };
 
-  const getStudentName = (student) => student.name || student.fullName || "";
+    const g = Number(grade);
+    const s = normalizeSectionValue(section);
+    const st = normalizeText(stream);
+
+    if (isALGrade(g) && st) {
+      if (classroomLookup.has(`${g}__${s}__${st}`)) return true;
+    }
+
+    return classroomLookup.has(`${g}__${s}`);
+  };
 
   const cleanFormByGrade = (data) => {
     const grade = Number(data.grade);
 
-    return {
+    const cleaned = {
       ...data,
       religion: shouldShowReligion(grade) ? normalizeText(data.religion) : "",
       aestheticChoice: shouldShowAesthetic(grade) ? normalizeText(data.aestheticChoice) : "",
@@ -468,10 +566,34 @@ export default function Students() {
       basketBChoice: shouldShowBasketChoices(grade) ? normalizeText(data.basketBChoice) : "",
       basketCChoice: shouldShowBasketChoices(grade) ? normalizeText(data.basketCChoice) : "",
       stream: shouldShowALFields(grade) ? normalizeText(data.stream) : "",
-      alSubjectChoices: shouldShowALFields(grade)
-        ? [...new Set((Array.isArray(data.alSubjectChoices) ? data.alSubjectChoices : []).map(normalizeText).filter(Boolean))]
-        : [],
       medium: normalizeText(data.medium),
+    };
+
+    if (shouldShowALFields(grade)) {
+      const choiceNumbers = dedupeTextArray(data.alSubjectChoiceNumbers || []);
+      const choiceNames = dedupeTextArray(
+        choiceNumbers.length > 0
+          ? deriveALChoiceNamesFromNumbers(choiceNumbers)
+          : data.alSubjectChoices || []
+      );
+
+      const alMeta = buildALMetadata(grade, cleaned.stream, data.section);
+
+      return {
+        ...cleaned,
+        ...alMeta,
+        alSubjectChoiceNumbers: choiceNumbers.length > 0 ? choiceNumbers : deriveALChoiceNumbersFromNames(choiceNames),
+        alSubjectChoices: choiceNames,
+      };
+    }
+
+    return {
+      ...cleaned,
+      stream: "",
+      streamCode: "",
+      alClassName: "",
+      alSubjectChoiceNumbers: [],
+      alSubjectChoices: [],
     };
   };
 
@@ -479,6 +601,7 @@ export default function Students() {
     const cleaned = cleanFormByGrade(form);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
+    const alMeta = buildALMetadata(grade, cleaned.stream, section);
 
     return {
       name: normalizeText(cleaned.name),
@@ -508,8 +631,16 @@ export default function Students() {
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
 
-      stream: normalizeText(cleaned.stream),
-      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices) ? cleaned.alSubjectChoices : [],
+      stream: alMeta.stream,
+      streamCode: alMeta.streamCode,
+      alClassName: alMeta.alClassName,
+
+      alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
+        ? cleaned.alSubjectChoiceNumbers
+        : [],
+      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
+        ? cleaned.alSubjectChoices
+        : [],
 
       medium: normalizeText(cleaned.medium),
 
@@ -536,14 +667,21 @@ export default function Students() {
     if (!form.grade) return "Grade is required.";
     if (!form.section) return "Section is required.";
 
-    if (!isValidClassroom(form.grade, form.section)) {
-      return "Selected grade and section do not match an existing classroom.";
+    const grade = Number(form.grade);
+
+    if (shouldShowALFields(grade)) {
+      if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
+      if (!isValidClassroom(form.grade, form.section, form.stream)) {
+        return "Selected A/L grade, section, and stream do not match an existing classroom.";
+      }
+    } else {
+      if (!isValidClassroom(form.grade, form.section)) {
+        return "Selected grade and section do not match an existing classroom.";
+      }
     }
 
     const duplicateAdmission = validateAdmissionNoUniqueness();
     if (duplicateAdmission) return duplicateAdmission;
-
-    const grade = Number(form.grade);
 
     if (shouldShowReligion(grade) && !normalizeText(form.religion)) {
       return "Religion is required for Grades 6 to 11.";
@@ -568,18 +706,16 @@ export default function Students() {
     }
 
     if (shouldShowALFields(grade)) {
-      if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
+      const cleaned = cleanFormByGrade(form);
+      const result = validateALChoices({
+        grade,
+        stream: cleaned.stream,
+        choiceNumbers: cleaned.alSubjectChoiceNumbers,
+        choiceNames: cleaned.alSubjectChoices,
+      });
 
-      const choices = [
-        ...new Set(
-          (Array.isArray(form.alSubjectChoices) ? form.alSubjectChoices : [])
-            .map(normalizeText)
-            .filter(Boolean)
-        ),
-      ];
-
-      if (choices.length !== 3) {
-        return "Exactly 3 A/L subject choices are required for Grades 12 to 13.";
+      if (!result.valid) {
+        return result.reason || "Invalid A/L subject choices.";
       }
     }
 
@@ -595,7 +731,8 @@ export default function Students() {
       studentName.includes(q) ||
       normalizeText(s.admissionNo).toLowerCase().includes(q) ||
       normalizeText(s.religion).toLowerCase().includes(q) ||
-      normalizeText(s.stream).toLowerCase().includes(q);
+      normalizeText(s.stream).toLowerCase().includes(q) ||
+      normalizeText(s.alClassName).toLowerCase().includes(q);
 
     const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
     const matchSection =
@@ -645,6 +782,12 @@ export default function Students() {
   };
 
   const handleEdit = (s) => {
+    const choiceNumbers = Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers : [];
+    const choiceNames =
+      Array.isArray(s.alSubjectChoices) && s.alSubjectChoices.length > 0
+        ? s.alSubjectChoices
+        : deriveALChoiceNamesFromNumbers(choiceNumbers);
+
     setForm({
       name: s.name || s.fullName || "",
       admissionNo: s.admissionNo || "",
@@ -660,7 +803,10 @@ export default function Students() {
       basketBChoice: s.basketBChoice || s.basket2 || "",
       basketCChoice: s.basketCChoice || s.basket3 || "",
       stream: s.stream || "",
-      alSubjectChoices: Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices : [],
+      streamCode: s.streamCode || "",
+      alClassName: s.alClassName || "",
+      alSubjectChoiceNumbers: choiceNumbers,
+      alSubjectChoices: choiceNames,
       medium: s.medium || "",
     });
 
@@ -686,11 +832,15 @@ export default function Students() {
   };
 
   const mapExcelRowToStudent = (row) => {
+    const al1Number = normalizeText(row["AL Subject No 1"] || row["A/L Subject No 1"] || row["AL No 1"]);
+    const al2Number = normalizeText(row["AL Subject No 2"] || row["A/L Subject No 2"] || row["AL No 2"]);
+    const al3Number = normalizeText(row["AL Subject No 3"] || row["A/L Subject No 3"] || row["AL No 3"]);
+
     const al1 = normalizeText(row["AL Subject 1"] || row["A/L Subject 1"] || row["AL1"]);
     const al2 = normalizeText(row["AL Subject 2"] || row["A/L Subject 2"] || row["AL2"]);
     const al3 = normalizeText(row["AL Subject 3"] || row["A/L Subject 3"] || row["AL3"]);
 
-    return {
+    const raw = {
       name: normalizeText(row["Name"] || row["name"]),
       admissionNo: normalizeText(row["Admission No"] || row["admissionNo"] || row["AdmissionNo"]),
       grade: normalizeGradeValue(row["Grade"] || row["grade"]),
@@ -705,9 +855,12 @@ export default function Students() {
       basketBChoice: normalizeText(row["Basket B Choice"] || row["basketBChoice"] || row["Basket 2"] || row["basket2"]),
       basketCChoice: normalizeText(row["Basket C Choice"] || row["basketCChoice"] || row["Basket 3"] || row["basket3"]),
       stream: normalizeText(row["Stream"] || row["stream"]),
+      alSubjectChoiceNumbers: [al1Number, al2Number, al3Number].filter(Boolean),
       alSubjectChoices: [al1, al2, al3].filter(Boolean),
       medium: normalizeText(row["Medium"] || row["medium"]),
     };
+
+    return cleanFormByGrade(raw);
   };
 
   const validateBulkRow = (student, rowNumber, seenAdmissionNos) => {
@@ -728,11 +881,32 @@ export default function Students() {
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
     if (!student.section) return `Row ${rowNumber}: Section is required.`;
 
-    if (!isValidClassroom(student.grade, student.section)) {
-      return `Row ${rowNumber}: Grade ${student.grade} Section ${student.section} does not exist in classrooms.`;
-    }
-
     const grade = Number(student.grade);
+
+    if (shouldShowALFields(grade)) {
+      if (!normalizeText(student.stream)) {
+        return `Row ${rowNumber}: Stream is required for Grades 12 to 13.`;
+      }
+
+      if (!isValidClassroom(student.grade, student.section, student.stream)) {
+        return `Row ${rowNumber}: Grade ${student.grade}, Section ${student.section}, Stream ${student.stream} does not exist in classrooms.`;
+      }
+
+      const validation = validateALChoices({
+        grade,
+        stream: student.stream,
+        choiceNumbers: student.alSubjectChoiceNumbers || [],
+        choiceNames: student.alSubjectChoices || [],
+      });
+
+      if (!validation.valid) {
+        return `Row ${rowNumber}: ${validation.reason}`;
+      }
+    } else {
+      if (!isValidClassroom(student.grade, student.section)) {
+        return `Row ${rowNumber}: Grade ${student.grade} Section ${student.section} does not exist in classrooms.`;
+      }
+    }
 
     if (shouldShowReligion(grade) && !normalizeText(student.religion)) {
       return `Row ${rowNumber}: Religion is required for Grades 6 to 11.`;
@@ -748,16 +922,6 @@ export default function Students() {
       if (!normalizeText(student.basketCChoice)) return `Row ${rowNumber}: Basket C choice is required.`;
     }
 
-    if (shouldShowALFields(grade)) {
-      if (!normalizeText(student.stream)) {
-        return `Row ${rowNumber}: Stream is required for Grades 12 to 13.`;
-      }
-
-      if ((student.alSubjectChoices || []).length !== 3) {
-        return `Row ${rowNumber}: Exactly 3 A/L subject choices are required.`;
-      }
-    }
-
     return "";
   };
 
@@ -765,6 +929,7 @@ export default function Students() {
     const cleaned = cleanFormByGrade(student);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
+    const alMeta = buildALMetadata(grade, cleaned.stream, section);
 
     return {
       name: normalizeText(cleaned.name),
@@ -794,8 +959,16 @@ export default function Students() {
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
 
-      stream: normalizeText(cleaned.stream),
-      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices) ? cleaned.alSubjectChoices : [],
+      stream: alMeta.stream,
+      streamCode: alMeta.streamCode,
+      alClassName: alMeta.alClassName,
+
+      alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
+        ? cleaned.alSubjectChoiceNumbers
+        : [],
+      alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
+        ? cleaned.alSubjectChoices
+        : [],
 
       medium: normalizeText(cleaned.medium),
 
@@ -892,6 +1065,11 @@ export default function Students() {
       "Basket B Choice": s.basketBChoice || s.basket2 || "",
       "Basket C Choice": s.basketCChoice || s.basket3 || "",
       Stream: s.stream || "",
+      "Stream Code": s.streamCode || "",
+      "A/L Class Name": s.alClassName || "",
+      "AL Subject No 1": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[0] || "" : "",
+      "AL Subject No 2": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[1] || "" : "",
+      "AL Subject No 3": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[2] || "" : "",
       "AL Subject 1": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[0] || "" : "",
       "AL Subject 2": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[1] || "" : "",
       "AL Subject 3": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[2] || "" : "",
@@ -921,6 +1099,11 @@ export default function Students() {
         "Basket B Choice": "",
         "Basket C Choice": "",
         Stream: "",
+        "Stream Code": "",
+        "A/L Class Name": "",
+        "AL Subject No 1": "",
+        "AL Subject No 2": "",
+        "AL Subject No 3": "",
         "AL Subject 1": "",
         "AL Subject 2": "",
         "AL Subject 3": "",
@@ -937,10 +1120,15 @@ export default function Students() {
         "Join Date": "2026-01-01",
         Religion: "Catholicism",
         "Aesthetic Choice": "",
-        "Basket A Choice": "History",
-        "Basket B Choice": "ICT",
-        "Basket C Choice": "Business Studies",
+        "Basket A Choice": "Geography",
+        "Basket B Choice": "Art",
+        "Basket C Choice": "Information & Communication Technology",
         Stream: "",
+        "Stream Code": "",
+        "A/L Class Name": "",
+        "AL Subject No 1": "",
+        "AL Subject No 2": "",
+        "AL Subject No 3": "",
         "AL Subject 1": "",
         "AL Subject 2": "",
         "AL Subject 3": "",
@@ -960,11 +1148,41 @@ export default function Students() {
         "Basket A Choice": "",
         "Basket B Choice": "",
         "Basket C Choice": "",
-        Stream: "Maths",
-        "AL Subject 1": "Combined Maths",
-        "AL Subject 2": "Physics",
-        "AL Subject 3": "Chemistry",
+        Stream: "Physical Science",
+        "Stream Code": "MATHS",
+        "A/L Class Name": "12 Physical Science A",
+        "AL Subject No 1": "02",
+        "AL Subject No 2": "",
+        "AL Subject No 3": "",
+        "AL Subject 1": "Chemistry",
+        "AL Subject 2": "",
+        "AL Subject 3": "",
         Medium: "English",
+      },
+      {
+        "Admission No": "ADM101",
+        Name: "AL Arts Student",
+        Grade: 12,
+        Section: "B",
+        Gender: "Female",
+        DOB: "2008-06-10",
+        Status: "Active",
+        "Join Date": "2026-01-01",
+        Religion: "",
+        "Aesthetic Choice": "",
+        "Basket A Choice": "",
+        "Basket B Choice": "",
+        "Basket C Choice": "",
+        Stream: "Arts",
+        "Stream Code": "ARTS",
+        "A/L Class Name": "12 Arts B",
+        "AL Subject No 1": "22",
+        "AL Subject No 2": "58",
+        "AL Subject No 3": "",
+        "AL Subject 1": "Geography",
+        "AL Subject 2": "Drama and Theatre (Tamil)",
+        "AL Subject 3": "",
+        Medium: "Tamil",
       },
     ];
 
@@ -973,6 +1191,21 @@ export default function Students() {
     XLSX.utils.book_append_sheet(wb, ws, "Template");
     XLSX.writeFile(wb, "student_upload_template.xlsx");
   };
+
+  const alValidationPreview = useMemo(() => {
+    const grade = Number(form.grade);
+    if (!shouldShowALFields(grade) || !normalizeText(form.stream)) return null;
+
+    const cleaned = cleanFormByGrade(form);
+    const validation = validateALChoices({
+      grade,
+      stream: cleaned.stream,
+      choiceNumbers: cleaned.alSubjectChoiceNumbers,
+      choiceNames: cleaned.alSubjectChoices,
+    });
+
+    return validation;
+  }, [form]);
 
   return (
     <Box>
@@ -1270,6 +1503,11 @@ export default function Students() {
                       Stream: {s.stream}
                     </Typography>
                   )}
+                  {s.alClassName && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Class: {s.alClassName}
+                    </Typography>
+                  )}
                 </Box>
               </CardContent>
 
@@ -1384,6 +1622,9 @@ export default function Students() {
                     <Typography variant="caption" color="text.secondary" display="block">
                       {s.stream || "—"}
                     </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {s.alClassName || "—"}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     <Box display="flex" gap={0.5} flexWrap="wrap">
@@ -1495,6 +1736,11 @@ export default function Students() {
                                 ...form,
                                 grade: e.target.value,
                                 section: "",
+                                stream: "",
+                                streamCode: "",
+                                alClassName: "",
+                                alSubjectChoiceNumbers: [],
+                                alSubjectChoices: [],
                               })
                             )
                           }
@@ -1517,7 +1763,18 @@ export default function Students() {
                         <Select
                           value={form.section}
                           label="Section"
-                          onChange={(e) => setForm({ ...form, section: e.target.value })}
+                          onChange={(e) =>
+                            setForm((prev) => {
+                              const nextSection = e.target.value;
+                              const alMeta = buildALMetadata(prev.grade, prev.stream, nextSection);
+                              return {
+                                ...prev,
+                                section: nextSection,
+                                streamCode: alMeta.streamCode,
+                                alClassName: alMeta.alClassName,
+                              };
+                            })
+                          }
                         >
                           <MenuItem value="">
                             <em>Select Section</em>
@@ -1791,14 +2048,21 @@ export default function Students() {
                                   value={form.stream}
                                   label="Stream"
                                   onChange={(e) =>
-                                    setForm({
-                                      ...form,
-                                      stream: e.target.value,
-                                      alSubjectChoices: [],
+                                    setForm((prev) => {
+                                      const nextStream = e.target.value;
+                                      const alMeta = buildALMetadata(prev.grade, nextStream, prev.section);
+                                      return {
+                                        ...prev,
+                                        stream: nextStream,
+                                        streamCode: alMeta.streamCode,
+                                        alClassName: alMeta.alClassName,
+                                        alSubjectChoiceNumbers: [],
+                                        alSubjectChoices: [],
+                                      };
                                     })
                                   }
                                 >
-                                  {STREAM_OPTIONS.map((item) => (
+                                  {AL_STREAM_OPTIONS.map((item) => (
                                     <MenuItem key={item} value={item}>
                                       {item}
                                     </MenuItem>
@@ -1807,49 +2071,107 @@ export default function Students() {
                               </FormControl>
                             </Grid>
 
-                            <Grid item xs={12} md={8}>
+                            <Grid item xs={12} md={4}>
+                              <TextField
+                                fullWidth
+                                label="Stream Code"
+                                value={form.streamCode}
+                                InputProps={{ readOnly: true }}
+                              />
+                            </Grid>
+
+                            <Grid item xs={12} md={4}>
+                              <TextField
+                                fullWidth
+                                label="A/L Class Name"
+                                value={
+                                  form.alClassName ||
+                                  buildALClassName(form.grade, form.stream, form.section)
+                                }
+                                InputProps={{ readOnly: true }}
+                              />
+                            </Grid>
+
+                            <Grid item xs={12}>
                               <FormControl
                                 fullWidth
                                 required
-                                disabled={!form.stream || alMainSubjectOptions.length === 0}
+                                disabled={!form.stream || alOptionalChoiceOptions.length === 0}
                               >
-                                <InputLabel>A/L Subject Choices</InputLabel>
+                                <InputLabel>A/L Optional Subject Choice(s)</InputLabel>
                                 <Select
                                   multiple
-                                  value={form.alSubjectChoices}
-                                  onChange={(e) =>
+                                  value={form.alSubjectChoiceNumbers}
+                                  onChange={(e) => {
+                                    const selectedNumbers =
+                                      typeof e.target.value === "string"
+                                        ? e.target.value.split(",")
+                                        : e.target.value;
+
+                                    const selectedSubjects =
+                                      convertALChoiceNumbersToSubjects(selectedNumbers);
+
                                     setForm({
                                       ...form,
-                                      alSubjectChoices:
-                                        typeof e.target.value === "string"
-                                          ? e.target.value.split(",")
-                                          : e.target.value,
-                                    })
-                                  }
-                                  input={<OutlinedInput label="A/L Subject Choices" />}
-                                  renderValue={(selected) => selected.join(", ")}
+                                      alSubjectChoiceNumbers: selectedSubjects.map((subject) => subject.subjectNumber),
+                                      alSubjectChoices: selectedSubjects.map((subject) => subject.subjectName),
+                                    });
+                                  }}
+                                  input={<OutlinedInput label="A/L Optional Subject Choice(s)" />}
+                                  renderValue={(selected) => {
+                                    const names = deriveALChoiceNamesFromNumbers(selected);
+                                    return names.join(", ");
+                                  }}
                                 >
-                                  {alMainSubjectOptions.map((subject) => (
-                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
+                                  {alOptionalChoiceOptions.map((subject) => (
+                                    <MenuItem key={subject.subjectNumber} value={subject.subjectNumber}>
                                       <Checkbox
                                         checked={
-                                          form.alSubjectChoices.indexOf(subjectDisplayName(subject)) > -1
+                                          form.alSubjectChoiceNumbers.indexOf(subject.subjectNumber) > -1
                                         }
                                       />
-                                      <ListItemText primary={subjectDisplayName(subject)} />
+                                      <ListItemText
+                                        primary={`${subject.subjectNumber} - ${subject.subjectName}`}
+                                      />
                                     </MenuItem>
                                   ))}
                                 </Select>
                                 {!form.stream ? (
                                   <FormHelperText>Select stream first.</FormHelperText>
-                                ) : alMainSubjectOptions.length === 0 ? (
+                                ) : alOptionalChoiceOptions.length === 0 ? (
                                   <FormHelperText error>
-                                    No active A/L main subjects found for this stream and grade.
+                                    No active A/L optional subjects found for this stream.
                                   </FormHelperText>
                                 ) : (
-                                  <FormHelperText>Select exactly 3 subjects.</FormHelperText>
+                                  <FormHelperText>
+                                    Choose the optional subject(s) required for the selected stream.
+                                  </FormHelperText>
                                 )}
                               </FormControl>
+                            </Grid>
+
+                            <Grid item xs={12}>
+                              {alValidationPreview && (
+                                <Alert severity={alValidationPreview.valid ? "success" : "warning"}>
+                                  {alValidationPreview.valid ? (
+                                    <>
+                                      <Typography variant="body2" fontWeight={700}>
+                                        A/L choices valid
+                                      </Typography>
+                                      <Typography variant="caption" display="block">
+                                        Main subjects will be generated from stream compulsory subjects + selected optional subject(s).
+                                      </Typography>
+                                      <Typography variant="caption" display="block">
+                                        Display class: {buildALDisplayClassName(form.grade, form.stream, form.section) || "—"}
+                                      </Typography>
+                                    </>
+                                  ) : (
+                                    <Typography variant="body2">
+                                      {alValidationPreview.reason}
+                                    </Typography>
+                                  )}
+                                </Alert>
+                              )}
                             </Grid>
                           </>
                         )}

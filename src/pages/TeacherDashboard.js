@@ -11,6 +11,7 @@ import {
   LinearProgress,
   Link,
   MenuItem,
+  Paper,
   Select,
   Stack,
   Typography,
@@ -23,6 +24,9 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import HourglassBottomRoundedIcon from "@mui/icons-material/HourglassBottomRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
+import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
+import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
+import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
@@ -35,6 +39,12 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
+import {
+  normalizeText,
+  isALGrade,
+  buildALClassName,
+  buildALDisplayClassName,
+} from "../constants/constants";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -58,22 +68,76 @@ const isActiveTerm = (term) => {
   return normalize(raw) === "active" || normalize(raw) === "true";
 };
 
-const isCompletedForSubject = (students, marks, className, subjectName, targetTerm) => {
+const parseGrade = (value) => {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const normalizeSection = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
+
+const getClassDisplayName = (row) => {
+  const explicitFull = pick(row.fullClassName, row.alClassName, "");
+  if (explicitFull) return explicitFull;
+
+  const grade = parseGrade(row.grade);
+  const section = normalizeSection(pick(row.section, row.className, ""));
+  const stream = normalizeText(row.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  if (grade && section) return `${grade}${section}`;
+  return normalizeText(row.className || "");
+};
+
+const getClassShortDisplayName = (row) => {
+  const grade = parseGrade(row.grade);
+  const section = normalizeSection(pick(row.section, row.className, ""));
+  const stream = normalizeText(row.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || getClassDisplayName(row);
+  }
+
+  if (grade && section) return `${grade}${section}`;
+  return normalizeText(row.className || "");
+};
+
+const isCompletedForSubject = (
+  students,
+  marks,
+  classIdentity,
+  subjectName,
+  targetTerm,
+  stream = ""
+) => {
   const subjectStudents = students.filter(
     (e) =>
-      normalize(e.className) === normalize(className) &&
+      normalize(pick(e.alClassName, e.fullClassName, e.className, "")) ===
+        normalize(classIdentity) &&
       normalize(e.subjectName) === normalize(subjectName) &&
-      normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
+      normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year) &&
+      (stream
+        ? normalize(pick(e.stream, "")) === normalize(stream)
+        : true)
   );
 
   const studentIds = new Set(subjectStudents.map((s) => String(s.studentId)).filter(Boolean));
 
   const subjectMarks = marks.filter(
     (m) =>
-      normalize(m.className) === normalize(className) &&
+      normalize(
+        pick(m.alClassName, m.fullClassName, m.className, "")
+      ) === normalize(classIdentity) &&
       normalize(pick(m.subjectName, m.subject, "")) === normalize(subjectName) &&
       normalize(pick(m.term, m.termName, "")) === normalize(targetTerm.term) &&
       normalize(pick(m.academicYear, m.year, "")) === normalize(targetTerm.year) &&
+      (stream ? normalize(pick(m.stream, "")) === normalize(stream) : true) &&
       studentIds.has(String(m.studentId))
   );
 
@@ -90,6 +154,13 @@ const isCompletedForSubject = (students, marks, className, subjectName, targetTe
     progress,
     completed,
   };
+};
+
+const sectionCardSx = {
+  borderRadius: 3,
+  border: "1px solid #e8eaf6",
+  boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+  backgroundColor: "white",
 };
 
 export default function TeacherDashboard() {
@@ -191,21 +262,29 @@ export default function TeacherDashboard() {
 
       const mySubjectRows = myAssignments
         .map((assignment) => {
-          const className = assignment.className;
+          const classIdentity = getClassDisplayName(assignment);
+          const classShort = getClassShortDisplayName(assignment);
           const subjectName = assignment.subjectName;
+          const stream = normalizeText(assignment.stream);
 
           const progressInfo = isCompletedForSubject(
             enrollments,
             marks,
-            className,
+            classIdentity,
             subjectName,
-            targetTerm
+            targetTerm,
+            stream
           );
 
           return {
-            className,
+            className: pick(assignment.className, ""),
+            fullClassName: classIdentity,
+            displayClassName: classShort,
+            stream,
+            streamCode: pick(assignment.streamCode, ""),
             subjectName,
             subjectId: assignment.subjectId || "",
+            subjectNumber: pick(assignment.subjectNumber, ""),
             total: progressInfo.total,
             done: progressInfo.doneCount,
             pending: progressInfo.pending,
@@ -213,7 +292,7 @@ export default function TeacherDashboard() {
           };
         })
         .sort((a, b) => {
-          const classDiff = String(a.className).localeCompare(String(b.className));
+          const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName));
           if (classDiff !== 0) return classDiff;
           return String(a.subjectName).localeCompare(String(b.subjectName));
         });
@@ -227,11 +306,15 @@ export default function TeacherDashboard() {
       );
 
       if (myClass) {
-        const className = myClass.className;
+        const classIdentity = getClassDisplayName(myClass);
+        const classStream = normalizeText(myClass.stream);
+
         const classStudents = enrollments.filter(
           (e) =>
-            normalize(e.className) === normalize(className) &&
-            normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
+            normalize(pick(e.alClassName, e.fullClassName, e.className, "")) ===
+              normalize(classIdentity) &&
+            normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year) &&
+            (classStream ? normalize(pick(e.stream, "")) === normalize(classStream) : true)
         );
 
         const uniqueStudentIds = new Set(
@@ -239,7 +322,10 @@ export default function TeacherDashboard() {
         );
 
         const classSubjects = assignments
-          .filter((a) => normalize(a.className) === normalize(className))
+          .filter(
+            (a) =>
+              normalize(getClassDisplayName(a)) === normalize(classIdentity)
+          )
           .map((assignment) => {
             const teacherUser =
               users.find(
@@ -251,9 +337,10 @@ export default function TeacherDashboard() {
             const progressInfo = isCompletedForSubject(
               enrollments,
               marks,
-              className,
+              classIdentity,
               assignment.subjectName,
-              targetTerm
+              targetTerm,
+              normalizeText(assignment.stream)
             );
 
             const isMine =
@@ -263,6 +350,7 @@ export default function TeacherDashboard() {
             return {
               subjectName: assignment.subjectName,
               subjectId: assignment.subjectId || "",
+              subjectNumber: pick(assignment.subjectNumber, ""),
               teacherName: pick(
                 teacherUser?.name,
                 teacherUser?.fullName,
@@ -287,7 +375,10 @@ export default function TeacherDashboard() {
         const pendingCount = classSubjects.length - completedCount;
 
         setClassTeacherData({
-          className,
+          className: pick(myClass.className, ""),
+          fullClassName: classIdentity,
+          displayClassName: getClassShortDisplayName(myClass),
+          stream: classStream,
           totalStudents: uniqueStudentIds.size,
           totalSubjects: classSubjects.length,
           completed: completedCount,
@@ -322,18 +413,20 @@ export default function TeacherDashboard() {
   }, [selectedTermKey]);
 
   const openMarks = useCallback(
-  (className, subjectName, subjectId = "") => {
-    const params = new URLSearchParams();
+    (row) => {
+      const params = new URLSearchParams();
 
-    if (className) params.set("className", className);
-    if (subjectName) params.set("subjectName", subjectName);
-    if (subjectId) params.set("subjectId", subjectId);
-    if (selectedTermKey) params.set("termKey", selectedTermKey);
+      if (row.className) params.set("className", row.className);
+      if (row.fullClassName) params.set("fullClassName", row.fullClassName);
+      if (row.stream) params.set("stream", row.stream);
+      if (row.subjectName) params.set("subjectName", row.subjectName);
+      if (row.subjectId) params.set("subjectId", row.subjectId);
+      if (selectedTermKey) params.set("termKey", selectedTermKey);
 
-    navigate(`/teacher/marks?${params.toString()}`);
-  },
-  [navigate, selectedTermKey]
-);
+      navigate(`/teacher/marks?${params.toString()}`);
+    },
+    [navigate, selectedTermKey]
+  );
 
   if (loading) {
     return (
@@ -359,51 +452,61 @@ export default function TeacherDashboard() {
         </Button>
       }
     >
-      <Stack spacing={2}>
+      <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
 
-        <FilterCard
-          title="Current View"
-          subtitle="Review marks completion by class and subject."
-        >
-          <Grid item xs={12} sm={6} md={4}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="teacher-dashboard-term-label">Academic Term</InputLabel>
-              <Select
-                labelId="teacher-dashboard-term-label"
-                label="Academic Term"
-                value={selectedTermKey}
-                onChange={(e) => setSelectedTermKey(e.target.value)}
-              >
-                {terms.map((term) => (
-                  <MenuItem key={term.id} value={buildTermKey(term)}>
-                    {buildTermLabel(term)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+        <Paper sx={{ ...sectionCardSx, p: 2 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={5}>
+              <Stack spacing={0.75}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                  Current View
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Review marks completion by class and subject.
+                </Typography>
+              </Stack>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={8}>
-            <Stack
-              direction="row"
-              spacing={1}
-              flexWrap="wrap"
-              useFlexGap
-              justifyContent={{ xs: "flex-start", md: "flex-end" }}
-            >
-              {activeTerm ? <Chip label={buildTermLabel(activeTerm)} color="primary" /> : null}
-              <Chip label={`Subject Assignments: ${subjectRows.length}`} />
-              <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
-            </Stack>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="teacher-dashboard-term-label">Academic Term</InputLabel>
+                <Select
+                  labelId="teacher-dashboard-term-label"
+                  label="Academic Term"
+                  value={selectedTermKey}
+                  onChange={(e) => setSelectedTermKey(e.target.value)}
+                >
+                  {terms.map((term) => (
+                    <MenuItem key={term.id} value={buildTermKey(term)}>
+                      {buildTermLabel(term)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={4}>
+              <Stack
+                direction="row"
+                spacing={1}
+                flexWrap="wrap"
+                useFlexGap
+                justifyContent={{ xs: "flex-start", md: "flex-end" }}
+              >
+                {activeTerm ? <Chip label={buildTermLabel(activeTerm)} color="primary" /> : null}
+                <Chip label={`Subject Assignments: ${subjectRows.length}`} />
+                <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
+              </Stack>
+            </Grid>
           </Grid>
-        </FilterCard>
+        </Paper>
 
         <Grid container spacing={1.5}>
           <Grid item xs={6} md={3}>
             <StatCard
               title="Assigned Classes"
-              value={new Set(subjectRows.map((row) => row.className)).size}
+              value={new Set(subjectRows.map((row) => row.fullClassName)).size}
               icon={<ClassRoundedIcon />}
               color="primary"
             />
@@ -435,12 +538,39 @@ export default function TeacherDashboard() {
         </Grid>
 
         {classTeacherData && (
-          <SectionCard
-            title={`Class ${classTeacherData.className} Monitoring`}
-            subtitle="Track pending and completed subjects for your class."
-          >
+          <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
             <Stack spacing={2}>
-              <Grid container spacing={1}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                spacing={1}
+              >
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                    Class Monitoring
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {classTeacherData.fullClassName}
+                  </Typography>
+                </Box>
+
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {classTeacherData.stream ? (
+                    <Chip
+                      label={classTeacherData.stream}
+                      color="secondary"
+                      variant="outlined"
+                    />
+                  ) : null}
+                  <Chip
+                    label={`${classTeacherData.progress}% Completed`}
+                    color={classTeacherData.progress === 100 ? "success" : "warning"}
+                  />
+                </Stack>
+              </Stack>
+
+              <Grid container spacing={1.25}>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     title="Students"
@@ -479,15 +609,16 @@ export default function TeacherDashboard() {
                 </Grid>
               </Grid>
 
-              <LinearProgress
-                variant="determinate"
-                value={classTeacherData.progress}
-                sx={{ height: 8, borderRadius: 5 }}
-              />
-
-              <Typography variant="body2" color="text.secondary">
-                {classTeacherData.progress}% overall class completion
-              </Typography>
+              <Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={classTeacherData.progress}
+                  sx={{ height: 8, borderRadius: 5 }}
+                />
+                <Typography variant="body2" color="text.secondary" mt={0.75}>
+                  {classTeacherData.progress}% overall class completion
+                </Typography>
+              </Box>
 
               <Stack spacing={1}>
                 {classTeacherData.subjects.length === 0 ? (
@@ -501,10 +632,9 @@ export default function TeacherDashboard() {
                         borderRadius: 3,
                         border: "1px solid",
                         borderColor: "divider",
-                        bgcolor:
-                          subject.completed
-                            ? "rgba(34,197,94,0.06)"
-                            : "rgba(239,68,68,0.04)",
+                        bgcolor: subject.completed
+                          ? "rgba(34,197,94,0.06)"
+                          : "rgba(239,68,68,0.04)",
                       }}
                     >
                       <Stack spacing={1}>
@@ -515,9 +645,18 @@ export default function TeacherDashboard() {
                           spacing={1}
                         >
                           <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                              {subject.subjectName}
-                            </Typography>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                {subject.subjectName}
+                              </Typography>
+                              {subject.subjectNumber ? (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label={`No. ${subject.subjectNumber}`}
+                                />
+                              ) : null}
+                            </Stack>
                             <Typography variant="body2" color="text.secondary">
                               {subject.done}/{subject.total} students
                             </Typography>
@@ -568,11 +707,13 @@ export default function TeacherDashboard() {
                             size="small"
                             startIcon={<EditNoteRoundedIcon />}
                             onClick={() =>
-                              openMarks(
-                                classTeacherData.className,
-                                subject.subjectName,
-                                subject.subjectId
-                              )
+                              openMarks({
+                                className: classTeacherData.className,
+                                fullClassName: classTeacherData.fullClassName,
+                                stream: classTeacherData.stream,
+                                subjectName: subject.subjectName,
+                                subjectId: subject.subjectId,
+                              })
                             }
                             sx={{ alignSelf: "flex-start" }}
                           >
@@ -585,67 +726,103 @@ export default function TeacherDashboard() {
                 )}
               </Stack>
             </Stack>
-          </SectionCard>
+          </Paper>
         )}
 
-        <SectionCard
-          title="My Subject Work"
-          subtitle="Enter marks for the subjects assigned to you."
-        >
-          {subjectRows.length === 0 ? (
-            <EmptyState title="No assignments" />
-          ) : (
-            <Grid container spacing={1.5}>
-              {subjectRows.map((row, i) => (
-                <Grid item xs={12} md={6} key={i}>
-                  <MobileListRow
-                    title={`${row.className} - ${row.subjectName}`}
-                    right={
-                      <StatusChip
-                        status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
-                        label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
-                      />
-                    }
-                    footer={
-                      <Stack spacing={1}>
-                        <Typography variant="body2" color="text.secondary">
-                          {row.done}/{row.total} students completed
-                        </Typography>
+        <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
+          <Stack spacing={2}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              spacing={1}
+            >
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                  My Subject Work
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Enter marks for the subjects assigned to you.
+                </Typography>
+              </Box>
 
-                        <LinearProgress
-                          variant="determinate"
-                          value={row.progress}
-                          sx={{ height: 6, borderRadius: 5 }}
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  icon={<AutoStoriesRoundedIcon />}
+                  label={`${subjectRows.length} Subjects`}
+                  variant="outlined"
+                />
+                <Chip
+                  icon={<TimelineRoundedIcon />}
+                  label={`${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} Pending`}
+                  color="warning"
+                  variant="outlined"
+                />
+              </Stack>
+            </Stack>
+
+            {subjectRows.length === 0 ? (
+              <EmptyState title="No assignments" />
+            ) : (
+              <Grid container spacing={1.5}>
+                {subjectRows.map((row, i) => (
+                  <Grid item xs={12} md={6} key={i}>
+                    <MobileListRow
+                      title={`${row.displayClassName} - ${row.subjectName}`}
+                      right={
+                        <StatusChip
+                          status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
+                          label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
                         />
+                      }
+                      footer={
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                            {row.stream ? (
+                              <Chip size="small" variant="outlined" label={row.stream} />
+                            ) : null}
+                            {row.subjectNumber ? (
+                              <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                            ) : null}
+                          </Stack>
 
-                        <Stack direction="row" justifyContent="space-between">
-                          <Typography variant="body2">
-                            {row.progress}%
+                          <Typography variant="body2" color="text.secondary">
+                            {row.done}/{row.total} students completed
                           </Typography>
 
-                          <Typography variant="body2">
-                            {row.done}/{row.total}
-                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={row.progress}
+                            sx={{ height: 6, borderRadius: 5 }}
+                          />
+
+                          <Stack direction="row" justifyContent="space-between">
+                            <Typography variant="body2">
+                              {row.progress}%
+                            </Typography>
+
+                            <Typography variant="body2">
+                              {row.done}/{row.total}
+                            </Typography>
+                          </Stack>
+
+                          <Button
+                            variant="contained"
+                            size="small"
+                            startIcon={<EditNoteRoundedIcon />}
+                            onClick={() => openMarks(row)}
+                          >
+                            Enter Marks
+                          </Button>
                         </Stack>
-
-                        <Button
-                          variant="contained"
-                          size="small"
-                          startIcon={<EditNoteRoundedIcon />}
-                          onClick={() =>
-                            openMarks(row.className, row.subjectName, row.subjectId)
-                          }
-                        >
-                          Enter Marks
-                        </Button>
-                      </Stack>
-                    }
-                  />
-                </Grid>
-              ))}
-            </Grid>
-          )}
-        </SectionCard>
+                      }
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Stack>
+        </Paper>
       </Stack>
     </PageContainer>
   );
