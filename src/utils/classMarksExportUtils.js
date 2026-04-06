@@ -35,6 +35,16 @@ function sanitizeFilenamePart(value) {
     .replace(/\s+/g, "_");
 }
 
+function isGradeSixToNine(reportData) {
+  const grade = Number(reportData?.grade || 0);
+  return grade >= 6 && grade <= 9;
+}
+
+function isGradeTenToEleven(reportData) {
+  const grade = Number(reportData?.grade || 0);
+  return grade >= 10 && grade <= 11;
+}
+
 function buildGroupedHeaderRows(schema) {
   const groups = schema.groups || [];
   const flatColumns = flattenSchemaColumns(schema);
@@ -122,15 +132,15 @@ function drawHeader(doc, title, reportData) {
   const pageWidth = doc.internal.pageSize.getWidth();
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text(`${SCHOOL_NAME} - ${title}`, pageWidth / 2, 10, { align: "center" });
+  doc.setFontSize(11.5);
+  doc.text(`${SCHOOL_NAME} - ${title}`, pageWidth / 2, 9, { align: "center" });
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(9.5);
   doc.text(
     `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(reportData.termName)}`,
     pageWidth / 2,
-    16,
+    14.5,
     { align: "center" }
   );
 }
@@ -138,44 +148,140 @@ function drawHeader(doc, title, reportData) {
 function drawFooter(doc, reportData) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const y = pageHeight - 10;
+  const y = pageHeight - 8;
 
   const classTeacher = reportData.classroom?.classTeacherName || "Class Teacher";
   const sectionalHead = reportData.classroom?.sectionHeadName || "Sectional Head";
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(classTeacher, 15, y);
+  doc.setFontSize(8.5);
+
+  doc.text(classTeacher, 10, y);
   doc.text(sectionalHead, pageWidth / 2, y, { align: "center" });
-  doc.text("Principal", pageWidth - 15, y, { align: "right" });
+  doc.text("Principal", pageWidth - 10, y, { align: "right" });
 }
 
-function getScheduleColumnStyles(reportData) {
+function getScheduleTableSettings(reportData) {
   const flatColumns = flattenSchemaColumns(reportData.schema);
+  const is69 = isGradeSixToNine(reportData);
+  const is1011 = isGradeTenToEleven(reportData);
 
-  const styles = {
-    0: { cellWidth: 10, halign: "center" },
-    1: { cellWidth: 22, halign: "center" },
-    2: { cellWidth: 20, halign: "center" },
-    3: { cellWidth: 40, halign: "left" },
+  const base = {
+    marginLeft: 4,
+    marginRight: 4,
+    startY: 18,
+    fontSize: 6.2,
+    cellPadding: 0.65,
+    headerFontSize: 6.1,
+    topHeaderFontSize: 6.3,
+  };
+
+  if (is69) {
+    base.fontSize = 6.4;
+    base.cellPadding = 0.7;
+    base.headerFontSize = 6.2;
+    base.topHeaderFontSize = 6.5;
+  }
+
+  if (is1011) {
+    base.fontSize = 5.35;
+    base.cellPadding = 0.45;
+    base.headerFontSize = 5.2;
+    base.topHeaderFontSize = 5.5;
+  }
+
+  const columnStyles = {
+    0: { cellWidth: is1011 ? 7 : 8, halign: "center" },
+    1: { cellWidth: is1011 ? 18 : 20, halign: "center" },
+    2: { cellWidth: is1011 ? 15 : 16, halign: "center" },
+    3: { cellWidth: is1011 ? 30 : 32, halign: "left" },
   };
 
   let currentIndex = 4;
 
-  flatColumns.forEach((col) => {
-    if ((col.label || "").length > 10) {
-      styles[currentIndex] = { cellWidth: 18, halign: "center" };
+  flatColumns.forEach((column) => {
+    const labelLength = (column.label || "").length;
+
+    let width = 10;
+
+    if (is69) {
+      if (labelLength <= 4) width = 7;
+      else if (labelLength <= 7) width = 8.5;
+      else if (labelLength <= 10) width = 10;
+      else width = 11.5;
+    } else if (is1011) {
+      if (labelLength <= 4) width = 6.2;
+      else if (labelLength <= 8) width = 7.4;
+      else if (labelLength <= 12) width = 8.8;
+      else width = 10.2;
     } else {
-      styles[currentIndex] = { cellWidth: 13, halign: "center" };
+      if (labelLength <= 5) width = 9;
+      else if (labelLength <= 10) width = 10.5;
+      else width = 12;
     }
+
+    columnStyles[currentIndex] = {
+      cellWidth: width,
+      halign: "center",
+    };
+
     currentIndex += 1;
   });
 
-  styles[currentIndex] = { cellWidth: 14, halign: "center" };
-  styles[currentIndex + 1] = { cellWidth: 16, halign: "center" };
-  styles[currentIndex + 2] = { cellWidth: 12, halign: "center" };
+  columnStyles[currentIndex] = { cellWidth: is1011 ? 9 : 10, halign: "center" };
+  columnStyles[currentIndex + 1] = { cellWidth: is1011 ? 11 : 12, halign: "center" };
+  columnStyles[currentIndex + 2] = { cellWidth: is1011 ? 8 : 9, halign: "center" };
 
-  return styles;
+  return {
+    ...base,
+    columnStyles,
+  };
+}
+
+function getAnalysisTableSettings(reportData) {
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const is69 = isGradeSixToNine(reportData);
+  const is1011 = isGradeTenToEleven(reportData);
+
+  const settings = {
+    marginLeft: 6,
+    marginRight: 6,
+    startY: 18,
+    fontSize: 6.7,
+    cellPadding: 0.8,
+    firstColumnWidth: 28,
+    dataColumnWidth: 10,
+  };
+
+  if (is69) {
+    settings.fontSize = 6.6;
+    settings.cellPadding = 0.75;
+    settings.firstColumnWidth = 28;
+    settings.dataColumnWidth = 9.6;
+  }
+
+  if (is1011) {
+    settings.fontSize = 5.6;
+    settings.cellPadding = 0.5;
+    settings.firstColumnWidth = 25;
+    settings.dataColumnWidth = 7.2;
+  }
+
+  const columnStyles = {
+    0: { cellWidth: settings.firstColumnWidth, halign: "left" },
+  };
+
+  for (let i = 0; i < flatColumns.length; i += 1) {
+    columnStyles[i + 1] = {
+      cellWidth: settings.dataColumnWidth,
+      halign: "center",
+    };
+  }
+
+  return {
+    ...settings,
+    columnStyles,
+  };
 }
 
 function buildPdfDoc(reportData) {
@@ -183,21 +289,27 @@ function buildPdfDoc(reportData) {
     orientation: "landscape",
     unit: "mm",
     format: "a4",
+    compress: true,
   });
+
+  const scheduleSettings = getScheduleTableSettings(reportData);
 
   drawHeader(doc, "Mark Schedule", reportData);
 
   autoTable(doc, {
-    startY: 22,
+    startY: scheduleSettings.startY,
     head: buildGroupedHeaderRows(reportData.schema),
     body: buildScheduleBody(reportData),
     theme: "grid",
-    margin: { left: 6, right: 6 },
+    margin: {
+      left: scheduleSettings.marginLeft,
+      right: scheduleSettings.marginRight,
+    },
     styles: {
       font: "helvetica",
-      fontSize: 7,
-      cellPadding: 1.2,
-      lineWidth: 0.1,
+      fontSize: scheduleSettings.fontSize,
+      cellPadding: scheduleSettings.cellPadding,
+      lineWidth: 0.08,
       lineColor: [120, 120, 120],
       textColor: 20,
       valign: "middle",
@@ -210,13 +322,24 @@ function buildPdfDoc(reportData) {
       fontStyle: "bold",
       halign: "center",
       valign: "middle",
+      fontSize: scheduleSettings.headerFontSize,
+      minCellHeight: 6,
     },
-    columnStyles: getScheduleColumnStyles(reportData),
+    columnStyles: scheduleSettings.columnStyles,
     pageBreak: "auto",
     rowPageBreak: "avoid",
     didParseCell: (data) => {
+      if (data.section === "head") {
+        data.cell.styles.overflow = "linebreak";
+      }
+
       if (data.section === "body" && data.column.index === 3) {
         data.cell.styles.halign = "left";
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section === "head" && data.row.index === 0) {
+        data.cell.styles.fontSize = scheduleSettings.topHeaderFontSize;
       }
     },
   });
@@ -225,34 +348,44 @@ function buildPdfDoc(reportData) {
 
   doc.addPage("a4", "landscape");
 
+  const analysisSettings = getAnalysisTableSettings(reportData);
+
   drawHeader(doc, "Mark Analysis", reportData);
 
   autoTable(doc, {
-    startY: 22,
+    startY: analysisSettings.startY,
     head: buildAnalysisHead(reportData),
     body: buildAnalysisBody(reportData),
     theme: "grid",
-    margin: { left: 6, right: 6 },
+    margin: {
+      left: analysisSettings.marginLeft,
+      right: analysisSettings.marginRight,
+    },
     styles: {
       font: "helvetica",
-      fontSize: 8,
-      cellPadding: 1.4,
-      lineWidth: 0.1,
+      fontSize: analysisSettings.fontSize,
+      cellPadding: analysisSettings.cellPadding,
+      lineWidth: 0.08,
       lineColor: [120, 120, 120],
       textColor: 20,
       valign: "middle",
       halign: "center",
+      overflow: "linebreak",
     },
     headStyles: {
       fillColor: [245, 245, 245],
       textColor: 20,
       fontStyle: "bold",
+      minCellHeight: 6,
     },
-    columnStyles: {
-      0: { cellWidth: 32, halign: "left" },
-    },
+    columnStyles: analysisSettings.columnStyles,
     pageBreak: "auto",
     rowPageBreak: "avoid",
+    didParseCell: (data) => {
+      if (data.section === "head") {
+        data.cell.styles.overflow = "linebreak";
+      }
+    },
   });
 
   drawFooter(doc, reportData);
@@ -262,7 +395,9 @@ function buildPdfDoc(reportData) {
 
 export function exportClassMarksPdf(reportData) {
   const doc = buildPdfDoc(reportData);
-  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(reportData.year)}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.pdf`;
+  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.pdf`;
   doc.save(fileName);
 }
 
@@ -286,7 +421,7 @@ function makeScheduleSheetRows(reportData) {
     row.studentIndexNo,
     row.studentName,
     ...flatColumns.map((column) =>
-      row.absencesByColumn?.[column.key] ? "AB" : (row.marksByColumn?.[column.key] ?? "")
+      row.absencesByColumn?.[column.key] ? "AB" : row.marksByColumn?.[column.key] ?? ""
     ),
     row.total,
     row.average,
@@ -295,7 +430,11 @@ function makeScheduleSheetRows(reportData) {
 
   return [
     [`${SCHOOL_NAME} - Mark Schedule`],
-    [`Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(reportData.termName)}`],
+    [
+      `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(
+        reportData.termName
+      )}`,
+    ],
     [],
     headers,
     ...bodyRows,
@@ -307,7 +446,11 @@ function makeAnalysisSheetRows(reportData) {
 
   return [
     [`${SCHOOL_NAME} - Mark Analysis`],
-    [`Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(reportData.termName)}`],
+    [
+      `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(
+        reportData.termName
+      )}`,
+    ],
     [],
     ["Category", ...flatColumns.map((column) => column.label)],
     ["Students's Total", ...flatColumns.map((col) => reportData.analysis[col.key]?.total ?? 0)],
@@ -317,7 +460,12 @@ function makeAnalysisSheetRows(reportData) {
       ...flatColumns.map((col) => reportData.analysis[col.key]?.bands?.[band.key] ?? 0),
     ]),
     ["Students >40marks", ...flatColumns.map((col) => reportData.analysis[col.key]?.passCount ?? 0)],
-    ["Pass Percentage", ...flatColumns.map((col) => formatNumber(reportData.analysis[col.key]?.passPercentage ?? 0, 2))],
+    [
+      "Pass Percentage",
+      ...flatColumns.map((col) =>
+        formatNumber(reportData.analysis[col.key]?.passPercentage ?? 0, 2)
+      ),
+    ],
   ];
 }
 
@@ -350,7 +498,10 @@ export function exportClassMarksExcel(reportData) {
   XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Mark Schedule");
   XLSX.utils.book_append_sheet(workbook, analysisSheet, "Mark Analysis");
 
-  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(reportData.year)}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.xlsx`;
+  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.xlsx`;
+
   XLSX.writeFile(workbook, fileName);
 }
 
@@ -364,12 +515,19 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
   const includeExcel = options.includeExcel !== false;
 
   for (const reportData of reportDataList) {
-    const classFolder = zip.folder(`${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(reportData.year)}_${sanitizeFilenamePart(reportData.termName)}`);
+    const classFolder = zip.folder(
+      `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+        reportData.year
+      )}_${sanitizeFilenamePart(reportData.termName)}`
+    );
 
     if (includePdf) {
       const doc = buildPdfDoc(reportData);
       const pdfBlob = doc.output("blob");
-      classFolder.file(`${sanitizeFilenamePart(reportData.className)}_Marks_Report.pdf`, pdfBlob);
+      classFolder.file(
+        `${sanitizeFilenamePart(reportData.className)}_Marks_Report.pdf`,
+        pdfBlob
+      );
     }
 
     if (includeExcel) {
@@ -394,11 +552,17 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
       XLSX.utils.book_append_sheet(workbook, analysisSheet, "Mark Analysis");
 
       const excelArray = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-      classFolder.file(`${sanitizeFilenamePart(reportData.className)}_Marks_Report.xlsx`, excelArray);
+      classFolder.file(
+        `${sanitizeFilenamePart(reportData.className)}_Marks_Report.xlsx`,
+        excelArray
+      );
     }
   }
 
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  const zipName = `All_Class_Marks_Reports_${sanitizeFilenamePart(reportDataList[0]?.year || "")}_${sanitizeFilenamePart(reportDataList[0]?.termName || "")}.zip`;
+  const zipName = `All_Class_Marks_Reports_${sanitizeFilenamePart(
+    reportDataList[0]?.year || ""
+  )}_${sanitizeFilenamePart(reportDataList[0]?.termName || "")}.zip`;
+
   saveAs(zipBlob, zipName);
 }
