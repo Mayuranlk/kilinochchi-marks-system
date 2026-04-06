@@ -75,7 +75,7 @@ import {
   validateALChoices,
   convertALChoiceNumbersToSubjects,
   convertALChoiceNamesToSubjects,
-} from "../constants/constants";
+} from "../constants";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */

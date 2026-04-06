@@ -36,6 +36,8 @@ export const SECTIONS = [
 export const TERMS = ["Term 1", "Term 2", "Term 3"];
 export const ACADEMIC_YEARS = ["2024", "2025", "2026", "2027"];
 
+export const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
+
 /* -------------------------------------------------------------------------- */
 /* Religion                                                                    */
 /* -------------------------------------------------------------------------- */

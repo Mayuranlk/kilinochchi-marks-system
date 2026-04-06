@@ -17,7 +17,7 @@ import {
   buildALDisplayClassName,
   isALGrade,
   normalizeText,
-} from "../constants/constants";
+} from "../constants";
 import {
   Box,
   Typography,

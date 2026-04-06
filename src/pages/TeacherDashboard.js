@@ -44,7 +44,7 @@ import {
   isALGrade,
   buildALClassName,
   buildALDisplayClassName,
-} from "../constants/constants";
+} from "../constants";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");

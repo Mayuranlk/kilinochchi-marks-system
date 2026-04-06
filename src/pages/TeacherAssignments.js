@@ -52,7 +52,7 @@ import {
   normalizeText,
   buildALClassName,
   buildALDisplayClassName,
-} from "../constants/constants";
+} from "../constants";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */

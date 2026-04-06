@@ -68,7 +68,7 @@ import {
   validateALChoices,
   buildALSubjectPayloadFromStudent,
   getALStreamShortName,
-} from "../constants/constants";
+} from "../constants";
 
 const BATCH_LIMIT = 400;
 

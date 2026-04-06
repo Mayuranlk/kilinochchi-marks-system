@@ -28,7 +28,7 @@ import {
   isALGrade,
   buildALClassName,
   normalizeText,
-} from "../constants/constants";
+} from "../constants";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
