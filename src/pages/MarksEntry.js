@@ -67,6 +67,9 @@ const asNumber = (value) => {
 const makeClassName = (item = {}) =>
   pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
 
+const buildTermKey = (term = {}) =>
+  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
+
 const buildTermLabel = (term) => {
   const termName = pick(term.term, term.termName, term.name, "Term");
   const year = pick(term.year, term.academicYear, "");
@@ -114,9 +117,11 @@ const sortRowsInTeacherMarkSheetOrder = (rows = []) => {
       return 1;
     }
 
-    return String(a.studentName || "").localeCompare(String(b.studentName || ""), undefined, {
-      sensitivity: "base",
-    });
+    return String(a.studentName || "").localeCompare(
+      String(b.studentName || ""),
+      undefined,
+      { sensitivity: "base" }
+    );
   });
 };
 
@@ -157,13 +162,13 @@ export default function MarksEntry() {
     [location.state]
   );
 
+  const navigationSignature = useMemo(
+    () => JSON.stringify(navigationSelection),
+    [navigationSelection]
+  );
+
   const activeTerm = useMemo(
-    () =>
-      terms.find(
-        (t) =>
-          `${pick(t.term, t.termName)}__${pick(t.year, t.academicYear)}` ===
-          selectedTermKey
-      ) || null,
+    () => terms.find((t) => buildTermKey(t) === selectedTermKey) || null,
     [terms, selectedTermKey]
   );
 
@@ -256,8 +261,8 @@ export default function MarksEntry() {
       input.focus();
       try {
         input.select();
-      } catch (err) {
-        // ignore select issues on some mobile browsers
+      } catch {
+        // ignore
       }
     }
   }, []);
@@ -283,87 +288,6 @@ export default function MarksEntry() {
       delete markInputRefs.current[rowKey];
     }
   }, []);
-
-  const applyNavigationSelection = useCallback(() => {
-    const signature = JSON.stringify(navigationSelection);
-
-    if (
-      !navigationSelection.className &&
-      !navigationSelection.subjectName &&
-      !navigationSelection.subjectId &&
-      !navigationSelection.termKey
-    ) {
-      return;
-    }
-
-    if (appliedNavigationSelectionRef.current === signature) {
-      return;
-    }
-
-    let nextClass = "";
-    let nextSubjectKey = "";
-    let nextTermKey = "";
-
-    if (navigationSelection.className) {
-      const matchedClass = classOptions.find(
-        (option) => normalize(option.className) === normalize(navigationSelection.className)
-      );
-      nextClass = matchedClass?.className || "";
-    }
-
-    const assignmentsForClass = teacherAssignments.filter((assignment) => {
-      if (!nextClass) return true;
-      return normalize(makeClassName(assignment)) === normalize(nextClass);
-    });
-
-    const matchedSubjectAssignment = assignmentsForClass.find((assignment) => {
-      const subjectIdMatch =
-        navigationSelection.subjectId &&
-        normalize(pick(assignment.subjectId, "")) === normalize(navigationSelection.subjectId);
-
-      const subjectNameMatch =
-        navigationSelection.subjectName &&
-        normalize(pick(assignment.subjectName, assignment.subject, "")) ===
-          normalize(navigationSelection.subjectName);
-
-      return subjectIdMatch || subjectNameMatch;
-    });
-
-    if (matchedSubjectAssignment) {
-      nextSubjectKey = buildSubjectKey(matchedSubjectAssignment);
-      if (!nextClass) {
-        nextClass = makeClassName(matchedSubjectAssignment);
-      }
-    }
-
-    if (navigationSelection.termKey) {
-      const matchedTerm = terms.find(
-        (term) =>
-          `${pick(term.term, term.termName)}__${pick(term.year, term.academicYear)}` ===
-          navigationSelection.termKey
-      );
-      nextTermKey = matchedTerm
-        ? `${pick(matchedTerm.term, matchedTerm.termName)}__${pick(
-            matchedTerm.year,
-            matchedTerm.academicYear
-          )}`
-        : "";
-    }
-
-    if (nextClass) {
-      setSelectedClass(nextClass);
-    }
-
-    if (nextTermKey) {
-      setSelectedTermKey(nextTermKey);
-    }
-
-    if (nextSubjectKey) {
-      setSelectedSubjectKey(nextSubjectKey);
-    }
-
-    appliedNavigationSelectionRef.current = signature;
-  }, [navigationSelection, classOptions, teacherAssignments, terms]);
 
   const loadBase = useCallback(async () => {
     try {
@@ -437,12 +361,7 @@ export default function MarksEntry() {
       const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
 
       if (!selectedTermKey && defaultTerm) {
-        setSelectedTermKey(
-          `${pick(defaultTerm.term, defaultTerm.termName)}__${pick(
-            defaultTerm.year,
-            defaultTerm.academicYear
-          )}`
-        );
+        setSelectedTermKey(buildTermKey(defaultTerm));
       }
 
       const allMarks = marksSnap.docs.map((docSnap) => ({
@@ -613,41 +532,100 @@ export default function MarksEntry() {
   }, [loadBase]);
 
   useEffect(() => {
-    if (!bootLoading && teacherAssignments.length > 0 && terms.length > 0) {
-      applyNavigationSelection();
+    if (bootLoading) return;
+    if (!navigationSelection.className) return;
+
+    const matchedClass = classOptions.find(
+      (option) => normalize(option.className) === normalize(navigationSelection.className)
+    );
+
+    if (matchedClass && selectedClass !== matchedClass.className) {
+      setSelectedClass(matchedClass.className);
     }
-  }, [bootLoading, teacherAssignments, terms, applyNavigationSelection]);
+  }, [bootLoading, navigationSelection.className, classOptions, selectedClass]);
 
   useEffect(() => {
-  if (!selectedClass) return;
+    if (bootLoading) return;
+    if (!navigationSelection.termKey) return;
 
-  const currentSubjectStillExists = subjectOptions.some(
-    (option) => option.key === selectedSubjectKey
-  );
+    const matchedTerm = terms.find(
+      (term) => buildTermKey(term) === navigationSelection.termKey
+    );
 
-  if (currentSubjectStillExists) return;
+    if (matchedTerm) {
+      const nextTermKey = buildTermKey(matchedTerm);
+      if (selectedTermKey !== nextTermKey) {
+        setSelectedTermKey(nextTermKey);
+      }
+    }
+  }, [bootLoading, navigationSelection.termKey, terms, selectedTermKey]);
 
-  const hasNavigationSubject =
-    navigationSelection.subjectId || navigationSelection.subjectName;
+  useEffect(() => {
+    if (bootLoading) return;
+    if (!selectedClass) return;
+    if (!subjectOptions.length) return;
 
-  const navigationApplied =
-    appliedNavigationSelectionRef.current === JSON.stringify(navigationSelection);
+    const hasNavigationSubject =
+      Boolean(navigationSelection.subjectId) || Boolean(navigationSelection.subjectName);
 
-  // 🚨 CRITICAL FIX
-  // If navigation is coming (from TeacherDashboard),
-  // DO NOT auto-pick first subject (Art)
-  if (hasNavigationSubject && !navigationApplied) {
-    return;
-  }
+    if (!hasNavigationSubject) return;
+    if (appliedNavigationSelectionRef.current === navigationSignature) return;
 
-  // Only fallback AFTER navigation is done
-  setSelectedSubjectKey(subjectOptions[0]?.key || "");
-}, [
-  selectedClass,
-  subjectOptions,
-  selectedSubjectKey,
-  navigationSelection,
-]);
+    const matchedSubject = subjectOptions.find((option) => {
+      const subjectIdMatch =
+        navigationSelection.subjectId &&
+        normalize(option.subjectId) === normalize(navigationSelection.subjectId);
+
+      const subjectNameMatch =
+        navigationSelection.subjectName &&
+        normalize(option.subjectName) === normalize(navigationSelection.subjectName);
+
+      return subjectIdMatch || subjectNameMatch;
+    });
+
+    if (matchedSubject) {
+      if (selectedSubjectKey !== matchedSubject.key) {
+        setSelectedSubjectKey(matchedSubject.key);
+      }
+      appliedNavigationSelectionRef.current = navigationSignature;
+    }
+  }, [
+    bootLoading,
+    selectedClass,
+    subjectOptions,
+    navigationSelection,
+    navigationSignature,
+    selectedSubjectKey,
+  ]);
+
+  useEffect(() => {
+    if (!selectedClass) return;
+    if (!subjectOptions.length) return;
+
+    const currentSubjectStillExists = subjectOptions.some(
+      (option) => option.key === selectedSubjectKey
+    );
+
+    if (currentSubjectStillExists) return;
+
+    const hasNavigationSubject =
+      Boolean(navigationSelection.subjectId) || Boolean(navigationSelection.subjectName);
+
+    const navigationApplied =
+      appliedNavigationSelectionRef.current === navigationSignature;
+
+    if (hasNavigationSubject && !navigationApplied) {
+      return;
+    }
+
+    setSelectedSubjectKey(subjectOptions[0]?.key || "");
+  }, [
+    selectedClass,
+    subjectOptions,
+    selectedSubjectKey,
+    navigationSelection,
+    navigationSignature,
+  ]);
 
   useEffect(() => {
     loadStudents();
@@ -867,10 +845,7 @@ export default function MarksEntry() {
                 onChange={(e) => setSelectedTermKey(e.target.value)}
               >
                 {terms.map((term) => {
-                  const key = `${pick(term.term, term.termName)}__${pick(
-                    term.year,
-                    term.academicYear
-                  )}`;
+                  const key = buildTermKey(term);
                   return (
                     <MenuItem key={term.id} value={key}>
                       {buildTermLabel(term)}
