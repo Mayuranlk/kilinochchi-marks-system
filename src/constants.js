@@ -39,6 +39,71 @@ export const ACADEMIC_YEARS = ["2024", "2025", "2026", "2027"];
 export const MEDIUM_OPTIONS = ["Tamil", "English", "Sinhala"];
 
 /* -------------------------------------------------------------------------- */
+/* Text helpers                                                                */
+/* -------------------------------------------------------------------------- */
+
+export const normalizeText = (value) => String(value || "").trim();
+
+export const normalizeLower = (value) => normalizeText(value).toLowerCase();
+
+export const normalizeLoose = (value) =>
+  normalizeLower(value).replace(/[^a-z0-9]/g, "");
+
+export const parseGrade = (value) => {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+export const normalizeSection = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Subject helpers needed early                                                */
+/* -------------------------------------------------------------------------- */
+
+export function uniqueBySubjectNumber(subjects = []) {
+  const seen = new Set();
+  const result = [];
+
+  for (const subject of subjects) {
+    if (!subject || typeof subject !== "object") continue;
+
+    const key =
+      normalizeText(subject.subjectNumber) ||
+      normalizeLower(subject.subjectCode) ||
+      normalizeLower(subject.subjectName);
+
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(subject);
+  }
+
+  return result;
+}
+
+export const uniqueSubjects = (subjects = []) => {
+  const seen = new Set();
+  const result = [];
+
+  for (const subject of subjects) {
+    const value = normalizeText(subject);
+    if (!value) continue;
+
+    const key = normalizeLower(value);
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result;
+};
+
+/* -------------------------------------------------------------------------- */
 /* Religion                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -163,7 +228,7 @@ export const COMPULSORY_SUBJECTS_10_11 = [
 ];
 
 /* -------------------------------------------------------------------------- */
-/* A/L Streams + Subject Numbers (FROM SCRATCH)                                */
+/* A/L Streams + Subject Numbers                                               */
 /* -------------------------------------------------------------------------- */
 
 export const AL_STREAMS = [
@@ -193,10 +258,6 @@ export const AL_STREAM_SHORT_NAMES = {
   Arts: "Arts",
 };
 
-/**
- * Official A/L subject definitions based on the subject-number list.
- * Subject numbers are stored as strings because some are alphanumeric (25A/25B/25C).
- */
 export const AL_SUBJECTS = {
   PHYSICS: {
     subjectNumber: "01",
@@ -252,12 +313,6 @@ export const AL_SUBJECTS = {
     subjectName: "Geography",
     shortName: "Geography",
   },
-
-  /**
-   * History in the official list appears as 25A / 25B / 25C.
-   * Keep them separate at config level so the system supports official numbering.
-   * UI can later decide whether to show these separately or map them to a single "History" choice.
-   */
   HISTORY_25A: {
     subjectNumber: "25A",
     subjectCode: "AL_25A",
@@ -276,7 +331,6 @@ export const AL_SUBJECTS = {
     subjectName: "History of Sri Lanka & Modern World",
     shortName: "History (25C)",
   },
-
   HOME_ECONOMICS: {
     subjectNumber: "28",
     subjectCode: "AL_28",
@@ -370,21 +424,14 @@ export const AL_STREAM_RULES = {
       AL_SUBJECTS.COMBINED_MATHEMATICS,
       AL_SUBJECTS.PHYSICS,
     ],
-    optionalGroups: [
-      [AL_SUBJECTS.CHEMISTRY, AL_SUBJECTS.ICT],
-    ],
+    optionalGroups: [[AL_SUBJECTS.CHEMISTRY, AL_SUBJECTS.ICT]],
     optionalPickCount: 1,
   },
 
   "Biological Science": {
     streamCode: AL_STREAM_CODES["Biological Science"],
-    compulsory: [
-      AL_SUBJECTS.BIOLOGY,
-      AL_SUBJECTS.CHEMISTRY,
-    ],
-    optionalGroups: [
-      [AL_SUBJECTS.PHYSICS, AL_SUBJECTS.AGRICULTURAL_SCIENCE],
-    ],
+    compulsory: [AL_SUBJECTS.BIOLOGY, AL_SUBJECTS.CHEMISTRY],
+    optionalGroups: [[AL_SUBJECTS.PHYSICS, AL_SUBJECTS.AGRICULTURAL_SCIENCE]],
     optionalPickCount: 1,
   },
 
@@ -394,9 +441,7 @@ export const AL_STREAM_RULES = {
       AL_SUBJECTS.SCIENCE_FOR_TECHNOLOGY,
       AL_SUBJECTS.ENGINEERING_TECHNOLOGY,
     ],
-    optionalGroups: [
-      [AL_SUBJECTS.AGRICULTURAL_SCIENCE, AL_SUBJECTS.ICT],
-    ],
+    optionalGroups: [[AL_SUBJECTS.AGRICULTURAL_SCIENCE, AL_SUBJECTS.ICT]],
     optionalPickCount: 1,
   },
 
@@ -406,21 +451,14 @@ export const AL_STREAM_RULES = {
       AL_SUBJECTS.SCIENCE_FOR_TECHNOLOGY,
       AL_SUBJECTS.BIO_SYSTEMS_TECHNOLOGY,
     ],
-    optionalGroups: [
-      [AL_SUBJECTS.AGRICULTURAL_SCIENCE, AL_SUBJECTS.ICT],
-    ],
+    optionalGroups: [[AL_SUBJECTS.AGRICULTURAL_SCIENCE, AL_SUBJECTS.ICT]],
     optionalPickCount: 1,
   },
 
   Commerce: {
     streamCode: AL_STREAM_CODES.Commerce,
-    compulsory: [
-      AL_SUBJECTS.ACCOUNTING,
-      AL_SUBJECTS.BUSINESS_STUDIES,
-    ],
-    optionalGroups: [
-      [AL_SUBJECTS.ECONOMICS, AL_SUBJECTS.ICT],
-    ],
+    compulsory: [AL_SUBJECTS.ACCOUNTING, AL_SUBJECTS.BUSINESS_STUDIES],
+    optionalGroups: [[AL_SUBJECTS.ECONOMICS, AL_SUBJECTS.ICT]],
     optionalPickCount: 1,
   },
 
@@ -473,9 +511,7 @@ export const AL_SUBJECTS_BY_NAME = Object.fromEntries(
   AL_ALL_SUBJECTS.map((subject) => [normalizeLower(subject.subjectName), subject])
 );
 
-export const AL_GENERAL_SUBJECTS = [
-  AL_SUBJECTS.GENERAL_ENGLISH,
-];
+export const AL_GENERAL_SUBJECTS = [AL_SUBJECTS.GENERAL_ENGLISH];
 
 /* -------------------------------------------------------------------------- */
 /* Subject catalog (UI fallback only)                                          */
@@ -516,28 +552,6 @@ export const ASSESSMENT_TYPES = [
   "Mid-Term Exam",
   "Final Exam",
 ];
-
-/* -------------------------------------------------------------------------- */
-/* Text helpers                                                                */
-/* -------------------------------------------------------------------------- */
-
-export const normalizeText = (value) => String(value || "").trim();
-
-export const normalizeLower = (value) => normalizeText(value).toLowerCase();
-
-export const normalizeLoose = (value) =>
-  normalizeLower(value).replace(/[^a-z0-9]/g, "");
-
-export const parseGrade = (value) => {
-  const match = String(value ?? "").match(/\d+/);
-  return match ? Number(match[0]) : 0;
-};
-
-export const normalizeSection = (value) => {
-  const raw = normalizeText(value).toUpperCase();
-  const match = raw.match(/[A-Z]+/);
-  return match ? match[0] : raw;
-};
 
 export const buildFullClassName = (grade, section) => {
   const g = parseGrade(grade);
@@ -594,8 +608,7 @@ export const getStudentSection = (student) =>
 export const getStudentClassName = (student) =>
   buildFullClassName(getStudentGrade(student), getStudentSection(student));
 
-export const getStudentStream = (student) =>
-  normalizeText(student?.stream);
+export const getStudentStream = (student) => normalizeText(student?.stream);
 
 export const getStudentALClassName = (student) => {
   const explicit = normalizeText(student?.alClassName);
@@ -615,45 +628,6 @@ export const isActiveStatus = (value) =>
 /* -------------------------------------------------------------------------- */
 /* Subject helpers                                                             */
 /* -------------------------------------------------------------------------- */
-
-export function uniqueBySubjectNumber(subjects = []) {
-  const seen = new Set();
-  const result = [];
-
-  for (const subject of subjects) {
-    if (!subject || typeof subject !== "object") continue;
-
-    const key =
-      normalizeText(subject.subjectNumber) ||
-      normalizeLower(subject.subjectCode) ||
-      normalizeLower(subject.subjectName);
-
-    if (!key || seen.has(key)) continue;
-
-    seen.add(key);
-    result.push(subject);
-  }
-
-  return result;
-}
-
-export const uniqueSubjects = (subjects = []) => {
-  const seen = new Set();
-  const result = [];
-
-  for (const subject of subjects) {
-    const value = normalizeText(subject);
-    if (!value) continue;
-
-    const key = normalizeLower(value);
-    if (seen.has(key)) continue;
-
-    seen.add(key);
-    result.push(value);
-  }
-
-  return result;
-};
 
 export const getBasketForSubjectName = (subjectName) => {
   const key = normalizeLoose(subjectName);
@@ -731,9 +705,7 @@ export const convertALChoiceNamesToSubjects = (choiceNames = []) => {
   const names = normalizeALSubjectChoiceValues(choiceNames);
 
   return uniqueBySubjectNumber(
-    names
-      .map((name) => getALSubjectByName(name))
-      .filter(Boolean)
+    names.map((name) => getALSubjectByName(name)).filter(Boolean)
   );
 };
 
@@ -741,9 +713,7 @@ export const convertALChoiceNumbersToSubjects = (choiceNumbers = []) => {
   const numbers = uniqueSubjects(choiceNumbers);
 
   return uniqueBySubjectNumber(
-    numbers
-      .map((number) => getALSubjectByNumber(number))
-      .filter(Boolean)
+    numbers.map((number) => getALSubjectByNumber(number)).filter(Boolean)
   );
 };
 
@@ -767,7 +737,10 @@ export const validateALChoices = ({
   const rule = getALRuleForStream(normalizedStream);
 
   if (!isALGrade(parsedGrade)) {
-    return { valid: false, reason: "A/L validation applies only to grades 12 and 13." };
+    return {
+      valid: false,
+      reason: "A/L validation applies only to grades 12 and 13.",
+    };
   }
 
   if (!rule) {
@@ -783,7 +756,10 @@ export const validateALChoices = ({
   const uniqueChosenNumbers = new Set(chosenNumbers);
 
   if (uniqueChosenNumbers.size !== chosenNumbers.length) {
-    return { valid: false, reason: "Duplicate A/L subject choices are not allowed." };
+    return {
+      valid: false,
+      reason: "Duplicate A/L subject choices are not allowed.",
+    };
   }
 
   const allowedOptionalNumbers = new Set(
@@ -795,7 +771,10 @@ export const validateALChoices = ({
   );
 
   if (!allAreAllowed) {
-    return { valid: false, reason: "One or more selected subjects are not valid for this stream." };
+    return {
+      valid: false,
+      reason: "One or more selected subjects are not valid for this stream.",
+    };
   }
 
   const expectedOptionalCount = rule.optionalPickCount || 0;
@@ -809,7 +788,10 @@ export const validateALChoices = ({
   if (normalizeText(stream) === "Arts") {
     const hasDuplicates = chosenSubjects.length !== uniqueChosenNumbers.size;
     if (hasDuplicates) {
-      return { valid: false, reason: "Arts stream cannot contain duplicate subjects." };
+      return {
+        valid: false,
+        reason: "Arts stream cannot contain duplicate subjects.",
+      };
     }
   }
 
