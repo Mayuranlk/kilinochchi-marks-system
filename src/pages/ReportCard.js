@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
-import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
-import { useAuth } from "../context/AuthContext";
 import {
   Alert,
   Box,
@@ -31,86 +28,118 @@ import {
 import PrintIcon from "@mui/icons-material/Print";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
-const safeString = (value) => (value == null ? "" : String(value).trim());
-const lower = (value) => safeString(value).toLowerCase();
+import { db } from "../firebase";
+import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
+import { useAuth } from "../context/AuthContext";
 
-const normalizeGrade = (value) => {
-  const match = safeString(value).match(/\d+/);
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function safeText(value) {
+  return value == null ? "" : String(value).trim();
+}
+
+function lower(value) {
+  return safeText(value).toLowerCase();
+}
+
+function normalizeGrade(value) {
+  const match = safeText(value).match(/\d+/);
   return match ? Number(match[0]) : null;
-};
+}
 
-const normalizeAcademicYear = (value) => {
-  const match = safeString(value).match(/\d{4}/);
+function normalizeAcademicYear(value) {
+  const match = safeText(value).match(/\d{4}/);
   return match ? String(match[0]) : "";
-};
+}
 
-const normalizeSection = (value) => {
-  const raw = safeString(value).toUpperCase();
-  const match = raw.match(/[A-Z]+/);
-  return match ? match[0] : raw;
-};
+function normalizeSubjectName(value) {
+  return safeText(value)
+    .replace(/\s+/g, " ")
+    .replace(/[()]/g, "")
+    .replace(/&/g, "and")
+    .replace(/,/g, "")
+    .trim()
+    .toLowerCase();
+}
 
-const normalizeSubjectName = (value) =>
-  safeString(value).replace(/\s+/g, "").toLowerCase();
+function getMarkSubject(mark) {
+  return safeText(mark?.subjectName || mark?.subject);
+}
 
-const getMarkSubject = (mark) => safeString(mark?.subjectName || mark?.subject);
-const getMarkSubjectId = (mark) => safeString(mark?.subjectId);
-const getMarkTerm = (mark) =>
-  safeString(mark?.term || mark?.termName || mark?.termLabel);
-const getMarkYear = (mark) =>
-  normalizeAcademicYear(mark?.academicYear || mark?.year);
+function getMarkSubjectId(mark) {
+  return safeText(mark?.subjectId);
+}
 
-const getMarkValue = (mark) => {
-  const raw = mark?.mark ?? mark?.marks ?? mark?.score ?? "";
+function getMarkTerm(mark) {
+  return safeText(mark?.termName || mark?.term || mark?.termLabel);
+}
+
+function getMarkYear(mark) {
+  return normalizeAcademicYear(mark?.academicYear || mark?.year);
+}
+
+function getMarkValue(mark) {
+  const raw = mark?.marks ?? mark?.mark ?? mark?.score ?? null;
   if (raw === "" || raw == null) return null;
   const num = Number(raw);
   return Number.isFinite(num) ? num : null;
-};
+}
 
-const getMarkStatus = (mark) => {
+function getMarkStatus(mark) {
   if (mark?.isMedicalAbsent) return "medical_absent";
-  if (mark?.isAbsent) return "absent";
+  if (mark?.isAbsent || mark?.absent) return "absent";
 
   const status = lower(mark?.attendanceStatus || mark?.status);
   if (status === "medical_absent") return "medical_absent";
   if (status === "absent") return "absent";
 
   return "present";
-};
+}
 
-const getEnrollmentSubjectName = (row) =>
-  safeString(row?.subjectName || row?.subject);
+function getEnrollmentSubjectName(row) {
+  return safeText(row?.subjectName || row?.subject);
+}
 
-const getEnrollmentSubjectId = (row) => safeString(row?.subjectId);
+function getEnrollmentSubjectId(row) {
+  return safeText(row?.subjectId);
+}
 
-const getEnrollmentAcademicYear = (row) =>
-  normalizeAcademicYear(row?.academicYear || row?.year);
+function getEnrollmentAcademicYear(row) {
+  return normalizeAcademicYear(row?.academicYear || row?.year);
+}
 
-const getEnrollmentStatus = (row) => lower(row?.status || "active");
+function getEnrollmentStatus(row) {
+  return lower(row?.status || "active");
+}
 
-const isEnrollmentActive = (row) =>
-  ["", "active", "promoted", "current"].includes(getEnrollmentStatus(row));
+function isEnrollmentActive(row) {
+  return ["", "active", "promoted", "current"].includes(getEnrollmentStatus(row));
+}
 
-const getStudentDisplayClass = (student) => {
+function getStudentDisplayClass(student) {
   const grade = normalizeGrade(student?.grade);
-  const section = safeString(student?.section || student?.className);
+  const section = safeText(student?.section || student?.className);
 
   if (!grade && !section) return "—";
   if (grade && section) return `Grade ${grade}-${section}`;
   if (grade) return `Grade ${grade}`;
   return section;
-};
+}
 
-const getStudentAesthetic = (student) =>
-  safeString(student?.aestheticChoice || student?.aesthetic);
+function getStudentAesthetic(student) {
+  return safeText(student?.aestheticChoice || student?.aesthetic);
+}
 
-const getStudentBaskets = (student) =>
-  [student?.basket1, student?.basket2, student?.basket3]
-    .map((x) => safeString(x))
+function getStudentBaskets(student) {
+  return [student?.basket1, student?.basket2, student?.basket3]
+    .map((x) => safeText(x))
     .filter(Boolean)
     .join(", ");
+}
 
-const getGradeMeta = (mark, studentGrade) => {
+function getGradeMeta(mark, studentGrade) {
   const grade = normalizeGrade(studentGrade);
 
   const lowerGrades = [
@@ -129,20 +158,46 @@ const getGradeMeta = (mark, studentGrade) => {
     { min: 0, label: "F", color: "#c62828", bg: "#ffebee", desc: "Failure" },
   ];
 
-  const labels = grade >= 6 && grade <= 9 ? lowerGrades : upperGrades;
+  const bands = grade >= 6 && grade <= 9 ? lowerGrades : upperGrades;
 
-  for (const row of labels) {
-    if (Number(mark) >= row.min) return row;
+  for (const band of bands) {
+    if (Number(mark) >= band.min) return band;
   }
 
-  return labels[labels.length - 1];
-};
+  return bands[bands.length - 1];
+}
 
-const calcAverage = (marksList) => {
+function calcAverageNumber(marksList) {
   const numeric = marksList.map((m) => getMarkValue(m)).filter((v) => v !== null);
   if (!numeric.length) return null;
-  return (numeric.reduce((sum, v) => sum + v, 0) / numeric.length).toFixed(1);
-};
+  return numeric.reduce((sum, v) => sum + v, 0) / numeric.length;
+}
+
+function calcAverageText(marksList) {
+  const avg = calcAverageNumber(marksList);
+  return avg === null ? null : avg.toFixed(1);
+}
+
+function sortMarksByExpectedOrder(marks, expectedOrder) {
+  return [...marks].sort((a, b) => {
+    const aKey = getMarkSubjectId(a) || normalizeSubjectName(getMarkSubject(a));
+    const bKey = getMarkSubjectId(b) || normalizeSubjectName(getMarkSubject(b));
+
+    const ai = expectedOrder.indexOf(aKey);
+    const bi = expectedOrder.indexOf(bKey);
+
+    if (ai === -1 && bi === -1) {
+      return getMarkSubject(a).localeCompare(getMarkSubject(b));
+    }
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export default function ReportCard() {
   const { studentId } = useParams();
@@ -159,10 +214,12 @@ export default function ReportCard() {
   const [term, setTerm] = useState("All");
   const [selectedYear, setSelectedYear] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setLoadError("");
 
       try {
         const [studentSnap, marksSnap, termsSnap, enrollmentsSnap] = await Promise.all([
@@ -175,19 +232,23 @@ export default function ReportCard() {
         const loadedStudent = studentSnap.exists()
           ? { id: studentSnap.id, ...studentSnap.data() }
           : null;
-        setStudent(loadedStudent);
 
         const loadedMarks = marksSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((mark) => safeString(mark.studentId) === safeString(studentId));
-        setAllMarks(loadedMarks);
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((mark) => safeText(mark.studentId) === safeText(studentId));
 
-        const loadedTerms = termsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setAllTerms(loadedTerms);
+        const loadedTerms = termsSnap.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
 
         const loadedEnrollments = enrollmentsSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((row) => safeString(row.studentId) === safeString(studentId));
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((row) => safeText(row.studentId) === safeText(studentId));
+
+        setStudent(loadedStudent);
+        setAllMarks(loadedMarks);
+        setAllTerms(loadedTerms);
         setAllEnrollments(loadedEnrollments);
 
         const activeTerm = loadedTerms.find((row) => row.isActive === true) || null;
@@ -201,6 +262,7 @@ export default function ReportCard() {
         setSelectedYear(bestYear);
       } catch (error) {
         console.error("ReportCard fetch error:", error);
+        setLoadError("Failed to load report card.");
       } finally {
         setLoading(false);
       }
@@ -222,9 +284,7 @@ export default function ReportCard() {
 
   const marksForYear = useMemo(() => {
     if (!selectedYear) return allMarks;
-    return allMarks.filter(
-      (mark) => !getMarkYear(mark) || getMarkYear(mark) === selectedYear
-    );
+    return allMarks.filter((mark) => !getMarkYear(mark) || getMarkYear(mark) === selectedYear);
   }, [allMarks, selectedYear]);
 
   const availableTerms = useMemo(() => {
@@ -233,7 +293,7 @@ export default function ReportCard() {
     allTerms
       .filter((row) => !selectedYear || normalizeAcademicYear(row.year) === selectedYear)
       .forEach((row) => {
-        if (safeString(row.term)) termSet.add(safeString(row.term));
+        if (safeText(row.term)) termSet.add(safeText(row.term));
       });
 
     marksForYear.forEach((row) => {
@@ -245,7 +305,7 @@ export default function ReportCard() {
 
   const expectedSubjects = useMemo(() => {
     const rows = allEnrollments
-      .filter((row) => isEnrollmentActive(row))
+      .filter(isEnrollmentActive)
       .filter(
         (row) =>
           !selectedYear ||
@@ -279,20 +339,7 @@ export default function ReportCard() {
   }, [expectedSubjects]);
 
   const sortedAllMarks = useMemo(() => {
-    return [...marksForYear].sort((a, b) => {
-      const aKey = getMarkSubjectId(a) || normalizeSubjectName(getMarkSubject(a));
-      const bKey = getMarkSubjectId(b) || normalizeSubjectName(getMarkSubject(b));
-
-      const ai = expectedOrder.indexOf(aKey);
-      const bi = expectedOrder.indexOf(bKey);
-
-      if (ai === -1 && bi === -1) {
-        return getMarkSubject(a).localeCompare(getMarkSubject(b));
-      }
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
+    return sortMarksByExpectedOrder(marksForYear, expectedOrder);
   }, [marksForYear, expectedOrder]);
 
   const filteredMarks = useMemo(() => {
@@ -305,21 +352,9 @@ export default function ReportCard() {
     const result = {};
 
     availableTerms.forEach((t) => {
-      result[t] = [...marksForYear.filter((mark) => getMarkTerm(mark) === t)].sort(
-        (a, b) => {
-          const aKey = getMarkSubjectId(a) || normalizeSubjectName(getMarkSubject(a));
-          const bKey = getMarkSubjectId(b) || normalizeSubjectName(getMarkSubject(b));
-
-          const ai = expectedOrder.indexOf(aKey);
-          const bi = expectedOrder.indexOf(bKey);
-
-          if (ai === -1 && bi === -1) {
-            return getMarkSubject(a).localeCompare(getMarkSubject(b));
-          }
-          if (ai === -1) return 1;
-          if (bi === -1) return -1;
-          return ai - bi;
-        }
+      result[t] = sortMarksByExpectedOrder(
+        marksForYear.filter((mark) => getMarkTerm(mark) === t),
+        expectedOrder
       );
     });
 
@@ -340,11 +375,12 @@ export default function ReportCard() {
 
     return expectedSubjects
       .filter(
-        (row) =>
-          !enteredSubjects.has(row.subjectId || normalizeSubjectName(row.subjectName))
+        (row) => !enteredSubjects.has(row.subjectId || normalizeSubjectName(row.subjectName))
       )
       .map((row) => row.subjectName);
   }, [expectedSubjects, marksForYear, term]);
+
+  const overallAverage = useMemo(() => calcAverageText(marksForYear), [marksForYear]);
 
   const handlePrint = () => {
     if (!printRef.current) return;
@@ -356,7 +392,7 @@ export default function ReportCard() {
     printWindow.document.write(`
       <html>
         <head>
-          <title>Report Card - ${safeString(student?.name)}</title>
+          <title>Report Card - ${safeText(student?.name || student?.fullName)}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 20px; color: #000; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -372,10 +408,11 @@ export default function ReportCard() {
     `);
 
     printWindow.document.close();
+    printWindow.focus();
     printWindow.print();
   };
 
-  const renderDesktopRow = (mark) => {
+  function renderDesktopRow(mark) {
     const status = getMarkStatus(mark);
     const value = getMarkValue(mark);
     const rowKey = `${mark.id || getMarkSubject(mark)}-${getMarkTerm(mark)}`;
@@ -385,7 +422,7 @@ export default function ReportCard() {
       const bg = status === "absent" ? "#ffebee" : "#f3e5f5";
       const color = status === "absent" ? "#c62828" : "#6a1b9a";
       const remarks =
-        safeString(mark.absentReason || mark.remarks) ||
+        safeText(mark.absentReason || mark.remarks) ||
         (status === "absent" ? "Absent" : "Medical Absent");
 
       return (
@@ -433,12 +470,12 @@ export default function ReportCard() {
             {gradeMeta.label}
           </span>
         </TableCell>
-        <TableCell>{safeString(mark.remarks) || gradeMeta.desc}</TableCell>
+        <TableCell>{safeText(mark.remarks) || gradeMeta.desc}</TableCell>
       </TableRow>
     );
-  };
+  }
 
-  const renderMobileRow = (mark) => {
+  function renderMobileRow(mark) {
     const status = getMarkStatus(mark);
     const rowKey = `${mark.id || getMarkSubject(mark)}-${getMarkTerm(mark)}`;
 
@@ -493,7 +530,7 @@ export default function ReportCard() {
         </Box>
       </Box>
     );
-  };
+  }
 
   const backPath = isAdmin ? "/students" : "/teacher";
 
@@ -506,7 +543,7 @@ export default function ReportCard() {
   }
 
   return (
-    <Box>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Button
         startIcon={<ArrowBackIcon />}
         onClick={() => navigate(backPath)}
@@ -514,6 +551,12 @@ export default function ReportCard() {
       >
         Back
       </Button>
+
+      {!!loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {loadError}
+        </Alert>
+      )}
 
       {!student ? (
         <Typography>Student not found.</Typography>
@@ -549,7 +592,11 @@ export default function ReportCard() {
 
               <FormControl size="small" sx={{ minWidth: 140 }}>
                 <InputLabel>Term</InputLabel>
-                <Select value={term} label="Term" onChange={(e) => setTerm(e.target.value)}>
+                <Select
+                  value={term}
+                  label="Term"
+                  onChange={(e) => setTerm(e.target.value)}
+                >
                   <MenuItem value="All">All Terms</MenuItem>
                   {availableTerms.map((t) => (
                     <MenuItem key={t} value={t}>
@@ -689,10 +736,10 @@ export default function ReportCard() {
                   </Paper>
                 )}
 
-                {filteredMarks.length > 0 && calcAverage(filteredMarks) !== null && (
+                {filteredMarks.length > 0 && calcAverageText(filteredMarks) !== null && (
                   <Box mt={1} textAlign="right">
                     <Typography variant="body2" fontWeight={700}>
-                      Average: {calcAverage(filteredMarks)} / 100
+                      Average: {calcAverageText(filteredMarks)} / 100
                     </Typography>
                   </Box>
                 )}
@@ -740,10 +787,10 @@ export default function ReportCard() {
                   )}
 
                   {(groupedByTerm[t] || []).length > 0 &&
-                    calcAverage(groupedByTerm[t]) !== null && (
+                    calcAverageText(groupedByTerm[t]) !== null && (
                       <Box mt={0.5} textAlign="right">
                         <Typography variant="body2" fontWeight={600}>
-                          {t} Average: {calcAverage(groupedByTerm[t])} / 100
+                          {t} Average: {calcAverageText(groupedByTerm[t])} / 100
                         </Typography>
                       </Box>
                     )}
@@ -751,14 +798,14 @@ export default function ReportCard() {
               ))
             )}
 
-            {marksForYear.length > 0 && calcAverage(marksForYear) !== null && (
+            {marksForYear.length > 0 && overallAverage !== null && (
               <>
                 <Divider sx={{ my: 2 }} />
                 <Box display="flex" justifyContent="space-between" alignItems="center">
                   <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={700}>
                     Overall Average
                   </Typography>
-                  <Chip label={`${calcAverage(marksForYear)} / 100`} color="primary" />
+                  <Chip label={`${overallAverage} / 100`} color="primary" />
                 </Box>
               </>
             )}

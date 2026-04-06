@@ -46,6 +46,8 @@ import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
+import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
+import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -57,73 +59,85 @@ export default function Layout() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const adminMenu = [
-    { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" },
-    { label: "Classrooms", icon: <MeetingRoomRoundedIcon />, path: "/classrooms" },
-    { label: "Subjects", icon: <BookRoundedIcon />, path: "/subjects" },
-    { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
-    { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
-    { label: "Teachers", icon: <PersonRoundedIcon />, path: "/teachers" },
+  const adminMenuSections = [
     {
-      label: "School Setup",
-      icon: <SettingsSuggestRoundedIcon />,
-      path: "/setup-school-defaults",
-      badge: "SETUP",
+      section: "Dashboard",
+      items: [
+        { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" },
+      ],
     },
     {
-      label: "Assignments",
-      icon: <AssignmentIndRoundedIcon />,
-      path: "/assignments",
+      section: "Academic Setup",
+      items: [
+        { label: "Classrooms", icon: <MeetingRoomRoundedIcon />, path: "/classrooms" },
+        { label: "Subjects", icon: <BookRoundedIcon />, path: "/subjects" },
+        { label: "Academic Terms", icon: <CalendarMonthRoundedIcon />, path: "/terms" },
+        {
+          label: "School Setup",
+          icon: <SettingsSuggestRoundedIcon />,
+          path: "/setup-school-defaults",
+          badge: "SETUP",
+        },
+      ],
     },
     {
-      label: "Class Teachers",
-      icon: <HomeWorkRoundedIcon />,
-      path: "/class-teachers",
+      section: "Students",
+      items: [
+        { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
+        { label: "Students By Subject", icon: <MenuBookRoundedIcon />, path: "/students/by-subject" },
+        {
+          label: "Class Data Management",
+          icon: <DeleteSweepRoundedIcon />,
+          path: "/class-data-management",
+          badge: "DANGER",
+        },
+      ],
     },
     {
-      label: "Promotion",
-      icon: <UpgradeRoundedIcon />,
-      path: "/promotion",
+      section: "Enrollments",
+      items: [
+        {
+          label: "Subject Enrollments",
+          icon: <AutoFixHighRoundedIcon />,
+          path: "/student-subject-enrollments",
+          badge: "AUTO",
+        },
+        {
+          label: "Manual Enrollments",
+          icon: <PlaylistAddRoundedIcon />,
+          path: "/manual-student-subject-enrollments",
+          badge: "MANUAL",
+        },
+        {
+          label: "Migrate Student Subjects",
+          icon: <CleaningServicesRoundedIcon />,
+          path: "/migrate-student-subjects",
+        },
+      ],
     },
     {
-      label: "Academic Terms",
-      icon: <CalendarMonthRoundedIcon />,
-      path: "/terms",
+      section: "Staff",
+      items: [
+        { label: "Teachers", icon: <PersonRoundedIcon />, path: "/teachers" },
+        { label: "Teacher Assignments", icon: <AssignmentIndRoundedIcon />, path: "/assignments" },
+        { label: "Class Teachers", icon: <HomeWorkRoundedIcon />, path: "/class-teachers" },
+      ],
     },
     {
-      label: "Teacher Mark Sheets",
-      icon: <DescriptionRoundedIcon />,
-      path: "/teacher-mark-sheets",
-      badge: "NEW",
+      section: "Marks & Reports",
+      items: [
+        { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
+        { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
+        { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
+        { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
+      ],
     },
     {
-      label: "Subject Enrollments",
-      icon: <AutoFixHighRoundedIcon />,
-      path: "/student-subject-enrollments",
-      badge: "AUTO",
-    },
-    {
-      label: "Manual Enrollments",
-      icon: <PlaylistAddRoundedIcon />,
-      path: "/manual-student-subject-enrollments",
-      badge: "MANUAL",
-    },
-    {
-      label: "Class Data Management",
-      icon: <DeleteSweepRoundedIcon />,
-      path: "/class-data-management",
-      badge: "DANGER",
-    },
-    {
-      label: "Migrate Student Subjects",
-      icon: <CleaningServicesRoundedIcon />,
-      path: "/migrate-student-subjects",
-    },
-    {
-      label: "Export Samples",
-      icon: <DownloadRoundedIcon />,
-      path: "/export-firestore-samples",
-      badge: "DEV",
+      section: "Promotion & Tools",
+      items: [
+        { label: "Promotion", icon: <UpgradeRoundedIcon />, path: "/promotion" },
+        { label: "Export Samples", icon: <DownloadRoundedIcon />, path: "/export-firestore-samples", badge: "DEV" },
+      ],
     },
   ];
 
@@ -141,18 +155,16 @@ export default function Layout() {
     });
   }
 
-  const menuItems = isAdmin ? adminMenu : teacherMenu;
+  const menuItems = isAdmin
+    ? adminMenuSections.flatMap((section) => section.items)
+    : teacherMenu;
 
   const bottomNavItems = isAdmin
     ? [
         { label: "Home", icon: <DashboardRoundedIcon />, path: "/" },
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/marks" },
-        {
-          label: "Enroll",
-          icon: <MenuBookRoundedIcon />,
-          path: "/student-subject-enrollments",
-        },
+        { label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" },
         { label: "More", icon: <MoreHorizRoundedIcon />, path: null },
       ]
     : isClassTeacher
@@ -167,8 +179,7 @@ export default function Layout() {
       ];
 
   const hideBottomNavRoutes = ["/", "/teacher", "/teacher/marks"];
-  const shouldShowBottomNav =
-    isMobile && !hideBottomNavRoutes.includes(location.pathname);
+  const shouldShowBottomNav = isMobile && !hideBottomNavRoutes.includes(location.pathname);
 
   const currentBottomNav = useMemo(() => {
     const index = bottomNavItems.findIndex((item) => {
@@ -253,6 +264,7 @@ export default function Layout() {
   };
 
   const handleNavigate = (path) => {
+    if (!path) return;
     navigate(path);
     setMobileOpen(false);
   };
@@ -428,14 +440,12 @@ export default function Layout() {
       <Box sx={{ flex: 1, overflowY: "auto", py: 1 }}>
         {isAdmin ? (
           <>
-            <SidebarSectionLabel>Management</SidebarSectionLabel>
-            <List disablePadding>{adminMenu.slice(0, 6).map(renderMenuItem)}</List>
-
-            <SidebarSectionLabel>Staff</SidebarSectionLabel>
-            <List disablePadding>{adminMenu.slice(6, 8).map(renderMenuItem)}</List>
-
-            <SidebarSectionLabel>System</SidebarSectionLabel>
-            <List disablePadding>{adminMenu.slice(8).map(renderMenuItem)}</List>
+            {adminMenuSections.map((section) => (
+              <React.Fragment key={section.section}>
+                <SidebarSectionLabel>{section.section}</SidebarSectionLabel>
+                <List disablePadding>{section.items.map(renderMenuItem)}</List>
+              </React.Fragment>
+            ))}
           </>
         ) : (
           <>

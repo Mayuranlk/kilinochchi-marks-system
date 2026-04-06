@@ -5,29 +5,38 @@ import { CircularProgress, Box, CssBaseline, ThemeProvider } from "@mui/material
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import appTheme from "./theme/appTheme";
 
+import Layout from "./components/Layout";
+
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Students from "./pages/Students";
-import GenerateSubjectEnrollments from "./pages/GenerateSubjectEnrollments";
-import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments";
-import MarksEntry from "./pages/MarksEntry";
-import ReportCard from "./pages/ReportCard";
-import AdminTeachers from "./pages/AdminTeachers";
 import TeacherDashboard from "./pages/TeacherDashboard";
+
 import ClassroomManagement from "./pages/ClassroomManagement";
 import SubjectManagement from "./pages/SubjectManagement";
-import Layout from "./components/Layout";
-import YearEndPromotion from "./pages/YearEndPromotion";
-import TeacherAssignments from "./pages/TeacherAssignments";
-import StudentsBySubject from "./pages/StudentsBySubject";
-import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
 import AcademicTerms from "./pages/AcademicTerms";
-import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
 import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
-import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
-import TeacherMarkSheets from "./pages/TeacherMarkSheets";
-import BulkMarksUpload from "./pages/BulkMarksUpload";
+
+import Students from "./pages/Students";
+import StudentsBySubject from "./pages/StudentsBySubject";
 import ClassDataManagement from "./pages/ClassDataManagement";
+
+import GenerateSubjectEnrollments from "./pages/GenerateSubjectEnrollments";
+import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments";
+import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
+
+import AdminTeachers from "./pages/AdminTeachers";
+import TeacherAssignments from "./pages/TeacherAssignments";
+import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
+
+import MarksEntry from "./pages/MarksEntry";
+import BulkMarksUpload from "./pages/BulkMarksUpload";
+import TeacherMarkSheets from "./pages/TeacherMarkSheets";
+import ReportCard from "./pages/ReportCard";
+import ClassReport from "./pages/ClassReport";
+import ClassMarksReports from "./pages/reports/ClassMarksReports";
+
+import YearEndPromotion from "./pages/YearEndPromotion";
+import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
 
 function LoadingScreen() {
   return (
@@ -99,6 +108,7 @@ export default function App() {
                 }
               />
 
+              {/* Academic Setup */}
               <Route
                 path="classrooms"
                 element={
@@ -107,7 +117,6 @@ export default function App() {
                   </AdminRoute>
                 }
               />
-
               <Route
                 path="subjects"
                 element={
@@ -116,43 +125,14 @@ export default function App() {
                   </AdminRoute>
                 }
               />
-
               <Route
-                path="students"
+                path="terms"
                 element={
                   <AdminRoute>
-                    <Students />
+                    <AcademicTerms />
                   </AdminRoute>
                 }
               />
-
-              <Route
-                path="student-subject-enrollments"
-                element={
-                  <AdminRoute>
-                    <GenerateSubjectEnrollments />
-                  </AdminRoute>
-                }
-              />
-
-              <Route
-                path="manual-student-subject-enrollments"
-                element={
-                  <AdminRoute>
-                    <StudentSubjectEnrollments />
-                  </AdminRoute>
-                }
-              />
-
-              <Route
-                path="migrate-student-subjects"
-                element={
-                  <AdminRoute>
-                    <MigrateStudentSubjects />
-                  </AdminRoute>
-                }
-              />
-
               <Route
                 path="setup-school-defaults"
                 element={
@@ -162,24 +142,23 @@ export default function App() {
                 }
               />
 
+              {/* Students */}
               <Route
-                path="marks"
+                path="students"
                 element={
                   <AdminRoute>
-                    <MarksEntry />
+                    <Students />
                   </AdminRoute>
                 }
               />
-
               <Route
-                path="marks-upload"
+                path="students/by-subject"
                 element={
                   <AdminRoute>
-                    <BulkMarksUpload />
+                    <StudentsBySubject />
                   </AdminRoute>
                 }
               />
-
               <Route
                 path="class-data-management"
                 element={
@@ -189,15 +168,33 @@ export default function App() {
                 }
               />
 
+              {/* Enrollments */}
               <Route
-                path="report/:studentId"
+                path="student-subject-enrollments"
                 element={
                   <AdminRoute>
-                    <ReportCard />
+                    <GenerateSubjectEnrollments />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="manual-student-subject-enrollments"
+                element={
+                  <AdminRoute>
+                    <StudentSubjectEnrollments />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="migrate-student-subjects"
+                element={
+                  <AdminRoute>
+                    <MigrateStudentSubjects />
                   </AdminRoute>
                 }
               />
 
+              {/* Staff */}
               <Route
                 path="teachers"
                 element={
@@ -206,7 +203,6 @@ export default function App() {
                   </AdminRoute>
                 }
               />
-
               <Route
                 path="assignments"
                 element={
@@ -215,25 +211,6 @@ export default function App() {
                   </AdminRoute>
                 }
               />
-
-              <Route
-                path="students/by-subject"
-                element={
-                  <AdminRoute>
-                    <StudentsBySubject />
-                  </AdminRoute>
-                }
-              />
-
-              <Route
-                path="terms"
-                element={
-                  <AdminRoute>
-                    <AcademicTerms />
-                  </AdminRoute>
-                }
-              />
-
               <Route
                 path="class-teachers"
                 element={
@@ -243,15 +220,23 @@ export default function App() {
                 }
               />
 
+              {/* Marks & Reports */}
               <Route
-                path="promotion"
+                path="marks"
                 element={
                   <AdminRoute>
-                    <YearEndPromotion />
+                    <MarksEntry />
                   </AdminRoute>
                 }
               />
-
+              <Route
+                path="marks-upload"
+                element={
+                  <AdminRoute>
+                    <BulkMarksUpload />
+                  </AdminRoute>
+                }
+              />
               <Route
                 path="teacher-mark-sheets"
                 element={
@@ -260,7 +245,32 @@ export default function App() {
                   </AdminRoute>
                 }
               />
+              <Route
+                path="class-marks-reports"
+                element={
+                  <AdminRoute>
+                    <ClassMarksReports />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="report/:studentId"
+                element={
+                  <AdminRoute>
+                    <ReportCard />
+                  </AdminRoute>
+                }
+              />
 
+              {/* Promotion & Tools */}
+              <Route
+                path="promotion"
+                element={
+                  <AdminRoute>
+                    <YearEndPromotion />
+                  </AdminRoute>
+                }
+              />
               <Route
                 path="export-firestore-samples"
                 element={
@@ -294,6 +304,15 @@ export default function App() {
                 element={
                   <TeacherRoute>
                     <MarksEntry />
+                  </TeacherRoute>
+                }
+              />
+
+              <Route
+                path="class-report"
+                element={
+                  <TeacherRoute>
+                    <ClassReport />
                   </TeacherRoute>
                 }
               />

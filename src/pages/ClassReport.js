@@ -1,49 +1,47 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
-import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
 import {
+  Alert,
   Box,
-  Typography,
-  Paper,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  CircularProgress,
   Button,
-  Chip,
-  Divider,
-  Grid,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Card,
   CardContent,
-  Alert,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import WarningIcon from "@mui/icons-material/Warning";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+
+import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
+import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function normalizeText(value) {
+function text(value) {
   return String(value || "").trim();
 }
 
-function normalizeLower(value) {
-  return normalizeText(value).toLowerCase();
+function lower(value) {
+  return text(value).toLowerCase();
 }
 
 function parseGrade(value) {
@@ -52,7 +50,7 @@ function parseGrade(value) {
 }
 
 function normalizeSection(value) {
-  const raw = normalizeText(value).toUpperCase();
+  const raw = text(value).toUpperCase();
   const match = raw.match(/[A-Z]+/);
   return match ? match[0] : raw;
 }
@@ -63,14 +61,22 @@ function buildFullClassName(grade, section) {
   return g && s ? `${g}${s}` : "";
 }
 
+function normalizeSubjectName(value) {
+  return text(value)
+    .replace(/\s+/g, " ")
+    .replace(/[()]/g, "")
+    .replace(/&/g, "and")
+    .replace(/,/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 function getStudentName(student) {
-  return normalizeText(student?.name || student?.fullName || "Unnamed Student");
+  return text(student?.fullName || student?.name || "Unnamed Student");
 }
 
 function getStudentAdmissionNo(student) {
-  return normalizeText(
-    student?.admissionNo || student?.admissionNumber || student?.admNo || ""
-  );
+  return text(student?.admissionNo || student?.admissionNumber || student?.admNo || "");
 }
 
 function getStudentGrade(student) {
@@ -86,21 +92,21 @@ function getStudentClassName(student) {
 }
 
 function isStudentActive(student) {
-  return normalizeLower(student?.status || "active") === "active";
+  return lower(student?.status || "active") === "active";
 }
 
 function getEnrollmentClassName(enrollment) {
-  const rawClassName = normalizeText(enrollment?.className || "");
+  const rawClassName = text(enrollment?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
   return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
 }
 
 function getEnrollmentSubjectName(enrollment) {
-  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
+  return text(enrollment?.subjectName || enrollment?.subject || "");
 }
 
 function getEnrollmentSubjectId(enrollment) {
-  return normalizeText(enrollment?.subjectId || "");
+  return text(enrollment?.subjectId || "");
 }
 
 function getEnrollmentAcademicYear(enrollment) {
@@ -108,19 +114,19 @@ function getEnrollmentAcademicYear(enrollment) {
 }
 
 function isEnrollmentActive(enrollment) {
-  return normalizeLower(enrollment?.status || "active") === "active";
+  return lower(enrollment?.status || "active") === "active";
 }
 
 function getMarkSubject(mark) {
-  return normalizeText(mark?.subjectName || mark?.subject || "");
+  return text(mark?.subjectName || mark?.subject || "");
 }
 
 function getMarkSubjectId(mark) {
-  return normalizeText(mark?.subjectId || "");
+  return text(mark?.subjectId || "");
 }
 
 function getMarkTerm(mark) {
-  return normalizeText(mark?.term || mark?.termName || mark?.termLabel || "");
+  return text(mark?.termName || mark?.term || "");
 }
 
 function getMarkYear(mark) {
@@ -128,40 +134,50 @@ function getMarkYear(mark) {
 }
 
 function getMarkValue(mark) {
-  const value = mark?.mark ?? mark?.marks ?? mark?.score ?? null;
+  const value = mark?.marks ?? mark?.mark ?? mark?.score ?? null;
   if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
 
-function hasMarkEntry(mark) {
+function markCountsAsEntered(mark) {
   return (
     getMarkValue(mark) !== null ||
     mark?.isAbsent === true ||
-    mark?.isMedicalAbsent === true ||
-    normalizeLower(mark?.attendanceStatus) === "absent" ||
-    normalizeLower(mark?.attendanceStatus) === "medical_absent"
+    mark?.absent === true ||
+    lower(mark?.attendanceStatus) === "absent" ||
+    lower(mark?.attendanceStatus) === "medical_absent"
   );
 }
 
 function getMarkClassName(mark) {
-  const rawClassName = normalizeText(mark?.className || "");
+  const rawClassName = text(mark?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
   return buildFullClassName(mark?.grade, mark?.section || rawClassName);
 }
 
+function normalizeClassroom(classroom) {
+  const grade = parseGrade(classroom?.grade);
+  const section = normalizeSection(classroom?.section || classroom?.className || "");
+
+  return {
+    ...classroom,
+    grade,
+    section,
+    className:
+      text(classroom?.className || classroom?.fullClassName) ||
+      buildFullClassName(grade, section),
+  };
+}
+
 function teacherMatchesProfile(record, profile) {
-  const recordTeacherId = normalizeText(
+  const recordTeacherId = text(
     record?.teacherId || record?.classTeacherId || record?.teacherDocId
   );
-  const recordUid = normalizeText(record?.teacherUid || record?.classTeacherUid || record?.uid);
-  const recordEmail = normalizeLower(
-    record?.teacherEmail || record?.classTeacherEmail || record?.email
-  );
-  const recordName = normalizeLower(
-    record?.teacherName || record?.classTeacherName || record?.name
-  );
-  const recordSignatureNo = normalizeText(
+  const recordUid = text(record?.teacherUid || record?.classTeacherUid || record?.uid);
+  const recordEmail = lower(record?.teacherEmail || record?.classTeacherEmail || record?.email);
+  const recordName = lower(record?.teacherName || record?.classTeacherName || record?.name);
+  const recordSignatureNo = text(
     record?.teacherSignatureNo || record?.classTeacherSignatureNo || record?.signatureNo
   );
 
@@ -172,17 +188,17 @@ function teacherMatchesProfile(record, profile) {
     profile?.docId,
     profile?.userId,
   ]
-    .map(normalizeText)
+    .map(text)
     .filter(Boolean);
 
-  const profileEmails = [profile?.email].map(normalizeLower).filter(Boolean);
-  const profileNames = [profile?.name, profile?.displayName].map(normalizeLower).filter(Boolean);
+  const profileEmails = [profile?.email].map(lower).filter(Boolean);
+  const profileNames = [profile?.name, profile?.displayName].map(lower).filter(Boolean);
   const profileSignatureNos = [
     profile?.signatureNo,
     profile?.teacherSignatureNo,
     profile?.teacherNo,
   ]
-    .map(normalizeText)
+    .map(text)
     .filter(Boolean);
 
   return (
@@ -192,19 +208,6 @@ function teacherMatchesProfile(record, profile) {
     (recordName && profileNames.includes(recordName)) ||
     (recordSignatureNo && profileSignatureNos.includes(recordSignatureNo))
   );
-}
-
-function normalizeClassroom(classroom) {
-  const grade = parseGrade(classroom?.grade);
-  const section = normalizeSection(classroom?.section || classroom?.className || "");
-  return {
-    ...classroom,
-    grade,
-    section,
-    className:
-      normalizeText(classroom?.className || classroom?.fullClassName) ||
-      buildFullClassName(grade, section),
-  };
 }
 
 function getGradeLetter(mark, grade) {
@@ -225,10 +228,19 @@ function getGradeLetter(mark, grade) {
   return { label: "F", color: "#c62828", bg: "#ffebee" };
 }
 
-function avg(arr) {
-  if (!arr.length) return 0;
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
+function average(values = []) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
+
+function shortSubject(name) {
+  if (name.length <= 12) return name;
+  return `${name.slice(0, 12)}…`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export default function ClassReport() {
   const { profile } = useAuth();
@@ -238,14 +250,15 @@ export default function ClassReport() {
   const printRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   const [classTeacherClass, setClassTeacherClass] = useState(null);
   const [students, setStudents] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [allMarks, setAllMarks] = useState([]);
+  const [terms, setTerms] = useState([]);
   const [activeTerm, setActiveTerm] = useState(null);
   const [selectedTerm, setSelectedTerm] = useState("active");
-  const [terms, setTerms] = useState([]);
-  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     async function fetchData() {
@@ -264,55 +277,50 @@ export default function ClassReport() {
             getDocs(collection(db, "studentSubjectEnrollments")),
           ]);
 
-        const allTerms = termSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const allTerms = termSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const sortedTerms = [...allTerms].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
         const active = allTerms.find((term) => term.isActive === true) || null;
-        const sortedTerms = [...allTerms].sort(
-          (a, b) => Number(b.year || 0) - Number(a.year || 0)
-        );
 
-        setActiveTerm(active);
         setTerms(sortedTerms);
+        setActiveTerm(active);
 
-        const classrooms = classroomSnap.docs.map((d) =>
-          normalizeClassroom({ id: d.id, ...d.data() })
+        const classrooms = classroomSnap.docs.map((doc) =>
+          normalizeClassroom({ id: doc.id, ...doc.data() })
         );
 
-        const matchedClassTeacherClass =
+        const matchedClassroom =
           classrooms.find((room) => teacherMatchesProfile(room, profile)) || null;
 
-        setClassTeacherClass(matchedClassTeacherClass);
+        setClassTeacherClass(matchedClassroom);
 
-        if (!matchedClassTeacherClass) {
+        if (!matchedClassroom) {
           setStudents([]);
           setEnrollments([]);
           setAllMarks([]);
-          setLoading(false);
           return;
         }
 
-        const className = matchedClassTeacherClass.className;
+        const className = matchedClassroom.className;
 
         const allStudents = studentSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((student) => isStudentActive(student));
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter(isStudentActive);
 
         const classStudents = allStudents
           .filter((student) => getStudentClassName(student) === className)
           .sort((a, b) => getStudentName(a).localeCompare(getStudentName(b)));
 
-        setStudents(classStudents);
-
-        const allEnrollments = enrollmentSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((enrollment) => isEnrollmentActive(enrollment))
+        const classEnrollments = enrollmentSnap.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter(isEnrollmentActive)
           .filter((enrollment) => getEnrollmentClassName(enrollment) === className);
 
-        setEnrollments(allEnrollments);
-
         const classMarks = markSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
           .filter((mark) => getMarkClassName(mark) === className);
 
+        setStudents(classStudents);
+        setEnrollments(classEnrollments);
         setAllMarks(classMarks);
       } catch (error) {
         console.error("ClassReport fetch error:", error);
@@ -336,7 +344,7 @@ export default function ClassReport() {
   }, [currentTerm]);
 
   const currentTermName = useMemo(() => {
-    return currentTerm ? normalizeText(currentTerm.term) : "";
+    return currentTerm ? text(currentTerm.term) : "";
   }, [currentTerm]);
 
   const classSubjects = useMemo(() => {
@@ -349,14 +357,14 @@ export default function ClassReport() {
     const subjectMap = new Map();
 
     filteredEnrollments.forEach((enrollment) => {
-      const key = getEnrollmentSubjectId(enrollment) || getEnrollmentSubjectName(enrollment);
+      const subjectId = getEnrollmentSubjectId(enrollment);
+      const subjectName = getEnrollmentSubjectName(enrollment);
+      const key = subjectId || normalizeSubjectName(subjectName);
+
       if (!key) return;
 
       if (!subjectMap.has(key)) {
-        subjectMap.set(key, {
-          subjectId: getEnrollmentSubjectId(enrollment),
-          subjectName: getEnrollmentSubjectName(enrollment),
-        });
+        subjectMap.set(key, { subjectId, subjectName });
       }
     });
 
@@ -375,109 +383,115 @@ export default function ClassReport() {
     });
   }, [allMarks, currentTerm, currentTermName, currentTermYear]);
 
-  const studentData = useMemo(() => {
+  const studentRows = useMemo(() => {
     return students.map((student) => {
+      const studentId = text(student.id);
+
       const studentEnrollments = enrollments.filter((enrollment) => {
-        const sameStudent = normalizeText(enrollment.studentId) === normalizeText(student.id);
+        const sameStudent = text(enrollment.studentId) === studentId;
         const sameYear =
           !getEnrollmentAcademicYear(enrollment) ||
           getEnrollmentAcademicYear(enrollment) === currentTermYear;
         return sameStudent && sameYear;
       });
 
-      const subjectMap = new Map();
+      const eligibleSubjects = new Map();
 
       studentEnrollments.forEach((enrollment) => {
-        const key = getEnrollmentSubjectId(enrollment) || getEnrollmentSubjectName(enrollment);
+        const subjectId = getEnrollmentSubjectId(enrollment);
+        const subjectName = getEnrollmentSubjectName(enrollment);
+        const key = subjectId || normalizeSubjectName(subjectName);
         if (!key) return;
 
-        subjectMap.set(key, {
-          subjectId: getEnrollmentSubjectId(enrollment),
-          subjectName: getEnrollmentSubjectName(enrollment),
+        eligibleSubjects.set(key, {
+          subjectId,
+          subjectName,
         });
       });
 
-      const sMarks = {};
+      const marksBySubject = {};
       let total = 0;
-      let count = 0;
+      let enteredCount = 0;
 
       classSubjects.forEach((subjectInfo) => {
-        const isEligible = Array.from(subjectMap.values()).some((studentSubject) => {
-          return (
-            (subjectInfo.subjectId &&
-              studentSubject.subjectId &&
-              subjectInfo.subjectId === studentSubject.subjectId) ||
-            (!!subjectInfo.subjectName &&
-              subjectInfo.subjectName === studentSubject.subjectName)
-          );
-        });
+        const subjectKey = subjectInfo.subjectId || normalizeSubjectName(subjectInfo.subjectName);
+        const isEligible = eligibleSubjects.has(subjectKey);
 
         if (!isEligible) {
-          sMarks[subjectInfo.subjectName] = null;
+          marksBySubject[subjectInfo.subjectName] = null;
           return;
         }
 
         const matchedMark = termMarks.find((mark) => {
-          const sameStudent = normalizeText(mark.studentId) === normalizeText(student.id);
+          const sameStudent = text(mark.studentId) === studentId;
+
           const sameSubject =
             (subjectInfo.subjectId &&
               getMarkSubjectId(mark) &&
               subjectInfo.subjectId === getMarkSubjectId(mark)) ||
-            (!!subjectInfo.subjectName &&
-              subjectInfo.subjectName === getMarkSubject(mark));
+            normalizeSubjectName(subjectInfo.subjectName) ===
+              normalizeSubjectName(getMarkSubject(mark));
 
           return sameStudent && sameSubject;
         });
 
-        const markValue = matchedMark && hasMarkEntry(matchedMark) ? getMarkValue(matchedMark) : null;
-        sMarks[subjectInfo.subjectName] = markValue;
+        const markValue =
+          matchedMark && markCountsAsEntered(matchedMark) ? getMarkValue(matchedMark) : null;
+
+        marksBySubject[subjectInfo.subjectName] = markValue;
 
         if (markValue !== null) {
           total += markValue;
-          count += 1;
+          enteredCount += 1;
         }
       });
 
-      const average = count > 0 ? (total / count).toFixed(1) : null;
+      const avgValue = enteredCount > 0 ? Number((total / enteredCount).toFixed(1)) : null;
 
       return {
         ...student,
-        sMarks,
+        marksBySubject,
         total,
-        count,
-        average,
+        enteredCount,
+        average: avgValue,
       };
     });
   }, [students, enrollments, classSubjects, termMarks, currentTermYear]);
 
-  const ranked = useMemo(() => {
-    const rows = [...studentData]
-      .filter((student) => student.count > 0)
+  const rankedRows = useMemo(() => {
+    const sortable = studentRows
+      .filter((student) => student.enteredCount > 0)
       .sort((a, b) => b.total - a.total);
 
     let currentRank = 1;
 
-    rows.forEach((student, idx) => {
-      if (idx > 0 && student.total === rows[idx - 1].total) {
-        student.rank = rows[idx - 1].rank;
-      } else {
-        student.rank = currentRank;
+    return sortable.map((student, index) => {
+      if (index > 0 && student.total === sortable[index - 1].total) {
+        return {
+          ...student,
+          rank: sortable[index - 1].rank,
+        };
       }
-      currentRank += 1;
+
+      const row = {
+        ...student,
+        rank: currentRank,
+      };
+
+      currentRank = index + 2;
+      return row;
     });
+  }, [studentRows]);
 
-    return rows;
-  }, [studentData]);
-
-  const finalData = useMemo(() => {
-    return studentData.map((student) => {
-      const rankedRow = ranked.find((row) => row.id === student.id);
+  const finalRows = useMemo(() => {
+    return studentRows.map((student) => {
+      const rankedStudent = rankedRows.find((row) => row.id === student.id);
       return {
         ...student,
-        rank: rankedRow?.rank || "—",
+        rank: rankedStudent?.rank ?? "—",
       };
     });
-  }, [studentData, ranked]);
+  }, [studentRows, rankedRows]);
 
   const subjectAnalysis = useMemo(() => {
     return classSubjects.map((subjectInfo) => {
@@ -487,8 +501,8 @@ export default function ClassReport() {
             (subjectInfo.subjectId &&
               getMarkSubjectId(mark) &&
               subjectInfo.subjectId === getMarkSubjectId(mark)) ||
-            (!!subjectInfo.subjectName &&
-              subjectInfo.subjectName === getMarkSubject(mark))
+            normalizeSubjectName(subjectInfo.subjectName) ===
+              normalizeSubjectName(getMarkSubject(mark))
           );
         })
         .map((mark) => getMarkValue(mark))
@@ -519,7 +533,7 @@ export default function ClassReport() {
       return {
         subject: subjectInfo.subjectName,
         count: subjectMarks.length,
-        avg: avg(subjectMarks).toFixed(1),
+        avg: Number(average(subjectMarks).toFixed(1)),
         highest: Math.max(...subjectMarks),
         lowest: Math.min(...subjectMarks),
         passRate: Math.round((passed / subjectMarks.length) * 100),
@@ -529,35 +543,40 @@ export default function ClassReport() {
   }, [classSubjects, termMarks, classTeacherClass]);
 
   const classSummary = useMemo(() => {
-    const averages = finalData
-      .filter((student) => student.average)
-      .map((student) => parseFloat(student.average));
+    const averages = finalRows
+      .filter((student) => student.average !== null)
+      .map((student) => student.average);
 
-    const rankedStudents = finalData.filter((student) => student.rank !== "—");
+    const topStudent = rankedRows.find((student) => student.rank === 1) || null;
 
-    const topStudent = ranked.find((student) => student.rank === 1) || null;
-
-    const lowestStudent =
-      finalData
-        .filter((student) => student.average)
-        .reduce((lowest, current) => {
-          if (!lowest) return current;
-          return parseFloat(current.average) < parseFloat(lowest.average) ? current : lowest;
-        }, null);
+    const lowestStudent = finalRows
+      .filter((student) => student.average !== null)
+      .reduce((lowest, current) => {
+        if (!lowest) return current;
+        return current.average < lowest.average ? current : lowest;
+      }, null);
 
     return {
-      classAverage: averages.length ? avg(averages).toFixed(1) : "—",
+      classAverage: averages.length ? Number(average(averages).toFixed(1)) : "—",
       highestAverage:
-        topStudent?.average
+        topStudent?.average !== null
           ? `${topStudent.average} (${getStudentName(topStudent).split(" ")[0]})`
           : "—",
       lowestAverage:
-        lowestStudent?.average
+        lowestStudent?.average !== null
           ? `${lowestStudent.average} (${getStudentName(lowestStudent).split(" ")[0]})`
           : "—",
-      rankedCount: `${rankedStudents.length} / ${students.length}`,
+      rankedCount: `${rankedRows.length} / ${students.length}`,
     };
-  }, [finalData, ranked, students.length]);
+  }, [finalRows, rankedRows, students.length]);
+
+  const sortedDisplayRows = useMemo(() => {
+    return [...finalRows].sort((a, b) => {
+      if (a.rank === "—") return 1;
+      if (b.rank === "—") return -1;
+      return a.rank - b.rank;
+    });
+  }, [finalRows]);
 
   const handlePrint = () => {
     if (!printRef.current || !classTeacherClass) return;
@@ -565,10 +584,12 @@ export default function ClassReport() {
     const content = printRef.current.innerHTML;
     const win = window.open("", "_blank");
 
+    if (!win) return;
+
     win.document.write(`
       <html>
         <head>
-          <title>Class Report — Grade ${classTeacherClass.grade}-${classTeacherClass.section}</title>
+          <title>Class Report - ${classTeacherClass.className}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 16px; color: #000; font-size: 12px; }
             table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
@@ -576,7 +597,6 @@ export default function ClassReport() {
             th { background: #1a237e; color: white; }
             td:nth-child(2) { text-align: left; }
             .header { text-align: center; margin-bottom: 16px; }
-            h2, h3 { margin: 4px 0; }
             .section-title { font-size: 14px; font-weight: bold; color: #1a237e; margin: 16px 0 6px; }
             @media print { button { display: none !important; } }
           </style>
@@ -586,6 +606,7 @@ export default function ClassReport() {
     `);
 
     win.document.close();
+    win.focus();
     win.print();
   };
 
@@ -608,7 +629,7 @@ export default function ClassReport() {
   }
 
   return (
-    <Box>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Button
         startIcon={<ArrowBackIcon />}
         onClick={() => navigate("/teacher")}
@@ -617,7 +638,7 @@ export default function ClassReport() {
         Back to Dashboard
       </Button>
 
-      {loadError && (
+      {!!loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {loadError}
         </Alert>
@@ -632,11 +653,7 @@ export default function ClassReport() {
         gap={1}
       >
         <Box>
-          <Typography
-            variant={isMobile ? "h6" : "h5"}
-            fontWeight={700}
-            color="#1a237e"
-          >
+          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
             Class Report
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -645,7 +662,7 @@ export default function ClassReport() {
         </Box>
 
         <Box display="flex" gap={1} flexWrap="wrap">
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+          <FormControl size="small" sx={{ minWidth: 190 }}>
             <InputLabel>Term</InputLabel>
             <Select
               value={selectedTerm}
@@ -653,9 +670,7 @@ export default function ClassReport() {
               onChange={(e) => setSelectedTerm(e.target.value)}
             >
               <MenuItem value="active">
-                {activeTerm
-                  ? `Active: ${activeTerm.term} ${activeTerm.year}`
-                  : "Active Term"}
+                {activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term"}
               </MenuItem>
 
               {terms.map((term) => (
@@ -680,9 +695,7 @@ export default function ClassReport() {
       </Box>
 
       {!currentTerm ? (
-        <Alert severity="warning" icon={<WarningIcon />}>
-          No active term found. Select a term above.
-        </Alert>
+        <Alert severity="warning">No active term found. Select a term above.</Alert>
       ) : termMarks.length === 0 ? (
         <Alert severity="info">
           No marks entered yet for {currentTerm.term} {currentTerm.year}.
@@ -706,14 +719,8 @@ export default function ClassReport() {
 
           <Divider sx={{ mb: 2 }} />
 
-          <Typography
-            className="section-title"
-            variant="subtitle1"
-            fontWeight={700}
-            color="#1a237e"
-            mb={1}
-          >
-            📋 Marks Schedule — {currentTerm.term} {currentTerm.year}
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1}>
+            Marks Schedule — {currentTerm.term} {currentTerm.year}
           </Typography>
 
           <Paper sx={{ overflowX: "auto", mb: 3 }}>
@@ -738,10 +745,10 @@ export default function ClassReport() {
                       color: "white",
                       fontWeight: 700,
                       position: "sticky",
-                      left: 50,
+                      left: 55,
                       bgcolor: "#1a237e",
                       zIndex: 2,
-                      minWidth: 140,
+                      minWidth: 170,
                     }}
                   >
                     Name
@@ -754,13 +761,11 @@ export default function ClassReport() {
                         color: "white",
                         fontWeight: 600,
                         fontSize: 11,
-                        minWidth: 70,
+                        minWidth: 80,
                         textAlign: "center",
                       }}
                     >
-                      {subjectInfo.subjectName.length > 10
-                        ? `${subjectInfo.subjectName.substring(0, 10)}…`
-                        : subjectInfo.subjectName}
+                      {shortSubject(subjectInfo.subjectName)}
                     </TableCell>
                   ))}
 
@@ -777,135 +782,122 @@ export default function ClassReport() {
               </TableHead>
 
               <TableBody>
-                {finalData
-                  .sort((a, b) => {
-                    if (a.rank === "—") return 1;
-                    if (b.rank === "—") return -1;
-                    return a.rank - b.rank;
-                  })
-                  .map((student) => {
-                    const avgNum = student.average ? parseFloat(student.average) : null;
-                    const gradeInfo =
-                      avgNum !== null ? getGradeLetter(avgNum, classTeacherClass.grade) : null;
+                {sortedDisplayRows.map((student) => {
+                  const avgNum = student.average;
+                  const avgGradeInfo =
+                    avgNum !== null ? getGradeLetter(avgNum, classTeacherClass.grade) : null;
 
-                    const rowBg =
-                      student.rank === 1
-                        ? "#fff9c4"
-                        : student.rank === 2
-                        ? "#f5f5f5"
-                        : student.rank === 3
-                        ? "#fbe9e7"
-                        : "white";
+                  const rowBg =
+                    student.rank === 1
+                      ? "#fff9c4"
+                      : student.rank === 2
+                      ? "#f5f5f5"
+                      : student.rank === 3
+                      ? "#fbe9e7"
+                      : "white";
 
-                    return (
-                      <TableRow key={student.id} hover sx={{ bgcolor: rowBg }}>
-                        <TableCell
-                          sx={{
-                            fontWeight: 700,
-                            textAlign: "center",
-                            position: "sticky",
-                            left: 0,
-                            bgcolor: rowBg,
-                          }}
-                        >
-                          {student.rank === 1
-                            ? "🥇"
-                            : student.rank === 2
-                            ? "🥈"
-                            : student.rank === 3
-                            ? "🥉"
-                            : student.rank}
-                        </TableCell>
+                  return (
+                    <TableRow key={student.id} hover sx={{ bgcolor: rowBg }}>
+                      <TableCell
+                        sx={{
+                          fontWeight: 700,
+                          textAlign: "center",
+                          position: "sticky",
+                          left: 0,
+                          bgcolor: rowBg,
+                          zIndex: 1,
+                          minWidth: 55,
+                        }}
+                      >
+                        {student.rank === 1
+                          ? "🥇"
+                          : student.rank === 2
+                          ? "🥈"
+                          : student.rank === 3
+                          ? "🥉"
+                          : student.rank}
+                      </TableCell>
 
-                        <TableCell
-                          sx={{
-                            fontWeight: 600,
-                            fontSize: 13,
-                            position: "sticky",
-                            left: 50,
-                            bgcolor: rowBg,
-                          }}
-                        >
-                          {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
-                        </TableCell>
+                      <TableCell
+                        sx={{
+                          fontWeight: 600,
+                          fontSize: 13,
+                          position: "sticky",
+                          left: 55,
+                          bgcolor: rowBg,
+                          zIndex: 1,
+                        }}
+                      >
+                        {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
+                      </TableCell>
 
-                        {classSubjects.map((subjectInfo) => {
-                          const mark = student.sMarks[subjectInfo.subjectName];
-                          const letterInfo =
-                            mark !== null ? getGradeLetter(mark, classTeacherClass.grade) : null;
+                      {classSubjects.map((subjectInfo) => {
+                        const mark = student.marksBySubject[subjectInfo.subjectName];
+                        const letterInfo =
+                          mark !== null ? getGradeLetter(mark, classTeacherClass.grade) : null;
 
-                          return (
-                            <TableCell
-                              key={`${student.id}-${subjectInfo.subjectId || subjectInfo.subjectName}`}
-                              sx={{
-                                textAlign: "center",
-                                bgcolor: mark !== null ? letterInfo?.bg : "#fafafa",
-                              }}
-                            >
-                              {mark !== null ? (
-                                <Typography
-                                  variant="body2"
-                                  fontWeight={600}
-                                  color={letterInfo?.color}
-                                >
-                                  {mark}
-                                </Typography>
-                              ) : (
-                                <Typography variant="caption" color="text.disabled">
-                                  —
-                                </Typography>
-                              )}
-                            </TableCell>
-                          );
-                        })}
+                        return (
+                          <TableCell
+                            key={`${student.id}-${subjectInfo.subjectId || subjectInfo.subjectName}`}
+                            sx={{
+                              textAlign: "center",
+                              bgcolor: mark !== null ? letterInfo?.bg : "#fafafa",
+                            }}
+                          >
+                            {mark !== null ? (
+                              <Typography variant="body2" fontWeight={600} color={letterInfo?.color}>
+                                {mark}
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">
+                                —
+                              </Typography>
+                            )}
+                          </TableCell>
+                        );
+                      })}
 
-                        <TableCell sx={{ textAlign: "center", fontWeight: 700 }}>
-                          {student.count > 0 ? student.total : "—"}
-                        </TableCell>
+                      <TableCell sx={{ textAlign: "center", fontWeight: 700 }}>
+                        {student.enteredCount > 0 ? student.total : "—"}
+                      </TableCell>
 
-                        <TableCell
-                          sx={{
-                            textAlign: "center",
-                            fontWeight: 700,
-                            color: gradeInfo?.color,
-                          }}
-                        >
-                          {student.average || "—"}
-                        </TableCell>
+                      <TableCell
+                        sx={{
+                          textAlign: "center",
+                          fontWeight: 700,
+                          color: avgGradeInfo?.color,
+                        }}
+                      >
+                        {student.average ?? "—"}
+                      </TableCell>
 
-                        <TableCell sx={{ textAlign: "center" }}>
-                          {gradeInfo ? (
-                            <span
-                              style={{
-                                color: gradeInfo.color,
-                                fontWeight: 700,
-                                background: gradeInfo.bg,
-                                padding: "2px 10px",
-                                borderRadius: 12,
-                                fontSize: 13,
-                              }}
-                            >
-                              {gradeInfo.label}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                      <TableCell sx={{ textAlign: "center" }}>
+                        {avgGradeInfo ? (
+                          <span
+                            style={{
+                              color: avgGradeInfo.color,
+                              fontWeight: 700,
+                              background: avgGradeInfo.bg,
+                              padding: "2px 10px",
+                              borderRadius: 12,
+                              fontSize: 13,
+                            }}
+                          >
+                            {avgGradeInfo.label}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </Paper>
 
-          <Typography
-            className="section-title"
-            variant="subtitle1"
-            fontWeight={700}
-            color="#1a237e"
-            mb={1.5}
-          >
-            📊 Class Summary
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+            Class Summary
           </Typography>
 
           <Grid container spacing={2} mb={3}>
@@ -950,14 +942,8 @@ export default function ClassReport() {
             ))}
           </Grid>
 
-          <Typography
-            className="section-title"
-            variant="subtitle1"
-            fontWeight={700}
-            color="#1a237e"
-            mb={1}
-          >
-            🔬 Subject Analysis
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1}>
+            Subject Analysis
           </Typography>
 
           <Paper sx={{ overflowX: "auto", mb: 3 }}>
@@ -1006,9 +992,7 @@ export default function ClassReport() {
                         <Chip
                           label={subjectRow.count}
                           size="small"
-                          color={
-                            subjectRow.count === students.length ? "success" : "warning"
-                          }
+                          color={subjectRow.count === students.length ? "success" : "warning"}
                         />
                       ) : (
                         <Chip label="0" size="small" color="error" />
@@ -1027,18 +1011,14 @@ export default function ClassReport() {
                             : "#c62828",
                       }}
                     >
-                      {subjectRow.avg || "—"}
+                      {subjectRow.avg ?? "—"}
                     </TableCell>
 
-                    <TableCell
-                      sx={{ textAlign: "center", color: "#2e7d32", fontWeight: 600 }}
-                    >
+                    <TableCell sx={{ textAlign: "center", color: "#2e7d32", fontWeight: 600 }}>
                       {subjectRow.highest ?? "—"}
                     </TableCell>
 
-                    <TableCell
-                      sx={{ textAlign: "center", color: "#c62828", fontWeight: 600 }}
-                    >
+                    <TableCell sx={{ textAlign: "center", color: "#c62828", fontWeight: 600 }}>
                       {subjectRow.lowest ?? "—"}
                     </TableCell>
 
@@ -1093,18 +1073,12 @@ export default function ClassReport() {
             </Table>
           </Paper>
 
-          <Typography
-            className="section-title"
-            variant="subtitle1"
-            fontWeight={700}
-            color="#1a237e"
-            mb={1.5}
-          >
-            🏆 Top Performers
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+            Top Performers
           </Typography>
 
           <Grid container spacing={1.5} mb={3}>
-            {ranked.slice(0, 5).map((student, idx) => (
+            {rankedRows.slice(0, 5).map((student, idx) => (
               <Grid item xs={12} sm={6} md={4} key={student.id}>
                 <Card
                   sx={{
@@ -1137,7 +1111,7 @@ export default function ClassReport() {
                           {getStudentName(student)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Avg: {student.average} | Total: {student.total}
+                          Avg: {student.average ?? "—"} | Total: {student.total}
                         </Typography>
                       </Box>
                     </Box>
