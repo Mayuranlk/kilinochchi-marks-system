@@ -62,9 +62,7 @@ export default function Layout() {
   const adminMenuSections = [
     {
       section: "Dashboard",
-      items: [
-        { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" },
-      ],
+      items: [{ label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" }],
     },
     {
       section: "Academic Setup",
@@ -141,42 +139,52 @@ export default function Layout() {
     },
   ];
 
-  const teacherMenu = [
-    { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
-    { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
-  ];
+  const teacherMenu = useMemo(() => {
+    const items = [
+      { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
+      { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+    ];
 
-  if (isClassTeacher) {
-    teacherMenu.push({
-      label: "Class Report",
-      icon: <BarChartRoundedIcon />,
-      path: "/teacher/class-report",
-      badge: "NEW",
-    });
-  }
+    if (isClassTeacher) {
+      items.push({
+        label: "Class Report",
+        icon: <BarChartRoundedIcon />,
+        path: "/teacher/class-report",
+        badge: "NEW",
+      });
+    }
+
+    return items;
+  }, [isClassTeacher]);
 
   const menuItems = isAdmin
     ? adminMenuSections.flatMap((section) => section.items)
     : teacherMenu;
 
-  const bottomNavItems = isAdmin
-    ? [
+  const bottomNavItems = useMemo(() => {
+    if (isAdmin) {
+      return [
         { label: "Home", icon: <DashboardRoundedIcon />, path: "/" },
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/marks" },
         { label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" },
         { label: "More", icon: <MoreHorizRoundedIcon />, path: null },
-      ]
-    : isClassTeacher
-    ? [
+      ];
+    }
+
+    if (isClassTeacher) {
+      return [
         { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
         { label: "Report", icon: <BarChartRoundedIcon />, path: "/teacher/class-report" },
-      ]
-    : [
-        { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
-        { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       ];
+    }
+
+    return [
+      { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
+      { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+    ];
+  }, [isAdmin, isClassTeacher]);
 
   const hideBottomNavRoutes = ["/", "/teacher", "/teacher/marks"];
   const shouldShowBottomNav = isMobile && !hideBottomNavRoutes.includes(location.pathname);
@@ -188,6 +196,7 @@ export default function Layout() {
       if (item.path === "/teacher") return location.pathname === "/teacher";
       return location.pathname.startsWith(item.path);
     });
+
     return index === -1 ? 0 : index;
   }, [bottomNavItems, location.pathname]);
 

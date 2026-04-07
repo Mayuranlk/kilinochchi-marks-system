@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import {
@@ -38,6 +38,7 @@ import {
   useMediaQuery,
   useTheme,
   Avatar,
+  Stack,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
@@ -71,6 +72,11 @@ function buildFullClassName(grade, section) {
   return g && s ? `${g}${s}` : "";
 }
 
+function isALGrade(value) {
+  const grade = parseGrade(value);
+  return grade >= 12;
+}
+
 function isActiveStatus(value) {
   return normalizeLower(value || "active") === "active";
 }
@@ -81,7 +87,12 @@ function getStudentName(student) {
 
 function getStudentAdmissionNo(student) {
   return normalizeText(
-    student?.admissionNo || student?.admissionNumber || student?.admNo || ""
+    student?.admissionNo ||
+      student?.admissionNumber ||
+      student?.admNo ||
+      student?.indexNumber ||
+      student?.indexNo ||
+      ""
   );
 }
 
@@ -93,10 +104,41 @@ function getStudentGrade(student) {
   return parseGrade(student?.grade);
 }
 
+function getStudentStream(student) {
+  return normalizeText(student?.stream || "");
+}
+
+function getStudentSubjectNumber(student) {
+  return normalizeText(student?.subjectNumber || "");
+}
+
 function getStudentClassName(student) {
   const grade = getStudentGrade(student);
   const section = getStudentSection(student);
   return buildFullClassName(grade, section);
+}
+
+function getStudentALClassName(student) {
+  return normalizeText(
+    student?.fullClassName ||
+      student?.alClassName ||
+      ""
+  );
+}
+
+function getStudentDisplayClass(student) {
+  const grade = getStudentGrade(student);
+  if (isALGrade(grade)) {
+    const fullClassName = getStudentALClassName(student);
+    if (fullClassName) return fullClassName;
+
+    const stream = getStudentStream(student);
+    const section = getStudentSection(student);
+    if (grade && stream && section) return `${grade} ${stream} ${section}`;
+    if (grade && stream) return `${grade} ${stream}`;
+  }
+
+  return getStudentClassName(student);
 }
 
 function getEnrollmentClassName(enrollment) {
@@ -110,11 +152,38 @@ function getEnrollmentClassName(enrollment) {
 }
 
 function getEnrollmentGrade(enrollment) {
-  return parseGrade(enrollment?.grade || enrollment?.className);
+  return parseGrade(
+    enrollment?.grade ||
+      enrollment?.fullClassName ||
+      enrollment?.alClassName ||
+      enrollment?.className
+  );
 }
 
 function getEnrollmentSection(enrollment) {
   return normalizeSection(enrollment?.section || enrollment?.className || "");
+}
+
+function getEnrollmentStream(enrollment) {
+  return normalizeText(enrollment?.stream || "");
+}
+
+function getEnrollmentDisplayClass(enrollment) {
+  const grade = getEnrollmentGrade(enrollment);
+
+  if (isALGrade(grade)) {
+    const fullClassName = normalizeText(
+      enrollment?.fullClassName || enrollment?.alClassName || ""
+    );
+    if (fullClassName) return fullClassName;
+
+    const stream = getEnrollmentStream(enrollment);
+    const section = getEnrollmentSection(enrollment);
+    if (grade && stream && section) return `${grade} ${stream} ${section}`;
+    if (grade && stream) return `${grade} ${stream}`;
+  }
+
+  return getEnrollmentClassName(enrollment);
 }
 
 function getEnrollmentSubjectName(enrollment) {
@@ -123,6 +192,14 @@ function getEnrollmentSubjectName(enrollment) {
 
 function getEnrollmentSubjectId(enrollment) {
   return normalizeText(enrollment?.subjectId || "");
+}
+
+function getEnrollmentSubjectNumber(enrollment) {
+  return normalizeText(
+    enrollment?.subjectNumber ||
+      enrollment?.subjectNo ||
+      ""
+  );
 }
 
 function getEnrollmentAcademicYear(enrollment) {
@@ -147,13 +224,6 @@ function getMarkTerm(mark) {
 
 function getMarkYear(mark) {
   return String(mark?.academicYear || mark?.year || "");
-}
-
-function getMarkClassName(mark) {
-  const rawClassName = normalizeText(mark?.className || "");
-  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
-
-  return buildFullClassName(mark?.grade, mark?.section || rawClassName);
 }
 
 function getMarkValue(mark) {
@@ -205,6 +275,10 @@ function getBasketSubjects() {
 function getSubjectTypeBadge(subject, grade) {
   const normalizedSubject = normalizeText(subject);
 
+  if (isALGrade(grade)) {
+    return { label: "A/L Subject", color: "#6a1b9a" };
+  }
+
   const isReligion = RELIGIONS.includes(normalizedSubject);
   const isAesthetic = AESTHETIC_SUBJECTS.includes(normalizedSubject);
   const isBasket =
@@ -218,17 +292,33 @@ function getSubjectTypeBadge(subject, grade) {
   return { label: "Core", color: "#2e7d32" };
 }
 
-function getInitials(name = "") {
-  return normalizeText(name)
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  );
 }
 
-function uniqueSorted(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+function buildSubjectOptionKey(subjectName, subjectNumber) {
+  const name = normalizeText(subjectName);
+  const number = normalizeText(subjectNumber);
+  return number ? `${name}__${number}` : `${name}__`;
+}
+
+function parseSubjectOptionKey(key) {
+  const [subjectName = "", subjectNumber = ""] = String(key || "").split("__");
+  return {
+    subjectName: normalizeText(subjectName),
+    subjectNumber: normalizeText(subjectNumber),
+  };
+}
+
+function buildSubjectDisplayName(subjectName, subjectNumber) {
+  const name = normalizeText(subjectName);
+  const number = normalizeText(subjectNumber);
+  return number ? `${name} (${number})` : name;
 }
 
 export default function StudentsBySubject() {
@@ -252,17 +342,7 @@ export default function StudentsBySubject() {
   const [allMarks, setAllMarks] = useState([]);
   const [allTerms, setAllTerms] = useState([]);
 
-  useEffect(() => {
-    loadBaseData();
-  }, []);
-
-  useEffect(() => {
-    setSubject("");
-    setStudents([]);
-    setSearch("");
-  }, [grade, mode]);
-
-  const loadBaseData = async () => {
+  const loadBaseData = useCallback(async () => {
     setLoading(true);
     setLoadError("");
 
@@ -301,7 +381,17 @@ export default function StudentsBySubject() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentYear]);
+
+  useEffect(() => {
+    loadBaseData();
+  }, [loadBaseData]);
+
+  useEffect(() => {
+    setSubject("");
+    setStudents([]);
+    setSearch("");
+  }, [grade, mode]);
 
   const studentsById = useMemo(() => {
     return new Map(
@@ -310,13 +400,44 @@ export default function StudentsBySubject() {
   }, [allStudents]);
 
   const availableSubjects = useMemo(() => {
+    const selectedGrade = Number(grade);
+
     const enrollmentSubjects = allEnrollments
-      .filter((enrollment) => getEnrollmentGrade(enrollment) === Number(grade))
-      .map((enrollment) => getEnrollmentSubjectName(enrollment));
+      .filter((enrollment) => getEnrollmentGrade(enrollment) === selectedGrade)
+      .map((enrollment) => ({
+        key: buildSubjectOptionKey(
+          getEnrollmentSubjectName(enrollment),
+          isALGrade(selectedGrade) ? getEnrollmentSubjectNumber(enrollment) : ""
+        ),
+        label: buildSubjectDisplayName(
+          getEnrollmentSubjectName(enrollment),
+          isALGrade(selectedGrade) ? getEnrollmentSubjectNumber(enrollment) : ""
+        ),
+      }))
+      .filter((item) => normalizeText(item.label));
 
-    const fallbackSubjects = SUBJECTS_BY_GRADE[grade] || [];
+    const fallbackSubjects = isALGrade(selectedGrade)
+      ? []
+      : (SUBJECTS_BY_GRADE[selectedGrade] || []).map((subjectName) => ({
+          key: buildSubjectOptionKey(subjectName, ""),
+          label: buildSubjectDisplayName(subjectName, ""),
+        }));
 
-    return uniqueSorted([...enrollmentSubjects, ...fallbackSubjects]);
+    const merged = [...enrollmentSubjects, ...fallbackSubjects];
+    const map = new Map();
+
+    merged.forEach((item) => {
+      if (!map.has(item.key)) {
+        map.set(item.key, item);
+      }
+    });
+
+    return [...map.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
   }, [allEnrollments, grade]);
 
   const availableYears = useMemo(() => {
@@ -339,9 +460,17 @@ export default function StudentsBySubject() {
     return merged.sort((a, b) => b - a);
   }, [allTerms, allEnrollments, allMarks, currentYear]);
 
+  const selectedSubjectParts = useMemo(
+    () => parseSubjectOptionKey(subject),
+    [subject]
+  );
+
+  const selectedSubjectName = selectedSubjectParts.subjectName;
+  const selectedSubjectNumber = selectedSubjectParts.subjectNumber;
+
   const subjectTypeBadge = useMemo(
-    () => getSubjectTypeBadge(subject, grade),
-    [subject, grade]
+    () => getSubjectTypeBadge(selectedSubjectName, grade),
+    [selectedSubjectName, grade]
   );
 
   const handleSearch = async () => {
@@ -358,13 +487,19 @@ export default function StudentsBySubject() {
 
       const matchingEnrollments = allEnrollments.filter((enrollment) => {
         const sameGrade = getEnrollmentGrade(enrollment) === selectedGrade;
-        const sameSubject = getEnrollmentSubjectName(enrollment) === subject;
+        const sameSubject =
+          getEnrollmentSubjectName(enrollment) === selectedSubjectName;
+
+        const sameSubjectNumber = isALGrade(selectedGrade)
+          ? getEnrollmentSubjectNumber(enrollment) === selectedSubjectNumber
+          : true;
+
         const sameYear =
           !selectedYear ||
           !getEnrollmentAcademicYear(enrollment) ||
           getEnrollmentAcademicYear(enrollment) === selectedYear;
 
-        return sameGrade && sameSubject && sameYear;
+        return sameGrade && sameSubject && sameSubjectNumber && sameYear;
       });
 
       const eligibleStudentIds = [
@@ -378,17 +513,40 @@ export default function StudentsBySubject() {
       const eligibleStudents = eligibleStudentIds
         .map((studentId) => studentsById.get(studentId))
         .filter(Boolean)
-        .map((student) => ({
-          ...student,
-          section: getStudentSection(student),
-          grade: getStudentGrade(student),
-          className: getStudentClassName(student),
-        }))
-        .sort((a, b) => {
-          const sectionDiff = getStudentSection(a).localeCompare(
-            getStudentSection(b)
+        .map((student) => {
+          const matchingEnrollment = matchingEnrollments.find(
+            (enrollment) => normalizeText(enrollment.studentId) === normalizeText(student.id)
           );
+
+          return {
+            ...student,
+            section: getStudentSection(student),
+            grade: getStudentGrade(student),
+            className: getStudentClassName(student),
+            stream:
+              getStudentStream(student) || getEnrollmentStream(matchingEnrollment),
+            fullClassName:
+              getStudentALClassName(student) ||
+              normalizeText(
+                matchingEnrollment?.fullClassName || matchingEnrollment?.alClassName || ""
+              ),
+            subjectNumber:
+              getStudentSubjectNumber(student) ||
+              getEnrollmentSubjectNumber(matchingEnrollment),
+            displayClass: getEnrollmentDisplayClass(matchingEnrollment) || getStudentDisplayClass(student),
+          };
+        })
+        .sort((a, b) => {
+          const classDiff = normalizeText(a.displayClass).localeCompare(
+            normalizeText(b.displayClass),
+            undefined,
+            { numeric: true, sensitivity: "base" }
+          );
+          if (classDiff !== 0) return classDiff;
+
+          const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
           if (sectionDiff !== 0) return sectionDiff;
+
           return getStudentName(a).localeCompare(getStudentName(b));
         });
 
@@ -419,7 +577,8 @@ export default function StudentsBySubject() {
         );
 
         const sameSubject =
-          matchingEnrollmentForSubject || getMarkSubject(mark) === subject;
+          matchingEnrollmentForSubject ||
+          getMarkSubject(mark) === selectedSubjectName;
 
         return sameTerm && sameYear && sameSubject && inEligibleSet && hasMarkEntry(mark);
       });
@@ -493,7 +652,14 @@ export default function StudentsBySubject() {
     return students.filter((student) => {
       const name = normalizeLower(getStudentName(student));
       const admissionNo = normalizeLower(getStudentAdmissionNo(student));
-      return name.includes(query) || admissionNo.includes(query);
+      const displayClass = normalizeLower(student.displayClass);
+      const stream = normalizeLower(student.stream);
+      return (
+        name.includes(query) ||
+        admissionNo.includes(query) ||
+        displayClass.includes(query) ||
+        stream.includes(query)
+      );
     });
   }, [students, search]);
 
@@ -506,6 +672,11 @@ export default function StudentsBySubject() {
           marksOnly.length
         ).toFixed(1)
       : null;
+
+  const selectedSubjectLabel = buildSubjectDisplayName(
+    selectedSubjectName,
+    selectedSubjectNumber
+  );
 
   return (
     <Box>
@@ -650,8 +821,8 @@ export default function StudentsBySubject() {
                 >
                   <MenuItem value="">Select subject...</MenuItem>
                   {availableSubjects.map((s) => (
-                    <MenuItem key={s} value={s}>
-                      {s}
+                    <MenuItem key={s.key} value={s.key}>
+                      {s.label}
                     </MenuItem>
                   ))}
                 </Select>
@@ -718,7 +889,7 @@ export default function StudentsBySubject() {
 
       {students.length > 0 && (
         <>
-          {subject && (
+          {selectedSubjectName && (
             <Box display="flex" alignItems="center" gap={1} mb={1.5} flexWrap="wrap">
               <Chip
                 label={subjectTypeBadge.label}
@@ -730,7 +901,7 @@ export default function StudentsBySubject() {
                 }}
               />
               <Typography variant="body2" fontWeight={700} color="#1a237e">
-                {subject}
+                {selectedSubjectLabel}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 — Grade {grade}
@@ -800,7 +971,7 @@ export default function StudentsBySubject() {
             fullWidth
             size="small"
             sx={{ mb: 2 }}
-            placeholder="Search student name or admission no..."
+            placeholder="Search student name, admission no, class, or stream..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             InputProps={{
@@ -826,7 +997,7 @@ export default function StudentsBySubject() {
                   {[
                     "#",
                     "Student",
-                    "Grade",
+                    "Class",
                     ...(mode === "marks" ? ["Marks", "Grade", "Rank"] : []),
                     "Action",
                   ].map((heading) => (
@@ -836,6 +1007,7 @@ export default function StudentsBySubject() {
                         color: "white",
                         fontWeight: 700,
                         fontSize: { xs: 11, sm: 13 },
+                        whiteSpace: "nowrap",
                       }}
                     >
                       {heading}
@@ -847,6 +1019,8 @@ export default function StudentsBySubject() {
               <TableBody>
                 {filtered.map((student, idx) => {
                   const gradeInfo = getGradeLabel(student.mark);
+                  const studentGrade = getStudentGrade(student);
+                  const alStudent = isALGrade(studentGrade);
 
                   return (
                     <TableRow
@@ -885,18 +1059,47 @@ export default function StudentsBySubject() {
                             ? getStudentName(student).split(" ")[0]
                             : getStudentName(student)}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {getStudentAdmissionNo(student) || "—"}
-                        </Typography>
+
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" mt={0.25}>
+                          <Typography variant="caption" color="text.secondary">
+                            {getStudentAdmissionNo(student) || "—"}
+                          </Typography>
+
+                          {alStudent && student.subjectNumber ? (
+                            <Chip
+                              label={`No: ${student.subjectNumber}`}
+                              size="small"
+                              sx={{ height: 18, fontSize: 10 }}
+                              color="secondary"
+                              variant="outlined"
+                            />
+                          ) : null}
+                        </Stack>
                       </TableCell>
 
                       <TableCell>
-                        <Chip
-                          label={`G${getStudentGrade(student)}-${getStudentSection(student)}`}
-                          size="small"
-                          color="primary"
-                          sx={{ fontWeight: 700, fontSize: 11 }}
-                        />
+                        {alStudent ? (
+                          <Stack spacing={0.5}>
+                            <Chip
+                              label={student.displayClass || "—"}
+                              size="small"
+                              color="primary"
+                              sx={{ fontWeight: 700, fontSize: 11, maxWidth: 220 }}
+                            />
+                            {student.stream ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {student.stream}
+                              </Typography>
+                            ) : null}
+                          </Stack>
+                        ) : (
+                          <Chip
+                            label={`G${getStudentGrade(student)}-${getStudentSection(student)}`}
+                            size="small"
+                            color="primary"
+                            sx={{ fontWeight: 700, fontSize: 11 }}
+                          />
+                        )}
                       </TableCell>
 
                       {mode === "marks" && (
@@ -971,7 +1174,7 @@ export default function StudentsBySubject() {
 
       {!loading && subject && students.length === 0 && (
         <Alert severity="info" sx={{ mt: 2, borderRadius: 3 }}>
-          No students found for <strong>{subject}</strong> in Grade {grade}.
+          No students found for <strong>{selectedSubjectLabel}</strong> in Grade {grade}.
         </Alert>
       )}
 

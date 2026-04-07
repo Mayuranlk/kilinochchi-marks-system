@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
   getDocs,
@@ -29,7 +29,6 @@ import {
   useMediaQuery,
   useTheme,
   MenuItem,
-  Stack,
   Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -42,12 +41,14 @@ import WarningIcon from "@mui/icons-material/Warning";
 
 const TERMS = ["Term 1", "Term 2", "Term 3"];
 
-const emptyForm = {
-  term: "Term 1",
-  year: new Date().getFullYear(),
-  startDate: "",
-  endDate: "",
-};
+function getEmptyForm() {
+  return {
+    term: "Term 1",
+    year: new Date().getFullYear(),
+    startDate: "",
+    endDate: "",
+  };
+}
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -73,10 +74,24 @@ function normalizeTermDoc(docData = {}, id = "") {
 
 function sortTerms(list) {
   const termOrder = { "Term 1": 1, "Term 2": 2, "Term 3": 3 };
+
   return [...list].sort((a, b) => {
     if (a.year !== b.year) return b.year - a.year;
     return (termOrder[a.term] || 99) - (termOrder[b.term] || 99);
   });
+}
+
+function formatDateRange(termDoc) {
+  if (termDoc.startDate && termDoc.endDate) {
+    return `📅 ${termDoc.startDate} → ${termDoc.endDate}`;
+  }
+  if (termDoc.startDate) {
+    return `📅 Starts: ${termDoc.startDate}`;
+  }
+  if (termDoc.endDate) {
+    return `📅 Ends: ${termDoc.endDate}`;
+  }
+  return "No date range set";
 }
 
 export default function AcademicTerms() {
@@ -86,30 +101,31 @@ export default function AcademicTerms() {
   const [terms, setTerms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(getEmptyForm());
   const [editId, setEditId] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const activeTerm = useMemo(
-    () => terms.find((term) => term.isActive) || null,
+  const activeTerms = useMemo(
+    () => terms.filter((term) => term.isActive),
     [terms]
+  );
+
+  const activeTerm = useMemo(
+    () => activeTerms[0] || null,
+    [activeTerms]
   );
 
   const stats = useMemo(() => {
     return {
       total: terms.length,
-      active: terms.filter((term) => term.isActive).length,
+      active: activeTerms.length,
       years: new Set(terms.map((term) => term.year)).size,
     };
-  }, [terms]);
+  }, [terms, activeTerms]);
 
-  useEffect(() => {
-    fetchTerms();
-  }, []);
-
-  const fetchTerms = async () => {
+  const fetchTerms = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -120,17 +136,27 @@ export default function AcademicTerms() {
       );
       setTerms(data);
     } catch (err) {
+      console.error("AcademicTerms fetch error:", err);
       setError(`Failed to load academic terms: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const resetDialog = () => {
-    setForm(emptyForm);
+  useEffect(() => {
+    fetchTerms();
+  }, [fetchTerms]);
+
+  const resetDialog = useCallback(() => {
+    setForm(getEmptyForm());
     setEditId(null);
     setError("");
-  };
+  }, []);
+
+  const closeDialog = useCallback(() => {
+    setOpen(false);
+    resetDialog();
+  }, [resetDialog]);
 
   const openAddDialog = () => {
     resetDialog();
@@ -155,6 +181,11 @@ export default function AcademicTerms() {
 
     if (!term || !year) {
       setError("Term and year are required.");
+      return false;
+    }
+
+    if (year < 2020 || year > 2099) {
+      setError("Year must be between 2020 and 2099.");
       return false;
     }
 
@@ -206,10 +237,10 @@ export default function AcademicTerms() {
         setSuccess("Academic term added successfully.");
       }
 
-      setOpen(false);
-      resetDialog();
+      closeDialog();
       await fetchTerms();
     } catch (err) {
+      console.error("AcademicTerms save error:", err);
       setError(`Save failed: ${err.message}`);
     } finally {
       setSaving(false);
@@ -224,9 +255,9 @@ export default function AcademicTerms() {
     try {
       const updates = terms.map(async (termDoc) => {
         const nextActiveState = termDoc.id === termToActivate.id;
-        if (termDoc.isActive === nextActiveState) return;
+        if (termDoc.isActive === nextActiveState) return null;
 
-        await updateDoc(doc(db, "academicTerms", termDoc.id), {
+        return updateDoc(doc(db, "academicTerms", termDoc.id), {
           isActive: nextActiveState,
           updatedAt: new Date().toISOString(),
         });
@@ -237,6 +268,7 @@ export default function AcademicTerms() {
       setSuccess(`${termToActivate.term} ${termToActivate.year} is now active.`);
       await fetchTerms();
     } catch (err) {
+      console.error("AcademicTerms activate error:", err);
       setError(`Failed to activate term: ${err.message}`);
     } finally {
       setSaving(false);
@@ -262,6 +294,7 @@ export default function AcademicTerms() {
       setSuccess("Academic term deleted.");
       await fetchTerms();
     } catch (err) {
+      console.error("AcademicTerms delete error:", err);
       setError(`Delete failed: ${err.message}`);
     }
   };
@@ -304,7 +337,7 @@ export default function AcademicTerms() {
               <Chip
                 label={`Active: ${stats.active}`}
                 size="small"
-                color="success"
+                color={stats.active === 1 ? "success" : "warning"}
                 sx={{ fontWeight: 700 }}
               />
               <Chip
@@ -340,6 +373,12 @@ export default function AcademicTerms() {
         </Alert>
       )}
 
+      {activeTerms.length > 1 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          More than one active term was found. Use “Set Active” to correct it so only one term stays active.
+        </Alert>
+      )}
+
       {activeTerm ? (
         <Card
           sx={{
@@ -357,13 +396,7 @@ export default function AcademicTerms() {
                   {activeTerm.term} — {activeTerm.year}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {activeTerm.startDate && activeTerm.endDate
-                    ? `📅 ${activeTerm.startDate} → ${activeTerm.endDate}`
-                    : activeTerm.startDate
-                    ? `📅 Starts: ${activeTerm.startDate}`
-                    : activeTerm.endDate
-                    ? `📅 Ends: ${activeTerm.endDate}`
-                    : "No date range set"}
+                  {formatDateRange(activeTerm)}
                 </Typography>
               </Box>
               <Chip label="Currently Active" color="success" sx={{ ml: "auto" }} />
@@ -489,7 +522,7 @@ export default function AcademicTerms() {
                         size="small"
                         color="error"
                         onClick={() => handleDelete(termDoc.id)}
-                        disabled={termDoc.isActive}
+                        disabled={termDoc.isActive || saving}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -504,7 +537,7 @@ export default function AcademicTerms() {
 
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={saving ? undefined : closeDialog}
         maxWidth="xs"
         fullWidth
         fullScreen={isMobile}
@@ -514,7 +547,11 @@ export default function AcademicTerms() {
         </DialogTitle>
 
         <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
+              {error}
+            </Alert>
+          )}
 
           <Grid container spacing={2} mt={0.5}>
             <Grid item xs={12} sm={6}>
@@ -569,7 +606,7 @@ export default function AcademicTerms() {
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
+          <Button onClick={closeDialog} fullWidth={isMobile} disabled={saving}>
             Cancel
           </Button>
 
@@ -580,7 +617,13 @@ export default function AcademicTerms() {
             fullWidth={isMobile}
             sx={{ bgcolor: "#1a237e" }}
           >
-            {saving ? <CircularProgress size={20} color="inherit" /> : editId ? "Update Term" : "Add Term"}
+            {saving ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : editId ? (
+              "Update Term"
+            ) : (
+              "Add Term"
+            )}
           </Button>
         </DialogActions>
       </Dialog>
