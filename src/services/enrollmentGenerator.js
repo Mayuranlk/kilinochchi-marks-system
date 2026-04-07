@@ -457,6 +457,10 @@ function buildSubjectIndex(subjects) {
     alMain: activeSubjects.filter((subject) =>
       categoryIs(subject, ["al_main", "al"])
     ),
+
+    alGeneral: activeSubjects.filter((subject) =>
+      categoryIs(subject, ["al_general"])
+    ),
   };
 }
 
@@ -606,6 +610,10 @@ function buildDesiredSubjects(student, subjectIndex) {
         const choiceOk = subjectMatchesChoice(subject, getStudentALChoices(student));
         return streamOk && choiceOk;
       })
+      .forEach(add);
+
+    subjectIndex.alGeneral
+      .filter((subject) => subjectAppliesToGrade(subject, grade))
       .forEach(add);
   }
 
