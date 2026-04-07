@@ -75,10 +75,6 @@ function getStudentName(student) {
   return text(student?.fullName || student?.name || "Unnamed Student");
 }
 
-function getStudentAdmissionNo(student) {
-  return text(student?.admissionNo || student?.admissionNumber || student?.admNo || "");
-}
-
 function getStudentGrade(student) {
   return parseGrade(student?.grade);
 }

@@ -1,11 +1,7 @@
 import {
   collection,
-  deleteDoc,
-  doc,
   getDocs,
-  query,
   serverTimestamp,
-  where,
   writeBatch,
   addDoc,
 } from "firebase/firestore";
@@ -14,7 +10,6 @@ import { db } from "../firebase";
 const DELETE_BATCH_SIZE = 350;
 
 const safeString = (value) => String(value ?? "").trim();
-const safeLower = (value) => safeString(value).toLowerCase();
 
 const normalizeGrade = (grade) => safeString(grade);
 const normalizeSection = (section) => safeString(section).toUpperCase();

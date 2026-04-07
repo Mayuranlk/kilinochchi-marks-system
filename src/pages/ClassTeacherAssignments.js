@@ -27,7 +27,6 @@ import SchoolIcon from "@mui/icons-material/School";
 import {
   isALGrade,
   buildALClassName,
-  normalizeText,
 } from "../constants";
 
 /* -------------------------------------------------------------------------- */
