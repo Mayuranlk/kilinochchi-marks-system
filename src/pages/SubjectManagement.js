@@ -50,7 +50,7 @@ const CATEGORY_OPTIONS = [
   { value: "basket_b", label: "Basket B" },
   { value: "basket_c", label: "Basket C" },
   { value: "al_main", label: "A/L Main" },
-  { value: "general", label: "General" },
+  { value: "al_general", label: "General" },
 ];
 
 const RELIGION_OPTIONS = [
@@ -134,8 +134,93 @@ function sortByName(items) {
   );
 }
 
-function getCategoryLabel(category) {
-  return CATEGORY_OPTIONS.find((c) => c.value === category)?.label || category || "—";
+function canonicalBasketGroup(category, basketGroup) {
+  const explicit = normalizeText(basketGroup).toUpperCase();
+  if (explicit) return explicit;
+
+  const normalizedCategory = normalizeLower(category);
+  if (normalizedCategory === "basket_a") return "A";
+  if (normalizedCategory === "basket_b") return "B";
+  if (normalizedCategory === "basket_c") return "C";
+
+  return "";
+}
+
+function normalizeCategoryForForm(category, basketGroup = "") {
+  const normalized = normalizeLower(category);
+
+  if (normalized === "basket") {
+    const group = canonicalBasketGroup(normalized, basketGroup);
+    if (group === "A") return "basket_a";
+    if (group === "B") return "basket_b";
+    if (group === "C") return "basket_c";
+    return "basket_a";
+  }
+
+  if (normalized === "al") return "al_main";
+  if (normalized === "al_main") return "al_main";
+  if (normalized === "al_general") return "al_general";
+  if (normalized === "general") return "al_general";
+
+  if (
+    [
+      "core",
+      "religion",
+      "aesthetic",
+      "basket_a",
+      "basket_b",
+      "basket_c",
+      "al_main",
+      "al_general",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+
+  return normalized || "core";
+}
+
+function normalizeCategoryForStorage(category) {
+  const normalized = normalizeLower(category);
+
+  if (normalized === "al_main" || normalized === "al") return "al";
+  if (normalized === "al_general" || normalized === "general") return "al_general";
+  if (["basket_a", "basket_b", "basket_c"].includes(normalized)) return "basket";
+
+  return normalized;
+}
+
+function getCategoryFilterValue(subject) {
+  const rawCategory = normalizeLower(subject.category);
+  const basketGroup = canonicalBasketGroup(rawCategory, subject.basketGroup);
+
+  if (rawCategory === "basket") {
+    if (basketGroup === "A") return "basket_a";
+    if (basketGroup === "B") return "basket_b";
+    if (basketGroup === "C") return "basket_c";
+  }
+
+  if (rawCategory === "al") return "al_main";
+  if (rawCategory === "general") return "al_general";
+
+  return rawCategory;
+}
+
+function getCategoryLabel(category, basketGroup = "") {
+  const normalized = normalizeCategoryForForm(category, basketGroup);
+
+  const labels = {
+    core: "Core",
+    religion: "Religion",
+    aesthetic: "Aesthetic",
+    basket_a: "Basket A",
+    basket_b: "Basket B",
+    basket_c: "Basket C",
+    al_main: "A/L Main",
+    al_general: "General",
+  };
+
+  return labels[normalized] || normalizeText(category) || "—";
 }
 
 function getStatusColor(status) {
@@ -173,10 +258,11 @@ function buildAutoCode(name, category, subjectNumber = "") {
     basket_b: "BB",
     basket_c: "BC",
     al_main: "AL",
-    general: "GEN",
+    al_general: "GEN",
   };
 
-  const prefix = prefixMap[category] || "SUB";
+  const normalizedCategory = normalizeCategoryForForm(category);
+  const prefix = prefixMap[normalizedCategory] || "SUB";
   const numberPart = normalizeText(subjectNumber)
     ? `${normalizeText(subjectNumber).replace(/\s+/g, "")}_`
     : "";
@@ -185,11 +271,15 @@ function buildAutoCode(name, category, subjectNumber = "") {
 }
 
 function buildSubjectDocId(form) {
-  const categoryPart = slugify(form.category || "general");
+  const categoryPart = slugify(normalizeCategoryForStorage(form.category) || "general");
+  const basketPart = slugify(canonicalBasketGroup(form.category, form.basketGroup));
   const numberPart = slugify(form.subjectNumber || "");
   const codePart = slugify(form.code || "");
   const namePart = slugify(form.name || "subject");
-  return [categoryPart, numberPart, codePart, namePart].filter(Boolean).join("_");
+
+  return [categoryPart, basketPart, numberPart, codePart, namePart]
+    .filter(Boolean)
+    .join("_");
 }
 
 function getCleanGrades(form) {
@@ -236,12 +326,8 @@ function detectGradeMode(subject) {
 }
 
 function buildFormFromSubject(subject) {
-  let derivedCategory = normalizeText(subject.category || "core");
-  const basketGroup = normalizeText(subject.basketGroup || "").toUpperCase();
-
-  if (derivedCategory === "basket" && basketGroup === "A") derivedCategory = "basket_a";
-  if (derivedCategory === "basket" && basketGroup === "B") derivedCategory = "basket_b";
-  if (derivedCategory === "basket" && basketGroup === "C") derivedCategory = "basket_c";
+  const basketGroup = canonicalBasketGroup(subject.category, subject.basketGroup);
+  const derivedCategory = normalizeCategoryForForm(subject.category, basketGroup);
 
   return {
     id: subject.id || "",
@@ -298,22 +384,15 @@ function buildGradeSummary(subject) {
   return "All";
 }
 
-function canonicalBasketGroup(category, basketGroup) {
-  if (normalizeText(basketGroup)) return normalizeText(basketGroup).toUpperCase();
-  if (category === "basket_a") return "A";
-  if (category === "basket_b") return "B";
-  if (category === "basket_c") return "C";
-  return "";
-}
-
 function validateForm(form) {
   const errors = {};
+  const category = normalizeCategoryForForm(form.category);
 
   if (!normalizeText(form.name)) {
     errors.name = "Subject name is required";
   }
 
-  if (!normalizeText(form.category)) {
+  if (!normalizeText(category)) {
     errors.category = "Category is required";
   }
 
@@ -321,7 +400,7 @@ function validateForm(form) {
     errors.code = "Code is required";
   }
 
-  if (form.category === "al_main" && !normalizeText(form.subjectNumber)) {
+  if (category === "al_main" && !normalizeText(form.subjectNumber)) {
     errors.subjectNumber = "Subject number is required for A/L";
   }
 
@@ -349,17 +428,17 @@ function validateForm(form) {
     errors.grades = "Select at least one grade";
   }
 
-  if (form.category === "religion" && !normalizeText(form.religion)) {
+  if (category === "religion" && !normalizeText(form.religion)) {
     errors.religion = "Religion is required for religion subjects";
   }
 
-  if (["basket_a", "basket_b", "basket_c"].includes(form.category)) {
-    if (!canonicalBasketGroup(form.category, form.basketGroup)) {
+  if (["basket_a", "basket_b", "basket_c"].includes(category)) {
+    if (!canonicalBasketGroup(category, form.basketGroup)) {
       errors.basketGroup = "Basket group is required";
     }
   }
 
-  if (form.category === "al_main") {
+  if (category === "al_main") {
     const hasSingleStream = !!normalizeText(form.stream);
     const hasMultiStreams = Array.isArray(form.streams) && form.streams.length > 0;
 
@@ -392,8 +471,9 @@ function buildComparableGradeKey(subjectLike) {
 
 function buildPayload(form, profile) {
   const grades = getCleanGrades(form);
-  const category = normalizeText(form.category);
-  const basketGroup = canonicalBasketGroup(category, form.basketGroup);
+  const categoryForForm = normalizeCategoryForForm(form.category);
+  const categoryForStorage = normalizeCategoryForStorage(form.category);
+  const basketGroup = canonicalBasketGroup(categoryForForm, form.basketGroup);
 
   const payload = {
     code: normalizeText(form.code),
@@ -405,7 +485,7 @@ function buildPayload(form, profile) {
     subjectName: normalizeText(form.name),
 
     shortName: normalizeText(form.shortName),
-    category,
+    category: categoryForStorage,
     status: normalizeText(form.status || "active"),
 
     grade: grades.grade,
@@ -413,17 +493,18 @@ function buildPayload(form, profile) {
     maxGrade: grades.maxGrade,
     grades: grades.grades,
 
-    religion: category === "religion" ? normalizeText(form.religion) : "",
-    religionGroup: category === "religion" ? normalizeText(form.religionGroup) : "",
+    religion: categoryForForm === "religion" ? normalizeText(form.religion) : "",
+    religionGroup:
+      categoryForForm === "religion" ? normalizeText(form.religionGroup) : "",
 
-    stream: category === "al_main" ? normalizeText(form.stream) : "",
+    stream: categoryForForm === "al_main" ? normalizeText(form.stream) : "",
     streams:
-      category === "al_main"
+      categoryForForm === "al_main"
         ? (form.streams || []).map((x) => normalizeText(x)).filter(Boolean)
         : [],
 
     basketGroup:
-      ["basket_a", "basket_b", "basket_c"].includes(category) ? basketGroup : "",
+      ["basket_a", "basket_b", "basket_c"].includes(categoryForForm) ? basketGroup : "",
 
     description: normalizeText(form.description),
     displayOrder: form.displayOrder === "" ? 0 : Number(form.displayOrder) || 0,
@@ -512,9 +593,13 @@ export default function SubjectManagement() {
   const stats = useMemo(() => {
     return {
       total: subjects.length,
-      active: subjects.filter((s) => normalizeLower(s.status || "active") === "active").length,
-      inactive: subjects.filter((s) => normalizeLower(s.status || "active") !== "active").length,
-      categories: new Set(subjects.map((s) => normalizeText(s.category)).filter(Boolean)).size,
+      active: subjects.filter((s) => normalizeLower(s.status || "active") === "active")
+        .length,
+      inactive: subjects.filter((s) => normalizeLower(s.status || "active") !== "active")
+        .length,
+      categories: new Set(
+        subjects.map((s) => getCategoryFilterValue(s)).filter(Boolean)
+      ).size,
     };
   }, [subjects]);
 
@@ -523,7 +608,8 @@ export default function SubjectManagement() {
       const name = getSubjectName(subject);
       const code = getSubjectCode(subject);
       const subjectNumber = getSubjectNumber(subject);
-      const category = normalizeText(subject.category);
+      const normalizedCategory = getCategoryFilterValue(subject);
+      const categoryLabel = getCategoryLabel(subject.category, subject.basketGroup);
       const status = normalizeLower(subject.status || "active");
 
       const passesSearch =
@@ -531,17 +617,18 @@ export default function SubjectManagement() {
         name.toLowerCase().includes(search.toLowerCase()) ||
         code.toLowerCase().includes(search.toLowerCase()) ||
         subjectNumber.toLowerCase().includes(search.toLowerCase()) ||
-        category.toLowerCase().includes(search.toLowerCase()) ||
+        normalizedCategory.toLowerCase().includes(search.toLowerCase()) ||
+        categoryLabel.toLowerCase().includes(search.toLowerCase()) ||
         normalizeText(subject.religion).toLowerCase().includes(search.toLowerCase()) ||
         normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.basketGroup).toLowerCase().includes(search.toLowerCase()) ||
         (Array.isArray(subject.streams) &&
           subject.streams.join(", ").toLowerCase().includes(search.toLowerCase()));
 
       const passesCategory =
-        categoryFilter === "all" || category === categoryFilter;
+        categoryFilter === "all" || normalizedCategory === categoryFilter;
 
-      const passesStatus =
-        statusFilter === "all" || status === statusFilter;
+      const passesStatus = statusFilter === "all" || status === statusFilter;
 
       const passesGrade =
         gradeFilter === "all" ||
@@ -627,31 +714,33 @@ export default function SubjectManagement() {
       const duplicate = subjects.find((subject) => {
         if (editingId && subject.id === editingId) return false;
 
+        const subjectCategoryFilter = getCategoryFilterValue(subject);
+        const payloadCategoryFilter = normalizeCategoryForForm(form.category);
+
         const sameCode =
           normalizeLower(getSubjectCode(subject)) === normalizeLower(payload.code);
 
         const sameNumberForAL =
-          normalizeLower(payload.category) === "al_main" &&
+          payloadCategoryFilter === "al_main" &&
           normalizeText(payload.subjectNumber) &&
-          normalizeLower(normalizeText(subject.category)) === "al_main" &&
+          subjectCategoryFilter === "al_main" &&
           normalizeText(subject.subjectNumber) === normalizeText(payload.subjectNumber) &&
           buildComparableGradeKey(subject) === buildComparableGradeKey(payload);
 
         const sameNameCategoryGrade =
           normalizeLower(getSubjectName(subject)) === normalizeLower(payload.name) &&
-          normalizeLower(subject.category) === normalizeLower(payload.category) &&
+          subjectCategoryFilter === payloadCategoryFilter &&
           buildComparableGradeKey(subject) === buildComparableGradeKey(payload);
 
         const sameBasketGroup =
-          normalizeText(subject.basketGroup || "") === normalizeText(payload.basketGroup || "");
+          normalizeText(canonicalBasketGroup(subject.category, subject.basketGroup)) ===
+          normalizeText(payload.basketGroup || "");
 
         if (sameCode) return true;
         if (sameNumberForAL) return true;
 
         if (sameNameCategoryGrade) {
-          if (
-            ["basket_a", "basket_b", "basket_c"].includes(payload.category)
-          ) {
+          if (["basket_a", "basket_b", "basket_c"].includes(payloadCategoryFilter)) {
             return sameBasketGroup;
           }
           return true;
@@ -662,7 +751,9 @@ export default function SubjectManagement() {
 
       if (duplicate) {
         throw new Error(
-          `Duplicate subject detected: ${getSubjectName(duplicate)} (${getSubjectCode(duplicate)})`
+          `Duplicate subject detected: ${getSubjectName(duplicate)} (${getSubjectCode(
+            duplicate
+          )})`
         );
       }
 
@@ -712,9 +803,10 @@ export default function SubjectManagement() {
   }
 
   const dialogTitle = editingId ? "Edit Subject" : "Create Subject";
-  const isReligion = form.category === "religion";
-  const isAL = form.category === "al_main";
-  const isBasket = ["basket_a", "basket_b", "basket_c"].includes(form.category);
+  const normalizedFormCategory = normalizeCategoryForForm(form.category);
+  const isReligion = normalizedFormCategory === "religion";
+  const isAL = normalizedFormCategory === "al_main";
+  const isBasket = ["basket_a", "basket_b", "basket_c"].includes(normalizedFormCategory);
 
   if (loading) {
     return (
@@ -743,11 +835,7 @@ export default function SubjectManagement() {
         </Box>
 
         <Stack direction="row" spacing={1} flexWrap="wrap">
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadSubjects}
-          >
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadSubjects}>
             Refresh
           </Button>
           <Button
@@ -888,93 +976,99 @@ export default function SubjectManagement() {
           </TableHead>
 
           <TableBody>
-            {filteredSubjects.map((subject) => (
-              <TableRow key={subject.id} hover>
-                <TableCell>{getSubjectNumber(subject) || "—"}</TableCell>
-                <TableCell>{getSubjectCode(subject) || "—"}</TableCell>
-                <TableCell>
-                  <Stack spacing={0.4}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {getSubjectName(subject)}
-                    </Typography>
-                    {normalizeText(subject.shortName) && (
-                      <Typography variant="caption" color="text.secondary">
-                        {subject.shortName}
-                      </Typography>
-                    )}
-                  </Stack>
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={getCategoryLabel(subject.category)}
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                  />
-                </TableCell>
-                <TableCell>{buildGradeSummary(subject)}</TableCell>
-                <TableCell>
-                  {subject.category === "religion"
-                    ? normalizeText(subject.religion || subject.religionGroup) || "—"
-                    : subject.category === "al_main"
-                    ? normalizeText(subject.stream) ||
-                      (Array.isArray(subject.streams) && subject.streams.length > 0
-                        ? subject.streams.join(", ")
-                        : "—")
-                    : ["basket_a", "basket_b", "basket_c"].includes(subject.category)
-                    ? normalizeText(subject.basketGroup || "") || "—"
-                    : "—"}
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    label={normalizeText(subject.status || "active").toUpperCase()}
-                    color={getStatusColor(subject.status || "active")}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5}>
-                    <Tooltip title="Edit">
-                      <span>
-                        <IconButton
-                          size="small"
-                          onClick={() => openEditDialog(subject)}
-                          disabled={!isAdmin}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+            {filteredSubjects.map((subject) => {
+              const categoryForForm = getCategoryFilterValue(subject);
 
-                    <Tooltip
-                      title={
-                        normalizeLower(subject.status || "active") === "active"
-                          ? "Set Inactive"
-                          : "Set Active"
-                      }
-                    >
-                      <span>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color={
-                            normalizeLower(subject.status || "active") === "active"
-                              ? "warning"
-                              : "success"
-                          }
-                          onClick={() => toggleStatus(subject)}
-                          disabled={!isAdmin}
-                        >
-                          {normalizeLower(subject.status || "active") === "active"
-                            ? "Deactivate"
-                            : "Activate"}
-                        </Button>
-                      </span>
-                    </Tooltip>
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
+              return (
+                <TableRow key={subject.id} hover>
+                  <TableCell>{getSubjectNumber(subject) || "—"}</TableCell>
+                  <TableCell>{getSubjectCode(subject) || "—"}</TableCell>
+                  <TableCell>
+                    <Stack spacing={0.4}>
+                      <Typography variant="body2" fontWeight={600}>
+                        {getSubjectName(subject)}
+                      </Typography>
+                      {normalizeText(subject.shortName) && (
+                        <Typography variant="caption" color="text.secondary">
+                          {subject.shortName}
+                        </Typography>
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={getCategoryLabel(subject.category, subject.basketGroup)}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>{buildGradeSummary(subject)}</TableCell>
+                  <TableCell>
+                    {categoryForForm === "religion"
+                      ? normalizeText(subject.religion || subject.religionGroup) || "—"
+                      : categoryForForm === "al_main"
+                      ? normalizeText(subject.stream) ||
+                        (Array.isArray(subject.streams) && subject.streams.length > 0
+                          ? subject.streams.join(", ")
+                          : "—")
+                      : ["basket_a", "basket_b", "basket_c"].includes(categoryForForm)
+                      ? normalizeText(
+                          canonicalBasketGroup(subject.category, subject.basketGroup)
+                        ) || "—"
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={normalizeText(subject.status || "active").toUpperCase()}
+                      color={getStatusColor(subject.status || "active")}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={0.5}>
+                      <Tooltip title="Edit">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => openEditDialog(subject)}
+                            disabled={!isAdmin}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip
+                        title={
+                          normalizeLower(subject.status || "active") === "active"
+                            ? "Set Inactive"
+                            : "Set Active"
+                        }
+                      >
+                        <span>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color={
+                              normalizeLower(subject.status || "active") === "active"
+                                ? "warning"
+                                : "success"
+                            }
+                            onClick={() => toggleStatus(subject)}
+                            disabled={!isAdmin}
+                          >
+                            {normalizeLower(subject.status || "active") === "active"
+                              ? "Deactivate"
+                              : "Activate"}
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
 
             {filteredSubjects.length === 0 && (
               <TableRow>
@@ -1051,7 +1145,7 @@ export default function SubjectManagement() {
                 <FormControl fullWidth error={!!formErrors.category}>
                   <InputLabel>Category</InputLabel>
                   <Select
-                    value={form.category}
+                    value={normalizeCategoryForForm(form.category)}
                     label="Category"
                     onChange={(e) => updateForm("category", e.target.value)}
                   >
@@ -1267,7 +1361,10 @@ export default function SubjectManagement() {
                       <FormControl fullWidth error={!!formErrors.basketGroup}>
                         <InputLabel>Basket Group</InputLabel>
                         <Select
-                          value={form.basketGroup || canonicalBasketGroup(form.category, form.basketGroup)}
+                          value={
+                            form.basketGroup ||
+                            canonicalBasketGroup(form.category, form.basketGroup)
+                          }
                           label="Basket Group"
                           onChange={(e) => updateForm("basketGroup", e.target.value)}
                         >
