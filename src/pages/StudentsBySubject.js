@@ -1,15 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
-import {
-  AESTHETIC_SUBJECTS,
-  BASKET_A,
-  BASKET_B,
-  BASKET_C,
-  GRADES,
-  RELIGIONS,
-  SUBJECTS_BY_GRADE,
-} from "../constants";
+import { GRADES, RELIGIONS } from "../constants";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -73,8 +65,7 @@ function buildFullClassName(grade, section) {
 }
 
 function isALGrade(value) {
-  const grade = parseGrade(value);
-  return grade >= 12;
+  return parseGrade(value) >= 12;
 }
 
 function isActiveStatus(value) {
@@ -119,21 +110,19 @@ function getStudentClassName(student) {
 }
 
 function getStudentALClassName(student) {
-  return normalizeText(
-    student?.fullClassName ||
-      student?.alClassName ||
-      ""
-  );
+  return normalizeText(student?.fullClassName || student?.alClassName || "");
 }
 
 function getStudentDisplayClass(student) {
   const grade = getStudentGrade(student);
+
   if (isALGrade(grade)) {
     const fullClassName = getStudentALClassName(student);
     if (fullClassName) return fullClassName;
 
     const stream = getStudentStream(student);
     const section = getStudentSection(student);
+
     if (grade && stream && section) return `${grade} ${stream} ${section}`;
     if (grade && stream) return `${grade} ${stream}`;
   }
@@ -179,6 +168,7 @@ function getEnrollmentDisplayClass(enrollment) {
 
     const stream = getEnrollmentStream(enrollment);
     const section = getEnrollmentSection(enrollment);
+
     if (grade && stream && section) return `${grade} ${stream} ${section}`;
     if (grade && stream) return `${grade} ${stream}`;
   }
@@ -195,11 +185,7 @@ function getEnrollmentSubjectId(enrollment) {
 }
 
 function getEnrollmentSubjectNumber(enrollment) {
-  return normalizeText(
-    enrollment?.subjectNumber ||
-      enrollment?.subjectNo ||
-      ""
-  );
+  return normalizeText(enrollment?.subjectNumber || enrollment?.subjectNo || "");
 }
 
 function getEnrollmentAcademicYear(enrollment) {
@@ -268,37 +254,55 @@ function getGradeLabel(mark) {
   return { label: "F", color: "error" };
 }
 
-function getBasketSubjects() {
-  return [...BASKET_A, ...BASKET_B, ...BASKET_C];
-}
-
 function getSubjectTypeBadge(subject, grade) {
   const normalizedSubject = normalizeText(subject);
+
+  if (!normalizedSubject) {
+    return { label: "Subject", color: "#2e7d32" };
+  }
 
   if (isALGrade(grade)) {
     return { label: "A/L Subject", color: "#6a1b9a" };
   }
 
-  const isReligion = RELIGIONS.includes(normalizedSubject);
-  const isAesthetic = AESTHETIC_SUBJECTS.includes(normalizedSubject);
-  const isBasket =
-    grade >= 10 &&
-    grade <= 11 &&
-    getBasketSubjects().includes(normalizedSubject);
+  const lower = normalizedSubject.toLowerCase();
+  const religionSet = new Set(RELIGIONS.map((r) => normalizeLower(r)));
 
-  if (isReligion) return { label: "Religion", color: "#7b1fa2" };
-  if (isAesthetic) return { label: "Aesthetic", color: "#1565c0" };
-  if (isBasket) return { label: "Basket", color: "#e65100" };
+  if (religionSet.has(lower)) {
+    return { label: "Religion", color: "#7b1fa2" };
+  }
+
+  const aestheticKeywords = [
+    "art",
+    "music",
+    "dancing",
+    "drama",
+    "theatre",
+    "literary texts",
+  ];
+
+  const basketKeywords = [
+    "information & communication technology",
+    "agriculture",
+    "home economics",
+    "health & physical education",
+    "communication & media studies",
+    "design & construction technology",
+    "business & accounting studies",
+    "geography",
+    "civic education",
+    "entrepreneurship studies",
+  ];
+
+  if (aestheticKeywords.some((keyword) => lower.includes(keyword))) {
+    return { label: "Aesthetic", color: "#1565c0" };
+  }
+
+  if (grade >= 10 && grade <= 11 && basketKeywords.some((keyword) => lower.includes(keyword))) {
+    return { label: "Basket", color: "#e65100" };
+  }
+
   return { label: "Core", color: "#2e7d32" };
-}
-
-function uniqueSorted(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) =>
-    String(a).localeCompare(String(b), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    })
-  );
 }
 
 function buildSubjectOptionKey(subjectName, subjectNumber) {
@@ -401,36 +405,24 @@ export default function StudentsBySubject() {
 
   const availableSubjects = useMemo(() => {
     const selectedGrade = Number(grade);
-
-    const enrollmentSubjects = allEnrollments
-      .filter((enrollment) => getEnrollmentGrade(enrollment) === selectedGrade)
-      .map((enrollment) => ({
-        key: buildSubjectOptionKey(
-          getEnrollmentSubjectName(enrollment),
-          isALGrade(selectedGrade) ? getEnrollmentSubjectNumber(enrollment) : ""
-        ),
-        label: buildSubjectDisplayName(
-          getEnrollmentSubjectName(enrollment),
-          isALGrade(selectedGrade) ? getEnrollmentSubjectNumber(enrollment) : ""
-        ),
-      }))
-      .filter((item) => normalizeText(item.label));
-
-    const fallbackSubjects = isALGrade(selectedGrade)
-      ? []
-      : (SUBJECTS_BY_GRADE[selectedGrade] || []).map((subjectName) => ({
-          key: buildSubjectOptionKey(subjectName, ""),
-          label: buildSubjectDisplayName(subjectName, ""),
-        }));
-
-    const merged = [...enrollmentSubjects, ...fallbackSubjects];
     const map = new Map();
 
-    merged.forEach((item) => {
-      if (!map.has(item.key)) {
-        map.set(item.key, item);
-      }
-    });
+    allEnrollments
+      .filter((enrollment) => getEnrollmentGrade(enrollment) === selectedGrade)
+      .forEach((enrollment) => {
+        const subjectName = getEnrollmentSubjectName(enrollment);
+        const subjectNumber = isALGrade(selectedGrade)
+          ? getEnrollmentSubjectNumber(enrollment)
+          : "";
+        const label = buildSubjectDisplayName(subjectName, subjectNumber);
+        const key = buildSubjectOptionKey(subjectName, subjectNumber);
+
+        if (!subjectName || !label) return;
+
+        if (!map.has(key)) {
+          map.set(key, { key, label });
+        }
+      });
 
     return [...map.values()].sort((a, b) =>
       a.label.localeCompare(b.label, undefined, {
@@ -489,11 +481,9 @@ export default function StudentsBySubject() {
         const sameGrade = getEnrollmentGrade(enrollment) === selectedGrade;
         const sameSubject =
           getEnrollmentSubjectName(enrollment) === selectedSubjectName;
-
         const sameSubjectNumber = isALGrade(selectedGrade)
           ? getEnrollmentSubjectNumber(enrollment) === selectedSubjectNumber
           : true;
-
         const sameYear =
           !selectedYear ||
           !getEnrollmentAcademicYear(enrollment) ||
@@ -515,7 +505,8 @@ export default function StudentsBySubject() {
         .filter(Boolean)
         .map((student) => {
           const matchingEnrollment = matchingEnrollments.find(
-            (enrollment) => normalizeText(enrollment.studentId) === normalizeText(student.id)
+            (enrollment) =>
+              normalizeText(enrollment.studentId) === normalizeText(student.id)
           );
 
           return {
@@ -528,12 +519,16 @@ export default function StudentsBySubject() {
             fullClassName:
               getStudentALClassName(student) ||
               normalizeText(
-                matchingEnrollment?.fullClassName || matchingEnrollment?.alClassName || ""
+                matchingEnrollment?.fullClassName ||
+                  matchingEnrollment?.alClassName ||
+                  ""
               ),
             subjectNumber:
               getStudentSubjectNumber(student) ||
               getEnrollmentSubjectNumber(matchingEnrollment),
-            displayClass: getEnrollmentDisplayClass(matchingEnrollment) || getStudentDisplayClass(student),
+            displayClass:
+              getEnrollmentDisplayClass(matchingEnrollment) ||
+              getStudentDisplayClass(student),
           };
         })
         .sort((a, b) => {
@@ -544,7 +539,9 @@ export default function StudentsBySubject() {
           );
           if (classDiff !== 0) return classDiff;
 
-          const sectionDiff = getStudentSection(a).localeCompare(getStudentSection(b));
+          const sectionDiff = getStudentSection(a).localeCompare(
+            getStudentSection(b)
+          );
           if (sectionDiff !== 0) return sectionDiff;
 
           return getStudentName(a).localeCompare(getStudentName(b));
@@ -654,6 +651,7 @@ export default function StudentsBySubject() {
       const admissionNo = normalizeLower(getStudentAdmissionNo(student));
       const displayClass = normalizeLower(student.displayClass);
       const stream = normalizeLower(student.stream);
+
       return (
         name.includes(query) ||
         admissionNo.includes(query) ||
