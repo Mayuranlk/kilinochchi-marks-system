@@ -6,6 +6,16 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  RELIGIONS,
+  AESTHETIC_SUBJECTS,
+  BASKET_A,
+  BASKET_B,
+  BASKET_C,
+  AL_ALL_SUBJECTS,
+  AL_GENERAL_SUBJECTS,
+  AL_STREAM_RULES,
+} from "../constants";
 
 const SUBJECTS_COLLECTION = "subjects";
 const STUDENTS_COLLECTION = "students";
@@ -44,6 +54,10 @@ function normalizeLower(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeLoose(value) {
+  return normalizeLower(value).replace(/[^a-z0-9]/g, "");
+}
+
 function parseGrade(value) {
   const match = String(value ?? "").match(/\d+/);
   return match ? Number(match[0]) : null;
@@ -55,18 +69,45 @@ function normalizeSection(value) {
   return match ? match[0] : raw;
 }
 
-function makeSubjectId(subject) {
-  return `${subject.category}_${subject.code}`
+function slugify(value) {
+  return normalizeText(value)
     .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_");
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function makeSubjectId(subject) {
+  const codePart = normalizeText(subject.code || subject.subjectCode);
+  if (codePart) {
+    return `${normalizeLower(subject.category)}_${slugify(codePart)}`;
+  }
+
+  return `${normalizeLower(subject.category)}_${slugify(
+    subject.name || subject.subjectName
+  )}`;
 }
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function getDefaultSubjects() {
-  const core6to9 = [
+function uniqueByKey(items, getKey) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const key = getKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function getCore6to9Subjects() {
+  return [
     {
       code: "TAM",
       name: "Tamil",
@@ -156,8 +197,10 @@ function getDefaultSubjects() {
       displayOrder: 11,
     },
   ];
+}
 
-  const core10to11 = [
+function getCore10to11Subjects() {
+  return [
     {
       code: "TAM",
       name: "Tamil",
@@ -199,288 +242,128 @@ function getDefaultSubjects() {
       displayOrder: 5,
     },
   ];
+}
 
-  const religions = [
-    {
-      code: "REL_BUDD",
-      name: "Buddhism",
-      category: "religion",
-      religion: "Buddhism",
-      minGrade: 6,
-      maxGrade: 11,
-      displayOrder: 20,
-    },
-    {
-      code: "REL_HIND",
-      name: "Hinduism",
-      category: "religion",
-      religion: "Hinduism",
-      minGrade: 6,
-      maxGrade: 11,
-      displayOrder: 21,
-    },
-    {
-      code: "REL_ISLAM",
-      name: "Islam",
-      category: "religion",
-      religion: "Islam",
-      minGrade: 6,
-      maxGrade: 11,
-      displayOrder: 22,
-    },
-    {
-      code: "REL_CATH",
-      name: "Catholicism",
-      category: "religion",
-      religion: "Catholicism",
-      minGrade: 6,
-      maxGrade: 11,
-      displayOrder: 23,
-    },
-    {
-      code: "REL_CHRIS",
-      name: "Christianity",
-      category: "religion",
-      religion: "Christianity",
-      minGrade: 6,
-      maxGrade: 11,
-      displayOrder: 24,
-    },
-  ];
+function getReligionSubjects() {
+  return RELIGIONS.map((religion, index) => ({
+    code: `REL_${slugify(religion).toUpperCase()}`,
+    name: religion,
+    category: "religion",
+    religion,
+    minGrade: 6,
+    maxGrade: 11,
+    displayOrder: 20 + index,
+  }));
+}
 
-  const aesthetics = [
-    {
-      code: "AES_ART",
-      name: "Art",
-      category: "aesthetic",
-      minGrade: 6,
-      maxGrade: 9,
-      displayOrder: 30,
-    },
-    {
-      code: "AES_MUSIC",
-      name: "Music",
-      category: "aesthetic",
-      minGrade: 6,
-      maxGrade: 9,
-      displayOrder: 31,
-    },
-    {
-      code: "AES_DANCING",
-      name: "Dancing",
-      category: "aesthetic",
-      minGrade: 6,
-      maxGrade: 9,
-      displayOrder: 32,
-    },
-    {
-      code: "AES_DRAMA",
-      name: "Drama & Theatre",
-      category: "aesthetic",
-      minGrade: 6,
-      maxGrade: 9,
-      displayOrder: 33,
-    },
-  ];
+function getAestheticSubjects() {
+  return AESTHETIC_SUBJECTS.map((name, index) => ({
+    code: `AES_${slugify(name).toUpperCase()}`,
+    name,
+    category: "aesthetic",
+    minGrade: 6,
+    maxGrade: 9,
+    displayOrder: 30 + index,
+  }));
+}
 
-  const basketSubjects = [
-    {
-      code: "BAS",
-      name: "Business & Accounting Studies",
-      category: "basket",
-      basketGroup: "BASKET_1",
-      basketLabel: "A",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 40,
-    },
-    {
-      code: "GEO_BKT",
-      name: "Geography",
-      category: "basket",
-      basketGroup: "BASKET_1",
-      basketLabel: "A",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 41,
-    },
-    {
-      code: "CIV_EDU",
-      name: "Civic Education",
-      category: "basket",
-      basketGroup: "BASKET_1",
-      basketLabel: "A",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 42,
-    },
-    {
-      code: "ENT",
-      name: "Entrepreneurship Studies",
-      category: "basket",
-      basketGroup: "BASKET_1",
-      basketLabel: "A",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 43,
-    },
+function buildBasketSubjects(subjectNames, basketLabel, startOrder) {
+  return subjectNames.map((name, index) => ({
+    code: `BKT_${basketLabel}_${String(index + 1).padStart(2, "0")}`,
+    name,
+    category: "basket",
+    basketGroup: `BASKET_${basketLabel}`,
+    basketLabel,
+    minGrade: 10,
+    maxGrade: 11,
+    displayOrder: startOrder + index,
+  }));
+}
 
-    {
-      code: "MUS_CAR",
-      name: "Music (Carnatic)",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 50,
-    },
-    {
-      code: "ART_BKT",
-      name: "Art",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 51,
-    },
-    {
-      code: "DAN_BHA",
-      name: "Dancing (Bharata)",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 52,
-    },
-    {
-      code: "DRAMA_TAM",
-      name: "Drama and Theatre (Tamil)",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 53,
-    },
-    {
-      code: "ENG_LIT",
-      name: "Appreciation of English Literary Texts",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 54,
-    },
-    {
-      code: "TAM_LIT",
-      name: "Appreciation of Tamil Literary Texts",
-      category: "basket",
-      basketGroup: "BASKET_2",
-      basketLabel: "B",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 55,
-    },
-
-    {
-      code: "ICT_FULL",
-      name: "Information & Communication Technology",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 60,
-    },
-    {
-      code: "AGR_FT",
-      name: "Agriculture & Food Technology",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 61,
-    },
-    {
-      code: "HOME",
-      name: "Home Economics",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 62,
-    },
-    {
-      code: "HPE_BKT",
-      name: "Health & Physical Education",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 63,
-    },
-    {
-      code: "MEDIA",
-      name: "Communication & Media Studies",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 64,
-    },
-    {
-      code: "DCT",
-      name: "Design & Construction Technology",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 65,
-    },
-    {
-      code: "DMT",
-      name: "Design & Mechanical Technology",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 66,
-    },
-    {
-      code: "DEET",
-      name: "Design, Electrical & Electronic Technology",
-      category: "basket",
-      basketGroup: "BASKET_3",
-      basketLabel: "C",
-      minGrade: 10,
-      maxGrade: 11,
-      displayOrder: 67,
-    },
-  ];
-
+function getBasketSubjects() {
   return [
-    ...core6to9,
-    ...core10to11,
-    ...religions,
-    ...aesthetics,
-    ...basketSubjects,
+    ...buildBasketSubjects(BASKET_A, "A", 40),
+    ...buildBasketSubjects(BASKET_B, "B", 50),
+    ...buildBasketSubjects(BASKET_C, "C", 60),
+  ];
+}
+
+function getALStreamNamesForSubject(subjectName) {
+  const subjectKey = normalizeLoose(subjectName);
+
+  return Object.entries(AL_STREAM_RULES)
+    .filter(([, rule]) => {
+      const allStreamSubjects = [
+        ...(rule.compulsory || []),
+        ...(rule.optionalGroups || []).flat(),
+      ];
+
+      return allStreamSubjects.some(
+        (subject) => normalizeLoose(subject.subjectName) === subjectKey
+      );
+    })
+    .map(([streamName]) => streamName);
+}
+
+function getALSubjects() {
+  const mainSubjects = AL_ALL_SUBJECTS.map((subject, index) => {
+    const streamNames = getALStreamNamesForSubject(subject.subjectName);
+
+    return {
+      code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+      name: subject.subjectName,
+      shortName: subject.shortName || subject.subjectName,
+      subjectNumber: subject.subjectNumber || "",
+      category: "al",
+      minGrade: 12,
+      maxGrade: 13,
+      displayOrder: 100 + index,
+      streamOptions: streamNames,
+      isOptional: false,
+    };
+  });
+
+  const generalSubjects = AL_GENERAL_SUBJECTS.map((subject, index) => ({
+    code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+    name: subject.subjectName,
+    shortName: subject.shortName || subject.subjectName,
+    subjectNumber: subject.subjectNumber || "",
+    category: "al_general",
+    minGrade: 12,
+    maxGrade: 13,
+    displayOrder: 200 + index,
+    streamOptions: Object.keys(AL_STREAM_RULES),
+    isOptional: false,
+  }));
+
+  return [...mainSubjects, ...generalSubjects];
+}
+
+function getDefaultSubjects() {
+  const defaults = [
+    ...getCore6to9Subjects(),
+    ...getCore10to11Subjects(),
+    ...getReligionSubjects(),
+    ...getAestheticSubjects(),
+    ...getBasketSubjects(),
+    ...getALSubjects(),
   ].map((subject) => ({
     ...subject,
-    shortName: subject.name,
+    shortName: subject.shortName || subject.name,
     status: "active",
     isOptional:
-      subject.category === "aesthetic" || subject.category === "basket",
+      typeof subject.isOptional === "boolean"
+        ? subject.isOptional
+        : subject.category === "aesthetic" || subject.category === "basket",
   }));
+
+  return uniqueByKey(
+    defaults,
+    (subject) =>
+      `${normalizeLower(subject.category)}__${normalizeLower(
+        subject.code || subject.subjectCode || subject.name || subject.subjectName
+      )}`
+  );
 }
 
 async function commitInChunks(ops) {
@@ -501,6 +384,7 @@ export async function createDefaultSubjects(profile) {
       const code = normalizeLower(subject.code || subject.subjectCode);
       const name = normalizeLower(subject.name || subject.subjectName);
       const category = normalizeLower(subject.category);
+
       return [`${category}__${code}`, `${category}__${name}`].filter(
         (key) => !key.endsWith("__")
       );
@@ -512,8 +396,12 @@ export async function createDefaultSubjects(profile) {
   let skipped = 0;
 
   for (const subject of defaults) {
-    const codeKey = `${subject.category}__${normalizeLower(subject.code)}`;
-    const nameKey = `${subject.category}__${normalizeLower(subject.name)}`;
+    const codeValue = normalizeText(subject.code || subject.subjectCode);
+    const nameValue = normalizeText(subject.name || subject.subjectName);
+    const categoryValue = normalizeText(subject.category);
+
+    const codeKey = `${normalizeLower(categoryValue)}__${normalizeLower(codeValue)}`;
+    const nameKey = `${normalizeLower(categoryValue)}__${normalizeLower(nameValue)}`;
 
     if (existingKeys.has(codeKey) || existingKeys.has(nameKey)) {
       skipped += 1;
@@ -521,12 +409,16 @@ export async function createDefaultSubjects(profile) {
     }
 
     const ref = doc(db, SUBJECTS_COLLECTION, makeSubjectId(subject));
+    const timestamp = nowIso();
+
     await setDoc(ref, {
       ...subject,
-      subjectCode: subject.code,
-      subjectName: subject.name,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
+      code: codeValue,
+      name: nameValue,
+      subjectCode: codeValue,
+      subjectName: nameValue,
+      createdAt: timestamp,
+      updatedAt: timestamp,
       createdById: profile?.uid || "",
       createdByName:
         profile?.name || profile?.displayName || profile?.email || "",
@@ -535,6 +427,8 @@ export async function createDefaultSubjects(profile) {
         profile?.name || profile?.displayName || profile?.email || "",
     });
 
+    existingKeys.add(codeKey);
+    existingKeys.add(nameKey);
     created += 1;
   }
 
@@ -580,7 +474,6 @@ export async function fixStudentData(profile) {
       patch.section = currentSection;
     }
 
-    // Keep students.className compatible with live schema: section only
     if (!currentClassName && currentSection) {
       patch.className = currentSection;
     } else if (
