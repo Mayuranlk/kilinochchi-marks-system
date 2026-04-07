@@ -289,6 +289,12 @@ export const AL_SUBJECTS = {
     subjectName: "Combined Mathematics",
     shortName: "Combined Mathematics",
   },
+  COMMON_GENERAL_TEST: {
+    subjectNumber: "12",
+    subjectCode: "AL_12",
+    subjectName: "Common General Test",
+    shortName: "Common General Test",
+  },
   GENERAL_ENGLISH: {
     subjectNumber: "13",
     subjectCode: "AL_13",
@@ -409,6 +415,12 @@ export const AL_SUBJECTS = {
     subjectName: "Tamil",
     shortName: "Tamil",
   },
+  GENERAL_INFORMATION_TECHNOLOGY: {
+    subjectNumber: "GIT",
+    subjectCode: "AL_GIT",
+    subjectName: "General Information Technology",
+    shortName: "GIT",
+  },
 };
 
 export const AL_ARTS_HISTORY_OPTIONS = [
@@ -500,18 +512,53 @@ export const AL_ALL_SUBJECTS = uniqueBySubjectNumber(
 );
 
 export const AL_SUBJECTS_BY_NUMBER = Object.fromEntries(
-  AL_ALL_SUBJECTS.map((subject) => [subject.subjectNumber, subject])
+  [
+    ...AL_ALL_SUBJECTS,
+    AL_SUBJECTS.COMMON_GENERAL_TEST,
+    AL_SUBJECTS.GENERAL_ENGLISH,
+    AL_SUBJECTS.GENERAL_INFORMATION_TECHNOLOGY,
+  ].map((subject) => [normalizeText(subject.subjectNumber), subject])
 );
 
 export const AL_SUBJECTS_BY_CODE = Object.fromEntries(
-  AL_ALL_SUBJECTS.map((subject) => [subject.subjectCode, subject])
+  [
+    ...AL_ALL_SUBJECTS,
+    AL_SUBJECTS.COMMON_GENERAL_TEST,
+    AL_SUBJECTS.GENERAL_ENGLISH,
+    AL_SUBJECTS.GENERAL_INFORMATION_TECHNOLOGY,
+  ].map((subject) => [subject.subjectCode, subject])
 );
 
 export const AL_SUBJECTS_BY_NAME = Object.fromEntries(
-  AL_ALL_SUBJECTS.map((subject) => [normalizeLower(subject.subjectName), subject])
+  [
+    ...AL_ALL_SUBJECTS,
+    AL_SUBJECTS.COMMON_GENERAL_TEST,
+    AL_SUBJECTS.GENERAL_ENGLISH,
+    AL_SUBJECTS.GENERAL_INFORMATION_TECHNOLOGY,
+  ].map((subject) => [normalizeLower(subject.subjectName), subject])
 );
 
-export const AL_GENERAL_SUBJECTS = [AL_SUBJECTS.GENERAL_ENGLISH];
+export const AL_COMMON_SUBJECTS_ALL = [
+  AL_SUBJECTS.COMMON_GENERAL_TEST,
+  AL_SUBJECTS.GENERAL_ENGLISH,
+];
+
+export const AL_COMMON_SUBJECTS_GRADE_12_ONLY = [
+  AL_SUBJECTS.GENERAL_INFORMATION_TECHNOLOGY,
+];
+
+export const AL_COMMON_SUBJECTS_BY_GRADE = {
+  12: [
+    ...AL_COMMON_SUBJECTS_ALL,
+    ...AL_COMMON_SUBJECTS_GRADE_12_ONLY,
+  ],
+  13: [...AL_COMMON_SUBJECTS_ALL],
+};
+
+export const AL_GENERAL_SUBJECTS = uniqueBySubjectNumber([
+  ...AL_COMMON_SUBJECTS_ALL,
+  ...AL_COMMON_SUBJECTS_GRADE_12_ONLY,
+]);
 
 /* -------------------------------------------------------------------------- */
 /* Subject catalog (UI fallback only)                                          */
@@ -531,10 +578,20 @@ export const GRADE_10_11_SUBJECT_CATALOG = [
   ...BASKET_C,
 ];
 
-export const GRADE_12_13_SUBJECT_CATALOG = [
+export const GRADE_12_SUBJECT_CATALOG = [
   ...AL_ALL_SUBJECTS.map((subject) => subject.subjectName),
-  ...AL_GENERAL_SUBJECTS.map((subject) => subject.subjectName),
+  ...AL_COMMON_SUBJECTS_BY_GRADE[12].map((subject) => subject.subjectName),
 ];
+
+export const GRADE_13_SUBJECT_CATALOG = [
+  ...AL_ALL_SUBJECTS.map((subject) => subject.subjectName),
+  ...AL_COMMON_SUBJECTS_BY_GRADE[13].map((subject) => subject.subjectName),
+];
+
+export const GRADE_12_13_SUBJECT_CATALOG = uniqueSubjects([
+  ...GRADE_12_SUBJECT_CATALOG,
+  ...GRADE_13_SUBJECT_CATALOG,
+]);
 
 export const SUBJECTS_BY_GRADE = {
   6: [...LOWER_GRADE_SUBJECT_CATALOG],
@@ -543,8 +600,8 @@ export const SUBJECTS_BY_GRADE = {
   9: [...LOWER_GRADE_SUBJECT_CATALOG],
   10: [...GRADE_10_11_SUBJECT_CATALOG],
   11: [...GRADE_10_11_SUBJECT_CATALOG],
-  12: [...GRADE_12_13_SUBJECT_CATALOG],
-  13: [...GRADE_12_13_SUBJECT_CATALOG],
+  12: [...GRADE_12_SUBJECT_CATALOG],
+  13: [...GRADE_13_SUBJECT_CATALOG],
 };
 
 export const ASSESSMENT_TYPES = [
@@ -664,7 +721,15 @@ export const getALOptionalSubjectsForStream = (stream) => {
   return rule ? rule.optionalGroups.flat() : [];
 };
 
-export const getALGeneralSubjects = () => [...AL_GENERAL_SUBJECTS];
+export const getALCommonSubjectsForGrade = (grade) => {
+  const parsedGrade = parseGrade(grade);
+  return [...(AL_COMMON_SUBJECTS_BY_GRADE[parsedGrade] || [])];
+};
+
+export const getALGeneralSubjects = (grade) => {
+  if (!grade) return [...AL_GENERAL_SUBJECTS];
+  return getALCommonSubjectsForGrade(grade);
+};
 
 export const getALMainSubjectCountForStream = (stream) => {
   const rule = getALRuleForStream(stream);
@@ -775,7 +840,6 @@ export const validateALChoices = ({
     ...optionalNumbers,
   ]);
 
-  // ✅ Check all selected are valid
   const allAreAllowed = chosenSubjects.every((s) =>
     allowedNumbers.has(s.subjectNumber)
   );
@@ -797,7 +861,6 @@ export const validateALChoices = ({
 
   const expectedOptionalCount = rule.optionalPickCount || 0;
 
-  // ✅ MODE 1: Optional-only (current system)
   if (selectedCompulsory.length === 0) {
     if (selectedOptional.length !== expectedOptionalCount) {
       return {
@@ -812,11 +875,10 @@ export const validateALChoices = ({
       compulsorySubjects: [...rule.compulsory],
       optionalSubjects: selectedOptional,
       mainSubjects: [...rule.compulsory, ...selectedOptional],
-      generalSubjects: getALGeneralSubjects(),
+      generalSubjects: getALGeneralSubjects(parsedGrade),
     };
   }
 
-  // ✅ MODE 2: Full subject set (your Excel)
   const allCompulsoryPresent =
     selectedCompulsory.length === rule.compulsory.length;
 
@@ -827,7 +889,7 @@ export const validateALChoices = ({
       compulsorySubjects: [...rule.compulsory],
       optionalSubjects: selectedOptional,
       mainSubjects: [...rule.compulsory, ...selectedOptional],
-      generalSubjects: getALGeneralSubjects(),
+      generalSubjects: getALGeneralSubjects(parsedGrade),
     };
   }
 
@@ -839,9 +901,10 @@ export const validateALChoices = ({
 };
 
 export const buildALSubjectPayloadFromStudent = (student) => {
+  const grade = getStudentGrade(student);
   const stream = getStudentStream(student);
   const validation = validateALChoices({
-    grade: getStudentGrade(student),
+    grade,
     stream,
     choiceNumbers: student?.alSubjectChoiceNumbers || [],
     choiceNames: student?.alSubjectChoices || [],
