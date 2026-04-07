@@ -76,71 +76,125 @@ const normalizeSection = (value) => {
   return match ? match[0] : raw;
 };
 
-const getClassDisplayName = (row) => {
-  const explicitFull = pick(row.fullClassName, row.alClassName, "");
+const normalizeAcademicYear = (value) => {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : raw;
+};
+
+const getResolvedStream = (row = {}, fallback = {}) =>
+  normalizeText(pick(row.stream, fallback.stream, ""));
+
+const getResolvedSection = (row = {}, fallback = {}) =>
+  normalizeSection(pick(row.section, row.className, fallback.section, fallback.className, ""));
+
+const getResolvedGrade = (row = {}, fallback = {}) =>
+  parseGrade(pick(row.grade, fallback.grade, ""));
+
+const getComparableALClassName = (row = {}, fallback = {}) => {
+  const explicit = pick(row.fullClassName, row.alClassName, "");
+  if (explicit) return explicit;
+
+  const grade = getResolvedGrade(row, fallback);
+  const section = getResolvedSection(row, fallback);
+  const stream = getResolvedStream(row, fallback);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return "";
+};
+
+const getClassDisplayName = (row = {}, fallback = {}) => {
+  const explicitFull = pick(
+    row.fullClassName,
+    row.alClassName,
+    fallback.fullClassName,
+    fallback.alClassName,
+    ""
+  );
   if (explicitFull) return explicitFull;
 
-  const grade = parseGrade(row.grade);
-  const section = normalizeSection(pick(row.section, row.className, ""));
-  const stream = normalizeText(row.stream);
+  const grade = getResolvedGrade(row, fallback);
+  const section = getResolvedSection(row, fallback);
+  const stream = getResolvedStream(row, fallback);
 
   if (isALGrade(grade) && stream && section) {
     return buildALClassName(grade, stream, section);
   }
 
   if (grade && section) return `${grade}${section}`;
-  return normalizeText(row.className || "");
+  return normalizeText(pick(row.className, fallback.className, ""));
 };
 
-const getClassShortDisplayName = (row) => {
-  const grade = parseGrade(row.grade);
-  const section = normalizeSection(pick(row.section, row.className, ""));
-  const stream = normalizeText(row.stream);
+const getClassShortDisplayName = (row = {}, fallback = {}) => {
+  const grade = getResolvedGrade(row, fallback);
+  const section = getResolvedSection(row, fallback);
+  const stream = getResolvedStream(row, fallback);
 
   if (isALGrade(grade) && stream && section) {
-    return buildALDisplayClassName(grade, stream, section) || getClassDisplayName(row);
+    return buildALDisplayClassName(grade, stream, section) || getClassDisplayName(row, fallback);
   }
 
   if (grade && section) return `${grade}${section}`;
-  return normalizeText(row.className || "");
+  return normalizeText(pick(row.className, fallback.className, ""));
 };
 
-const getClassContext = (row = {}) => {
-  const grade = parseGrade(row.grade);
-  const section = normalizeSection(pick(row.section, row.className, ""));
-  const stream = normalizeText(row.stream);
+const getClassContext = (row = {}, fallback = {}) => {
+  const grade = getResolvedGrade(row, fallback);
+  const section = getResolvedSection(row, fallback);
+  const stream = getResolvedStream(row, fallback);
 
   return {
     grade,
     section,
     stream,
-    fullClassName: getClassDisplayName(row),
+    className: pick(row.className, fallback.className, ""),
+    alClassName: pick(row.alClassName, fallback.alClassName, ""),
+    fullClassName:
+      getComparableALClassName(row, fallback) || getClassDisplayName(row, fallback),
   };
 };
 
-const matchesClassContext = (row = {}, target = {}) => {
-  const rowGrade = parseGrade(row.grade);
-  const rowSection = normalizeSection(pick(row.section, row.className, ""));
-  const rowStream = normalizeText(row.stream);
+const matchesClassContext = (row = {}, target = {}, fallback = {}) => {
+  const rowGrade = getResolvedGrade(row, fallback);
+  const rowSection = getResolvedSection(row, fallback);
+  const rowStream = normalize(getResolvedStream(row, fallback));
 
   const targetGrade = parseGrade(target.grade);
   const targetSection = normalizeSection(target.section);
   const targetStream = normalizeText(target.stream);
 
-  if (isALGrade(targetGrade)) {
-    return (
-      rowGrade === targetGrade &&
-      rowSection === targetSection &&
-      rowStream === targetStream
-    );
-  }
-
   const rowClassIdentity = normalize(
-    pick(row.fullClassName, row.alClassName, row.className, "")
+    getComparableALClassName(row, fallback) ||
+      pick(row.fullClassName, row.alClassName, row.className, "") ||
+      getClassDisplayName(row, fallback)
   );
+
   const targetClassIdentity = normalize(
     pick(target.fullClassName, target.alClassName, target.className, "")
   );
+
+  if (isALGrade(targetGrade)) {
+    if (rowClassIdentity && targetClassIdentity && rowClassIdentity === targetClassIdentity) {
+      return true;
+    }
+
+    if (rowGrade !== targetGrade || rowSection !== targetSection) {
+      return false;
+    }
+
+    if (!targetStream) {
+      return true;
+    }
+
+    if (rowStream) {
+      return rowStream === normalize(targetStream);
+    }
+
+    return false;
+  }
 
   if (rowClassIdentity && targetClassIdentity) {
     return rowClassIdentity === targetClassIdentity;
@@ -153,28 +207,55 @@ const isCompletedForSubject = (
   students,
   marks,
   classContext,
-  subjectName,
+  subjectRow,
   targetTerm
 ) => {
-  const subjectStudents = students.filter(
-    (e) =>
-      matchesClassContext(e, classContext) &&
-      normalize(e.subjectName) === normalize(subjectName) &&
-      normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
-  );
+  const subjectName = pick(subjectRow.subjectName, "");
+  const subjectId = pick(subjectRow.subjectId, "");
+  const subjectNumber = pick(subjectRow.subjectNumber, "");
+
+  const subjectStudents = students.filter((e) => {
+    const sameClass = matchesClassContext(e, classContext);
+    const sameSubject =
+      (subjectId && normalize(pick(e.subjectId, "")) === normalize(subjectId)) ||
+      normalize(pick(e.subjectName, "")) === normalize(subjectName) ||
+      (subjectNumber &&
+        normalize(pick(e.subjectNumber, "")) === normalize(subjectNumber));
+
+    const sameYear =
+      normalizeAcademicYear(pick(e.academicYear, e.year, "")) ===
+      normalizeAcademicYear(targetTerm.year);
+
+    return sameClass && sameSubject && sameYear;
+  });
 
   const studentIds = new Set(
     subjectStudents.map((s) => String(s.studentId)).filter(Boolean)
   );
 
-  const subjectMarks = marks.filter(
-    (m) =>
-      matchesClassContext(m, classContext) &&
-      normalize(pick(m.subjectName, m.subject, "")) === normalize(subjectName) &&
-      normalize(pick(m.term, m.termName, "")) === normalize(targetTerm.term) &&
-      normalize(pick(m.academicYear, m.year, "")) === normalize(targetTerm.year) &&
+  const subjectMarks = marks.filter((m) => {
+    const sameClass = matchesClassContext(m, classContext);
+    const sameSubject =
+      (subjectId && normalize(pick(m.subjectId, "")) === normalize(subjectId)) ||
+      normalize(pick(m.subjectName, m.subject, "")) === normalize(subjectName) ||
+      (subjectNumber &&
+        normalize(pick(m.subjectNumber, "")) === normalize(subjectNumber));
+
+    const sameTerm =
+      normalize(pick(m.term, m.termName, "")) === normalize(targetTerm.term);
+
+    const sameYear =
+      normalizeAcademicYear(pick(m.academicYear, m.year, "")) ===
+      normalizeAcademicYear(targetTerm.year);
+
+    return (
+      sameClass &&
+      sameSubject &&
+      sameTerm &&
+      sameYear &&
       studentIds.has(String(m.studentId))
-  );
+    );
+  });
 
   const doneCount = new Set(subjectMarks.map((m) => String(m.studentId))).size;
   const total = subjectStudents.length;
@@ -295,42 +376,56 @@ export default function TeacherDashboard() {
           normalize(a.teacherEmail) === normalize(user.email)
       );
 
-      const mySubjectRows = myAssignments
-        .map((assignment) => {
-          const classIdentity = getClassDisplayName(assignment);
-          const classShort = getClassShortDisplayName(assignment);
-          const classContext = getClassContext(assignment);
-          const subjectName = assignment.subjectName;
-          const stream = normalizeText(assignment.stream);
+      const dedupedSubjectRowsMap = new Map();
 
-          const progressInfo = isCompletedForSubject(
-            enrollments,
-            marks,
-            classContext,
+      myAssignments.forEach((assignment) => {
+        const classIdentity = getClassDisplayName(assignment);
+        const classShort = getClassShortDisplayName(assignment);
+        const classContext = getClassContext(assignment);
+        const subjectName = pick(assignment.subjectName, assignment.subject, "");
+        const subjectId = assignment.subjectId || "";
+        const subjectNumber = pick(assignment.subjectNumber, "");
+        const stream = normalizeText(assignment.stream);
+
+        if (!subjectName) return;
+
+        const progressInfo = isCompletedForSubject(
+          enrollments,
+          marks,
+          classContext,
+          {
             subjectName,
-            targetTerm
-          );
+            subjectId,
+            subjectNumber,
+          },
+          targetTerm
+        );
 
-          return {
+        const rowKey = `${classIdentity}__${subjectId}__${subjectName}__${subjectNumber}`;
+
+        if (!dedupedSubjectRowsMap.has(rowKey)) {
+          dedupedSubjectRowsMap.set(rowKey, {
             className: pick(assignment.className, ""),
             fullClassName: classIdentity,
             displayClassName: classShort,
             stream,
             streamCode: pick(assignment.streamCode, ""),
             subjectName,
-            subjectId: assignment.subjectId || "",
-            subjectNumber: pick(assignment.subjectNumber, ""),
+            subjectId,
+            subjectNumber,
             total: progressInfo.total,
             done: progressInfo.doneCount,
             pending: progressInfo.pending,
             progress: progressInfo.progress,
-          };
-        })
-        .sort((a, b) => {
-          const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName));
-          if (classDiff !== 0) return classDiff;
-          return String(a.subjectName).localeCompare(String(b.subjectName));
-        });
+          });
+        }
+      });
+
+      const mySubjectRows = Array.from(dedupedSubjectRowsMap.values()).sort((a, b) => {
+        const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName));
+        if (classDiff !== 0) return classDiff;
+        return String(a.subjectName).localeCompare(String(b.subjectName));
+      });
 
       setSubjectRows(mySubjectRows);
 
@@ -348,16 +443,19 @@ export default function TeacherDashboard() {
         const classStudents = enrollments.filter(
           (e) =>
             matchesClassContext(e, classContext) &&
-            normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
+            normalizeAcademicYear(pick(e.academicYear, e.year, "")) ===
+              normalizeAcademicYear(targetTerm.year)
         );
 
         const uniqueStudentIds = new Set(
           classStudents.map((student) => String(student.studentId)).filter(Boolean)
         );
 
-        const classSubjects = assignments
+        const dedupedClassSubjects = new Map();
+
+        assignments
           .filter((a) => matchesClassContext(a, classContext))
-          .map((assignment) => {
+          .forEach((assignment) => {
             const teacherUser =
               users.find(
                 (u) =>
@@ -365,11 +463,21 @@ export default function TeacherDashboard() {
                   normalize(u.email) === normalize(assignment.teacherEmail)
               ) || null;
 
+            const subjectName = pick(assignment.subjectName, assignment.subject, "");
+            const subjectId = assignment.subjectId || "";
+            const subjectNumber = pick(assignment.subjectNumber, "");
+
+            if (!subjectName) return;
+
             const progressInfo = isCompletedForSubject(
               enrollments,
               marks,
               getClassContext(assignment),
-              assignment.subjectName,
+              {
+                subjectName,
+                subjectId,
+                subjectNumber,
+              },
               targetTerm
             );
 
@@ -377,29 +485,34 @@ export default function TeacherDashboard() {
               normalize(assignment.teacherId) === normalize(user.uid) ||
               normalize(assignment.teacherEmail) === normalize(user.email);
 
-            return {
-              subjectName: assignment.subjectName,
-              subjectId: assignment.subjectId || "",
-              subjectNumber: pick(assignment.subjectNumber, ""),
-              teacherName: pick(
-                teacherUser?.name,
-                teacherUser?.fullName,
-                assignment.teacherName,
-                "Teacher"
-              ),
-              teacherPhone: pick(teacherUser?.phone, ""),
-              total: progressInfo.total,
-              done: progressInfo.doneCount,
-              pending: progressInfo.pending,
-              progress: progressInfo.progress,
-              completed: progressInfo.completed,
-              isMine,
-            };
-          })
-          .sort((a, b) => {
-            if (a.completed !== b.completed) return a.completed ? 1 : -1;
-            return String(a.subjectName).localeCompare(String(b.subjectName));
+            const rowKey = `${subjectId}__${subjectName}__${subjectNumber}`;
+
+            if (!dedupedClassSubjects.has(rowKey)) {
+              dedupedClassSubjects.set(rowKey, {
+                subjectName,
+                subjectId,
+                subjectNumber,
+                teacherName: pick(
+                  teacherUser?.name,
+                  teacherUser?.fullName,
+                  assignment.teacherName,
+                  "Teacher"
+                ),
+                teacherPhone: pick(teacherUser?.phone, ""),
+                total: progressInfo.total,
+                done: progressInfo.doneCount,
+                pending: progressInfo.pending,
+                progress: progressInfo.progress,
+                completed: progressInfo.completed,
+                isMine,
+              });
+            }
           });
+
+        const classSubjects = Array.from(dedupedClassSubjects.values()).sort((a, b) => {
+          if (a.completed !== b.completed) return a.completed ? 1 : -1;
+          return String(a.subjectName).localeCompare(String(b.subjectName));
+        });
 
         const completedCount = classSubjects.filter((s) => s.completed).length;
         const pendingCount = classSubjects.length - completedCount;
@@ -656,7 +769,7 @@ export default function TeacherDashboard() {
                 ) : (
                   classTeacherData.subjects.map((subject) => (
                     <Box
-                      key={subject.subjectId || subject.subjectName}
+                      key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
                       sx={{
                         p: 1.5,
                         borderRadius: 3,
@@ -796,7 +909,7 @@ export default function TeacherDashboard() {
             ) : (
               <Grid container spacing={1.5}>
                 {subjectRows.map((row, i) => (
-                  <Grid item xs={12} md={6} key={i}>
+                  <Grid item xs={12} md={6} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${i}`}>
                     <MobileListRow
                       title={`${row.displayClassName} - ${row.subjectName}`}
                       right={
