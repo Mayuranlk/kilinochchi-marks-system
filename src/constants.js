@@ -752,7 +752,7 @@ export const validateALChoices = ({
     ...convertALChoiceNamesToSubjects(choiceNames),
   ]);
 
-  const chosenNumbers = chosenSubjects.map((subject) => subject.subjectNumber);
+  const chosenNumbers = chosenSubjects.map((s) => s.subjectNumber);
   const uniqueChosenNumbers = new Set(chosenNumbers);
 
   if (uniqueChosenNumbers.size !== chosenNumbers.length) {
@@ -762,12 +762,22 @@ export const validateALChoices = ({
     };
   }
 
-  const allowedOptionalNumbers = new Set(
-    rule.optionalGroups.flat().map((subject) => subject.subjectNumber)
+  const compulsoryNumbers = new Set(
+    rule.compulsory.map((s) => s.subjectNumber)
   );
 
-  const allAreAllowed = chosenSubjects.every((subject) =>
-    allowedOptionalNumbers.has(subject.subjectNumber)
+  const optionalNumbers = new Set(
+    rule.optionalGroups.flat().map((s) => s.subjectNumber)
+  );
+
+  const allowedNumbers = new Set([
+    ...compulsoryNumbers,
+    ...optionalNumbers,
+  ]);
+
+  // ✅ Check all selected are valid
+  const allAreAllowed = chosenSubjects.every((s) =>
+    allowedNumbers.has(s.subjectNumber)
   );
 
   if (!allAreAllowed) {
@@ -777,31 +787,54 @@ export const validateALChoices = ({
     };
   }
 
+  const selectedCompulsory = chosenSubjects.filter((s) =>
+    compulsoryNumbers.has(s.subjectNumber)
+  );
+
+  const selectedOptional = chosenSubjects.filter((s) =>
+    optionalNumbers.has(s.subjectNumber)
+  );
+
   const expectedOptionalCount = rule.optionalPickCount || 0;
-  if (chosenSubjects.length !== expectedOptionalCount) {
+
+  // ✅ MODE 1: Optional-only (current system)
+  if (selectedCompulsory.length === 0) {
+    if (selectedOptional.length !== expectedOptionalCount) {
+      return {
+        valid: false,
+        reason: `This stream requires exactly ${expectedOptionalCount} optional subject choice(s).`,
+      };
+    }
+
     return {
-      valid: false,
-      reason: `This stream requires exactly ${expectedOptionalCount} optional subject choice(s).`,
+      valid: true,
+      reason: "",
+      compulsorySubjects: [...rule.compulsory],
+      optionalSubjects: selectedOptional,
+      mainSubjects: [...rule.compulsory, ...selectedOptional],
+      generalSubjects: getALGeneralSubjects(),
     };
   }
 
-  if (normalizeText(stream) === "Arts") {
-    const hasDuplicates = chosenSubjects.length !== uniqueChosenNumbers.size;
-    if (hasDuplicates) {
-      return {
-        valid: false,
-        reason: "Arts stream cannot contain duplicate subjects.",
-      };
-    }
+  // ✅ MODE 2: Full subject set (your Excel)
+  const allCompulsoryPresent =
+    selectedCompulsory.length === rule.compulsory.length;
+
+  if (allCompulsoryPresent && selectedOptional.length === expectedOptionalCount) {
+    return {
+      valid: true,
+      reason: "",
+      compulsorySubjects: [...rule.compulsory],
+      optionalSubjects: selectedOptional,
+      mainSubjects: [...rule.compulsory, ...selectedOptional],
+      generalSubjects: getALGeneralSubjects(),
+    };
   }
 
   return {
-    valid: true,
-    reason: "",
-    compulsorySubjects: [...rule.compulsory],
-    optionalSubjects: chosenSubjects,
-    mainSubjects: [...rule.compulsory, ...chosenSubjects],
-    generalSubjects: getALGeneralSubjects(),
+    valid: false,
+    reason:
+      "Invalid A/L subject combination. Provide either optional subject(s) only OR full subject set.",
   };
 };
 
