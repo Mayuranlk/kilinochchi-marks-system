@@ -68,10 +68,6 @@ import {
   convertALChoiceNamesToSubjects,
 } from "../constants";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                   */
-/* -------------------------------------------------------------------------- */
-
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
 
@@ -96,10 +92,6 @@ const emptyForm = {
   alSubjectChoices: [],
   medium: "",
 };
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
 
 const normalizeGradeValue = (value) => {
   const raw = normalizeText(value);
@@ -186,15 +178,9 @@ const subjectSupportsGrade = (subject, grade) => {
   const minGrade = normalizeGradeValue(subject.minGrade);
   const maxGrade = normalizeGradeValue(subject.maxGrade);
 
-  if (minGrade && maxGrade) {
-    return g >= minGrade && g <= maxGrade;
-  }
-  if (minGrade && !maxGrade) {
-    return g >= minGrade;
-  }
-  if (!minGrade && maxGrade) {
-    return g <= maxGrade;
-  }
+  if (minGrade && maxGrade) return g >= minGrade && g <= maxGrade;
+  if (minGrade && !maxGrade) return g >= minGrade;
+  if (!minGrade && maxGrade) return g <= maxGrade;
 
   return true;
 };
@@ -236,20 +222,118 @@ const buildALMetadata = (grade, stream, section) => {
   };
 };
 
-const deriveALChoiceNumbersFromNames = (choiceNames = []) => {
-  return convertALChoiceNamesToSubjects(choiceNames).map((subject) => subject.subjectNumber);
-};
+const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
+  convertALChoiceNamesToSubjects(choiceNames).map((subject) => subject.subjectNumber);
 
-const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) => {
-  return convertALChoiceNumbersToSubjects(choiceNumbers).map((subject) => subject.subjectName);
-};
+const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
+  convertALChoiceNumbersToSubjects(choiceNumbers).map((subject) => subject.subjectName);
 
 const dedupeTextArray = (items = []) =>
   [...new Set((items || []).map(normalizeText).filter(Boolean))];
 
-/* -------------------------------------------------------------------------- */
-/* Component                                                                   */
-/* -------------------------------------------------------------------------- */
+const downloadWorksheet = (rows, sheetName, fileName) => {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, fileName);
+};
+
+const downloadJuniorTemplate = () => {
+  const template = [
+    {
+      "Admission No": "ADM001",
+      Name: "Junior Student",
+      Grade: 8,
+      Section: "A",
+      Gender: "Male",
+      DOB: "2012-01-15",
+      Status: "Active",
+      "Join Date": "2026-01-01",
+      Religion: "Hinduism",
+      "Aesthetic Choice": "Art",
+      Medium: "Tamil",
+    },
+  ];
+
+  downloadWorksheet(template, "Grades 6-9", "students_template_grades_6_9.xlsx");
+};
+
+const downloadOLTemplate = () => {
+  const template = [
+    {
+      "Admission No": "ADM010",
+      Name: "OL Student",
+      Grade: 11,
+      Section: "B",
+      Gender: "Female",
+      DOB: "2010-05-12",
+      Status: "Active",
+      "Join Date": "2026-01-01",
+      Religion: "Catholicism",
+      "Basket A Choice": "Geography",
+      "Basket B Choice": "Art",
+      "Basket C Choice": "Information & Communication Technology",
+      Medium: "Tamil",
+    },
+  ];
+
+  downloadWorksheet(template, "Grades 10-11", "students_template_grades_10_11.xlsx");
+};
+
+const downloadALTemplate = () => {
+  const template = [
+    {
+      "Admission No": "ADM100",
+      Name: "AL Physical Science Student",
+      Grade: 12,
+      Section: "A",
+      Gender: "Male",
+      DOB: "2008-07-04",
+      Status: "Active",
+      "Join Date": "2026-01-01",
+      Stream: "Physical Science",
+      "Stream Code": "MATHS",
+      "A/L Class Name": "12 Physical Science A",
+      "AL Subject No 1": "02",
+      "AL Subject No 2": "",
+      "AL Subject No 3": "",
+      "AL Subject 1": "Chemistry",
+      "AL Subject 2": "",
+      "AL Subject 3": "",
+      Medium: "English",
+    },
+    {
+      "Admission No": "ADM101",
+      Name: "AL Arts Student",
+      Grade: 12,
+      Section: "B",
+      Gender: "Female",
+      DOB: "2008-06-10",
+      Status: "Active",
+      "Join Date": "2026-01-01",
+      Stream: "Arts",
+      "Stream Code": "ARTS",
+      "A/L Class Name": "12 Arts B",
+      "AL Subject No 1": "22",
+      "AL Subject No 2": "58",
+      "AL Subject No 3": "",
+      "AL Subject 1": "Geography",
+      "AL Subject 2": "Drama and Theatre (Tamil)",
+      "AL Subject 3": "",
+      Medium: "Tamil",
+    },
+  ];
+
+  downloadWorksheet(template, "Grades 12-13 AL", "students_template_grades_12_13_al.xlsx");
+};
+
+const getGradeBandLabel = (grade) => {
+  const g = Number(grade);
+  if (g >= 6 && g <= 9) return "Grades 6-9";
+  if (g >= 10 && g <= 11) return "Grades 10-11";
+  if (g >= 12 && g <= 13) return "Grades 12-13 A/L";
+  return "Unknown grade band";
+};
 
 export default function Students() {
   const theme = useTheme();
@@ -297,9 +381,7 @@ export default function Students() {
 
   const gradeOptions = useMemo(() => {
     return [...new Set(
-      classrooms
-        .map((c) => normalizeGradeValue(c.grade))
-        .filter(Boolean)
+      classrooms.map((c) => normalizeGradeValue(c.grade)).filter(Boolean)
     )].sort((a, b) => a - b);
   }, [classrooms]);
 
@@ -336,9 +418,7 @@ export default function Students() {
     ].sort();
   }, [classrooms, form.grade]);
 
-  const activeSubjects = useMemo(() => {
-    return subjects.filter(isActiveSubject);
-  }, [subjects]);
+  const activeSubjects = useMemo(() => subjects.filter(isActiveSubject), [subjects]);
 
   const aestheticOptions = useMemo(() => {
     const grade = Number(form.grade);
@@ -366,15 +446,12 @@ export default function Students() {
       )
       .map((s) => subjectReligion(s));
 
-    const combined = [...new Set([...RELIGIONS, ...fromSubjects].filter(Boolean))];
-    return combined;
+    return [...new Set([...RELIGIONS, ...fromSubjects].filter(Boolean))];
   }, [activeSubjects, form.grade]);
 
   const basketOptions = useMemo(() => {
     const grade = Number(form.grade);
-    if (!shouldShowBasketChoices(grade)) {
-      return { A: [], B: [], C: [] };
-    }
+    if (!shouldShowBasketChoices(grade)) return { A: [], B: [], C: [] };
 
     const categoryMap = {
       A: "basket_a",
@@ -410,38 +487,9 @@ export default function Students() {
     };
   }, [activeSubjects, form.grade]);
 
-  const alMainSubjectOptions = useMemo(() => {
-    const grade = Number(form.grade);
-    if (!shouldShowALFields(grade)) return [];
-
-    const stream = normalizeText(form.stream);
-
-    return activeSubjects
-      .filter((s) => {
-        if (!subjectSupportsGrade(s, grade)) return false;
-
-        const category = subjectCategory(s);
-        if (category !== "al_main" && category !== "al") return false;
-
-        if (!stream) return true;
-
-        const primaryStream = normalizeText(s.stream);
-        const additionalStreams = Array.isArray(s.streams)
-          ? s.streams.map(normalizeText).filter(Boolean)
-          : [];
-
-        const allStreams = [...new Set([primaryStream, ...additionalStreams].filter(Boolean))];
-        if (allStreams.length === 0) return true;
-
-        return allStreams.includes(stream);
-      })
-      .sort((a, b) => subjectDisplayName(a).localeCompare(subjectDisplayName(b)));
-  }, [activeSubjects, form.grade, form.stream]);
-
   const alOptionalChoiceOptions = useMemo(() => {
     const grade = Number(form.grade);
     if (!shouldShowALFields(grade) || !normalizeText(form.stream)) return [];
-
     return getALOptionalSubjectsForStream(form.stream);
   }, [form.grade, form.stream]);
 
@@ -462,13 +510,13 @@ export default function Students() {
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) {
         warnings.push("Select an A/L stream to load the correct subject choices.");
-      } else if (alMainSubjectOptions.length === 0) {
-        warnings.push("No active A/L subjects found for the selected stream and grade.");
+      } else if (alOptionalChoiceOptions.length === 0) {
+        warnings.push("No active A/L optional subject definitions found for this stream.");
       }
     }
 
     return warnings;
-  }, [form.grade, form.stream, aestheticOptions, basketOptions, alMainSubjectOptions]);
+  }, [form.grade, form.stream, aestheticOptions, basketOptions, alOptionalChoiceOptions]);
 
   useEffect(() => {
     fetchData();
@@ -517,9 +565,7 @@ export default function Students() {
       const loadedSubjects = subjectSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-        grades: Array.isArray(d.data().grades)
-          ? d.data().grades.map(Number)
-          : [],
+        grades: Array.isArray(d.data().grades) ? d.data().grades.map(Number) : [],
       }));
 
       setStudents(sortStudentsClientSide(loadedStudents));
@@ -573,7 +619,8 @@ export default function Students() {
       return {
         ...cleaned,
         ...alMeta,
-        alSubjectChoiceNumbers: choiceNumbers.length > 0 ? choiceNumbers : deriveALChoiceNumbersFromNames(choiceNames),
+        alSubjectChoiceNumbers:
+          choiceNumbers.length > 0 ? choiceNumbers : deriveALChoiceNumbersFromNames(choiceNames),
         alSubjectChoices: choiceNames,
       };
     }
@@ -597,44 +644,33 @@ export default function Students() {
     return {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
-
       admissionNo: normalizeText(cleaned.admissionNo),
-
       grade,
       section,
       className: section,
-
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
-
       religion: normalizeText(cleaned.religion),
-
       aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
-
       basket1: normalizeText(cleaned.basketAChoice),
       basket2: normalizeText(cleaned.basketBChoice),
       basket3: normalizeText(cleaned.basketCChoice),
-
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
-
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
-
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
       alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
         ? cleaned.alSubjectChoices
         : [],
-
       medium: normalizeText(cleaned.medium),
-
       updatedAt: new Date().toISOString(),
     };
   };
@@ -648,8 +684,7 @@ export default function Students() {
       return normalizeLower(s.admissionNo) === admissionNo;
     });
 
-    if (duplicate) return "Admission number already exists.";
-    return "";
+    return duplicate ? "Admission number already exists." : "";
   };
 
   const validateForm = () => {
@@ -679,12 +714,8 @@ export default function Students() {
     }
 
     if (shouldShowAesthetic(grade)) {
-      if (aestheticOptions.length === 0) {
-        return "No aesthetic subjects are defined for this grade.";
-      }
-      if (!normalizeText(form.aestheticChoice)) {
-        return "Aesthetic choice is required for Grades 6 to 9.";
-      }
+      if (aestheticOptions.length === 0) return "No aesthetic subjects are defined for this grade.";
+      if (!normalizeText(form.aestheticChoice)) return "Aesthetic choice is required for Grades 6 to 9.";
     }
 
     if (shouldShowBasketChoices(grade)) {
@@ -705,9 +736,7 @@ export default function Students() {
         choiceNames: cleaned.alSubjectChoices,
       });
 
-      if (!result.valid) {
-        return result.reason || "Invalid A/L subject choices.";
-      }
+      if (!result.valid) return result.reason || "Invalid A/L subject choices.";
     }
 
     return "";
@@ -832,55 +861,56 @@ export default function Students() {
     const al3 = normalizeText(row["AL Subject 3"] || row["A/L Subject 3"] || row["AL3"]);
 
     const raw = {
-      name: normalizeText(row["Name"] || row["name"]),
-      admissionNo: normalizeText(row["Admission No"] || row["admissionNo"] || row["AdmissionNo"]),
-      grade: normalizeGradeValue(row["Grade"] || row["grade"]),
-      section: normalizeSectionValue(row["Section"] || row["section"]),
-      gender: normalizeText(row["Gender"] || row["gender"]),
-      dob: normalizeText(row["DOB"] || row["dob"]),
-      status: normalizeText(row["Status"] || row["status"]) || "Active",
-      joinDate: normalizeText(row["Join Date"] || row["joinDate"]),
-      religion: normalizeText(row["Religion"] || row["religion"]),
-      aestheticChoice: normalizeText(row["Aesthetic Choice"] || row["aestheticChoice"]),
-      basketAChoice: normalizeText(row["Basket A Choice"] || row["basketAChoice"] || row["Basket 1"] || row["basket1"]),
-      basketBChoice: normalizeText(row["Basket B Choice"] || row["basketBChoice"] || row["Basket 2"] || row["basket2"]),
-      basketCChoice: normalizeText(row["Basket C Choice"] || row["basketCChoice"] || row["Basket 3"] || row["basket3"]),
-      stream: normalizeText(row["Stream"] || row["stream"]),
+      name: normalizeText(row["Name"] || row.name),
+      admissionNo: normalizeText(row["Admission No"] || row.admissionNo || row.AdmissionNo),
+      grade: normalizeGradeValue(row["Grade"] || row.grade),
+      section: normalizeSectionValue(row["Section"] || row.section),
+      gender: normalizeText(row["Gender"] || row.gender),
+      dob: normalizeText(row["DOB"] || row.dob),
+      status: normalizeText(row["Status"] || row.status) || "Active",
+      joinDate: normalizeText(row["Join Date"] || row.joinDate),
+      religion: normalizeText(row["Religion"] || row.religion),
+      aestheticChoice: normalizeText(row["Aesthetic Choice"] || row.aestheticChoice),
+      basketAChoice: normalizeText(row["Basket A Choice"] || row.basketAChoice || row["Basket 1"] || row.basket1),
+      basketBChoice: normalizeText(row["Basket B Choice"] || row.basketBChoice || row["Basket 2"] || row.basket2),
+      basketCChoice: normalizeText(row["Basket C Choice"] || row.basketCChoice || row["Basket 3"] || row.basket3),
+      stream: normalizeText(row["Stream"] || row.stream),
       alSubjectChoiceNumbers: [al1Number, al2Number, al3Number].filter(Boolean),
       alSubjectChoices: [al1, al2, al3].filter(Boolean),
-      medium: normalizeText(row["Medium"] || row["medium"]),
+      medium: normalizeText(row["Medium"] || row.medium),
     };
 
     return cleanFormByGrade(raw);
   };
 
   const validateBulkRow = (student, rowNumber, seenAdmissionNos) => {
-    if (!student.name) return `Row ${rowNumber}: Student name is required.`;
-    if (!student.admissionNo) return `Row ${rowNumber}: Admission number is required.`;
+    const grade = Number(student.grade);
+    const band = getGradeBandLabel(grade);
+
+    if (!student.name) return `Row ${rowNumber} (${band}): Student name is required.`;
+    if (!student.admissionNo) return `Row ${rowNumber} (${band}): Admission number is required.`;
 
     if (seenAdmissionNos.has(normalizeLower(student.admissionNo))) {
-      return `Row ${rowNumber}: Duplicate admission number in upload file.`;
+      return `Row ${rowNumber} (${band}): Duplicate admission number found within the upload file.`;
     }
 
     const existingStudent = students.find(
       (s) => normalizeLower(s.admissionNo) === normalizeLower(student.admissionNo)
     );
     if (existingStudent) {
-      return `Row ${rowNumber}: Admission number already exists.`;
+      return `Row ${rowNumber} (${band}): Admission number already exists in the system.`;
     }
 
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
     if (!student.section) return `Row ${rowNumber}: Section is required.`;
 
-    const grade = Number(student.grade);
-
     if (shouldShowALFields(grade)) {
       if (!normalizeText(student.stream)) {
-        return `Row ${rowNumber}: Stream is required for Grades 12 to 13.`;
+        return `Row ${rowNumber} (Grades 12-13 A/L): Stream is required. Use values like Physical Science, Arts, Commerce.`;
       }
 
       if (!isValidClassroom(student.grade, student.section, student.stream)) {
-        return `Row ${rowNumber}: Grade ${student.grade}, Section ${student.section}, Stream ${student.stream} does not exist in classrooms.`;
+        return `Row ${rowNumber} (Grades 12-13 A/L): Classroom does not exist for Grade ${student.grade}, Section ${student.section}, Stream ${student.stream}. Create the classroom first.`;
       }
 
       const validation = validateALChoices({
@@ -891,29 +921,51 @@ export default function Students() {
       });
 
       if (!validation.valid) {
-        return `Row ${rowNumber}: ${validation.reason}`;
+        return `Row ${rowNumber} (Grades 12-13 A/L): ${validation.reason}`;
       }
-    } else {
-      if (!isValidClassroom(student.grade, student.section)) {
-        return `Row ${rowNumber}: Grade ${student.grade} Section ${student.section} does not exist in classrooms.`;
+
+      if (!student.alSubjectChoiceNumbers?.length && !student.alSubjectChoices?.length) {
+        return `Row ${rowNumber} (Grades 12-13 A/L): A/L optional subject choice is required. Fill AL Subject No columns.`;
       }
+
+      return "";
     }
 
-    if (shouldShowReligion(grade) && !normalizeText(student.religion)) {
-      return `Row ${rowNumber}: Religion is required for Grades 6 to 11.`;
+    if (!isValidClassroom(student.grade, student.section)) {
+      return `Row ${rowNumber} (${band}): Classroom does not exist for Grade ${student.grade}, Section ${student.section}. Create the classroom first.`;
     }
 
-    if (shouldShowAesthetic(grade) && !normalizeText(student.aestheticChoice)) {
-      return `Row ${rowNumber}: Aesthetic choice is required for Grades 6 to 9.`;
+    if (isJuniorGrade(grade)) {
+      if (!normalizeText(student.religion)) {
+        return `Row ${rowNumber} (Grades 6-9): Religion is required.`;
+      }
+
+      if (!normalizeText(student.aestheticChoice)) {
+        return `Row ${rowNumber} (Grades 6-9): Aesthetic Choice is required. Use the Grades 6-9 template.`;
+      }
+
+      return "";
     }
 
-    if (shouldShowBasketChoices(grade)) {
-      if (!normalizeText(student.basketAChoice)) return `Row ${rowNumber}: Basket A choice is required.`;
-      if (!normalizeText(student.basketBChoice)) return `Row ${rowNumber}: Basket B choice is required.`;
-      if (!normalizeText(student.basketCChoice)) return `Row ${rowNumber}: Basket C choice is required.`;
+    if (isOLGrade(grade)) {
+      if (!normalizeText(student.religion)) {
+        return `Row ${rowNumber} (Grades 10-11): Religion is required.`;
+      }
+
+      if (!normalizeText(student.basketAChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket A Choice is required. Use the Grades 10-11 template.`;
+      }
+      if (!normalizeText(student.basketBChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket B Choice is required. Use the Grades 10-11 template.`;
+      }
+      if (!normalizeText(student.basketCChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket C Choice is required. Use the Grades 10-11 template.`;
+      }
+
+      return "";
     }
 
-    return "";
+    return `Row ${rowNumber}: Unsupported grade value.`;
   };
 
   const buildBulkPayload = (student) => {
@@ -925,44 +977,33 @@ export default function Students() {
     return {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
-
       admissionNo: normalizeText(cleaned.admissionNo),
-
       grade,
       section,
       className: section,
-
       gender: normalizeText(cleaned.gender),
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
-
       religion: normalizeText(cleaned.religion),
-
       aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
-
       basket1: normalizeText(cleaned.basketAChoice),
       basket2: normalizeText(cleaned.basketBChoice),
       basket3: normalizeText(cleaned.basketCChoice),
-
       basketAChoice: normalizeText(cleaned.basketAChoice),
       basketBChoice: normalizeText(cleaned.basketBChoice),
       basketCChoice: normalizeText(cleaned.basketCChoice),
-
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
-
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
       alSubjectChoices: Array.isArray(cleaned.alSubjectChoices)
         ? cleaned.alSubjectChoices
         : [],
-
       medium: normalizeText(cleaned.medium),
-
       updatedAt: new Date().toISOString(),
     };
   };
@@ -1026,9 +1067,7 @@ export default function Students() {
         );
       }
 
-      if (validRows.length === 0) {
-        setBulkProgress(100);
-      }
+      if (validRows.length === 0) setBulkProgress(100);
 
       setBulkResults({ successCount, failCount, errors });
       await fetchData();
@@ -1073,114 +1112,10 @@ export default function Students() {
     XLSX.writeFile(wb, `students_export_${Date.now()}.xlsx`);
   };
 
-  const handleDownloadTemplate = () => {
-    const template = [
-      {
-        "Admission No": "ADM001",
-        Name: "Junior Student",
-        Grade: 8,
-        Section: "A",
-        Gender: "Male",
-        DOB: "2012-01-15",
-        Status: "Active",
-        "Join Date": "2026-01-01",
-        Religion: "Hinduism",
-        "Aesthetic Choice": "Art",
-        "Basket A Choice": "",
-        "Basket B Choice": "",
-        "Basket C Choice": "",
-        Stream: "",
-        "Stream Code": "",
-        "A/L Class Name": "",
-        "AL Subject No 1": "",
-        "AL Subject No 2": "",
-        "AL Subject No 3": "",
-        "AL Subject 1": "",
-        "AL Subject 2": "",
-        "AL Subject 3": "",
-        Medium: "Tamil",
-      },
-      {
-        "Admission No": "ADM010",
-        Name: "OL Student",
-        Grade: 11,
-        Section: "B",
-        Gender: "Female",
-        DOB: "2010-05-12",
-        Status: "Active",
-        "Join Date": "2026-01-01",
-        Religion: "Catholicism",
-        "Aesthetic Choice": "",
-        "Basket A Choice": "Geography",
-        "Basket B Choice": "Art",
-        "Basket C Choice": "Information & Communication Technology",
-        Stream: "",
-        "Stream Code": "",
-        "A/L Class Name": "",
-        "AL Subject No 1": "",
-        "AL Subject No 2": "",
-        "AL Subject No 3": "",
-        "AL Subject 1": "",
-        "AL Subject 2": "",
-        "AL Subject 3": "",
-        Medium: "Tamil",
-      },
-      {
-        "Admission No": "ADM100",
-        Name: "AL Student",
-        Grade: 12,
-        Section: "A",
-        Gender: "Male",
-        DOB: "2008-07-04",
-        Status: "Active",
-        "Join Date": "2026-01-01",
-        Religion: "",
-        "Aesthetic Choice": "",
-        "Basket A Choice": "",
-        "Basket B Choice": "",
-        "Basket C Choice": "",
-        Stream: "Physical Science",
-        "Stream Code": "MATHS",
-        "A/L Class Name": "12 Physical Science A",
-        "AL Subject No 1": "02",
-        "AL Subject No 2": "",
-        "AL Subject No 3": "",
-        "AL Subject 1": "Chemistry",
-        "AL Subject 2": "",
-        "AL Subject 3": "",
-        Medium: "English",
-      },
-      {
-        "Admission No": "ADM101",
-        Name: "AL Arts Student",
-        Grade: 12,
-        Section: "B",
-        Gender: "Female",
-        DOB: "2008-06-10",
-        Status: "Active",
-        "Join Date": "2026-01-01",
-        Religion: "",
-        "Aesthetic Choice": "",
-        "Basket A Choice": "",
-        "Basket B Choice": "",
-        "Basket C Choice": "",
-        Stream: "Arts",
-        "Stream Code": "ARTS",
-        "A/L Class Name": "12 Arts B",
-        "AL Subject No 1": "22",
-        "AL Subject No 2": "58",
-        "AL Subject No 3": "",
-        "AL Subject 1": "Geography",
-        "AL Subject 2": "Drama and Theatre (Tamil)",
-        "AL Subject 3": "",
-        Medium: "Tamil",
-      },
-    ];
-
-    const ws = XLSX.utils.json_to_sheet(template);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Template");
-    XLSX.writeFile(wb, "student_upload_template.xlsx");
+  const handleDownloadTemplate = (type) => {
+    if (type === "junior") return downloadJuniorTemplate();
+    if (type === "ol") return downloadOLTemplate();
+    if (type === "al") return downloadALTemplate();
   };
 
   const alValidationPreview = useMemo(() => {
@@ -1188,14 +1123,12 @@ export default function Students() {
     if (!shouldShowALFields(grade) || !normalizeText(form.stream)) return null;
 
     const cleaned = cleanFormByGrade(form);
-    const validation = validateALChoices({
+    return validateALChoices({
       grade,
       stream: cleaned.stream,
       choiceNumbers: cleaned.alSubjectChoiceNumbers,
       choiceNames: cleaned.alSubjectChoices,
     });
-
-    return validation;
   }, [form]);
 
   return (
@@ -1240,15 +1173,39 @@ export default function Students() {
               onChange={handleBulkUpload}
             />
 
-            <Tooltip title="Download Upload Template">
+            <Tooltip title="Download Grade 6–9 Template">
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<DownloadIcon />}
-                onClick={handleDownloadTemplate}
+                onClick={() => handleDownloadTemplate("junior")}
                 sx={{ borderColor: "#1a237e", color: "#1a237e" }}
               >
-                {isMobile ? "" : "Template"}
+                {isMobile ? "6-9" : "Template 6-9"}
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Download Grade 10–11 Template">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => handleDownloadTemplate("ol")}
+                sx={{ borderColor: "#2e7d32", color: "#2e7d32" }}
+              >
+                {isMobile ? "10-11" : "Template 10-11"}
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Download Grade 12–13 A/L Template">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={() => handleDownloadTemplate("al")}
+                sx={{ borderColor: "#6a1b9a", color: "#6a1b9a" }}
+              >
+                {isMobile ? "A/L" : "Template A/L"}
               </Button>
             </Tooltip>
 
@@ -1314,11 +1271,16 @@ export default function Students() {
             {bulkResults.failCount > 0 && `, ${bulkResults.failCount} failed`}
             {bulkResults.errors.length > 0 && (
               <Box mt={0.5}>
-                {bulkResults.errors.slice(0, 5).map((err, i) => (
+                {bulkResults.errors.slice(0, 8).map((err, i) => (
                   <Typography key={i} variant="caption" display="block">
                     {err}
                   </Typography>
                 ))}
+                {bulkResults.errors.length > 8 && (
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    + {bulkResults.errors.length - 8} more row error(s)
+                  </Typography>
+                )}
               </Box>
             )}
           </Alert>
