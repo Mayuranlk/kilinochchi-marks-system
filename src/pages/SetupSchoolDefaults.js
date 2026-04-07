@@ -118,10 +118,10 @@ export default function SetupSchoolDefaults() {
       const result = await createDefaultSubjects(profile);
       setSubjectResult(result);
       setSuccess(
-        `Default subjects created: ${result.created}, skipped existing: ${result.skipped}.`
+        `Default subjects setup completed. Created: ${result.created}, skipped existing: ${result.skipped}. Includes A/L common subjects: Common General Test, General English, and GIT for Grade 12.`
       );
     } catch (err) {
-      setError("Failed to create default subjects: " + err.message);
+      setError("Failed to create default subjects: " + (err.message || "Unknown error"));
     } finally {
       setLoadingSubjects(false);
     }
@@ -139,7 +139,7 @@ export default function SetupSchoolDefaults() {
         `Student schema cleanup complete: ${result.updated} updated, ${result.unchanged} unchanged.`
       );
     } catch (err) {
-      setError("Failed to fix student data: " + err.message);
+      setError("Failed to fix student data: " + (err.message || "Unknown error"));
     } finally {
       setLoadingStudents(false);
     }
@@ -178,6 +178,13 @@ export default function SetupSchoolDefaults() {
               One-time and occasional maintenance tools for preparing subject definitions
               and cleaning compatibility fields in student records.
             </Typography>
+
+            <Alert severity="info" icon={<InfoOutlinedIcon />}>
+              This page seeds the baseline subject catalog, including A/L common subjects:
+              <strong> Common General Test</strong>,
+              <strong> General English</strong>, and
+              <strong> General Information Technology</strong> for Grade 12.
+            </Alert>
 
             <Alert severity="info" icon={<InfoOutlinedIcon />}>
               This page does <strong>not</strong> decide actual subject membership.
@@ -224,12 +231,19 @@ export default function SetupSchoolDefaults() {
         <ActionCard
           icon={<PlaylistAddCheckIcon />}
           title="Create Default Subjects"
-          description="Creates missing subject definitions required by the system, such as core subjects, religion subjects, aesthetic subjects, and other baseline catalog subjects used across grades."
+          description="Creates missing subject definitions required by the system, including core subjects, religion subjects, aesthetic subjects, basket subjects, A/L stream subjects, and A/L common subjects such as Common General Test, General English, and GIT."
           buttonText="Create Default Subjects"
           onClick={handleCreateSubjects}
           loading={loadingSubjects}
           color="primary"
         >
+          <Alert severity="info" icon={<FactCheckIcon />}>
+            A/L common subject seeding is now grade-aware:
+            <strong> Common General Test</strong> and
+            <strong> General English</strong> apply to Grades 12 and 13, while
+            <strong> GIT</strong> applies to Grade 12 only.
+          </Alert>
+
           {subjectResult && (
             <Grid container spacing={2}>
               <Grid item xs={12} sm={4}>
@@ -300,16 +314,22 @@ export default function SetupSchoolDefaults() {
                 1. Run <strong>Create Default Subjects</strong>
               </Typography>
               <Typography variant="body2">
-                2. Run <strong>Fix Student Data</strong>
+                2. Confirm A/L common subjects are present:
+                <strong> Common General Test</strong>,
+                <strong> General English</strong>,
+                <strong> GIT</strong>
               </Typography>
               <Typography variant="body2">
-                3. Open <strong>Generate Subject Enrollments</strong>
+                3. Run <strong>Fix Student Data</strong>
               </Typography>
               <Typography variant="body2">
-                4. Review results in <strong>Student Subject Enrollments</strong>
+                4. Open <strong>Generate Subject Enrollments</strong>
               </Typography>
               <Typography variant="body2">
-                5. Open <strong>Marks Entry</strong> and verify enrolled subjects load correctly
+                5. Review results in <strong>Student Subject Enrollments</strong>
+              </Typography>
+              <Typography variant="body2">
+                6. Open <strong>Marks Entry</strong> and verify enrolled subjects load correctly
               </Typography>
             </Stack>
           </CardContent>

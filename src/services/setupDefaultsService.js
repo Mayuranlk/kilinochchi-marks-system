@@ -13,8 +13,9 @@ import {
   BASKET_B,
   BASKET_C,
   AL_ALL_SUBJECTS,
-  AL_GENERAL_SUBJECTS,
   AL_STREAM_RULES,
+  AL_COMMON_SUBJECTS_ALL,
+  AL_COMMON_SUBJECTS_GRADE_12_ONLY,
 } from "../constants";
 
 const SUBJECTS_COLLECTION = "subjects";
@@ -305,8 +306,8 @@ function getALStreamNamesForSubject(subjectName) {
     .map(([streamName]) => streamName);
 }
 
-function getALSubjects() {
-  const mainSubjects = AL_ALL_SUBJECTS.map((subject, index) => {
+function getALMainSubjects() {
+  return AL_ALL_SUBJECTS.map((subject, index) => {
     const streamNames = getALStreamNamesForSubject(subject.subjectName);
 
     return {
@@ -322,8 +323,10 @@ function getALSubjects() {
       isOptional: false,
     };
   });
+}
 
-  const generalSubjects = AL_GENERAL_SUBJECTS.map((subject, index) => ({
+function getALCommonSubjects() {
+  const grade12and13 = AL_COMMON_SUBJECTS_ALL.map((subject, index) => ({
     code: subject.subjectCode || `AL_${subject.subjectNumber}`,
     name: subject.subjectName,
     shortName: subject.shortName || subject.subjectName,
@@ -334,9 +337,28 @@ function getALSubjects() {
     displayOrder: 200 + index,
     streamOptions: Object.keys(AL_STREAM_RULES),
     isOptional: false,
+    appliesToAllStreams: true,
   }));
 
-  return [...mainSubjects, ...generalSubjects];
+  const grade12only = AL_COMMON_SUBJECTS_GRADE_12_ONLY.map((subject, index) => ({
+    code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+    name: subject.subjectName,
+    shortName: subject.shortName || subject.subjectName,
+    subjectNumber: subject.subjectNumber || "",
+    category: "al_general",
+    minGrade: 12,
+    maxGrade: 12,
+    displayOrder: 220 + index,
+    streamOptions: Object.keys(AL_STREAM_RULES),
+    isOptional: false,
+    appliesToAllStreams: true,
+  }));
+
+  return [...grade12and13, ...grade12only];
+}
+
+function getALSubjects() {
+  return [...getALMainSubjects(), ...getALCommonSubjects()];
 }
 
 function getDefaultSubjects() {
