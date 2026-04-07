@@ -85,27 +85,61 @@ const normalizeSection = (value) => {
   return match ? match[0] : raw;
 };
 
+const normalizeAcademicYear = (value) => {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : raw;
+};
+
 const getClassIdentity = (item = {}) =>
   pick(item.alClassName, item.fullClassName, item.className, "");
 
-const getClassFallback = (item = {}) => {
-  const grade = parseGrade(item.grade);
-  const section = normalizeSection(pick(item.section, item.className, ""));
-  const stream = normalizeText(item.stream);
+const getResolvedStream = (item = {}, fallback = {}) =>
+  normalizeText(pick(item.stream, fallback.stream, ""));
+
+const getResolvedSection = (item = {}, fallback = {}) =>
+  normalizeSection(pick(item.section, item.className, fallback.section, fallback.className, ""));
+
+const getResolvedGrade = (item = {}, fallback = {}) =>
+  parseGrade(pick(item.grade, fallback.grade, ""));
+
+const getComparableALClassName = (item = {}, fallback = {}) => {
+  const explicit = getClassIdentity(item);
+  if (explicit) return explicit;
+
+  const grade = getResolvedGrade(item, fallback);
+  const section = getResolvedSection(item, fallback);
+  const stream = getResolvedStream(item, fallback);
 
   if (isALGrade(grade) && stream && section) {
     return buildALClassName(grade, stream, section);
   }
 
-  return pick(item.className, `${pick(item.grade, "")}${pick(item.section, "")}`.trim());
+  return "";
 };
 
-const getDisplayClassName = (item = {}) => {
-  const explicit = pick(item.alClassName, item.fullClassName, "");
+const getClassFallback = (item = {}, fallback = {}) => {
+  const grade = getResolvedGrade(item, fallback);
+  const section = getResolvedSection(item, fallback);
+  const stream = getResolvedStream(item, fallback);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return pick(
+    item.className,
+    fallback.className,
+    `${pick(item.grade, fallback.grade, "")}${pick(item.section, fallback.section, "")}`.trim()
+  );
+};
+
+const getDisplayClassName = (item = {}, fallback = {}) => {
+  const explicit = pick(item.alClassName, item.fullClassName, fallback.alClassName, fallback.fullClassName, "");
   if (explicit) {
-    const grade = parseGrade(item.grade);
-    const section = normalizeSection(pick(item.section, item.className, ""));
-    const stream = normalizeText(item.stream);
+    const grade = getResolvedGrade(item, fallback);
+    const section = getResolvedSection(item, fallback);
+    const stream = getResolvedStream(item, fallback);
 
     if (isALGrade(grade) && stream && section) {
       return buildALDisplayClassName(grade, stream, section) || explicit;
@@ -113,41 +147,62 @@ const getDisplayClassName = (item = {}) => {
     return explicit;
   }
 
-  return getClassFallback(item);
+  return getClassFallback(item, fallback);
 };
 
-const getClassContext = (item = {}) => ({
-  grade: parseGrade(item.grade),
-  section: normalizeSection(pick(item.section, item.className, "")),
-  stream: normalizeText(item.stream),
-  fullClassName: getClassIdentity(item) || getClassFallback(item),
-  className: pick(item.className, ""),
+const getClassContext = (item = {}, fallback = {}) => ({
+  grade: getResolvedGrade(item, fallback),
+  section: getResolvedSection(item, fallback),
+  stream: getResolvedStream(item, fallback),
+  fullClassName:
+    getComparableALClassName(item, fallback) ||
+    getClassIdentity(item) ||
+    getClassFallback(item, fallback),
+  className: pick(item.className, fallback.className, ""),
+  alClassName: pick(item.alClassName, fallback.alClassName, ""),
 });
 
-const matchesClassContext = (item = {}, target = {}) => {
-  const itemGrade = parseGrade(item.grade);
-  const itemSection = normalizeSection(pick(item.section, item.className, ""));
-  const itemStream = normalizeText(item.stream);
+const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
+  const itemGrade = getResolvedGrade(item, fallback);
+  const itemSection = getResolvedSection(item, fallback);
+  const itemStream = normalize(getResolvedStream(item, fallback));
 
   const targetGrade = parseGrade(target.grade);
   const targetSection = normalizeSection(target.section);
-  const targetStream = normalizeText(target.stream);
+  const targetStream = normalize(target.stream);
 
-  if (isALGrade(targetGrade)) {
-    return (
-      itemGrade === targetGrade &&
-      itemSection === targetSection &&
-      itemStream === targetStream
-    );
-  }
+  const itemIdentity = normalize(
+    getComparableALClassName(item, fallback) ||
+      getClassIdentity(item) ||
+      getClassFallback(item, fallback)
+  );
 
-  const itemClassIdentity = normalize(getClassIdentity(item) || getClassFallback(item));
-  const targetClassIdentity = normalize(
+  const targetIdentity = normalize(
     pick(target.fullClassName, target.alClassName, target.className, "")
   );
 
-  if (itemClassIdentity && targetClassIdentity) {
-    return itemClassIdentity === targetClassIdentity;
+  if (isALGrade(targetGrade)) {
+    if (itemIdentity && targetIdentity && itemIdentity === targetIdentity) {
+      return true;
+    }
+
+    if (itemGrade !== targetGrade || itemSection !== targetSection) {
+      return false;
+    }
+
+    if (!targetStream) {
+      return true;
+    }
+
+    if (itemStream) {
+      return itemStream === targetStream;
+    }
+
+    return false;
+  }
+
+  if (itemIdentity && targetIdentity) {
+    return itemIdentity === targetIdentity;
   }
 
   return itemGrade === targetGrade && itemSection === targetSection;
@@ -294,17 +349,19 @@ export default function MarksEntry() {
     const map = new Map();
 
     teacherAssignments.forEach((assignment) => {
-      const classIdentity = getClassIdentity(assignment) || getClassFallback(assignment);
+      const context = getClassContext(assignment);
+      const classIdentity = context.fullClassName;
       if (!classIdentity) return;
 
       if (!map.has(classIdentity)) {
         map.set(classIdentity, {
-          className: pick(assignment.className, ""),
+          className: context.className,
           fullClassName: classIdentity,
           displayClassName: getDisplayClassName(assignment),
-          grade: pick(assignment.grade, ""),
-          section: pick(assignment.section, ""),
-          stream: pick(assignment.stream, ""),
+          grade: context.grade,
+          section: context.section,
+          stream: normalizeText(context.stream),
+          alClassName: pick(assignment.alClassName, ""),
         });
       }
     });
@@ -328,25 +385,54 @@ export default function MarksEntry() {
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
+    const targetClassContext = selectedClassRow
+      ? {
+          grade: selectedClassRow.grade,
+          section: selectedClassRow.section,
+          stream: selectedClassRow.stream,
+          fullClassName: selectedClassRow.fullClassName,
+          className: selectedClassRow.className,
+          alClassName: selectedClassRow.alClassName,
+        }
+      : null;
+
     teacherAssignments
       .filter((assignment) => {
         if (!selectedClass) return true;
 
-        const assignmentClass = getClassIdentity(assignment) || getClassFallback(assignment);
+        if (targetClassContext) {
+          if (matchesClassContext(assignment, targetClassContext)) {
+            return true;
+          }
+        }
+
+        const assignmentClass =
+          getComparableALClassName(assignment) ||
+          getClassIdentity(assignment) ||
+          getClassFallback(assignment);
+
         return normalize(assignmentClass) === normalize(selectedClass);
       })
       .forEach((assignment) => {
         const subjectId = pick(assignment.subjectId, "");
         const subjectName = pick(assignment.subjectName, assignment.subject, "");
-        const subjectKey = `${subjectId}__${subjectName}`;
+        const subjectNumber = pick(assignment.subjectNumber, "");
+        const subjectKey = `${subjectId}__${subjectName}__${subjectNumber}`;
+
+        if (!subjectName) return;
 
         if (!map.has(subjectKey)) {
           map.set(subjectKey, {
             key: subjectKey,
             subjectId,
             subjectName,
-            subjectNumber: pick(assignment.subjectNumber, ""),
+            subjectNumber,
             stream: pick(assignment.stream, ""),
+            className: pick(assignment.className, ""),
+            fullClassName:
+              getComparableALClassName(assignment) ||
+              getClassIdentity(assignment) ||
+              getClassFallback(assignment),
           });
         }
       });
@@ -356,7 +442,7 @@ export default function MarksEntry() {
         sensitivity: "base",
       })
     );
-  }, [teacherAssignments, selectedClass]);
+  }, [teacherAssignments, selectedClass, selectedClassRow]);
 
   const selectedSubject = useMemo(
     () => subjectOptions.find((subject) => subject.key === selectedSubjectKey) || null,
@@ -504,7 +590,9 @@ export default function MarksEntry() {
 
       if (!selectedClass && scopedAssignments.length > 0) {
         const defaultClass =
-          getClassIdentity(scopedAssignments[0]) || getClassFallback(scopedAssignments[0]);
+          getComparableALClassName(scopedAssignments[0]) ||
+          getClassIdentity(scopedAssignments[0]) ||
+          getClassFallback(scopedAssignments[0]);
         setSelectedClass(defaultClass);
       }
     } catch (err) {
@@ -542,8 +630,12 @@ export default function MarksEntry() {
         ...docSnap.data(),
       }));
 
+      const studentMap = new Map(
+        allStudents.map((student) => [String(student.id), student])
+      );
+
       const termName = pick(activeTerm.term, activeTerm.termName, "");
-      const termYear = pick(activeTerm.year, activeTerm.academicYear, "");
+      const termYear = normalizeAcademicYear(pick(activeTerm.year, activeTerm.academicYear, ""));
 
       const targetClassContext = selectedClassRow
         ? {
@@ -552,23 +644,39 @@ export default function MarksEntry() {
             stream: selectedClassRow.stream,
             fullClassName: selectedClassRow.fullClassName,
             className: selectedClassRow.className,
+            alClassName: selectedClassRow.alClassName,
           }
         : null;
 
       const relevantEnrollments = allEnrollments.filter((enrollment) => {
+        const student = studentMap.get(String(pick(enrollment.studentId, ""))) || {};
+
+        const enrollmentContext = {
+          ...enrollment,
+          stream: pick(enrollment.stream, student.stream, ""),
+          fullClassName:
+            pick(enrollment.fullClassName, enrollment.alClassName, "") ||
+            getComparableALClassName(enrollment, student),
+          alClassName:
+            pick(enrollment.alClassName, "") ||
+            getComparableALClassName(enrollment, student),
+        };
+
         const sameClass = targetClassContext
-          ? matchesClassContext(enrollment, targetClassContext)
+          ? matchesClassContext(enrollmentContext, targetClassContext, student)
           : false;
 
         const sameSubject =
           normalize(pick(enrollment.subjectId, "")) ===
             normalize(selectedSubject.subjectId) ||
           normalize(pick(enrollment.subjectName, "")) ===
-            normalize(selectedSubject.subjectName);
+            normalize(selectedSubject.subjectName) ||
+          normalize(pick(enrollment.subjectNumber, "")) ===
+            normalize(selectedSubject.subjectNumber);
 
         const sameYear =
           !termYear ||
-          normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
+          normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
             normalize(termYear);
 
         const status = normalize(pick(enrollment.status, "active"));
@@ -578,28 +686,58 @@ export default function MarksEntry() {
 
       const mappedRows = relevantEnrollments.map((enrollment) => {
         const studentId = String(pick(enrollment.studentId, ""));
-        const student =
-          allStudents.find((s) => String(s.id) === studentId) || {};
+        const student = studentMap.get(studentId) || {};
+
+        const mergedContext = {
+          ...enrollment,
+          grade: pick(enrollment.grade, student.grade, ""),
+          section: pick(enrollment.section, student.section, ""),
+          stream: pick(enrollment.stream, student.stream, ""),
+          fullClassName:
+            pick(enrollment.fullClassName, enrollment.alClassName, "") ||
+            getComparableALClassName(enrollment, student) ||
+            selectedClass,
+          alClassName:
+            pick(enrollment.alClassName, "") ||
+            getComparableALClassName(enrollment, student) ||
+            "",
+          className: pick(enrollment.className, student.className, selectedClassRow?.className, ""),
+        };
 
         const existingMark = marksDocs.find((mark) => {
           const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
           const sameClass = targetClassContext
-            ? matchesClassContext(mark, targetClassContext)
+            ? matchesClassContext(
+                {
+                  ...mark,
+                  stream: pick(mark.stream, mergedContext.stream, ""),
+                  fullClassName:
+                    pick(mark.fullClassName, mark.alClassName, "") ||
+                    getComparableALClassName(mark, mergedContext),
+                  alClassName:
+                    pick(mark.alClassName, "") ||
+                    getComparableALClassName(mark, mergedContext),
+                },
+                targetClassContext,
+                mergedContext
+              )
             : false;
 
           const sameSubject =
             normalize(pick(mark.subjectId, "")) ===
               normalize(selectedSubject.subjectId) ||
             normalize(pick(mark.subjectName, mark.subject, "")) ===
-              normalize(selectedSubject.subjectName);
+              normalize(selectedSubject.subjectName) ||
+            normalize(pick(mark.subjectNumber, "")) ===
+              normalize(selectedSubject.subjectNumber);
 
           const sameTerm =
             normalize(pick(mark.term, mark.termName, "")) ===
             normalize(termName);
 
           const sameYear =
-            normalize(pick(mark.academicYear, mark.year, "")) ===
+            normalizeAcademicYear(pick(mark.academicYear, mark.year, "")) ===
             normalize(termYear);
 
           return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
@@ -633,16 +771,23 @@ export default function MarksEntry() {
           admissionNo,
           grade: pick(enrollment.grade, student.grade, ""),
           section: pick(enrollment.section, student.section, ""),
-          className: pick(enrollment.className, selectedClassRow?.className, ""),
-          fullClassName: getClassIdentity(enrollment) || selectedClass,
-          stream: pick(enrollment.stream, selectedClassRow?.stream, ""),
+          className: pick(enrollment.className, student.className, selectedClassRow?.className, ""),
+          fullClassName:
+            pick(enrollment.fullClassName, enrollment.alClassName, "") ||
+            getComparableALClassName(enrollment, student) ||
+            selectedClass,
+          stream: pick(enrollment.stream, student.stream, selectedClassRow?.stream, ""),
           subjectId: pick(enrollment.subjectId, selectedSubject.subjectId, ""),
           subjectName: pick(
             enrollment.subjectName,
             selectedSubject.subjectName,
             ""
           ),
-          subjectNumber: pick(enrollment.subjectNumber, selectedSubject.subjectNumber, ""),
+          subjectNumber: pick(
+            enrollment.subjectNumber,
+            selectedSubject.subjectNumber,
+            ""
+          ),
           term: termName,
           academicYear: termYear,
           mark: absent ? "" : markValue ?? "",
@@ -867,7 +1012,7 @@ export default function MarksEntry() {
           studentName: row.studentName,
           admissionNo: row.admissionNo || "",
           indexNo: row.indexNo || "",
-          className: row.className,
+          className: row.className || selectedClassRow?.className || "",
           fullClassName: row.fullClassName || selectedClass,
           alClassName: row.stream ? row.fullClassName || selectedClass : "",
           grade: row.grade || "",
