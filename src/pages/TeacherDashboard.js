@@ -25,17 +25,14 @@ import HourglassBottomRoundedIcon from "@mui/icons-material/HourglassBottomRound
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
-import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import {
   EmptyState,
-  FilterCard,
   MobileListRow,
   PageContainer,
-  SectionCard,
   StatCard,
   StatusChip,
 } from "../components/ui";
@@ -122,9 +119,7 @@ const isCompletedForSubject = (
         normalize(classIdentity) &&
       normalize(e.subjectName) === normalize(subjectName) &&
       normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year) &&
-      (stream
-        ? normalize(pick(e.stream, "")) === normalize(stream)
-        : true)
+      (stream ? normalize(pick(e.stream, "")) === normalize(stream) : true)
   );
 
   const studentIds = new Set(subjectStudents.map((s) => String(s.studentId)).filter(Boolean));
@@ -416,11 +411,11 @@ export default function TeacherDashboard() {
     (row) => {
       const params = new URLSearchParams();
 
-      if (row.className) params.set("className", row.className);
-      if (row.fullClassName) params.set("fullClassName", row.fullClassName);
-      if (row.stream) params.set("stream", row.stream);
-      if (row.subjectName) params.set("subjectName", row.subjectName);
-      if (row.subjectId) params.set("subjectId", row.subjectId);
+      params.set("fullClassName", row.fullClassName || "");
+      params.set("stream", row.stream || "");
+      params.set("subjectName", row.subjectName || "");
+      params.set("subjectId", row.subjectId || "");
+
       if (selectedTermKey) params.set("termKey", selectedTermKey);
 
       navigate(`/teacher/marks?${params.toString()}`);
