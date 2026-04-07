@@ -105,34 +105,74 @@ const getClassShortDisplayName = (row) => {
   return normalizeText(row.className || "");
 };
 
+const getClassContext = (row = {}) => {
+  const grade = parseGrade(row.grade);
+  const section = normalizeSection(pick(row.section, row.className, ""));
+  const stream = normalizeText(row.stream);
+
+  return {
+    grade,
+    section,
+    stream,
+    fullClassName: getClassDisplayName(row),
+  };
+};
+
+const matchesClassContext = (row = {}, target = {}) => {
+  const rowGrade = parseGrade(row.grade);
+  const rowSection = normalizeSection(pick(row.section, row.className, ""));
+  const rowStream = normalizeText(row.stream);
+
+  const targetGrade = parseGrade(target.grade);
+  const targetSection = normalizeSection(target.section);
+  const targetStream = normalizeText(target.stream);
+
+  if (isALGrade(targetGrade)) {
+    return (
+      rowGrade === targetGrade &&
+      rowSection === targetSection &&
+      rowStream === targetStream
+    );
+  }
+
+  const rowClassIdentity = normalize(
+    pick(row.fullClassName, row.alClassName, row.className, "")
+  );
+  const targetClassIdentity = normalize(
+    pick(target.fullClassName, target.alClassName, target.className, "")
+  );
+
+  if (rowClassIdentity && targetClassIdentity) {
+    return rowClassIdentity === targetClassIdentity;
+  }
+
+  return rowGrade === targetGrade && rowSection === targetSection;
+};
+
 const isCompletedForSubject = (
   students,
   marks,
-  classIdentity,
+  classContext,
   subjectName,
-  targetTerm,
-  stream = ""
+  targetTerm
 ) => {
   const subjectStudents = students.filter(
     (e) =>
-      normalize(pick(e.alClassName, e.fullClassName, e.className, "")) ===
-        normalize(classIdentity) &&
+      matchesClassContext(e, classContext) &&
       normalize(e.subjectName) === normalize(subjectName) &&
-      normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year) &&
-      (stream ? normalize(pick(e.stream, "")) === normalize(stream) : true)
+      normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
   );
 
-  const studentIds = new Set(subjectStudents.map((s) => String(s.studentId)).filter(Boolean));
+  const studentIds = new Set(
+    subjectStudents.map((s) => String(s.studentId)).filter(Boolean)
+  );
 
   const subjectMarks = marks.filter(
     (m) =>
-      normalize(
-        pick(m.alClassName, m.fullClassName, m.className, "")
-      ) === normalize(classIdentity) &&
+      matchesClassContext(m, classContext) &&
       normalize(pick(m.subjectName, m.subject, "")) === normalize(subjectName) &&
       normalize(pick(m.term, m.termName, "")) === normalize(targetTerm.term) &&
       normalize(pick(m.academicYear, m.year, "")) === normalize(targetTerm.year) &&
-      (stream ? normalize(pick(m.stream, "")) === normalize(stream) : true) &&
       studentIds.has(String(m.studentId))
   );
 
@@ -259,16 +299,16 @@ export default function TeacherDashboard() {
         .map((assignment) => {
           const classIdentity = getClassDisplayName(assignment);
           const classShort = getClassShortDisplayName(assignment);
+          const classContext = getClassContext(assignment);
           const subjectName = assignment.subjectName;
           const stream = normalizeText(assignment.stream);
 
           const progressInfo = isCompletedForSubject(
             enrollments,
             marks,
-            classIdentity,
+            classContext,
             subjectName,
-            targetTerm,
-            stream
+            targetTerm
           );
 
           return {
@@ -302,14 +342,13 @@ export default function TeacherDashboard() {
 
       if (myClass) {
         const classIdentity = getClassDisplayName(myClass);
+        const classContext = getClassContext(myClass);
         const classStream = normalizeText(myClass.stream);
 
         const classStudents = enrollments.filter(
           (e) =>
-            normalize(pick(e.alClassName, e.fullClassName, e.className, "")) ===
-              normalize(classIdentity) &&
-            normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year) &&
-            (classStream ? normalize(pick(e.stream, "")) === normalize(classStream) : true)
+            matchesClassContext(e, classContext) &&
+            normalize(pick(e.academicYear, e.year, "")) === normalize(targetTerm.year)
         );
 
         const uniqueStudentIds = new Set(
@@ -317,10 +356,7 @@ export default function TeacherDashboard() {
         );
 
         const classSubjects = assignments
-          .filter(
-            (a) =>
-              normalize(getClassDisplayName(a)) === normalize(classIdentity)
-          )
+          .filter((a) => matchesClassContext(a, classContext))
           .map((assignment) => {
             const teacherUser =
               users.find(
@@ -332,10 +368,9 @@ export default function TeacherDashboard() {
             const progressInfo = isCompletedForSubject(
               enrollments,
               marks,
-              classIdentity,
+              getClassContext(assignment),
               assignment.subjectName,
-              targetTerm,
-              normalizeText(assignment.stream)
+              targetTerm
             );
 
             const isMine =

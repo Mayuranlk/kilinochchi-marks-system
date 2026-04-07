@@ -116,6 +116,43 @@ const getDisplayClassName = (item = {}) => {
   return getClassFallback(item);
 };
 
+const getClassContext = (item = {}) => ({
+  grade: parseGrade(item.grade),
+  section: normalizeSection(pick(item.section, item.className, "")),
+  stream: normalizeText(item.stream),
+  fullClassName: getClassIdentity(item) || getClassFallback(item),
+  className: pick(item.className, ""),
+});
+
+const matchesClassContext = (item = {}, target = {}) => {
+  const itemGrade = parseGrade(item.grade);
+  const itemSection = normalizeSection(pick(item.section, item.className, ""));
+  const itemStream = normalizeText(item.stream);
+
+  const targetGrade = parseGrade(target.grade);
+  const targetSection = normalizeSection(target.section);
+  const targetStream = normalizeText(target.stream);
+
+  if (isALGrade(targetGrade)) {
+    return (
+      itemGrade === targetGrade &&
+      itemSection === targetSection &&
+      itemStream === targetStream
+    );
+  }
+
+  const itemClassIdentity = normalize(getClassIdentity(item) || getClassFallback(item));
+  const targetClassIdentity = normalize(
+    pick(target.fullClassName, target.alClassName, target.className, "")
+  );
+
+  if (itemClassIdentity && targetClassIdentity) {
+    return itemClassIdentity === targetClassIdentity;
+  }
+
+  return itemGrade === targetGrade && itemSection === targetSection;
+};
+
 const buildTermKey = (term = {}) =>
   `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
 
@@ -508,11 +545,20 @@ export default function MarksEntry() {
       const termName = pick(activeTerm.term, activeTerm.termName, "");
       const termYear = pick(activeTerm.year, activeTerm.academicYear, "");
 
-      const relevantEnrollments = allEnrollments.filter((enrollment) => {
-        const enrollmentClass = getClassIdentity(enrollment) || getClassFallback(enrollment);
+      const targetClassContext = selectedClassRow
+        ? {
+            grade: selectedClassRow.grade,
+            section: selectedClassRow.section,
+            stream: selectedClassRow.stream,
+            fullClassName: selectedClassRow.fullClassName,
+            className: selectedClassRow.className,
+          }
+        : null;
 
-        const sameClass =
-          normalize(enrollmentClass) === normalize(selectedClass);
+      const relevantEnrollments = allEnrollments.filter((enrollment) => {
+        const sameClass = targetClassContext
+          ? matchesClassContext(enrollment, targetClassContext)
+          : false;
 
         const sameSubject =
           normalize(pick(enrollment.subjectId, "")) ===
@@ -525,13 +571,9 @@ export default function MarksEntry() {
           normalize(pick(enrollment.academicYear, enrollment.year, "")) ===
             normalize(termYear);
 
-        const sameStream =
-          !selectedClassRow?.stream ||
-          normalize(pick(enrollment.stream, "")) === normalize(selectedClassRow.stream);
-
         const status = normalize(pick(enrollment.status, "active"));
 
-        return sameClass && sameSubject && sameYear && sameStream && (!status || status === "active");
+        return sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
       const mappedRows = relevantEnrollments.map((enrollment) => {
@@ -542,8 +584,9 @@ export default function MarksEntry() {
         const existingMark = marksDocs.find((mark) => {
           const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
-          const sameClass =
-            normalize(getClassIdentity(mark) || getClassFallback(mark)) === normalize(selectedClass);
+          const sameClass = targetClassContext
+            ? matchesClassContext(mark, targetClassContext)
+            : false;
 
           const sameSubject =
             normalize(pick(mark.subjectId, "")) ===
@@ -559,11 +602,7 @@ export default function MarksEntry() {
             normalize(pick(mark.academicYear, mark.year, "")) ===
             normalize(termYear);
 
-          const sameStream =
-            !selectedClassRow?.stream ||
-            normalize(pick(mark.stream, "")) === normalize(selectedClassRow.stream);
-
-          return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameStream;
+          return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
         });
 
         const studentName = pick(
