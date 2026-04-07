@@ -19,7 +19,6 @@ import {
   TableCell,
   TableHead,
   TableRow,
-  TextField,
   Typography,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -92,10 +91,6 @@ function getStudentGrade(student) {
 
 function getStudentSection(student) {
   return normalizeSection(student?.section || student?.className || "");
-}
-
-function getStudentFullClass(student) {
-  return buildFullClassName(getStudentGrade(student), getStudentSection(student));
 }
 
 function getEnrollmentGrade(enrollment) {
@@ -771,8 +766,6 @@ export default function BulkMarksUpload() {
     previewRows.length > 0 &&
     !downloading;
 
-  const displayRows = showInvalidOnly ? invalidRows : validRows;
-
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
@@ -1021,8 +1014,7 @@ export default function BulkMarksUpload() {
             </Box>
 
             <Typography variant="body2" color="text.secondary">
-              Template columns:
-              {" "}
+              Template columns:{" "}
               <strong>
                 studentId, indexNo, studentName, marks, absent, subjectId, subjectName,
                 className, term, academicYear
