@@ -164,7 +164,7 @@ const matchesClassContext = (row = {}, target = {}, fallback = {}) => {
 
   const targetGrade = parseGrade(target.grade);
   const targetSection = normalizeSection(target.section);
-  const targetStream = normalizeText(target.stream);
+  const targetStream = normalize(target.stream);
 
   const rowClassIdentity = normalize(
     getComparableALClassName(row, fallback) ||
@@ -190,7 +190,7 @@ const matchesClassContext = (row = {}, target = {}, fallback = {}) => {
     }
 
     if (rowStream) {
-      return rowStream === normalize(targetStream);
+      return rowStream === targetStream;
     }
 
     return false;
@@ -203,6 +203,52 @@ const matchesClassContext = (row = {}, target = {}, fallback = {}) => {
   return rowGrade === targetGrade && rowSection === targetSection;
 };
 
+const getSubjectIdentity = (row = {}) => {
+  const subjectId = normalize(pick(row.subjectId, ""));
+  const subjectNumber = normalize(pick(row.subjectNumber, ""));
+  const subjectName = normalize(pick(row.subjectName, row.subject, ""));
+
+  if (subjectId) return `id:${subjectId}`;
+  if (subjectNumber) return `no:${subjectNumber}`;
+  return `name:${subjectName}`;
+};
+
+const matchesSubject = (row = {}, subjectRow = {}) => {
+  const rowSubjectId = normalize(pick(row.subjectId, ""));
+  const rowSubjectNumber = normalize(pick(row.subjectNumber, ""));
+  const rowSubjectName = normalize(pick(row.subjectName, row.subject, ""));
+
+  const targetSubjectId = normalize(pick(subjectRow.subjectId, ""));
+  const targetSubjectNumber = normalize(pick(subjectRow.subjectNumber, ""));
+  const targetSubjectName = normalize(pick(subjectRow.subjectName, subjectRow.subject, ""));
+
+  if (targetSubjectId && rowSubjectId) {
+    return rowSubjectId === targetSubjectId;
+  }
+
+  if (targetSubjectNumber && rowSubjectNumber) {
+    return rowSubjectNumber === targetSubjectNumber;
+  }
+
+  if (targetSubjectName && rowSubjectName) {
+    return rowSubjectName === targetSubjectName;
+  }
+
+  return false;
+};
+
+const dedupeBy = (items = [], buildKey) => {
+  const map = new Map();
+  items.forEach((item) => {
+    const key = buildKey(item);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+};
+
 const isCompletedForSubject = (
   students,
   marks,
@@ -210,54 +256,41 @@ const isCompletedForSubject = (
   subjectRow,
   targetTerm
 ) => {
-  const subjectName = pick(subjectRow.subjectName, "");
-  const subjectId = pick(subjectRow.subjectId, "");
-  const subjectNumber = pick(subjectRow.subjectNumber, "");
+  const targetYear = normalizeAcademicYear(targetTerm.year);
+  const targetTermName = normalize(pick(targetTerm.term, targetTerm.termName, ""));
 
-  const subjectStudents = students.filter((e) => {
-    const sameClass = matchesClassContext(e, classContext);
-    const sameSubject =
-      (subjectId && normalize(pick(e.subjectId, "")) === normalize(subjectId)) ||
-      normalize(pick(e.subjectName, "")) === normalize(subjectName) ||
-      (subjectNumber &&
-        normalize(pick(e.subjectNumber, "")) === normalize(subjectNumber));
-
+  const subjectStudentsRaw = students.filter((enrollment) => {
+    const sameClass = matchesClassContext(enrollment, classContext);
+    const sameSubject = matchesSubject(enrollment, subjectRow);
     const sameYear =
-      normalizeAcademicYear(pick(e.academicYear, e.year, "")) ===
-      normalizeAcademicYear(targetTerm.year);
+      normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) === targetYear;
 
     return sameClass && sameSubject && sameYear;
   });
 
-  const studentIds = new Set(
-    subjectStudents.map((s) => String(s.studentId)).filter(Boolean)
+  const subjectStudents = dedupeBy(
+    subjectStudentsRaw,
+    (row) => String(pick(row.studentId, row.id, "")).trim()
   );
 
-  const subjectMarks = marks.filter((m) => {
-    const sameClass = matchesClassContext(m, classContext);
-    const sameSubject =
-      (subjectId && normalize(pick(m.subjectId, "")) === normalize(subjectId)) ||
-      normalize(pick(m.subjectName, m.subject, "")) === normalize(subjectName) ||
-      (subjectNumber &&
-        normalize(pick(m.subjectNumber, "")) === normalize(subjectNumber));
+  const studentIds = new Set(
+    subjectStudents.map((row) => String(pick(row.studentId, row.id, "")).trim()).filter(Boolean)
+  );
 
-    const sameTerm =
-      normalize(pick(m.term, m.termName, "")) === normalize(targetTerm.term);
-
+  const subjectMarksRaw = marks.filter((mark) => {
+    const sameClass = matchesClassContext(mark, classContext);
+    const sameSubject = matchesSubject(mark, subjectRow);
+    const sameTerm = normalize(pick(mark.term, mark.termName, "")) === targetTermName;
     const sameYear =
-      normalizeAcademicYear(pick(m.academicYear, m.year, "")) ===
-      normalizeAcademicYear(targetTerm.year);
+      normalizeAcademicYear(pick(mark.academicYear, mark.year, "")) === targetYear;
+    const studentId = String(pick(mark.studentId, "")).trim();
 
-    return (
-      sameClass &&
-      sameSubject &&
-      sameTerm &&
-      sameYear &&
-      studentIds.has(String(m.studentId))
-    );
+    return sameClass && sameSubject && sameTerm && sameYear && studentIds.has(studentId);
   });
 
-  const doneCount = new Set(subjectMarks.map((m) => String(m.studentId))).size;
+  const subjectMarks = dedupeBy(subjectMarksRaw, (row) => String(pick(row.studentId, "")).trim());
+
+  const doneCount = subjectMarks.length;
   const total = subjectStudents.length;
   const pending = Math.max(0, total - doneCount);
   const progress = total ? Math.round((doneCount / total) * 100) : 0;
@@ -371,23 +404,30 @@ export default function TeacherDashboard() {
       };
 
       const myAssignments = assignments.filter(
-        (a) =>
-          normalize(a.teacherId) === normalize(user.uid) ||
-          normalize(a.teacherEmail) === normalize(user.email)
+        (assignment) =>
+          normalize(assignment.teacherId) === normalize(user.uid) ||
+          normalize(assignment.teacherEmail) === normalize(user.email)
       );
+
+      const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
+        const classIdentity = normalize(getClassDisplayName(assignment));
+        const subjectIdentity = getSubjectIdentity(assignment);
+        const stream = normalize(getResolvedStream(assignment));
+        return `${classIdentity}__${subjectIdentity}__${stream}`;
+      });
 
       const dedupedSubjectRowsMap = new Map();
 
-      myAssignments.forEach((assignment) => {
+      dedupedAssignments.forEach((assignment) => {
         const classIdentity = getClassDisplayName(assignment);
         const classShort = getClassShortDisplayName(assignment);
         const classContext = getClassContext(assignment);
         const subjectName = pick(assignment.subjectName, assignment.subject, "");
-        const subjectId = assignment.subjectId || "";
+        const subjectId = pick(assignment.subjectId, "");
         const subjectNumber = pick(assignment.subjectNumber, "");
         const stream = normalizeText(assignment.stream);
 
-        if (!subjectName) return;
+        if (!subjectName && !subjectId && !subjectNumber) return;
 
         const progressInfo = isCompletedForSubject(
           enrollments,
@@ -401,7 +441,11 @@ export default function TeacherDashboard() {
           targetTerm
         );
 
-        const rowKey = `${classIdentity}__${subjectId}__${subjectName}__${subjectNumber}`;
+        const rowKey = `${normalize(classIdentity)}__${getSubjectIdentity({
+          subjectId,
+          subjectName,
+          subjectNumber,
+        })}__${normalize(stream)}`;
 
         if (!dedupedSubjectRowsMap.has(rowKey)) {
           dedupedSubjectRowsMap.set(rowKey, {
@@ -422,9 +466,14 @@ export default function TeacherDashboard() {
       });
 
       const mySubjectRows = Array.from(dedupedSubjectRowsMap.values()).sort((a, b) => {
-        const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName));
+        const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
         if (classDiff !== 0) return classDiff;
-        return String(a.subjectName).localeCompare(String(b.subjectName));
+        return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
+          sensitivity: "base",
+        });
       });
 
       setSubjectRows(mySubjectRows);
@@ -440,81 +489,91 @@ export default function TeacherDashboard() {
         const classContext = getClassContext(myClass);
         const classStream = normalizeText(myClass.stream);
 
-        const classStudents = enrollments.filter(
-          (e) =>
-            matchesClassContext(e, classContext) &&
-            normalizeAcademicYear(pick(e.academicYear, e.year, "")) ===
+        const classStudentsRaw = enrollments.filter(
+          (enrollment) =>
+            matchesClassContext(enrollment, classContext) &&
+            normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
               normalizeAcademicYear(targetTerm.year)
         );
 
+        const classStudents = dedupeBy(
+          classStudentsRaw,
+          (row) => String(pick(row.studentId, row.id, "")).trim()
+        );
+
         const uniqueStudentIds = new Set(
-          classStudents.map((student) => String(student.studentId)).filter(Boolean)
+          classStudents.map((student) => String(pick(student.studentId, student.id, "")).trim()).filter(Boolean)
         );
 
         const dedupedClassSubjects = new Map();
 
-        assignments
-          .filter((a) => matchesClassContext(a, classContext))
-          .forEach((assignment) => {
-            const teacherUser =
-              users.find(
-                (u) =>
-                  normalize(u.id) === normalize(assignment.teacherId) ||
-                  normalize(u.email) === normalize(assignment.teacherEmail)
-              ) || null;
+        dedupeBy(
+          assignments.filter((assignment) => matchesClassContext(assignment, classContext)),
+          (assignment) => `${getSubjectIdentity(assignment)}__${normalize(getResolvedStream(assignment))}`
+        ).forEach((assignment) => {
+          const teacherUser =
+            users.find(
+              (u) =>
+                normalize(u.id) === normalize(assignment.teacherId) ||
+                normalize(u.email) === normalize(assignment.teacherEmail)
+            ) || null;
 
-            const subjectName = pick(assignment.subjectName, assignment.subject, "");
-            const subjectId = assignment.subjectId || "";
-            const subjectNumber = pick(assignment.subjectNumber, "");
+          const subjectName = pick(assignment.subjectName, assignment.subject, "");
+          const subjectId = pick(assignment.subjectId, "");
+          const subjectNumber = pick(assignment.subjectNumber, "");
 
-            if (!subjectName) return;
+          if (!subjectName && !subjectId && !subjectNumber) return;
 
-            const progressInfo = isCompletedForSubject(
-              enrollments,
-              marks,
-              getClassContext(assignment),
-              {
-                subjectName,
-                subjectId,
-                subjectNumber,
-              },
-              targetTerm
-            );
+          const progressInfo = isCompletedForSubject(
+            enrollments,
+            marks,
+            getClassContext(assignment),
+            {
+              subjectName,
+              subjectId,
+              subjectNumber,
+            },
+            targetTerm
+          );
 
-            const isMine =
-              normalize(assignment.teacherId) === normalize(user.uid) ||
-              normalize(assignment.teacherEmail) === normalize(user.email);
+          const isMine =
+            normalize(assignment.teacherId) === normalize(user.uid) ||
+            normalize(assignment.teacherEmail) === normalize(user.email);
 
-            const rowKey = `${subjectId}__${subjectName}__${subjectNumber}`;
+          const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
+            getResolvedStream(assignment)
+          )}`;
 
-            if (!dedupedClassSubjects.has(rowKey)) {
-              dedupedClassSubjects.set(rowKey, {
-                subjectName,
-                subjectId,
-                subjectNumber,
-                teacherName: pick(
-                  teacherUser?.name,
-                  teacherUser?.fullName,
-                  assignment.teacherName,
-                  "Teacher"
-                ),
-                teacherPhone: pick(teacherUser?.phone, ""),
-                total: progressInfo.total,
-                done: progressInfo.doneCount,
-                pending: progressInfo.pending,
-                progress: progressInfo.progress,
-                completed: progressInfo.completed,
-                isMine,
-              });
-            }
-          });
+          if (!dedupedClassSubjects.has(rowKey)) {
+            dedupedClassSubjects.set(rowKey, {
+              subjectName,
+              subjectId,
+              subjectNumber,
+              teacherName: pick(
+                teacherUser?.name,
+                teacherUser?.fullName,
+                assignment.teacherName,
+                "Teacher"
+              ),
+              teacherPhone: pick(teacherUser?.phone, ""),
+              total: progressInfo.total,
+              done: progressInfo.doneCount,
+              pending: progressInfo.pending,
+              progress: progressInfo.progress,
+              completed: progressInfo.completed,
+              isMine,
+            });
+          }
+        });
 
         const classSubjects = Array.from(dedupedClassSubjects.values()).sort((a, b) => {
           if (a.completed !== b.completed) return a.completed ? 1 : -1;
-          return String(a.subjectName).localeCompare(String(b.subjectName));
+          return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
+            sensitivity: "base",
+          });
         });
 
-        const completedCount = classSubjects.filter((s) => s.completed).length;
+        const completedCount = classSubjects.filter((subject) => subject.completed).length;
         const pendingCount = classSubjects.length - completedCount;
 
         setClassTeacherData({
