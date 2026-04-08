@@ -19,7 +19,15 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ReplayIcon from "@mui/icons-material/Replay";
 import BuildIcon from "@mui/icons-material/Build";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import { collection, getDocs } from "firebase/firestore";
+import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  writeBatch,
+} from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -33,12 +41,18 @@ import {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
+const BATCH_LIMIT = 400;
+
 function currentAcademicYear() {
   return String(new Date().getFullYear());
 }
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeLoose(value) {
+  return normalize(value).replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeAcademicYear(value) {
@@ -57,6 +71,59 @@ function normalizeSection(value) {
   const raw = String(value ?? "").trim().toUpperCase();
   const match = raw.match(/[A-Z]+/);
   return match ? match[0] : raw;
+}
+
+function normalizeClassIdentity(row = {}) {
+  const fullClass = String(
+    row?.fullClassName || row?.alClassName || row?.className || ""
+  ).trim();
+
+  if (fullClass) return normalizeLoose(fullClass);
+
+  const grade = normalizeGrade(row?.grade);
+  const section = normalizeSection(row?.section || row?.className || "");
+  const stream = String(row?.stream || "").trim();
+
+  if (grade && section && stream) {
+    return normalizeLoose(`${grade}_${stream}_${section}`);
+  }
+
+  if (grade && section) {
+    return normalizeLoose(`${grade}_${section}`);
+  }
+
+  return normalizeLoose(String(row?.className || ""));
+}
+
+function canonicalSubjectKey(row = {}) {
+  const subjectCode = normalizeLoose(row?.subjectCode || "");
+  const subjectNumber = normalizeLoose(row?.subjectNumber || "");
+  const subjectName = normalizeLoose(row?.subjectName || row?.subject || "");
+  const subjectCategory = normalizeLoose(row?.subjectCategory || row?.category || "");
+
+  return [
+    subjectCode || subjectNumber || subjectName,
+    subjectCategory || "",
+  ].join("__");
+}
+
+function canonicalEnrollmentKey(row = {}) {
+  return [
+    normalizeAcademicYear(row?.academicYear || row?.year),
+    String(row?.studentId || "").trim(),
+    canonicalSubjectKey(row),
+    normalizeClassIdentity(row),
+  ].join("__");
+}
+
+function canonicalMarkKey(row = {}) {
+  return [
+    normalizeAcademicYear(row?.academicYear || row?.year),
+    normalizeLoose(row?.term || row?.termName || ""),
+    String(row?.studentId || "").trim(),
+    canonicalSubjectKey(row),
+    normalizeClassIdentity(row),
+  ].join("__");
 }
 
 function getStudentName(student) {
@@ -99,6 +166,68 @@ function isStudentActive(student) {
   return true;
 }
 
+function parseComparableTimestamp(value) {
+  if (!value) return 0;
+
+  if (typeof value?.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value?.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getMarkNumericValue(row = {}) {
+  const value = row?.mark ?? row?.marks ?? row?.score ?? null;
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function hasRealMark(row = {}) {
+  return getMarkNumericValue(row) !== null || Boolean(row?.absent || row?.isAbsent);
+}
+
+function choosePreferredEnrollment(current, candidate) {
+  const currentActive = normalize(current?.status || "active") !== "inactive";
+  const candidateActive = normalize(candidate?.status || "active") !== "inactive";
+
+  if (candidateActive && !currentActive) return candidate;
+  if (!candidateActive && currentActive) return current;
+
+  const currentUpdated = parseComparableTimestamp(
+    current?.updatedAt || current?.createdAt
+  );
+  const candidateUpdated = parseComparableTimestamp(
+    candidate?.updatedAt || candidate?.createdAt
+  );
+
+  if (candidateUpdated > currentUpdated) return candidate;
+  return current;
+}
+
+function choosePreferredMark(current, candidate) {
+  const currentHasReal = hasRealMark(current);
+  const candidateHasReal = hasRealMark(candidate);
+
+  if (candidateHasReal && !currentHasReal) return candidate;
+  if (!candidateHasReal && currentHasReal) return current;
+
+  const currentUpdated = parseComparableTimestamp(
+    current?.updatedAt || current?.createdAt
+  );
+  const candidateUpdated = parseComparableTimestamp(
+    candidate?.updatedAt || candidate?.createdAt
+  );
+
+  if (candidateUpdated > currentUpdated) return candidate;
+  return current;
+}
+
 async function fetchStudents() {
   const snap = await getDocs(collection(db, "students"));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -129,12 +258,136 @@ function buildErrorSummary(mode, error) {
     deactivated: 0,
     skipped: 0,
     errors: 1,
+    deletedEnrollments: 0,
+    deletedMarks: 0,
+    enrollmentDuplicateGroups: 0,
+    markDuplicateGroups: 0,
     logs: [
       {
         type: "error",
         message: "Operation failed",
         details: error?.message || "Unknown error",
       },
+    ],
+  };
+}
+
+async function commitDeleteOperations(refs = []) {
+  for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    const chunk = refs.slice(i, i + BATCH_LIMIT);
+    chunk.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
+  const normalizedYear = normalizeAcademicYear(academicYear);
+
+  const [enrollmentsSnap, marksSnap] = await Promise.all([
+    getDocs(collection(db, "studentSubjectEnrollments")),
+    getDocs(collection(db, "marks")),
+  ]);
+
+  const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const targetEnrollments = enrollments.filter(
+    (row) => normalizeAcademicYear(row?.academicYear || row?.year) === normalizedYear
+  );
+
+  const targetMarks = marks.filter(
+    (row) => normalizeAcademicYear(row?.academicYear || row?.year) === normalizedYear
+  );
+
+  const enrollmentGroups = new Map();
+  for (const row of targetEnrollments) {
+    const key = canonicalEnrollmentKey(row);
+    if (!enrollmentGroups.has(key)) enrollmentGroups.set(key, []);
+    enrollmentGroups.get(key).push(row);
+  }
+
+  const markGroups = new Map();
+  for (const row of targetMarks) {
+    const key = canonicalMarkKey(row);
+    if (!markGroups.has(key)) markGroups.set(key, []);
+    markGroups.get(key).push(row);
+  }
+
+  const enrollmentRefsToDelete = [];
+  const markRefsToDelete = [];
+  const logs = [];
+
+  let enrollmentDuplicateGroups = 0;
+  let markDuplicateGroups = 0;
+
+  for (const [key, group] of enrollmentGroups.entries()) {
+    if (group.length <= 1) continue;
+
+    enrollmentDuplicateGroups += 1;
+
+    let keeper = group[0];
+    for (let i = 1; i < group.length; i += 1) {
+      keeper = choosePreferredEnrollment(keeper, group[i]);
+    }
+
+    const duplicates = group.filter((row) => row.id !== keeper.id);
+    duplicates.forEach((row) =>
+      enrollmentRefsToDelete.push(doc(db, "studentSubjectEnrollments", row.id))
+    );
+
+    logs.push({
+      type: "warning",
+      message: "Duplicate enrollments cleaned",
+      details: `${group.length - 1} removed for key ${key}`,
+    });
+  }
+
+  for (const [key, group] of markGroups.entries()) {
+    if (group.length <= 1) continue;
+
+    markDuplicateGroups += 1;
+
+    let keeper = group[0];
+    for (let i = 1; i < group.length; i += 1) {
+      keeper = choosePreferredMark(keeper, group[i]);
+    }
+
+    const duplicates = group.filter((row) => row.id !== keeper.id);
+    duplicates.forEach((row) => markRefsToDelete.push(doc(db, "marks", row.id)));
+
+    logs.push({
+      type: "warning",
+      message: "Duplicate marks cleaned",
+      details: `${group.length - 1} removed for key ${key}`,
+    });
+  }
+
+  await commitDeleteOperations(enrollmentRefsToDelete);
+  await commitDeleteOperations(markRefsToDelete);
+
+  const totalProcessed = targetEnrollments.length + targetMarks.length;
+
+  return {
+    mode: "cleanup_duplicates",
+    totalProcessed,
+    created: 0,
+    reactivated: 0,
+    updated: 0,
+    deactivated: 0,
+    skipped: 0,
+    errors: 0,
+    deletedEnrollments: enrollmentRefsToDelete.length,
+    deletedMarks: markRefsToDelete.length,
+    enrollmentDuplicateGroups,
+    markDuplicateGroups,
+    logs: [
+      {
+        type: "success",
+        message: "Duplicate cleanup completed",
+        details: `Enrollments removed: ${enrollmentRefsToDelete.length}, marks removed: ${markRefsToDelete.length}`,
+      },
+      ...logs,
     ],
   };
 }
@@ -161,6 +414,10 @@ export default function GenerateSubjectEnrollments() {
     deactivated: 0,
     skipped: 0,
     errors: 0,
+    deletedEnrollments: 0,
+    deletedMarks: 0,
+    enrollmentDuplicateGroups: 0,
+    markDuplicateGroups: 0,
     logs: [],
   });
 
@@ -187,6 +444,10 @@ export default function GenerateSubjectEnrollments() {
           deactivated: 0,
           skipped: 0,
           errors: 1,
+          deletedEnrollments: 0,
+          deletedMarks: 0,
+          enrollmentDuplicateGroups: 0,
+          markDuplicateGroups: 0,
           logs: [
             {
               type: "error",
@@ -247,6 +508,10 @@ export default function GenerateSubjectEnrollments() {
       deactivated: result?.deactivated || 0,
       skipped: result?.skipped || 0,
       errors: result?.errors || 0,
+      deletedEnrollments: result?.deletedEnrollments || 0,
+      deletedMarks: result?.deletedMarks || 0,
+      enrollmentDuplicateGroups: result?.enrollmentDuplicateGroups || 0,
+      markDuplicateGroups: result?.markDuplicateGroups || 0,
       logs: Array.isArray(result?.logs) ? result.logs : [],
     });
   }
@@ -277,6 +542,14 @@ export default function GenerateSubjectEnrollments() {
         }
 
         result = await fullRebuildEnrollments({
+          academicYear: normalizedYear,
+        });
+      } else if (mode === "cleanup_duplicates") {
+        if (!isAdmin) {
+          throw new Error("Only admin can clean duplicates.");
+        }
+
+        result = await cleanupDuplicateEnrollmentAndMarkEntries({
           academicYear: normalizedYear,
         });
       } else {
@@ -316,6 +589,10 @@ export default function GenerateSubjectEnrollments() {
         deactivated: result?.deactivated || 0,
         skipped: result?.skipped || 0,
         errors: result?.errors || 0,
+        deletedEnrollments: 0,
+        deletedMarks: 0,
+        enrollmentDuplicateGroups: 0,
+        markDuplicateGroups: 0,
         logs: [
           {
             type: "success",
@@ -339,6 +616,10 @@ export default function GenerateSubjectEnrollments() {
         deactivated: 0,
         skipped: 0,
         errors: 1,
+        deletedEnrollments: 0,
+        deletedMarks: 0,
+        enrollmentDuplicateGroups: 0,
+        markDuplicateGroups: 0,
         logs: [
           {
             type: "error",
@@ -372,11 +653,10 @@ export default function GenerateSubjectEnrollments() {
           student profile, subject definitions, and academic year.
         </Alert>
 
-        <Alert severity="warning">
-          After using <strong>Year End Promotion</strong>, run{" "}
-          <strong>Post-Promotion Generate Missing</strong> for the new academic year.
-          Promotion should move students to the new year, and this page should then create
-          the correct current-year subject enrollments.
+        <Alert severity="warning" icon={<WarningAmberIcon />}>
+          If duplicate names are appearing in Marks Entry, run
+          <strong> Admin Duplicate Cleanup</strong> first. Do not run Full Rebuild again
+          until duplicate cleanup is completed.
         </Alert>
 
         <Grid container spacing={2}>
@@ -534,6 +814,43 @@ export default function GenerateSubjectEnrollments() {
               </CardContent>
             </Card>
           </Grid>
+
+          <Grid item xs={12} md={4}>
+            <Card variant="outlined" sx={{ borderColor: "warning.main" }}>
+              <CardContent>
+                <Stack spacing={2}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CleaningServicesIcon color="warning" />
+                    <Typography variant="h6">Admin Duplicate Cleanup</Typography>
+                    <Chip
+                      size="small"
+                      label={isAdmin ? "Admin" : "Admin only"}
+                      color={isAdmin ? "success" : "default"}
+                    />
+                  </Stack>
+
+                  <Typography variant="body2" color="text.secondary">
+                    Removes duplicate entries from current-year
+                    <strong> studentSubjectEnrollments</strong> and
+                    <strong> marks</strong> while keeping the best matching record.
+                  </Typography>
+
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={() => runMode("cleanup_duplicates")}
+                    disabled={isRunning || !isAdmin}
+                  >
+                    {running === "cleanup_duplicates" ? (
+                      <CircularProgress size={22} color="inherit" />
+                    ) : (
+                      "Run Duplicate Cleanup"
+                    )}
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
 
         {pageLoading || authLoading ? (
@@ -583,6 +900,24 @@ export default function GenerateSubjectEnrollments() {
             <StatCard
               title="Skipped / Errors"
               value={`${summary.skipped} / ${summary.errors}`}
+            />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <StatCard title="Deleted Enrollments" value={summary.deletedEnrollments} />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <StatCard title="Deleted Marks" value={summary.deletedMarks} />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <StatCard
+              title="Enrollment Duplicate Groups"
+              value={summary.enrollmentDuplicateGroups}
+            />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <StatCard
+              title="Mark Duplicate Groups"
+              value={summary.markDuplicateGroups}
             />
           </Grid>
         </Grid>
