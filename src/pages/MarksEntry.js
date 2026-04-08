@@ -1565,6 +1565,8 @@ export default function MarksEntry() {
                   </ResponsiveTableWrapper>
                 )}
 
+                {isMobile ? <Box sx={{ height: 96 }} /> : null}
+
                 <ActionBar sticky>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <StatusChip status="active" label={`${filteredRows.length} rows`} />

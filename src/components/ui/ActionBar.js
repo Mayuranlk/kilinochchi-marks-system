@@ -14,8 +14,8 @@ const ActionBar = ({ children, sticky = false, sx = {} }) => {
     >
       <Box
         sx={{
-          p: 1.25,
-          borderRadius: 16,
+          p: { xs: 1, sm: 1.25 },
+          borderRadius: { xs: 14, sm: 16 },
           border: "1px solid",
           borderColor: "divider",
           bgcolor: "background.paper",

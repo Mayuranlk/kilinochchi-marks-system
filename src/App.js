@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { CircularProgress, Box, CssBaseline, ThemeProvider } from "@mui/material";
 
@@ -7,36 +7,36 @@ import appTheme from "./theme/appTheme";
 
 import Layout from "./components/Layout";
 
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import TeacherDashboard from "./pages/TeacherDashboard";
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 
-import ClassroomManagement from "./pages/ClassroomManagement";
-import SubjectManagement from "./pages/SubjectManagement";
-import AcademicTerms from "./pages/AcademicTerms";
-import SetupSchoolDefaults from "./pages/SetupSchoolDefaults";
+const ClassroomManagement = lazy(() => import("./pages/ClassroomManagement"));
+const SubjectManagement = lazy(() => import("./pages/SubjectManagement"));
+const AcademicTerms = lazy(() => import("./pages/AcademicTerms"));
+const SetupSchoolDefaults = lazy(() => import("./pages/SetupSchoolDefaults"));
 
-import Students from "./pages/Students";
-import StudentsBySubject from "./pages/StudentsBySubject";
-import ClassDataManagement from "./pages/ClassDataManagement";
+const Students = lazy(() => import("./pages/Students"));
+const StudentsBySubject = lazy(() => import("./pages/StudentsBySubject"));
+const ClassDataManagement = lazy(() => import("./pages/ClassDataManagement"));
 
-import GenerateSubjectEnrollments from "./pages/GenerateSubjectEnrollments";
-import StudentSubjectEnrollments from "./pages/StudentSubjectEnrollments";
-import MigrateStudentSubjects from "./pages/MigrateStudentSubjects";
+const GenerateSubjectEnrollments = lazy(() => import("./pages/GenerateSubjectEnrollments"));
+const StudentSubjectEnrollments = lazy(() => import("./pages/StudentSubjectEnrollments"));
+const MigrateStudentSubjects = lazy(() => import("./pages/MigrateStudentSubjects"));
 
-import AdminTeachers from "./pages/AdminTeachers";
-import TeacherAssignments from "./pages/TeacherAssignments";
-import ClassTeacherAssignments from "./pages/ClassTeacherAssignments";
+const AdminTeachers = lazy(() => import("./pages/AdminTeachers"));
+const TeacherAssignments = lazy(() => import("./pages/TeacherAssignments"));
+const ClassTeacherAssignments = lazy(() => import("./pages/ClassTeacherAssignments"));
 
-import MarksEntry from "./pages/MarksEntry";
-import BulkMarksUpload from "./pages/BulkMarksUpload";
-import TeacherMarkSheets from "./pages/TeacherMarkSheets";
-import ReportCard from "./pages/ReportCard";
-import ClassReport from "./pages/ClassReport";
-import ClassMarksReports from "./pages/reports/ClassMarksReports";
+const MarksEntry = lazy(() => import("./pages/MarksEntry"));
+const BulkMarksUpload = lazy(() => import("./pages/BulkMarksUpload"));
+const TeacherMarkSheets = lazy(() => import("./pages/TeacherMarkSheets"));
+const ReportCard = lazy(() => import("./pages/ReportCard"));
+const ClassReport = lazy(() => import("./pages/ClassReport"));
+const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports"));
 
-import YearEndPromotion from "./pages/YearEndPromotion";
-import ExportFirestoreSamples from "./pages/ExportFirestoreSamples";
+const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
+const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
 
 function LoadingScreen() {
   return (
@@ -52,6 +52,10 @@ function LoadingScreen() {
       <CircularProgress />
     </Box>
   );
+}
+
+function LazyRoute({ children }) {
+  return <Suspense fallback={<LoadingScreen />}>{children}</Suspense>;
 }
 
 function PrivateRoute({ children }) {
@@ -88,7 +92,14 @@ export default function App() {
       <AuthProvider>
         <Router>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route
+              path="/login"
+              element={
+                <LazyRoute>
+                  <Login />
+                </LazyRoute>
+              }
+            />
 
             {/* Admin / Main Layout */}
             <Route
@@ -103,7 +114,9 @@ export default function App() {
                 index
                 element={
                   <AdminRoute>
-                    <Dashboard />
+                    <LazyRoute>
+                      <Dashboard />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -113,7 +126,9 @@ export default function App() {
                 path="classrooms"
                 element={
                   <AdminRoute>
-                    <ClassroomManagement />
+                    <LazyRoute>
+                      <ClassroomManagement />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -121,7 +136,9 @@ export default function App() {
                 path="subjects"
                 element={
                   <AdminRoute>
-                    <SubjectManagement />
+                    <LazyRoute>
+                      <SubjectManagement />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -129,7 +146,9 @@ export default function App() {
                 path="terms"
                 element={
                   <AdminRoute>
-                    <AcademicTerms />
+                    <LazyRoute>
+                      <AcademicTerms />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -137,7 +156,9 @@ export default function App() {
                 path="setup-school-defaults"
                 element={
                   <AdminRoute>
-                    <SetupSchoolDefaults />
+                    <LazyRoute>
+                      <SetupSchoolDefaults />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -147,7 +168,9 @@ export default function App() {
                 path="students"
                 element={
                   <AdminRoute>
-                    <Students />
+                    <LazyRoute>
+                      <Students />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -155,7 +178,9 @@ export default function App() {
                 path="students/by-subject"
                 element={
                   <AdminRoute>
-                    <StudentsBySubject />
+                    <LazyRoute>
+                      <StudentsBySubject />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -163,7 +188,9 @@ export default function App() {
                 path="class-data-management"
                 element={
                   <AdminRoute>
-                    <ClassDataManagement />
+                    <LazyRoute>
+                      <ClassDataManagement />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -173,7 +200,9 @@ export default function App() {
                 path="student-subject-enrollments"
                 element={
                   <AdminRoute>
-                    <GenerateSubjectEnrollments />
+                    <LazyRoute>
+                      <GenerateSubjectEnrollments />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -181,7 +210,9 @@ export default function App() {
                 path="manual-student-subject-enrollments"
                 element={
                   <AdminRoute>
-                    <StudentSubjectEnrollments />
+                    <LazyRoute>
+                      <StudentSubjectEnrollments />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -189,7 +220,9 @@ export default function App() {
                 path="migrate-student-subjects"
                 element={
                   <AdminRoute>
-                    <MigrateStudentSubjects />
+                    <LazyRoute>
+                      <MigrateStudentSubjects />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -199,7 +232,9 @@ export default function App() {
                 path="teachers"
                 element={
                   <AdminRoute>
-                    <AdminTeachers />
+                    <LazyRoute>
+                      <AdminTeachers />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -207,7 +242,9 @@ export default function App() {
                 path="assignments"
                 element={
                   <AdminRoute>
-                    <TeacherAssignments />
+                    <LazyRoute>
+                      <TeacherAssignments />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -215,7 +252,9 @@ export default function App() {
                 path="class-teachers"
                 element={
                   <AdminRoute>
-                    <ClassTeacherAssignments />
+                    <LazyRoute>
+                      <ClassTeacherAssignments />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -225,7 +264,9 @@ export default function App() {
                 path="marks"
                 element={
                   <AdminRoute>
-                    <MarksEntry />
+                    <LazyRoute>
+                      <MarksEntry />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -233,7 +274,9 @@ export default function App() {
                 path="marks-upload"
                 element={
                   <AdminRoute>
-                    <BulkMarksUpload />
+                    <LazyRoute>
+                      <BulkMarksUpload />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -241,7 +284,9 @@ export default function App() {
                 path="teacher-mark-sheets"
                 element={
                   <AdminRoute>
-                    <TeacherMarkSheets />
+                    <LazyRoute>
+                      <TeacherMarkSheets />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -249,7 +294,9 @@ export default function App() {
                 path="class-marks-reports"
                 element={
                   <AdminRoute>
-                    <ClassMarksReports />
+                    <LazyRoute>
+                      <ClassMarksReports />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -257,7 +304,9 @@ export default function App() {
                 path="report/:studentId"
                 element={
                   <AdminRoute>
-                    <ReportCard />
+                    <LazyRoute>
+                      <ReportCard />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -267,7 +316,9 @@ export default function App() {
                 path="promotion"
                 element={
                   <AdminRoute>
-                    <YearEndPromotion />
+                    <LazyRoute>
+                      <YearEndPromotion />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -275,7 +326,9 @@ export default function App() {
                 path="export-firestore-samples"
                 element={
                   <AdminRoute>
-                    <ExportFirestoreSamples />
+                    <LazyRoute>
+                      <ExportFirestoreSamples />
+                    </LazyRoute>
                   </AdminRoute>
                 }
               />
@@ -294,7 +347,9 @@ export default function App() {
                 index
                 element={
                   <TeacherRoute>
-                    <TeacherDashboard />
+                    <LazyRoute>
+                      <TeacherDashboard />
+                    </LazyRoute>
                   </TeacherRoute>
                 }
               />
@@ -303,7 +358,9 @@ export default function App() {
                 path="marks"
                 element={
                   <TeacherRoute>
-                    <MarksEntry />
+                    <LazyRoute>
+                      <MarksEntry />
+                    </LazyRoute>
                   </TeacherRoute>
                 }
               />
@@ -312,7 +369,9 @@ export default function App() {
                 path="class-report"
                 element={
                   <TeacherRoute>
-                    <ClassReport />
+                    <LazyRoute>
+                      <ClassReport />
+                    </LazyRoute>
                   </TeacherRoute>
                 }
               />
@@ -321,7 +380,9 @@ export default function App() {
                 path="report/:studentId"
                 element={
                   <TeacherRoute>
-                    <ReportCard />
+                    <LazyRoute>
+                      <ReportCard />
+                    </LazyRoute>
                   </TeacherRoute>
                 }
               />
