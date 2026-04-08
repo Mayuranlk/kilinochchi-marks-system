@@ -37,7 +37,14 @@ import SearchIcon from "@mui/icons-material/Search";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import PeopleIcon from "@mui/icons-material/People";
 import GradeIcon from "@mui/icons-material/Grade";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
+import {
+  EmptyState,
+  MobileListRow,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -671,45 +678,38 @@ export default function StudentsBySubject() {
         ).toFixed(1)
       : null;
 
+  const passedCount =
+    mode === "marks"
+      ? students.filter((student) => (student.mark ?? -1) >= 35).length
+      : 0;
+
+  const failedCount =
+    mode === "marks"
+      ? students.filter((student) => (student.mark ?? 999) < 35).length
+      : 0;
+
   const selectedSubjectLabel = buildSubjectDisplayName(
     selectedSubjectName,
     selectedSubjectNumber
   );
 
   return (
-    <Box>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          mb: 2,
-          bgcolor: "white",
-          borderRadius: 3,
-          p: 2,
-          boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-          border: "1px solid #e8eaf6",
-        }}
-      >
+    <PageContainer
+      title="Students by Subject"
+      subtitle="View enrolled students or ranking by marks for a selected subject, term, and year."
+      actions={
         <Button
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate("/students")}
-          size="small"
+          size={isMobile ? "small" : "medium"}
           variant="outlined"
+          fullWidth={isMobile}
           sx={{ color: "#1a237e", borderColor: "#1a237e" }}
         >
           Back
         </Button>
-
-        <MenuBookIcon sx={{ color: "#1a237e", ml: 1 }} />
-        <Typography
-          variant={isMobile ? "h6" : "h5"}
-          fontWeight={800}
-          color="#1a237e"
-        >
-          Students by Subject
-        </Typography>
-      </Box>
+      }
+    >
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
@@ -878,7 +878,7 @@ export default function StudentsBySubject() {
                   borderRadius: 2,
                 }}
               >
-                {loading ? <CircularProgress size={20} color="inherit" /> : "Search →"}
+                {loading ? <CircularProgress size={20} color="inherit" /> : "Search"}
               </Button>
             </Grid>
           </Grid>
@@ -888,7 +888,20 @@ export default function StudentsBySubject() {
       {students.length > 0 && (
         <>
           {selectedSubjectName && (
-            <Box display="flex" alignItems="center" gap={1} mb={1.5} flexWrap="wrap">
+            <Box
+              display="flex"
+              alignItems="center"
+              gap={1}
+              mb={1.5}
+              flexWrap="wrap"
+              sx={{
+                bgcolor: "white",
+                borderRadius: 3,
+                p: 1.5,
+                border: "1px solid #e8eaf6",
+                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+              }}
+            >
               <Chip
                 label={subjectTypeBadge.label}
                 size="small"
@@ -902,68 +915,91 @@ export default function StudentsBySubject() {
                 {selectedSubjectLabel}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                — Grade {grade}
+                Grade {grade}
               </Typography>
+              {mode === "marks" ? (
+                <Typography variant="caption" color="text.secondary">
+                  {term} {year}
+                </Typography>
+              ) : null}
             </Box>
           )}
 
-          <Grid container spacing={1.5} mb={2}>
-            <Grid item xs={6} sm={3}>
-              <Card sx={{ bgcolor: "#e8eaf6", textAlign: "center", borderRadius: 3 }}>
-                <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                  <Typography variant="h4" fontWeight={700} color="#1a237e">
-                    {students.length}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Total Students
-                  </Typography>
-                </CardContent>
-              </Card>
+          {isMobile ? (
+            <Box
+              sx={{
+                bgcolor: "white",
+                borderRadius: 3,
+                p: 1.5,
+                mb: 2,
+                border: "1px solid #e8eaf6",
+                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+              }}
+            >
+              <Typography
+                variant="subtitle2"
+                sx={{ fontWeight: 800, color: "#1a237e", mb: 1 }}
+              >
+                Quick Summary
+              </Typography>
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <StatusChip status="active" label={`${students.length} students`} />
+                {mode === "marks" && avgMark ? (
+                  <StatusChip status="saved" label={`Avg ${avgMark}`} />
+                ) : null}
+                {mode === "marks" ? (
+                  <StatusChip status="completed" label={`${passedCount} passed`} />
+                ) : null}
+                {mode === "marks" ? (
+                  <StatusChip status="error" label={`${failedCount} failed`} />
+                ) : null}
+              </Box>
+            </Box>
+          ) : (
+            <Grid container spacing={1.5} mb={2}>
+              <Grid item xs={12} sm={6} lg={mode === "marks" ? 3 : 4}>
+                <StatCard
+                  title="Total Students"
+                  value={students.length}
+                  icon={<PeopleIcon />}
+                  color="primary"
+                />
+              </Grid>
+
+              {mode === "marks" && avgMark ? (
+                <Grid item xs={12} sm={6} lg={3}>
+                  <StatCard
+                    title="Class Average"
+                    value={avgMark}
+                    icon={<GradeIcon />}
+                    color="success"
+                  />
+                </Grid>
+              ) : null}
+
+              {mode === "marks" ? (
+                <Grid item xs={12} sm={6} lg={3}>
+                  <StatCard
+                    title="Passed"
+                    value={passedCount}
+                    icon={<GradeIcon />}
+                    color="warning"
+                  />
+                </Grid>
+              ) : null}
+
+              {mode === "marks" ? (
+                <Grid item xs={12} sm={6} lg={3}>
+                  <StatCard
+                    title="Failed"
+                    value={failedCount}
+                    icon={<GradeIcon />}
+                    color="error"
+                  />
+                </Grid>
+              ) : null}
             </Grid>
-
-            {mode === "marks" && avgMark && (
-              <>
-                <Grid item xs={6} sm={3}>
-                  <Card sx={{ bgcolor: "#e8f5e9", textAlign: "center", borderRadius: 3 }}>
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Typography variant="h4" fontWeight={700} color="#2e7d32">
-                        {avgMark}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Class Average
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={6} sm={3}>
-                  <Card sx={{ bgcolor: "#fff3e0", textAlign: "center", borderRadius: 3 }}>
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Typography variant="h4" fontWeight={700} color="#e65100">
-                        {students.filter((s) => (s.mark ?? -1) >= 35).length}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Passed
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={6} sm={3}>
-                  <Card sx={{ bgcolor: "#ffebee", textAlign: "center", borderRadius: 3 }}>
-                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Typography variant="h4" fontWeight={700} color="#c62828">
-                        {students.filter((s) => (s.mark ?? 999) < 35).length}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Failed
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </>
-            )}
-          </Grid>
+          )}
 
           <TextField
             fullWidth
@@ -982,211 +1018,315 @@ export default function StudentsBySubject() {
             }}
           />
 
-          <Paper
-            sx={{
-              overflowX: "auto",
-              borderRadius: 3,
-              boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-            }}
-          >
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: "#1a237e" }}>
-                  {[
-                    "#",
-                    "Student",
-                    "Class",
-                    ...(mode === "marks" ? ["Marks", "Grade", "Rank"] : []),
-                    "Action",
-                  ].map((heading) => (
-                    <TableCell
-                      key={heading}
-                      sx={{
-                        color: "white",
-                        fontWeight: 700,
-                        fontSize: { xs: 11, sm: 13 },
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {heading}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+          {filtered.length === 0 ? (
+            <EmptyState
+              title="No students match your search"
+              description="Try a different name, admission number, class, or stream."
+            />
+          ) : isMobile ? (
+            <Stack spacing={1.25}>
+              {filtered.map((student, idx) => {
+                const gradeInfo = getGradeLabel(student.mark);
+                const studentGrade = getStudentGrade(student);
+                const alStudent = isALGrade(studentGrade);
+                const markLabel = student.isMedicalAbsent
+                  ? "Medical"
+                  : student.isAbsent
+                  ? "Absent"
+                  : student.mark !== null
+                  ? `${student.mark}/100`
+                  : "No mark";
 
-              <TableBody>
-                {filtered.map((student, idx) => {
-                  const gradeInfo = getGradeLabel(student.mark);
-                  const studentGrade = getStudentGrade(student);
-                  const alStudent = isALGrade(studentGrade);
-
-                  return (
-                    <TableRow
-                      key={student.id}
-                      hover
-                      sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
-                    >
-                      <TableCell sx={{ fontSize: { xs: 12, sm: 14 } }}>
+                return (
+                  <MobileListRow
+                    key={student.id}
+                    compact
+                    title={`${idx + 1}. ${getStudentName(student)}`}
+                    subtitle={`Admission: ${getStudentAdmissionNo(student) || "-"}`}
+                    right={
+                      mode === "marks" ? (
+                        <StatusChip
+                          status={student.mark !== null ? "saved" : "pending"}
+                          label={`Rank #${idx + 1}`}
+                        />
+                      ) : (
+                        <StatusChip status="active" label="Assigned" />
+                      )
+                    }
+                    meta={
+                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          label={
+                            alStudent
+                              ? student.displayClass || "-"
+                              : `G${getStudentGrade(student)}-${getStudentSection(student)}`
+                          }
+                        />
+                        {student.stream ? (
+                          <Chip size="small" variant="outlined" label={student.stream} />
+                        ) : null}
+                        {alStudent && student.subjectNumber ? (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color="secondary"
+                            label={`No. ${student.subjectNumber}`}
+                          />
+                        ) : null}
+                      </Stack>
+                    }
+                    footer={
+                      <Stack spacing={1}>
                         {mode === "marks" ? (
-                          <Avatar
+                          <Box
                             sx={{
-                              width: 24,
-                              height: 24,
-                              fontSize: 12,
-                              bgcolor:
-                                idx === 0
-                                  ? "#ffd700"
-                                  : idx === 1
-                                  ? "#c0c0c0"
-                                  : idx === 2
-                                  ? "#cd7f32"
-                                  : "#e8eaf6",
-                              color: idx < 3 ? "#000" : "#1a237e",
+                              p: 1,
+                              borderRadius: 2,
+                              bgcolor: "#f8f9ff",
+                              border: "1px solid #e8eaf6",
                             }}
                           >
-                            {idx + 1}
-                          </Avatar>
-                        ) : (
-                          idx + 1
-                        )}
-                      </TableCell>
+                            <Stack
+                              direction="row"
+                              justifyContent="space-between"
+                              alignItems="center"
+                              spacing={1}
+                            >
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  Result
+                                </Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                  {markLabel}
+                                </Typography>
+                              </Box>
+                              {gradeInfo &&
+                              !student.isAbsent &&
+                              !student.isMedicalAbsent ? (
+                                <Chip
+                                  label={`Grade ${gradeInfo.label}`}
+                                  size="small"
+                                  color={gradeInfo.color}
+                                />
+                              ) : null}
+                            </Stack>
+                          </Box>
+                        ) : null}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<AssessmentIcon />}
+                          onClick={() => navigate(`/report/${student.id}`)}
+                          sx={{ borderColor: "#1a237e", color: "#1a237e" }}
+                        >
+                          View Report
+                        </Button>
+                      </Stack>
+                    }
+                  />
+                );
+              })}
+            </Stack>
+          ) : (
+            <Paper
+              sx={{
+                borderRadius: 3,
+                boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
+                overflow: "hidden",
+              }}
+            >
+              <ResponsiveTableWrapper minWidth={860}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: "#1a237e" }}>
+                      {[
+                        "#",
+                        "Student",
+                        "Class",
+                        ...(mode === "marks" ? ["Marks", "Grade", "Rank"] : []),
+                        "Action",
+                      ].map((heading) => (
+                        <TableCell
+                          key={heading}
+                          sx={{
+                            color: "white",
+                            fontWeight: 700,
+                            fontSize: { xs: 11, sm: 13 },
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {heading}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
 
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={700}>
-                          {isMobile
-                            ? getStudentName(student).split(" ")[0]
-                            : getStudentName(student)}
-                        </Typography>
+                  <TableBody>
+                    {filtered.map((student, idx) => {
+                      const gradeInfo = getGradeLabel(student.mark);
+                      const studentGrade = getStudentGrade(student);
+                      const alStudent = isALGrade(studentGrade);
 
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" mt={0.25}>
-                          <Typography variant="caption" color="text.secondary">
-                            {getStudentAdmissionNo(student) || "—"}
-                          </Typography>
-
-                          {alStudent && student.subjectNumber ? (
-                            <Chip
-                              label={`No: ${student.subjectNumber}`}
-                              size="small"
-                              sx={{ height: 18, fontSize: 10 }}
-                              color="secondary"
-                              variant="outlined"
-                            />
-                          ) : null}
-                        </Stack>
-                      </TableCell>
-
-                      <TableCell>
-                        {alStudent ? (
-                          <Stack spacing={0.5}>
-                            <Chip
-                              label={student.displayClass || "—"}
-                              size="small"
-                              color="primary"
-                              sx={{ fontWeight: 700, fontSize: 11, maxWidth: 220 }}
-                            />
-                            {student.stream ? (
-                              <Typography variant="caption" color="text.secondary">
-                                {student.stream}
-                              </Typography>
-                            ) : null}
-                          </Stack>
-                        ) : (
-                          <Chip
-                            label={`G${getStudentGrade(student)}-${getStudentSection(student)}`}
-                            size="small"
-                            color="primary"
-                            sx={{ fontWeight: 700, fontSize: 11 }}
-                          />
-                        )}
-                      </TableCell>
-
-                      {mode === "marks" && (
-                        <>
-                          <TableCell>
-                            <Typography fontWeight={700}>
-                              {student.isMedicalAbsent
-                                ? "Medical"
-                                : student.isAbsent
-                                ? "Absent"
-                                : student.mark !== null
-                                ? `${student.mark}/100`
-                                : "—"}
-                            </Typography>
-                          </TableCell>
-
-                          <TableCell>
-                            {gradeInfo && !student.isAbsent && !student.isMedicalAbsent && (
-                              <Chip
-                                label={gradeInfo.label}
-                                size="small"
-                                color={gradeInfo.color}
-                              />
+                      return (
+                        <TableRow
+                          key={student.id}
+                          hover
+                          sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
+                        >
+                          <TableCell sx={{ fontSize: { xs: 12, sm: 14 } }}>
+                            {mode === "marks" ? (
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor:
+                                    idx === 0
+                                      ? "#ffd700"
+                                      : idx === 1
+                                      ? "#c0c0c0"
+                                      : idx === 2
+                                      ? "#cd7f32"
+                                      : "#e8eaf6",
+                                  color: idx < 3 ? "#000" : "#1a237e",
+                                }}
+                              >
+                                {idx + 1}
+                              </Avatar>
+                            ) : (
+                              idx + 1
                             )}
                           </TableCell>
 
                           <TableCell>
-                            <Typography
-                              variant="body2"
-                              fontWeight={700}
-                              color={idx === 0 ? "#f57f17" : "text.primary"}
-                            >
-                              #{idx + 1}
+                            <Typography variant="body2" fontWeight={700}>
+                              {getStudentName(student)}
                             </Typography>
+
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" mt={0.25}>
+                              <Typography variant="caption" color="text.secondary">
+                                {getStudentAdmissionNo(student) || "-"}
+                              </Typography>
+
+                              {alStudent && student.subjectNumber ? (
+                                <Chip
+                                  label={`No: ${student.subjectNumber}`}
+                                  size="small"
+                                  sx={{ height: 18, fontSize: 10 }}
+                                  color="secondary"
+                                  variant="outlined"
+                                />
+                              ) : null}
+                            </Stack>
                           </TableCell>
-                        </>
-                      )}
 
-                      <TableCell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={!isMobile && <AssessmentIcon />}
-                          onClick={() => navigate(`/report/${student.id}`)}
-                          sx={{
-                            fontSize: { xs: 10, sm: 13 },
-                            minWidth: 0,
-                            px: { xs: 1, sm: 2 },
-                            borderColor: "#1a237e",
-                            color: "#1a237e",
-                          }}
-                        >
-                          {isMobile ? "📊" : "Report"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                          <TableCell>
+                            {alStudent ? (
+                              <Stack spacing={0.5}>
+                                <Chip
+                                  label={student.displayClass || "-"}
+                                  size="small"
+                                  color="primary"
+                                  sx={{ fontWeight: 700, fontSize: 11, maxWidth: 220 }}
+                                />
+                                {student.stream ? (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {student.stream}
+                                  </Typography>
+                                ) : null}
+                              </Stack>
+                            ) : (
+                              <Chip
+                                label={`G${getStudentGrade(student)}-${getStudentSection(student)}`}
+                                size="small"
+                                color="primary"
+                                sx={{ fontWeight: 700, fontSize: 11 }}
+                              />
+                            )}
+                          </TableCell>
 
-                {filtered.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={mode === "marks" ? 6 : 4} align="center">
-                      No students match your search.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Paper>
+                          {mode === "marks" ? (
+                            <>
+                              <TableCell>
+                                <Typography fontWeight={700}>
+                                  {student.isMedicalAbsent
+                                    ? "Medical"
+                                    : student.isAbsent
+                                    ? "Absent"
+                                    : student.mark !== null
+                                    ? `${student.mark}/100`
+                                    : "-"}
+                                </Typography>
+                              </TableCell>
+
+                              <TableCell>
+                                {gradeInfo &&
+                                !student.isAbsent &&
+                                !student.isMedicalAbsent ? (
+                                  <Chip
+                                    label={gradeInfo.label}
+                                    size="small"
+                                    color={gradeInfo.color}
+                                  />
+                                ) : null}
+                              </TableCell>
+
+                              <TableCell>
+                                <Typography
+                                  variant="body2"
+                                  fontWeight={700}
+                                  color={idx === 0 ? "#f57f17" : "text.primary"}
+                                >
+                                  #{idx + 1}
+                                </Typography>
+                              </TableCell>
+                            </>
+                          ) : null}
+
+                          <TableCell>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<AssessmentIcon />}
+                              onClick={() => navigate(`/report/${student.id}`)}
+                              sx={{
+                                fontSize: 13,
+                                px: 2,
+                                borderColor: "#1a237e",
+                                color: "#1a237e",
+                              }}
+                            >
+                              Report
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </ResponsiveTableWrapper>
+            </Paper>
+          )}
         </>
       )}
 
       {!loading && subject && students.length === 0 && (
-        <Alert severity="info" sx={{ mt: 2, borderRadius: 3 }}>
-          No students found for <strong>{selectedSubjectLabel}</strong> in Grade {grade}.
-        </Alert>
+        <EmptyState
+          title="No students found"
+          description={`No students were found for ${selectedSubjectLabel} in Grade ${grade}.`}
+        />
       )}
 
       {!subject && !loading && (
-        <Box textAlign="center" py={6}>
-          <GradeIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
-          <Typography color="text.secondary" mt={1} variant="h6" fontWeight={600}>
-            Select a grade and subject to view students
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Uses live student subject enrollments as the source of truth
-          </Typography>
-        </Box>
+        <EmptyState
+          title="Select a grade and subject"
+          description="Uses live student subject enrollments as the source of truth."
+        />
       )}
-    </Box>
+    </PageContainer>
   );
 }

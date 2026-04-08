@@ -38,6 +38,13 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import WarningIcon from "@mui/icons-material/Warning";
+import {
+  EmptyState,
+  MobileListRow,
+  PageContainer,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 const TERMS = ["Term 1", "Term 2", "Term 3"];
 
@@ -300,66 +307,55 @@ export default function AcademicTerms() {
   };
 
   return (
-    <Box>
-      <Box
-        sx={{
-          bgcolor: "white",
-          borderRadius: 3,
-          p: { xs: 2, sm: 2.5 },
-          mb: 2,
-          boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-          border: "1px solid #e8eaf6",
-        }}
-      >
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          flexWrap="wrap"
-          gap={1.5}
+    <PageContainer
+      title="Academic Terms"
+      subtitle="Manage school terms, academic years, and the currently active marking term."
+      actions={
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={openAddDialog}
+          sx={{ bgcolor: "#1a237e", borderRadius: 2, fontWeight: 700 }}
+          size={isMobile ? "small" : "medium"}
+          fullWidth={isMobile}
         >
-          <Box>
-            <Typography
-              variant={isMobile ? "h6" : "h5"}
-              fontWeight={800}
-              color="#1a237e"
-            >
-              Academic Terms
-            </Typography>
-
-            <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip
-                label={`Total: ${stats.total}`}
-                size="small"
-                color="primary"
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`Active: ${stats.active}`}
-                size="small"
-                color={stats.active === 1 ? "success" : "warning"}
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`Years: ${stats.years}`}
-                size="small"
-                color="warning"
-                sx={{ fontWeight: 700 }}
-              />
-            </Box>
+          Add Term
+        </Button>
+      }
+    >
+      {isMobile ? (
+        <Box
+          sx={{
+            bgcolor: "white",
+            borderRadius: 3,
+            p: 1.5,
+            mb: 2,
+            border: "1px solid #e8eaf6",
+            boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e", mb: 1 }}>
+            Quick Summary
+          </Typography>
+          <Box display="flex" gap={1} flexWrap="wrap">
+            <StatusChip status="active" label={`Total: ${stats.total}`} />
+            <StatusChip status={stats.active === 1 ? "saved" : "draft"} label={`Active: ${stats.active}`} />
+            <StatusChip status="completed" label={`Years: ${stats.years}`} />
           </Box>
-
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openAddDialog}
-            sx={{ bgcolor: "#1a237e", borderRadius: 2, fontWeight: 700 }}
-            size={isMobile ? "small" : "medium"}
-          >
-            {isMobile ? "Add" : "Add Term"}
-          </Button>
         </Box>
-      </Box>
+      ) : (
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          <Grid item xs={12} md={4}>
+            <StatCard title="Total Terms" value={stats.total} icon={<CalendarMonthIcon />} color="primary" />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <StatCard title="Active Terms" value={stats.active} icon={<CheckCircleIcon />} color={stats.active === 1 ? "success" : "warning"} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <StatCard title="Academic Years" value={stats.years} icon={<WarningIcon />} color="secondary" />
+          </Grid>
+        </Grid>
+      )}
 
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
@@ -414,12 +410,81 @@ export default function AcademicTerms() {
           <CircularProgress />
         </Box>
       ) : terms.length === 0 ? (
-        <Box textAlign="center" py={6}>
-          <CalendarMonthIcon sx={{ fontSize: 64, color: "#e8eaf6" }} />
-          <Typography color="text.secondary" mt={1}>
-            No terms added yet. Add your first term to get started.
-          </Typography>
-        </Box>
+        <EmptyState
+          title="No terms added yet"
+          description="Add your first term to get started."
+        />
+      ) : isMobile ? (
+        <Grid container spacing={1.25}>
+          {terms.map((termDoc) => (
+            <Grid item xs={12} key={termDoc.id}>
+              <MobileListRow
+                compact
+                title={`${termDoc.term} - ${termDoc.year}`}
+                subtitle={formatDateRange(termDoc)}
+                right={
+                  termDoc.isActive ? (
+                    <StatusChip status="saved" label="Active" />
+                  ) : (
+                    <StatusChip status="pending" label="Inactive" />
+                  )
+                }
+                meta={
+                  <Box display="flex" gap={1} flexWrap="wrap">
+                    <Chip size="small" variant="outlined" label={`Start: ${termDoc.startDate || "-"}`} />
+                    <Chip size="small" variant="outlined" label={`End: ${termDoc.endDate || "-"}`} />
+                  </Box>
+                }
+                actions={
+                  <Box display="flex" gap={1}>
+                    {!termDoc.isActive ? (
+                      <Button
+                        variant="contained"
+                        size="small"
+                        fullWidth
+                        startIcon={<RadioButtonUncheckedIcon />}
+                        onClick={() => handleActivate(termDoc)}
+                        disabled={saving}
+                        sx={{ bgcolor: "#1a237e" }}
+                      >
+                        Set Active
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        fullWidth
+                        color="success"
+                        disabled
+                        startIcon={<CheckCircleIcon />}
+                      >
+                        Active Term
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => openEditDialog(termDoc)}
+                      fullWidth
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      onClick={() => handleDelete(termDoc.id)}
+                      disabled={termDoc.isActive || saving}
+                      fullWidth
+                    >
+                      Delete
+                    </Button>
+                  </Box>
+                }
+              />
+            </Grid>
+          ))}
+        </Grid>
       ) : (
         <Grid container spacing={2}>
           {terms.map((termDoc) => (
@@ -627,6 +692,6 @@ export default function AcademicTerms() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }
