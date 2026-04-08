@@ -715,7 +715,7 @@ export default function TeacherAssignments() {
 
         <Box mb={2.5}>
           <Typography variant="body2" fontWeight={700} color="#1a237e" mb={1}>
-            Step 1 — Select Teacher
+            Step 1 - Select Teacher
           </Typography>
 
           <FormControl fullWidth size="small" sx={{ maxWidth: 420 }}>
@@ -760,8 +760,8 @@ export default function TeacherAssignments() {
           </FormControl>
         </Box>
 
-        <Grid container spacing={3}>
-          <Grid item xs={12} sm={3}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -772,7 +772,7 @@ export default function TeacherAssignments() {
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#1a237e">
-                  Step 2 — Grade
+                  Step 2 - Grade
                 </Typography>
                 <Button
                   size="small"
@@ -816,7 +816,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={3}>
+          <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -827,7 +827,7 @@ export default function TeacherAssignments() {
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#2e7d32">
-                  Step 3 — Section
+                  Step 3 - Section
                 </Typography>
                 <Button
                   size="small"
@@ -871,7 +871,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={3}>
+          <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
@@ -883,7 +883,7 @@ export default function TeacherAssignments() {
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#6a1b9a">
-                  Step 4 — Stream
+                  Step 4 - Stream
                 </Typography>
                 <Button
                   size="small"
@@ -933,20 +933,20 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={3}>
+          <Grid item xs={12} lg={3}>
             <Box
               sx={{
                 border: "1px solid #e8eaf6",
                 borderRadius: 2,
                 p: 2,
                 bgcolor: selectedSubjectKeys.length > 0 ? "#fff3e0" : "#fafafa",
-                maxHeight: 360,
+                maxHeight: { xs: 280, sm: 360 },
                 overflowY: "auto",
               }}
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" fontWeight={700} color="#e65100">
-                  Step 5 — Subject
+                  Step 5 - Subject
                 </Typography>
                 <Button
                   size="small"
@@ -1009,7 +1009,7 @@ export default function TeacherAssignments() {
           </Grid>
         </Grid>
 
-        <ActionBar sticky>
+        <ActionBar sticky sx={{ mt: 1, pb: { xs: 0.5, sm: 0 } }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <StatusChip status="active" label={`${previewCount} preview`} />
             <StatusChip
@@ -1048,7 +1048,7 @@ export default function TeacherAssignments() {
               sx={{ bgcolor: "#1a237e", px: 3 }}
               fullWidth={isMobile}
             >
-              {saving ? "Saving..." : `Save ${previewCount > 0 ? previewCount : ""} Assignments`}
+              {saving ? "Saving..." : isMobile ? "Save Assignments" : `Save ${previewCount > 0 ? previewCount : ""} Assignments`}
             </Button>
           </Stack>
         </ActionBar>

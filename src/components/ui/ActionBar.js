@@ -6,7 +6,7 @@ const ActionBar = ({ children, sticky = false, sx = {} }) => {
     <Box
       sx={(theme) => ({
         position: sticky ? "sticky" : "relative",
-        bottom: sticky ? { xs: 80, sm: 12 } : "auto",
+        bottom: sticky ? { xs: 92, sm: 12 } : "auto",
         zIndex: sticky ? theme.zIndex.appBar - 1 : "auto",
         mt: 2,
         ...sx,

@@ -186,7 +186,7 @@ export default function Layout() {
     ];
   }, [isAdmin, isClassTeacher]);
 
-  const shouldShowBottomNav = isMobile;
+  const shouldShowBottomNav = isMobile && !mobileOpen;
 
   const currentBottomNav = useMemo(() => {
     const index = bottomNavItems.findIndex((item) => {
@@ -461,40 +461,73 @@ export default function Layout() {
             <List disablePadding>{menuItems.map(renderMenuItem)}</List>
           </>
         )}
+
+        {isMobile ? (
+          <>
+            <SidebarSectionLabel>Account</SidebarSectionLabel>
+            <List disablePadding sx={{ pb: 1.5 }}>
+              <ListItemButton
+                onClick={handleLogout}
+                sx={{
+                  mx: 1.25,
+                  mb: 0.5,
+                  borderRadius: 3,
+                  "&:hover": {
+                    bgcolor: "rgba(220, 38, 38, 0.08)",
+                  },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 38, color: "error.main" }}>
+                  <LogoutRoundedIcon />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Logout"
+                  primaryTypographyProps={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "text.primary",
+                  }}
+                />
+              </ListItemButton>
+            </List>
+          </>
+        ) : null}
       </Box>
 
-      <Box
-        sx={{
-          p: 1.25,
-          borderTop: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-        }}
-      >
-        <List disablePadding>
-          <ListItemButton
-            onClick={handleLogout}
-            sx={{
-              borderRadius: 3,
-              "&:hover": {
-                bgcolor: "rgba(220, 38, 38, 0.08)",
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 38, color: "error.main" }}>
-              <LogoutRoundedIcon />
-            </ListItemIcon>
-            <ListItemText
-              primary="Logout"
-              primaryTypographyProps={{
-                fontSize: 14,
-                fontWeight: 700,
-                color: "text.primary",
+      {!isMobile ? (
+        <Box
+          sx={{
+            p: 1.25,
+            borderTop: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+          }}
+        >
+          <List disablePadding>
+            <ListItemButton
+              onClick={handleLogout}
+              sx={{
+                borderRadius: 3,
+                "&:hover": {
+                  bgcolor: "rgba(220, 38, 38, 0.08)",
+                },
               }}
-            />
-          </ListItemButton>
-        </List>
-      </Box>
+            >
+              <ListItemIcon sx={{ minWidth: 38, color: "error.main" }}>
+                <LogoutRoundedIcon />
+              </ListItemIcon>
+              <ListItemText
+                primary="Logout"
+                primaryTypographyProps={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "text.primary",
+                }}
+              />
+            </ListItemButton>
+          </List>
+        </Box>
+      ) : null}
     </Box>
   );
 
@@ -626,7 +659,7 @@ export default function Layout() {
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
           minHeight: "100vh",
           pt: { xs: "72px", md: 0 },
-          pb: { xs: shouldShowBottomNav ? "86px" : 0, md: 0 },
+          pb: { xs: shouldShowBottomNav ? "104px" : 0, md: 0 },
           px: { xs: 0, md: 0 },
           overflowX: "hidden",
           bgcolor: "background.default",

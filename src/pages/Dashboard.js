@@ -361,21 +361,40 @@ export default function Dashboard() {
           </Stack>
         </SectionCard>
 
-        <Grid container spacing={1.5}>
-          {statCards.map((card) => (
-            <Grid item xs={6} md={3} key={card.title}>
-              <StatCard
-                title={card.title}
-                value={card.value}
-                helperText={card.helperText}
-                icon={card.icon}
-                color={card.color}
-                sx={{ cursor: "pointer", height: "100%" }}
-                onClick={card.onClick}
-              />
-            </Grid>
-          ))}
-        </Grid>
+        {isMobile ? (
+          <SectionCard>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {statCards.map((card) => (
+                  <StatusChip
+                    key={card.title}
+                    status="active"
+                    label={`${card.title}: ${card.value}`}
+                  />
+                ))}
+              </Stack>
+            </Stack>
+          </SectionCard>
+        ) : (
+          <Grid container spacing={1.5}>
+            {statCards.map((card) => (
+              <Grid item xs={6} md={3} key={card.title}>
+                <StatCard
+                  title={card.title}
+                  value={card.value}
+                  helperText={card.helperText}
+                  icon={card.icon}
+                  color={card.color}
+                  sx={{ cursor: "pointer", height: "100%" }}
+                  onClick={card.onClick}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        )}
 
         <Grid container spacing={1.5}>
           {quickActions.map((item) => (
@@ -406,14 +425,14 @@ export default function Dashboard() {
                 />
               ) : isMobile ? (
                 <Stack spacing={1.25}>
-                  {recentStudents.map((student) => (
+                  {recentStudents.slice(0, 4).map((student) => (
                     <MobileListRow
                       key={student.id}
                       title={getStudentName(student)}
                       subtitle={[
                         student.admissionNo || "No admission no",
-                        `G${parseGrade(student.grade)}-${getStudentSection(student) || "—"}`,
-                      ].join(" • ")}
+                        `G${parseGrade(student.grade)}-${getStudentSection(student) || "-"}`,
+                      ].join(" - ")}
                       right={
                         <Avatar
                           sx={{

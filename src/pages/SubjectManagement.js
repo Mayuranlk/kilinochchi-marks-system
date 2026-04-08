@@ -30,6 +30,8 @@ import {
   Tooltip,
   Typography,
   CircularProgress,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -39,6 +41,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { MobileListRow, ResponsiveTableWrapper } from "../components/ui";
 
 const SUBJECT_COLLECTION = "subjects";
 
@@ -549,6 +552,8 @@ function SubjectStatsCard({ title, value, icon }) {
 
 export default function SubjectManagement() {
   const { profile, isAdmin } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -954,7 +959,98 @@ export default function SubjectManagement() {
         </Grid>
       </Paper>
 
+      {isMobile ? (
+        <Stack spacing={1.25}>
+          {filteredSubjects.length === 0 ? (
+            <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
+              <Typography variant="body2" color="text.secondary">
+                No subjects found for the selected filters.
+              </Typography>
+            </Paper>
+          ) : (
+            filteredSubjects.map((subject) => {
+              const categoryForForm = getCategoryFilterValue(subject);
+              const scopeValue =
+                categoryForForm === "religion"
+                  ? normalizeText(subject.religion || subject.religionGroup) || "-"
+                  : categoryForForm === "al_main"
+                  ? normalizeText(subject.stream) ||
+                    (Array.isArray(subject.streams) && subject.streams.length > 0
+                      ? subject.streams.join(", ")
+                      : "-")
+                  : ["basket_a", "basket_b", "basket_c"].includes(categoryForForm)
+                  ? normalizeText(
+                      canonicalBasketGroup(subject.category, subject.basketGroup)
+                    ) || "-"
+                  : "-";
+
+              return (
+                <MobileListRow
+                  key={subject.id}
+                  compact
+                  title={getSubjectName(subject)}
+                  subtitle={[
+                    getSubjectNumber(subject) ? `No. ${getSubjectNumber(subject)}` : null,
+                    getSubjectCode(subject) ? `Code: ${getSubjectCode(subject)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" - ")}
+                  right={
+                    <Chip
+                      size="small"
+                      label={normalizeText(subject.status || "active").toUpperCase()}
+                      color={getStatusColor(subject.status || "active")}
+                    />
+                  }
+                  meta={
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      <Chip
+                        label={getCategoryLabel(subject.category, subject.basketGroup)}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                      <Chip size="small" variant="outlined" label={buildGradeSummary(subject)} />
+                      <Chip size="small" variant="outlined" label={scopeValue} />
+                    </Stack>
+                  }
+                  actions={
+                    <Stack direction="row" spacing={1} sx={{ width: "100%" }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => openEditDialog(subject)}
+                        disabled={!isAdmin}
+                        fullWidth
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color={
+                          normalizeLower(subject.status || "active") === "active"
+                            ? "warning"
+                            : "success"
+                        }
+                        onClick={() => toggleStatus(subject)}
+                        disabled={!isAdmin}
+                        fullWidth
+                      >
+                        {normalizeLower(subject.status || "active") === "active"
+                          ? "Deactivate"
+                          : "Activate"}
+                      </Button>
+                    </Stack>
+                  }
+                />
+              );
+            })
+          )}
+        </Stack>
+      ) : (
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+        <ResponsiveTableWrapper minWidth={980}>
         <Table size="small">
           <TableHead sx={{ bgcolor: "#1a237e" }}>
             <TableRow>
@@ -1079,7 +1175,9 @@ export default function SubjectManagement() {
             )}
           </TableBody>
         </Table>
+        </ResponsiveTableWrapper>
       </Paper>
+      )}
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
         <DialogTitle>{dialogTitle}</DialogTitle>

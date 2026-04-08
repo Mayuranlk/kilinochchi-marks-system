@@ -23,11 +23,26 @@ const MobileListRow = ({
             alignItems="flex-start"
           >
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 800,
+                  lineHeight: 1.25,
+                  overflowWrap: "anywhere",
+                }}
+              >
                 {title}
               </Typography>
               {subtitle ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{
+                    mt: 0.35,
+                    lineHeight: 1.35,
+                    overflowWrap: "anywhere",
+                  }}
+                >
                   {subtitle}
                 </Typography>
               ) : null}
