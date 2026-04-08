@@ -2,10 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Autocomplete,
-  Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   Divider,
@@ -23,13 +20,19 @@ import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import {
   collection,
-  deleteDoc,
   doc,
   getDocs,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import {
+  ActionBar,
+  MobileListRow,
+  PageContainer,
+  StatCard as SharedStatCard,
+  StatusChip,
+} from "../components/ui";
 import {
   ENROLLMENT_MODES,
   fullRebuildEnrollments,
@@ -231,21 +234,6 @@ function choosePreferredMark(current, candidate) {
 async function fetchStudents() {
   const snap = await getDocs(collection(db, "students"));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-function StatCard({ title, value }) {
-  return (
-    <Card variant="outlined" sx={{ height: "100%" }}>
-      <CardContent>
-        <Typography variant="body2" color="text.secondary">
-          {title}
-        </Typography>
-        <Typography variant="h5" fontWeight={700} sx={{ mt: 1 }}>
-          {value}
-        </Typography>
-      </CardContent>
-    </Card>
-  );
 }
 
 function buildErrorSummary(mode, error) {
@@ -634,20 +622,94 @@ export default function GenerateSubjectEnrollments() {
   }
 
   const isRunning = Boolean(running);
+  const quickStats = [
+    { title: "Students Loaded", value: students.length },
+    { title: "Active Students", value: activeStudents.length },
+    { title: "Academic Year", value: academicYear },
+    { title: "Current Role", value: profile?.role || "unknown" },
+  ];
+  const summaryStats = [
+    { title: "Processed", value: summary.totalProcessed },
+    { title: "Created", value: summary.created },
+    { title: "Reactivated", value: summary.reactivated },
+    { title: "Updated", value: summary.updated },
+    { title: "Deactivated", value: summary.deactivated },
+    { title: "Skipped / Errors", value: `${summary.skipped} / ${summary.errors}` },
+    { title: "Deleted Enrollments", value: summary.deletedEnrollments },
+    { title: "Deleted Marks", value: summary.deletedMarks },
+    { title: "Enrollment Duplicate Groups", value: summary.enrollmentDuplicateGroups },
+    { title: "Mark Duplicate Groups", value: summary.markDuplicateGroups },
+  ];
+  const operationCards = [
+    {
+      key: "post_promotion_generate_missing",
+      title: "Post-Promotion Generate",
+      description:
+        "Best choice after Year End Promotion. Creates current-year missing enrollments safely.",
+      buttonLabel: "Post-Promotion Generate Missing",
+      color: "success",
+      icon: <CheckCircleIcon color="success" />,
+      action: handlePostPromotionGenerate,
+      disabled: isRunning,
+      badge: null,
+    },
+    {
+      key: ENROLLMENT_MODES.GENERATE_MISSING,
+      title: "Generate Missing",
+      description:
+        "Create only missing enrollments for all active students in the selected year.",
+      buttonLabel: "Generate Missing",
+      color: "primary",
+      icon: <AutorenewIcon color="primary" />,
+      action: () => runMode(ENROLLMENT_MODES.GENERATE_MISSING),
+      disabled: isRunning,
+      badge: null,
+    },
+    {
+      key: ENROLLMENT_MODES.REGENERATE_STUDENT,
+      title: "Regenerate Selected Student",
+      description:
+        "Inactivate old enrollments for one student and rebuild that student only.",
+      buttonLabel: "Regenerate Selected Student",
+      color: "warning",
+      icon: <ReplayIcon color="warning" />,
+      action: () => runMode(ENROLLMENT_MODES.REGENERATE_STUDENT),
+      disabled: isRunning || !selectedStudent,
+      badge: null,
+    },
+    {
+      key: ENROLLMENT_MODES.FULL_REBUILD,
+      title: "Full Rebuild",
+      description:
+        "Inactivate all current-year enrollments and rebuild everything from scratch.",
+      buttonLabel: "Full Rebuild",
+      color: "error",
+      icon: <BuildIcon color="error" />,
+      action: () => runMode(ENROLLMENT_MODES.FULL_REBUILD),
+      disabled: isRunning || !isAdmin,
+      badge: isAdmin ? "Admin" : "Admin only",
+    },
+    {
+      key: "cleanup_duplicates",
+      title: "Admin Duplicate Cleanup",
+      description:
+        "Removes duplicate enrollment and mark records while keeping the best matching entry.",
+      buttonLabel: "Run Duplicate Cleanup",
+      color: "warning",
+      icon: <CleaningServicesIcon color="warning" />,
+      action: () => runMode("cleanup_duplicates"),
+      disabled: isRunning || !isAdmin,
+      badge: isAdmin ? "Admin" : "Admin only",
+    },
+  ];
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer
+      title="Generate Subject Enrollments"
+      subtitle="Automatic enrollment generation with duplicate protection, status handling, and safe repeat runs."
+      maxWidth="xl"
+    >
       <Stack spacing={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={700}>
-            Generate Subject Enrollments
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Automatic enrollment generation with duplicate protection, status handling,
-            and safe repeat runs.
-          </Typography>
-        </Box>
-
         <Alert severity="info">
           This page rebuilds <strong>studentSubjectEnrollments</strong> using the current
           student profile, subject definitions, and academic year.
@@ -659,7 +721,23 @@ export default function GenerateSubjectEnrollments() {
           until duplicate cleanup is completed.
         </Alert>
 
-        <Grid container spacing={2}>
+        <Paper
+          sx={{
+            p: 2,
+            borderRadius: 3,
+            border: "1px solid #e8eaf6",
+            boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
+            position: { xs: "sticky", md: "static" },
+            top: { xs: 76, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
+          }}
+        >
+          <Stack spacing={1.25}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              Enrollment Context
+            </Typography>
+
+            <Grid container spacing={2}>
           <Grid item xs={12} md={4}>
             <TextField
               fullWidth
@@ -687,171 +765,74 @@ export default function GenerateSubjectEnrollments() {
               disabled={isRunning}
             />
           </Grid>
-        </Grid>
+            </Grid>
 
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <CheckCircleIcon color="success" />
-                    <Typography variant="h6">Post-Promotion Generate</Typography>
-                  </Stack>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <StatusChip status="active" label={`Year ${academicYear}`} />
+              <StatusChip status={selectedStudent ? "saved" : "pending"} label={selectedStudent ? "Student selected" : "All students"} />
+              <StatusChip status={isAdmin ? "completed" : "pending"} label={isAdmin ? "Admin access" : "Standard access"} />
+            </Stack>
+          </Stack>
+        </Paper>
 
-                  <Typography variant="body2" color="text.secondary">
-                    Best choice after Year End Promotion. Creates current-year missing
-                    enrollments safely.
-                  </Typography>
+        <Stack spacing={1.5}>
+          <Typography variant="h6" fontWeight={700}>
+            Available Actions
+          </Typography>
 
-                  <Button
-                    variant="contained"
-                    color="success"
-                    onClick={handlePostPromotionGenerate}
-                    disabled={isRunning}
-                  >
-                    {running === "post_promotion_generate_missing" ? (
-                      <CircularProgress size={22} color="inherit" />
-                    ) : (
-                      "Post-Promotion Generate Missing"
-                    )}
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
+          <Grid container spacing={1.5}>
+            {operationCards.map((card) => (
+              <Grid item xs={12} md={card.key === "cleanup_duplicates" ? 6 : 4} lg={card.key === "cleanup_duplicates" ? 4 : 4} key={card.key}>
+                <MobileListRow
+                  title={card.title}
+                  right={
+                    card.badge ? (
+                      <Chip
+                        size="small"
+                        label={card.badge}
+                        color={isAdmin ? "success" : "default"}
+                      />
+                    ) : null
+                  }
+                  meta={
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      {card.icon}
+                      <StatusChip
+                        status={running === card.key ? "draft" : card.disabled ? "pending" : "saved"}
+                        label={running === card.key ? "Running" : card.disabled ? "Unavailable" : "Ready"}
+                      />
+                    </Stack>
+                  }
+                  footer={
+                    <Stack spacing={1.25}>
+                      <Typography variant="body2" color="text.secondary">
+                        {card.description}
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        color={card.color}
+                        onClick={card.action}
+                        disabled={card.disabled}
+                        fullWidth
+                      >
+                        {running === card.key ? (
+                          <CircularProgress size={22} color="inherit" />
+                        ) : (
+                          card.buttonLabel
+                        )}
+                      </Button>
+                    </Stack>
+                  }
+                  sx={{
+                    height: "100%",
+                    border: card.color === "error" ? "1px solid" : undefined,
+                    borderColor: card.color === "error" ? "error.main" : undefined,
+                  }}
+                />
+              </Grid>
+            ))}
           </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <AutorenewIcon color="primary" />
-                    <Typography variant="h6">Generate Missing</Typography>
-                  </Stack>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Create only missing enrollments for all active students in the selected year.
-                  </Typography>
-
-                  <Button
-                    variant="contained"
-                    onClick={() => runMode(ENROLLMENT_MODES.GENERATE_MISSING)}
-                    disabled={isRunning}
-                  >
-                    {running === ENROLLMENT_MODES.GENERATE_MISSING ? (
-                      <CircularProgress size={22} color="inherit" />
-                    ) : (
-                      "Generate Missing"
-                    )}
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined">
-              <CardContent>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <ReplayIcon color="warning" />
-                    <Typography variant="h6">Regenerate Selected Student</Typography>
-                  </Stack>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Inactivate old enrollments for one student and rebuild that student only.
-                  </Typography>
-
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    onClick={() => runMode(ENROLLMENT_MODES.REGENERATE_STUDENT)}
-                    disabled={isRunning || !selectedStudent}
-                  >
-                    {running === ENROLLMENT_MODES.REGENERATE_STUDENT ? (
-                      <CircularProgress size={22} color="inherit" />
-                    ) : (
-                      "Regenerate Selected Student"
-                    )}
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined" sx={{ borderColor: "error.main" }}>
-              <CardContent>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <BuildIcon color="error" />
-                    <Typography variant="h6">Full Rebuild</Typography>
-                    <Chip
-                      size="small"
-                      label={isAdmin ? "Admin" : "Admin only"}
-                      color={isAdmin ? "success" : "default"}
-                    />
-                  </Stack>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Inactivate all current-year enrollments and rebuild everything from scratch.
-                  </Typography>
-
-                  <Button
-                    variant="contained"
-                    color="error"
-                    onClick={() => runMode(ENROLLMENT_MODES.FULL_REBUILD)}
-                    disabled={isRunning || !isAdmin}
-                  >
-                    {running === ENROLLMENT_MODES.FULL_REBUILD ? (
-                      <CircularProgress size={22} color="inherit" />
-                    ) : (
-                      "Full Rebuild"
-                    )}
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={4}>
-            <Card variant="outlined" sx={{ borderColor: "warning.main" }}>
-              <CardContent>
-                <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <CleaningServicesIcon color="warning" />
-                    <Typography variant="h6">Admin Duplicate Cleanup</Typography>
-                    <Chip
-                      size="small"
-                      label={isAdmin ? "Admin" : "Admin only"}
-                      color={isAdmin ? "success" : "default"}
-                    />
-                  </Stack>
-
-                  <Typography variant="body2" color="text.secondary">
-                    Removes duplicate entries from current-year
-                    <strong> studentSubjectEnrollments</strong> and
-                    <strong> marks</strong> while keeping the best matching record.
-                  </Typography>
-
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    onClick={() => runMode("cleanup_duplicates")}
-                    disabled={isRunning || !isAdmin}
-                  >
-                    {running === "cleanup_duplicates" ? (
-                      <CircularProgress size={22} color="inherit" />
-                    ) : (
-                      "Run Duplicate Cleanup"
-                    )}
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        </Stack>
 
         {pageLoading || authLoading ? (
           <Paper sx={{ p: 4, textAlign: "center" }}>
@@ -859,18 +840,11 @@ export default function GenerateSubjectEnrollments() {
           </Paper>
         ) : (
           <Grid container spacing={2}>
-            <Grid item xs={12} md={3}>
-              <StatCard title="Students Loaded" value={students.length} />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <StatCard title="Active Students" value={activeStudents.length} />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <StatCard title="Academic Year" value={academicYear} />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <StatCard title="Current Role" value={profile?.role || "unknown"} />
-            </Grid>
+            {quickStats.map((item) => (
+              <Grid item xs={6} md={3} key={item.title}>
+                <SharedStatCard title={item.title} value={item.value} />
+              </Grid>
+            ))}
           </Grid>
         )}
 
@@ -881,45 +855,11 @@ export default function GenerateSubjectEnrollments() {
         </Typography>
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={2}>
-            <StatCard title="Processed" value={summary.totalProcessed} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <StatCard title="Created" value={summary.created} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <StatCard title="Reactivated" value={summary.reactivated} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <StatCard title="Updated" value={summary.updated} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <StatCard title="Deactivated" value={summary.deactivated} />
-          </Grid>
-          <Grid item xs={12} md={2}>
-            <StatCard
-              title="Skipped / Errors"
-              value={`${summary.skipped} / ${summary.errors}`}
-            />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <StatCard title="Deleted Enrollments" value={summary.deletedEnrollments} />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <StatCard title="Deleted Marks" value={summary.deletedMarks} />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <StatCard
-              title="Enrollment Duplicate Groups"
-              value={summary.enrollmentDuplicateGroups}
-            />
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <StatCard
-              title="Mark Duplicate Groups"
-              value={summary.markDuplicateGroups}
-            />
-          </Grid>
+          {summaryStats.map((item) => (
+            <Grid item xs={6} md={item.title.includes("Duplicate") ? 3 : 2} key={item.title}>
+              <SharedStatCard title={item.title} value={item.value} />
+            </Grid>
+          ))}
         </Grid>
 
         <Paper variant="outlined" sx={{ p: 2 }}>
@@ -957,7 +897,23 @@ export default function GenerateSubjectEnrollments() {
             )}
           </Stack>
         </Paper>
+
+        <ActionBar sticky>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <StatusChip status="active" label={`Year ${academicYear}`} />
+            <StatusChip
+              status={isRunning ? "draft" : "saved"}
+              label={isRunning ? "Operation running" : "Ready"}
+            />
+          </Stack>
+
+          <Typography variant="body2" color="text.secondary">
+            {selectedStudent
+              ? `Selected: ${getStudentOptionLabel(selectedStudent)}`
+              : "No student selected. General actions apply to all students."}
+          </Typography>
+        </ActionBar>
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

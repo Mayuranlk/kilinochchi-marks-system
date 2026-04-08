@@ -220,7 +220,7 @@ function getCategoryLabel(category, basketGroup = "") {
     al_general: "General",
   };
 
-  return labels[normalized] || normalizeText(category) || "—";
+  return labels[normalized] || normalizeText(category) || "-";
 }
 
 function getStatusColor(status) {
@@ -981,8 +981,8 @@ export default function SubjectManagement() {
 
               return (
                 <TableRow key={subject.id} hover>
-                  <TableCell>{getSubjectNumber(subject) || "—"}</TableCell>
-                  <TableCell>{getSubjectCode(subject) || "—"}</TableCell>
+                  <TableCell>{getSubjectNumber(subject) || "-"}</TableCell>
+                  <TableCell>{getSubjectCode(subject) || "-"}</TableCell>
                   <TableCell>
                     <Stack spacing={0.4}>
                       <Typography variant="body2" fontWeight={600}>
@@ -1006,17 +1006,17 @@ export default function SubjectManagement() {
                   <TableCell>{buildGradeSummary(subject)}</TableCell>
                   <TableCell>
                     {categoryForForm === "religion"
-                      ? normalizeText(subject.religion || subject.religionGroup) || "—"
+                      ? normalizeText(subject.religion || subject.religionGroup) || "-"
                       : categoryForForm === "al_main"
                       ? normalizeText(subject.stream) ||
                         (Array.isArray(subject.streams) && subject.streams.length > 0
                           ? subject.streams.join(", ")
-                          : "—")
+                          : "-")
                       : ["basket_a", "basket_b", "basket_c"].includes(categoryForForm)
                       ? normalizeText(
                           canonicalBasketGroup(subject.category, subject.basketGroup)
-                        ) || "—"
-                      : "—"}
+                        ) || "-"
+                      : "-"}
                   </TableCell>
                   <TableCell>
                     <Chip

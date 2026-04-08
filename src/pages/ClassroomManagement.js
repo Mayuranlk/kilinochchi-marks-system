@@ -56,6 +56,13 @@ import EditIcon from "@mui/icons-material/Edit";
 import SchoolIcon from "@mui/icons-material/School";
 import PersonIcon from "@mui/icons-material/Person";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import {
+  EmptyState,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 const YEARS = [2026, 2025, 2024];
 const ALL_SECTIONS = [
@@ -319,7 +326,7 @@ export default function ClassroomManagement() {
 
   const getTeacherName = (classroom) => {
     const teacher = resolveTeacher(classroom);
-    return teacher?.name || classroom.classTeacherName || "—";
+    return teacher?.name || classroom.classTeacherName || "-";
   };
 
   const getClassLabel = (classroom) => {
@@ -373,7 +380,7 @@ export default function ClassroomManagement() {
     const stream = safeString(form.stream);
 
     if (isALGrade(grade) && !stream) {
-      setError("Select a stream first for Grade 12–13 classrooms.");
+      setError("Select a stream first for Grade 12-13 classrooms.");
       return;
     }
 
@@ -472,7 +479,7 @@ export default function ClassroomManagement() {
     }
 
     if (isALGrade(grade) && !stream) {
-      setError("Stream is required for Grade 12–13 classrooms.");
+      setError("Stream is required for Grade 12-13 classrooms.");
       return;
     }
 
@@ -585,10 +592,33 @@ export default function ClassroomManagement() {
   const classroomCountWithTeacher = classrooms.filter(
     (c) => c.classTeacherId || c.classTeacherName || c.classTeacherEmail
   ).length;
+  const quickStats = [
+    { label: `Total: ${classrooms.length}`, status: "active" },
+    { label: `Grades: ${Object.keys(groupedByGrade).length}`, status: "saved" },
+    { label: `With Teacher: ${classroomCountWithTeacher}`, status: "draft" },
+  ];
 
   return (
-    <Box>
-      <Box
+    <PageContainer
+      title="Classrooms"
+      subtitle="Manage classrooms, sections, years, and class teacher assignments."
+      actions={
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          size={isMobile ? "small" : "medium"}
+          onClick={() => {
+            resetFormState();
+            setOpen(true);
+          }}
+          fullWidth={isMobile}
+          sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+        >
+          Add Classroom
+        </Button>
+      }
+    >
+      <Paper
         sx={{
           bgcolor: "white",
           borderRadius: 3,
@@ -596,6 +626,9 @@ export default function ClassroomManagement() {
           mb: 2,
           boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
           border: "1px solid #e8eaf6",
+          position: { xs: "sticky", md: "static" },
+          top: { xs: 76, md: "auto" },
+          zIndex: { xs: 2, md: "auto" },
         }}
       >
         <Box
@@ -606,50 +639,37 @@ export default function ClassroomManagement() {
           gap={1.5}
         >
           <Box>
-            <Typography
-              variant={isMobile ? "h6" : "h5"}
-              fontWeight={800}
-              color="#1a237e"
-            >
-              Classrooms
+            <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+              Classroom Tools
             </Typography>
-
-            <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip
-                label={`Total: ${classrooms.length}`}
-                size="small"
-                color="primary"
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`Grades: ${Object.keys(groupedByGrade).length}`}
-                size="small"
-                color="success"
-                sx={{ fontWeight: 700 }}
-              />
-              <Chip
-                label={`With Teacher: ${classroomCountWithTeacher}`}
-                size="small"
-                color="warning"
-                sx={{ fontWeight: 700 }}
-              />
-            </Box>
+            <Typography variant="body2" color="text.secondary" mt={0.4}>
+              Create sections, assign class teachers, and review classroom coverage.
+            </Typography>
           </Box>
-
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            size={isMobile ? "small" : "medium"}
-            onClick={() => {
-              resetFormState();
-              setOpen(true);
-            }}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
-          >
-            {isMobile ? "Add" : "Add Classroom"}
-          </Button>
         </Box>
-      </Box>
+      </Paper>
+
+      {isMobile ? (
+        <Paper sx={{ p: 1.5, mb: 2, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+          <Box display="flex" gap={1} flexWrap="wrap">
+            {quickStats.map((item) => (
+              <StatusChip key={item.label} status={item.status} label={item.label} />
+            ))}
+          </Box>
+        </Paper>
+      ) : (
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          <Grid item xs={6} md={4}>
+            <StatCard title="Total Classrooms" value={classrooms.length} icon={<SchoolIcon />} color="primary" />
+          </Grid>
+          <Grid item xs={6} md={4}>
+            <StatCard title="Grades Covered" value={Object.keys(groupedByGrade).length} icon={<AutoAwesomeIcon />} color="success" />
+          </Grid>
+          <Grid item xs={6} md={4}>
+            <StatCard title="With Teacher" value={classroomCountWithTeacher} icon={<PersonIcon />} color="warning" />
+          </Grid>
+        </Grid>
+      )}
 
       {success && (
         <Alert
@@ -676,23 +696,10 @@ export default function ClassroomManagement() {
           <CircularProgress />
         </Box>
       ) : classrooms.length === 0 ? (
-        <Box
-          textAlign="center"
-          py={8}
-          sx={{
-            bgcolor: "white",
-            borderRadius: 3,
-            border: "1px solid #e8eaf6",
-          }}
-        >
-          <SchoolIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
-          <Typography variant="h6" color="text.secondary" mt={1} fontWeight={600}>
-            No classrooms created yet
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Click "Add Classroom" to get started
-          </Typography>
-        </Box>
+        <EmptyState
+          title="No classrooms created yet"
+          description='Click "Add Classroom" to get started'
+        />
       ) : (
         <>
           {isMobile ? (
@@ -746,7 +753,7 @@ export default function ClassroomManagement() {
                         display="block"
                         mt={0.5}
                       >
-                        📝 {classroom.notes}
+                        Notes: {classroom.notes}
                       </Typography>
                     )}
                   </CardContent>
@@ -800,7 +807,8 @@ export default function ClassroomManagement() {
                       border: "1px solid #e8eaf6",
                     }}
                   >
-                    <Table size="small">
+                    <ResponsiveTableWrapper minWidth={860}>
+                      <Table size="small">
                       <TableHead sx={{ bgcolor: "#1a237e" }}>
                         <TableRow>
                           {[
@@ -877,14 +885,14 @@ export default function ClassroomManagement() {
                                 />
                               ) : (
                                 <Typography variant="caption" color="text.secondary">
-                                  —
+                                  -
                                 </Typography>
                               )}
                             </TableCell>
 
                             <TableCell>
                               <Typography variant="caption" color="text.secondary">
-                                {classroom.notes || "—"}
+                                {classroom.notes || "-"}
                               </Typography>
                             </TableCell>
 
@@ -912,7 +920,8 @@ export default function ClassroomManagement() {
                           </TableRow>
                         ))}
                       </TableBody>
-                    </Table>
+                      </Table>
+                    </ResponsiveTableWrapper>
                   </Paper>
                 </Box>
               ))}
@@ -929,7 +938,7 @@ export default function ClassroomManagement() {
         fullScreen={isMobile}
       >
         <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
-          {editId ? "✏️ Edit Classroom" : "➕ Add / Create Classroom"}
+          {editId ? "Edit Classroom" : "Add / Create Classroom"}
         </DialogTitle>
 
         <DialogContent>
@@ -1183,6 +1192,6 @@ export default function ClassroomManagement() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }

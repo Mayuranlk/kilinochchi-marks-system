@@ -20,10 +20,10 @@ import {
   TableHead,
   TableRow,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import TableChartIcon from "@mui/icons-material/TableChart";
 import SchoolIcon from "@mui/icons-material/School";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -31,6 +31,13 @@ import PreviewIcon from "@mui/icons-material/Preview";
 import { collection, getDocs } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { db } from "../firebase";
+import {
+  MobileListRow,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 const TEMPLATE_HEADERS = [
   "studentId",
@@ -83,14 +90,6 @@ function getStudentIndexNo(student) {
       student?.admNo ||
       ""
   );
-}
-
-function getStudentGrade(student) {
-  return parseGrade(student?.grade);
-}
-
-function getStudentSection(student) {
-  return normalizeSection(student?.section || student?.className || "");
 }
 
 function getEnrollmentGrade(enrollment) {
@@ -456,6 +455,7 @@ function validateUploadedRows({
 }
 
 export default function BulkMarksUpload() {
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -766,19 +766,20 @@ export default function BulkMarksUpload() {
     previewRows.length > 0 &&
     !downloading;
 
-  return (
-    <Box sx={{ p: 3 }}>
-      <Stack spacing={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={800} color="#1a237e">
-            Bulk Marks Upload
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Download a marks template, upload the completed Excel file, and preview valid
-            and invalid rows before saving.
-          </Typography>
-        </Box>
+  const quickStats = [
+    { title: "Template Rows", value: previewRows.length, color: "primary", status: "active" },
+    { title: "Uploaded Rows", value: validRows.length + invalidRows.length, color: "saved", status: "saved" },
+    { title: "Valid Rows", value: validRows.length, color: "success", status: "completed" },
+    { title: "Invalid Rows", value: invalidRows.length, color: "error", status: "pending" },
+  ];
 
+  return (
+    <PageContainer
+      title="Bulk Marks Upload"
+      subtitle="Download a marks template, upload the completed Excel file, and preview valid and invalid rows before saving."
+      maxWidth="xl"
+    >
+      <Stack spacing={3}>
         <Alert severity="info">
           This uses <strong>studentSubjectEnrollments</strong> as the source of truth.
           Only enrolled students for the selected class, subject, and academic year are valid.
@@ -790,91 +791,51 @@ export default function BulkMarksUpload() {
           </Alert>
         )}
 
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <SchoolIcon color="primary" />
-                    <Typography variant="h6" fontWeight={700}>
-                      Step 1
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Select class, subject, term, and academic year.
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
+        {isMobile ? (
+          <Paper sx={{ p: 1.5, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {quickStats.map((item) => (
+                  <StatusChip key={item.title} status={item.status} label={`${item.title}: ${item.value}`} />
+                ))}
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.5}>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Template Rows" value={previewRows.length} icon={<SchoolIcon />} color="primary" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Uploaded Rows" value={validRows.length + invalidRows.length} icon={<PreviewIcon />} color="secondary" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Valid Rows" value={validRows.length} icon={<CheckCircleIcon />} color="success" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Invalid Rows" value={invalidRows.length} icon={<ErrorOutlineIcon />} color="error" />
+            </Grid>
           </Grid>
+        )}
 
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <TableChartIcon color="success" />
-                    <Typography variant="h6" fontWeight={700}>
-                      Step 2
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Download the Excel template with enrolled students only.
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <UploadFileIcon color="warning" />
-                    <Typography variant="h6" fontWeight={700}>
-                      Step 3
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Upload the completed file for row-by-row validation preview.
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={3}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <PreviewIcon color="action" />
-                    <Typography variant="h6" fontWeight={700}>
-                      Preview
-                    </Typography>
-                  </Box>
-                  <Typography variant="h4" fontWeight={800} color="#1a237e">
-                    {validRows.length + invalidRows.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    uploaded rows analyzed
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        <Card
+        <Paper
           sx={{
+            p: 2,
             borderRadius: 3,
             border: "1px solid #e8eaf6",
             boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+            position: { xs: "sticky", md: "static" },
+            top: { xs: 76, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
           }}
         >
-          <CardContent>
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              Upload Context
+            </Typography>
             <Grid container spacing={2} alignItems="flex-end">
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
@@ -962,8 +923,8 @@ export default function BulkMarksUpload() {
                     bgcolor: "#1a237e",
                     fontWeight: 700,
                     borderRadius: 2,
-                    mr: 1,
                   }}
+                  fullWidth={isMobile}
                 >
                   {downloading ? "Generating..." : "Download Excel Template"}
                 </Button>
@@ -985,6 +946,7 @@ export default function BulkMarksUpload() {
                     !selectedYear
                   }
                   sx={{ borderRadius: 2, fontWeight: 700 }}
+                  fullWidth={isMobile}
                 >
                   {uploading ? "Reading File..." : "Upload Completed Excel"}
                   <input
@@ -996,8 +958,8 @@ export default function BulkMarksUpload() {
                 </Button>
               </Grid>
             </Grid>
-          </CardContent>
-        </Card>
+          </Stack>
+        </Paper>
 
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
           <Stack spacing={2}>
@@ -1005,13 +967,13 @@ export default function BulkMarksUpload() {
               Current Selection
             </Typography>
 
-            <Box display="flex" flexWrap="wrap" gap={1}>
-              <Chip label={`Year: ${selectedYear || "—"}`} />
-              <Chip label={`Class: ${selectedClass || "—"}`} />
-              <Chip label={`Subject: ${selectedSubject || "—"}`} />
-              <Chip label={`Term: ${selectedTerm || "—"}`} />
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip label={`Year: ${selectedYear || "-"}`} />
+              <Chip label={`Class: ${selectedClass || "-"}`} />
+              <Chip label={`Subject: ${selectedSubject || "-"}`} />
+              <Chip label={`Term: ${selectedTerm || "-"}`} />
               <Chip color="primary" label={`Template Rows: ${previewRows.length}`} />
-            </Box>
+            </Stack>
 
             <Typography variant="body2" color="text.secondary">
               Template columns:{" "}
@@ -1059,6 +1021,7 @@ export default function BulkMarksUpload() {
                 variant={showInvalidOnly ? "outlined" : "contained"}
                 onClick={() => setShowInvalidOnly(false)}
                 sx={{ borderRadius: 2 }}
+                fullWidth={isMobile}
               >
                 Show Valid Rows
               </Button>
@@ -1067,6 +1030,7 @@ export default function BulkMarksUpload() {
                 color="error"
                 onClick={() => setShowInvalidOnly(true)}
                 sx={{ borderRadius: 2 }}
+                fullWidth={isMobile}
               >
                 Show Invalid Rows
               </Button>
@@ -1080,7 +1044,8 @@ export default function BulkMarksUpload() {
                   </Typography>
                 </Box>
 
-                <Table size="small">
+                <ResponsiveTableWrapper>
+                  <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: "#f5f7ff" }}>
                       <TableCell><strong>Row</strong></TableCell>
@@ -1109,7 +1074,8 @@ export default function BulkMarksUpload() {
                       </TableRow>
                     )}
                   </TableBody>
-                </Table>
+                  </Table>
+                </ResponsiveTableWrapper>
               </Paper>
             )}
 
@@ -1121,7 +1087,8 @@ export default function BulkMarksUpload() {
                   </Typography>
                 </Box>
 
-                <Table size="small">
+                <ResponsiveTableWrapper>
+                  <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: "#fff4f4" }}>
                       <TableCell><strong>Row</strong></TableCell>
@@ -1154,7 +1121,8 @@ export default function BulkMarksUpload() {
                       </TableRow>
                     )}
                   </TableBody>
-                </Table>
+                  </Table>
+                </ResponsiveTableWrapper>
               </Paper>
             )}
           </>
@@ -1201,6 +1169,37 @@ export default function BulkMarksUpload() {
               </Box>
             ) : summaryOptions.length === 0 ? (
               <Alert severity="info">No active enrollments found.</Alert>
+            ) : isMobile ? (
+              <Stack spacing={1.25}>
+                {summaryOptions.slice(0, 12).map((item) => (
+                  <MobileListRow
+                    key={`${item.className}-${item.subjectName}-${item.academicYear}`}
+                    compact
+                    title={`${item.className} - ${item.subjectName}`}
+                    subtitle={`Academic Year: ${item.academicYear || "-"}`}
+                    right={
+                      <StatusChip
+                        status="active"
+                        label={`${item.count} students`}
+                      />
+                    }
+                    meta={[
+                      <Chip
+                        key="class"
+                        size="small"
+                        variant="outlined"
+                        label={item.className}
+                      />,
+                      <Chip
+                        key="subject"
+                        size="small"
+                        variant="outlined"
+                        label={item.subjectName}
+                      />,
+                    ]}
+                  />
+                ))}
+              </Stack>
             ) : (
               <Grid container spacing={1.5}>
                 {summaryOptions.slice(0, 12).map((item) => (
@@ -1209,10 +1208,10 @@ export default function BulkMarksUpload() {
                       <CardContent>
                         <Stack spacing={1}>
                           <Typography fontWeight={700}>
-                            {item.className} — {item.subjectName}
+                            {item.className} - {item.subjectName}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
-                            Academic Year: {item.academicYear || "—"}
+                            Academic Year: {item.academicYear || "-"}
                           </Typography>
                           <Chip
                             size="small"
@@ -1230,6 +1229,6 @@ export default function BulkMarksUpload() {
           </Stack>
         </Paper>
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

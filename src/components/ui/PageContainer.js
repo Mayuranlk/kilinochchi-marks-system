@@ -54,6 +54,9 @@ const PageContainer = ({
                 width: { xs: "100%", md: "auto" },
                 display: "flex",
                 justifyContent: { xs: "stretch", md: "flex-end" },
+                "& > *": {
+                  width: { xs: "100%", md: "auto" },
+                },
               }}
             >
               {actions}

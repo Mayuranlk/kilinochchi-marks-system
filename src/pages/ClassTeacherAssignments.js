@@ -11,6 +11,7 @@ import {
   CircularProgress,
   Grid,
   Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -28,6 +29,7 @@ import {
   isALGrade,
   buildALClassName,
 } from "../constants";
+import { PageContainer, StatCard, StatusChip } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
@@ -247,16 +249,29 @@ export default function ClassTeacherAssignments() {
     return Array.from(map.entries()).sort((a, b) => Number(a[0]) - Number(b[0]));
   }, [classrooms]);
 
+  const stats = {
+    assigned: assignedRooms.length,
+    unassigned: unassignedRooms.length,
+    total: classrooms.length,
+    grades: groupedByGrade.length,
+  };
+
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" mt={5}>
-        <CircularProgress />
-      </Box>
+      <PageContainer title="Class Teacher Assignments">
+        <Box display="flex" justifyContent="center" mt={5}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box>
+    <PageContainer
+      title="Class Teacher Assignments"
+      subtitle="Review class-teacher coverage and spot missing assignments quickly."
+    >
+      <Stack spacing={2.25}>
       <Box
         sx={{
           bgcolor: "white",
@@ -312,6 +327,37 @@ export default function ClassTeacherAssignments() {
         <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
           {loadError}
         </Alert>
+      )}
+
+      {isMobile ? (
+        <Paper sx={{ p: 1.5, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              Quick Summary
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <StatusChip status="completed" label={`${stats.assigned} assigned`} />
+              <StatusChip status="pending" label={`${stats.unassigned} unassigned`} />
+              <StatusChip status="active" label={`${stats.total} classes`} />
+              <StatusChip status="saved" label={`${stats.grades} grades`} />
+            </Stack>
+          </Stack>
+        </Paper>
+      ) : (
+        <Grid container spacing={1.5}>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Assigned" value={stats.assigned} icon={<CheckCircleIcon />} color="success" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Unassigned" value={stats.unassigned} icon={<WarningAmberIcon />} color="warning" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Classes" value={stats.total} icon={<HomeWorkIcon />} color="primary" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Grades" value={stats.grades} icon={<SchoolIcon />} color="secondary" />
+          </Grid>
+        </Grid>
       )}
 
       {unassignedRooms.length > 0 && (
@@ -665,6 +711,7 @@ export default function ClassTeacherAssignments() {
           </Grid>
         </>
       )}
-    </Box>
+      </Stack>
+    </PageContainer>
   );
 }

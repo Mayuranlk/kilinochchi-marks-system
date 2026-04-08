@@ -15,6 +15,7 @@ import {
   Select,
   Stack,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import PhoneRoundedIcon from "@mui/icons-material/PhoneRounded";
@@ -314,6 +315,7 @@ const sectionCardSx = {
 
 export default function TeacherDashboard() {
   const navigate = useNavigate();
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -657,7 +659,15 @@ export default function TeacherDashboard() {
       <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
 
-        <Paper sx={{ ...sectionCardSx, p: 2 }}>
+        <Paper
+          sx={{
+            ...sectionCardSx,
+            p: 2,
+            position: { xs: "sticky", md: "static" },
+            top: { xs: 76, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
+          }}
+        >
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={5}>
               <Stack spacing={0.75}>
@@ -704,40 +714,65 @@ export default function TeacherDashboard() {
           </Grid>
         </Paper>
 
-        <Grid container spacing={1.5}>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Assigned Classes"
-              value={new Set(subjectRows.map((row) => row.fullClassName)).size}
-              icon={<ClassRoundedIcon />}
-              color="primary"
-            />
+        {isMobile ? (
+          <Paper sx={{ ...sectionCardSx, p: 1.5 }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <StatusChip
+                  status="active"
+                  label={`${new Set(subjectRows.map((row) => row.fullClassName)).size} classes`}
+                />
+                <StatusChip status="saved" label={`${subjectRows.length} subjects`} />
+                <StatusChip
+                  status="completed"
+                  label={`${subjectRows.filter((row) => row.pending === 0 && row.total > 0).length} completed`}
+                />
+                <StatusChip
+                  status="pending"
+                  label={`${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} pending`}
+                />
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.5}>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Assigned Classes"
+                value={new Set(subjectRows.map((row) => row.fullClassName)).size}
+                icon={<ClassRoundedIcon />}
+                color="primary"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Assigned Subjects"
+                value={subjectRows.length}
+                icon={<MenuBookRoundedIcon />}
+                color="secondary"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Completed"
+                value={subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
+                icon={<CheckCircleRoundedIcon />}
+                color="success"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Pending"
+                value={subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
+                icon={<HourglassBottomRoundedIcon />}
+                color="warning"
+              />
+            </Grid>
           </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Assigned Subjects"
-              value={subjectRows.length}
-              icon={<MenuBookRoundedIcon />}
-              color="secondary"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Completed"
-              value={subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
-              icon={<CheckCircleRoundedIcon />}
-              color="success"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Pending"
-              value={subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
-              icon={<HourglassBottomRoundedIcon />}
-              color="warning"
-            />
-          </Grid>
-        </Grid>
+        )}
 
         {classTeacherData && (
           <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
@@ -772,44 +807,53 @@ export default function TeacherDashboard() {
                 </Stack>
               </Stack>
 
-              <Grid container spacing={1.25}>
-                <Grid item xs={6} sm={3}>
-                  <StatCard
-                    title="Students"
-                    value={classTeacherData.totalStudents}
-                    icon={<GroupRoundedIcon />}
-                    color="primary"
-                    sx={{ boxShadow: "none" }}
-                  />
+              {isMobile ? (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <StatusChip status="active" label={`${classTeacherData.totalStudents} students`} />
+                  <StatusChip status="saved" label={`${classTeacherData.totalSubjects} subjects`} />
+                  <StatusChip status="completed" label={`${classTeacherData.completed} completed`} />
+                  <StatusChip status="pending" label={`${classTeacherData.pending} pending`} />
+                </Stack>
+              ) : (
+                <Grid container spacing={1.25}>
+                  <Grid item xs={6} sm={3}>
+                    <StatCard
+                      title="Students"
+                      value={classTeacherData.totalStudents}
+                      icon={<GroupRoundedIcon />}
+                      color="primary"
+                      sx={{ boxShadow: "none" }}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <StatCard
+                      title="Subjects"
+                      value={classTeacherData.totalSubjects}
+                      icon={<MenuBookRoundedIcon />}
+                      color="secondary"
+                      sx={{ boxShadow: "none" }}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <StatCard
+                      title="Completed"
+                      value={classTeacherData.completed}
+                      icon={<CheckCircleRoundedIcon />}
+                      color="success"
+                      sx={{ boxShadow: "none" }}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <StatCard
+                      title="Pending"
+                      value={classTeacherData.pending}
+                      icon={<HourglassBottomRoundedIcon />}
+                      color="error"
+                      sx={{ boxShadow: "none" }}
+                    />
+                  </Grid>
                 </Grid>
-                <Grid item xs={6} sm={3}>
-                  <StatCard
-                    title="Subjects"
-                    value={classTeacherData.totalSubjects}
-                    icon={<MenuBookRoundedIcon />}
-                    color="secondary"
-                    sx={{ boxShadow: "none" }}
-                  />
-                </Grid>
-                <Grid item xs={6} sm={3}>
-                  <StatCard
-                    title="Completed"
-                    value={classTeacherData.completed}
-                    icon={<CheckCircleRoundedIcon />}
-                    color="success"
-                    sx={{ boxShadow: "none" }}
-                  />
-                </Grid>
-                <Grid item xs={6} sm={3}>
-                  <StatCard
-                    title="Pending"
-                    value={classTeacherData.pending}
-                    icon={<HourglassBottomRoundedIcon />}
-                    color="error"
-                    sx={{ boxShadow: "none" }}
-                  />
-                </Grid>
-              </Grid>
+              )}
 
               <Box>
                 <LinearProgress
@@ -826,105 +870,173 @@ export default function TeacherDashboard() {
                 {classTeacherData.subjects.length === 0 ? (
                   <EmptyState title="No subjects assigned to this class" />
                 ) : (
-                  classTeacherData.subjects.map((subject) => (
-                    <Box
-                      key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 3,
-                        border: "1px solid",
-                        borderColor: "divider",
-                        bgcolor: subject.completed
-                          ? "rgba(34,197,94,0.06)"
-                          : "rgba(239,68,68,0.04)",
-                      }}
-                    >
-                      <Stack spacing={1}>
-                        <Stack
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="flex-start"
-                          spacing={1}
-                        >
-                          <Box sx={{ minWidth: 0 }}>
-                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                                {subject.subjectName}
-                              </Typography>
-                              {subject.subjectNumber ? (
-                                <Chip
-                                  size="small"
-                                  variant="outlined"
-                                  label={`No. ${subject.subjectNumber}`}
-                                />
-                              ) : null}
-                            </Stack>
-                            <Typography variant="body2" color="text.secondary">
-                              {subject.done}/{subject.total} students
-                            </Typography>
-                          </Box>
-
+                  classTeacherData.subjects.map((subject) =>
+                    isMobile ? (
+                      <MobileListRow
+                        key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
+                        compact
+                        title={subject.subjectName}
+                        subtitle={`${subject.done}/${subject.total} students`}
+                        right={
                           <StatusChip
                             status={subject.completed ? "completed" : "pending"}
                             label={subject.completed ? "Completed" : "Pending"}
                           />
-                        </Stack>
+                        }
+                        meta={
+                          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                            {subject.subjectNumber ? (
+                              <Chip size="small" variant="outlined" label={`No. ${subject.subjectNumber}`} />
+                            ) : null}
+                            <Chip size="small" variant="outlined" label={`${subject.progress}%`} />
+                            <Chip size="small" variant="outlined" label={subject.teacherName} />
+                          </Stack>
+                        }
+                        footer={
+                          <Stack spacing={1}>
+                            {!subject.completed && subject.teacherPhone ? (
+                              <Link
+                                href={`tel:${sanitizePhone(subject.teacherPhone)}`}
+                                underline="hover"
+                                sx={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 0.75,
+                                  fontWeight: 700,
+                                  width: "fit-content",
+                                }}
+                              >
+                                <PhoneRoundedIcon sx={{ fontSize: 18 }} />
+                                {subject.teacherPhone}
+                              </Link>
+                            ) : null}
 
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          alignItems="center"
-                          flexWrap="wrap"
-                          useFlexGap
-                        >
-                          <Typography variant="body2" color="text.secondary">
-                            {subject.progress}%
-                          </Typography>
-
-                          <Typography variant="body2" color="text.secondary">
-                            {subject.teacherName}
-                          </Typography>
-                        </Stack>
-
-                        {!subject.completed && subject.teacherPhone ? (
-                          <Link
-                            href={`tel:${sanitizePhone(subject.teacherPhone)}`}
-                            underline="hover"
-                            sx={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 0.75,
-                              fontWeight: 700,
-                              width: "fit-content",
-                            }}
+                            {subject.isMine ? (
+                              <Button
+                                variant="outlined"
+                                startIcon={<EditNoteRoundedIcon />}
+                                onClick={() =>
+                                  openMarks({
+                                    className: classTeacherData.className,
+                                    fullClassName: classTeacherData.fullClassName,
+                                    stream: classTeacherData.stream,
+                                    subjectName: subject.subjectName,
+                                    subjectId: subject.subjectId,
+                                  })
+                                }
+                                fullWidth
+                              >
+                                Enter Marks
+                              </Button>
+                            ) : null}
+                          </Stack>
+                        }
+                        sx={{
+                          bgcolor: subject.completed
+                            ? "rgba(34,197,94,0.06)"
+                            : "rgba(239,68,68,0.04)",
+                        }}
+                      />
+                    ) : (
+                      <Box
+                        key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
+                        sx={{
+                          p: 1.5,
+                          borderRadius: 3,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          bgcolor: subject.completed
+                            ? "rgba(34,197,94,0.06)"
+                            : "rgba(239,68,68,0.04)",
+                        }}
+                      >
+                        <Stack spacing={1}>
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="flex-start"
+                            spacing={1}
                           >
-                            <PhoneRoundedIcon sx={{ fontSize: 18 }} />
-                            {subject.teacherPhone}
-                          </Link>
-                        ) : null}
+                            <Box sx={{ minWidth: 0 }}>
+                              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                  {subject.subjectName}
+                                </Typography>
+                                {subject.subjectNumber ? (
+                                  <Chip
+                                    size="small"
+                                    variant="outlined"
+                                    label={`No. ${subject.subjectNumber}`}
+                                  />
+                                ) : null}
+                              </Stack>
+                              <Typography variant="body2" color="text.secondary">
+                                {subject.done}/{subject.total} students
+                              </Typography>
+                            </Box>
 
-                        {subject.isMine ? (
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            startIcon={<EditNoteRoundedIcon />}
-                            onClick={() =>
-                              openMarks({
-                                className: classTeacherData.className,
-                                fullClassName: classTeacherData.fullClassName,
-                                stream: classTeacherData.stream,
-                                subjectName: subject.subjectName,
-                                subjectId: subject.subjectId,
-                              })
-                            }
-                            sx={{ alignSelf: "flex-start" }}
+                            <StatusChip
+                              status={subject.completed ? "completed" : "pending"}
+                              label={subject.completed ? "Completed" : "Pending"}
+                            />
+                          </Stack>
+
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                            flexWrap="wrap"
+                            useFlexGap
                           >
-                            Enter Marks
-                          </Button>
-                        ) : null}
-                      </Stack>
-                    </Box>
-                  ))
+                            <Typography variant="body2" color="text.secondary">
+                              {subject.progress}%
+                            </Typography>
+
+                            <Typography variant="body2" color="text.secondary">
+                              {subject.teacherName}
+                            </Typography>
+                          </Stack>
+
+                          {!subject.completed && subject.teacherPhone ? (
+                            <Link
+                              href={`tel:${sanitizePhone(subject.teacherPhone)}`}
+                              underline="hover"
+                              sx={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 0.75,
+                                fontWeight: 700,
+                                width: "fit-content",
+                              }}
+                            >
+                              <PhoneRoundedIcon sx={{ fontSize: 18 }} />
+                              {subject.teacherPhone}
+                            </Link>
+                          ) : null}
+
+                          {subject.isMine ? (
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              startIcon={<EditNoteRoundedIcon />}
+                              onClick={() =>
+                                openMarks({
+                                  className: classTeacherData.className,
+                                  fullClassName: classTeacherData.fullClassName,
+                                  stream: classTeacherData.stream,
+                                  subjectName: subject.subjectName,
+                                  subjectId: subject.subjectId,
+                                })
+                              }
+                              sx={{ alignSelf: "flex-start" }}
+                            >
+                              Enter Marks
+                            </Button>
+                          ) : null}
+                        </Stack>
+                      </Box>
+                    )
+                  )
                 )}
               </Stack>
             </Stack>
@@ -970,6 +1082,7 @@ export default function TeacherDashboard() {
                 {subjectRows.map((row, i) => (
                   <Grid item xs={12} md={6} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${i}`}>
                     <MobileListRow
+                      compact={isMobile}
                       title={`${row.displayClassName} - ${row.subjectName}`}
                       right={
                         <StatusChip
@@ -977,17 +1090,18 @@ export default function TeacherDashboard() {
                           label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
                         />
                       }
+                      meta={
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                          {row.stream ? (
+                            <Chip size="small" variant="outlined" label={row.stream} />
+                          ) : null}
+                          {row.subjectNumber ? (
+                            <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                          ) : null}
+                        </Stack>
+                      }
                       footer={
                         <Stack spacing={1}>
-                          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                            {row.stream ? (
-                              <Chip size="small" variant="outlined" label={row.stream} />
-                            ) : null}
-                            {row.subjectNumber ? (
-                              <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
-                            ) : null}
-                          </Stack>
-
                           <Typography variant="body2" color="text.secondary">
                             {row.done}/{row.total} students completed
                           </Typography>
@@ -1010,9 +1124,10 @@ export default function TeacherDashboard() {
 
                           <Button
                             variant="contained"
-                            size="small"
+                            size={isMobile ? "medium" : "small"}
                             startIcon={<EditNoteRoundedIcon />}
                             onClick={() => openMarks(row)}
+                            fullWidth={isMobile}
                           >
                             Enter Marks
                           </Button>

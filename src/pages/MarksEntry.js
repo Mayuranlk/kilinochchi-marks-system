@@ -9,6 +9,7 @@ import {
   FormControl,
   FormControlLabel,
   Grid,
+  InputAdornment,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -305,6 +306,8 @@ const sectionCardSx = {
   boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
   backgroundColor: "white",
 };
+
+const mobileStickyOffset = 76;
 
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
@@ -1120,6 +1123,7 @@ export default function MarksEntry() {
     studentRows.length > 0
       ? Math.round(((studentRows.length - dirtyCount) / studentRows.length) * 100)
       : 0;
+  const contextReady = Boolean(selectedClass && selectedSubject && activeTerm);
 
   if (bootLoading) {
     return (
@@ -1160,7 +1164,15 @@ export default function MarksEntry() {
         {error ? <Alert severity="error">{error}</Alert> : null}
         {success ? <Alert severity="success">{success}</Alert> : null}
 
-        <Paper sx={{ ...sectionCardSx, p: 2 }}>
+        <Paper
+          sx={{
+            ...sectionCardSx,
+            p: 2,
+            position: { xs: "sticky", md: "static" },
+            top: { xs: mobileStickyOffset, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
+          }}
+        >
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
               <Stack spacing={0.75}>
@@ -1238,10 +1250,9 @@ export default function MarksEntry() {
                 onChange={(e) => setSearchText(e.target.value)}
                 InputProps={{
                   startAdornment: (
-                    <SearchRoundedIcon
-                      fontSize="small"
-                      style={{ marginRight: 8, opacity: 0.7 }}
-                    />
+                    <InputAdornment position="start">
+                      <SearchRoundedIcon fontSize="small" sx={{ opacity: 0.7 }} />
+                    </InputAdornment>
                   ),
                 }}
               />
@@ -1249,40 +1260,56 @@ export default function MarksEntry() {
           </Grid>
         </Paper>
 
-        <Grid container spacing={1.5}>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Students"
-              value={stats.total}
-              icon={<GroupRoundedIcon />}
-              color="primary"
-            />
+        {isMobile ? (
+          <Paper sx={{ ...sectionCardSx, p: 1.5 }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <StatusChip status="active" label={`${stats.total} students`} />
+                <StatusChip status="saved" label={`${stats.saved} saved`} />
+                <StatusChip status="draft" label={`${stats.draftCount} unsaved`} />
+                <StatusChip status="pending" label={`${stats.absent} absent`} />
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.5}>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Students"
+                value={stats.total}
+                icon={<GroupRoundedIcon />}
+                color="primary"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Saved Rows"
+                value={stats.saved}
+                icon={<CheckCircleRoundedIcon />}
+                color="success"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Draft Changes"
+                value={stats.draftCount}
+                icon={<EditNoteRoundedIcon />}
+                color="warning"
+              />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard
+                title="Absent"
+                value={stats.absent}
+                icon={<ClassRoundedIcon />}
+                color="error"
+              />
+            </Grid>
           </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Saved Rows"
-              value={stats.saved}
-              icon={<CheckCircleRoundedIcon />}
-              color="success"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Draft Changes"
-              value={stats.draftCount}
-              icon={<EditNoteRoundedIcon />}
-              color="warning"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              title="Absent"
-              value={stats.absent}
-              icon={<ClassRoundedIcon />}
-              color="error"
-            />
-          </Grid>
-        </Grid>
+        )}
 
         <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
           <Stack spacing={2}>
@@ -1317,7 +1344,7 @@ export default function MarksEntry() {
               </Box>
             )}
 
-            {selectedClass && selectedSubject && activeTerm ? (
+            {contextReady ? (
               <>
                 <Stack
                   direction={{ xs: "column", md: "row" }}
@@ -1358,9 +1385,20 @@ export default function MarksEntry() {
                     />
                   </Stack>
 
-                  <Typography variant="body2" color="text.secondary">
-                    Save progress: {saveProgress}%
-                  </Typography>
+                  <Stack
+                    direction={{ xs: "row", md: "column" }}
+                    spacing={0.5}
+                    alignItems={{ xs: "center", md: "flex-end" }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      Save progress: {saveProgress}%
+                    </Typography>
+                    {isMobile ? (
+                      <Typography variant="caption" color="text.secondary">
+                        {dirtyCount > 0 ? "Use the bottom bar to save changes" : "All changes saved"}
+                      </Typography>
+                    ) : null}
+                  </Stack>
                 </Stack>
 
                 {filteredRows.length === 0 ? (
@@ -1373,6 +1411,7 @@ export default function MarksEntry() {
                     {filteredRows.map((row, index) => (
                       <MobileListRow
                         key={row.key}
+                        compact
                         title={`${index + 1}. ${row.studentName}`}
                         subtitle={[
                           row.indexNo ? `Index: ${row.indexNo}` : null,
@@ -1389,19 +1428,23 @@ export default function MarksEntry() {
                             <StatusChip status="pending" label="New" />
                           )
                         }
+                        meta={
+                          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                            {row.subjectNumber ? (
+                              <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                            ) : null}
+                            {row.stream ? (
+                              <Chip size="small" variant="outlined" label={row.stream} />
+                            ) : null}
+                            {Boolean(drafts[row.key]?.absent ?? row.absent) ? (
+                              <Chip size="small" color="error" variant="outlined" label="Absent" />
+                            ) : null}
+                          </Stack>
+                        }
                         footer={
                           <Stack spacing={1.25}>
-                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                              {row.subjectNumber ? (
-                                <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
-                              ) : null}
-                              {row.stream ? (
-                                <Chip size="small" variant="outlined" label={row.stream} />
-                              ) : null}
-                            </Stack>
-
                             <Grid container spacing={1.25}>
-                              <Grid item xs={7}>
+                              <Grid item xs={12}>
                                 <TextField
                                   label="Mark"
                                   value={drafts[row.key]?.mark ?? row.mark ?? ""}
@@ -1414,19 +1457,28 @@ export default function MarksEntry() {
                                   inputRef={(element) => setMarkInputRef(row.key, element)}
                                 />
                               </Grid>
-                              <Grid item xs={5}>
+                              <Grid item xs={12}>
                                 <Box
                                   sx={{
-                                    height: "100%",
                                     display: "flex",
                                     alignItems: "center",
-                                    justifyContent: "center",
+                                    justifyContent: "space-between",
                                     border: "1px solid",
                                     borderColor: "divider",
                                     borderRadius: 2,
-                                    px: 1,
+                                    px: 1.25,
+                                    py: 0.5,
+                                    bgcolor: "rgba(37,99,235,0.02)",
                                   }}
                                 >
+                                  <Box>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                      Attendance
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Mark absent students before saving
+                                    </Typography>
+                                  </Box>
                                   <FormControlLabel
                                     control={
                                       <Checkbox
@@ -1522,12 +1574,17 @@ export default function MarksEntry() {
                     />
                   </Stack>
 
-                  <Stack direction="row" spacing={1}>
+                  <Stack
+                    direction={{ xs: "column-reverse", sm: "row" }}
+                    spacing={1}
+                    sx={{ width: { xs: "100%", sm: "auto" } }}
+                  >
                     <Button
                       variant="outlined"
                       onClick={() => loadStudents()}
                       disabled={loadingRows || saving}
                       startIcon={<RefreshRoundedIcon />}
+                      fullWidth={isMobile}
                     >
                       Reload
                     </Button>
@@ -1535,6 +1592,7 @@ export default function MarksEntry() {
                       variant="contained"
                       onClick={handleSave}
                       disabled={saving || loadingRows || dirtyCount === 0}
+                      fullWidth={isMobile}
                       startIcon={
                         saving ? (
                           <CircularProgress size={16} color="inherit" />

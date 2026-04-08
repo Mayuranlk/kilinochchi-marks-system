@@ -125,7 +125,7 @@ const appTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          minHeight: 42,
+          minHeight: 48,
           borderRadius: 12,
           paddingInline: 16,
         },
@@ -156,6 +156,7 @@ const appTheme = createTheme({
         root: {
           borderRadius: 12,
           backgroundColor: alpha("#fff", 0.9),
+          minHeight: 48,
           "& fieldset": {
             borderColor: borderColor,
           },
@@ -178,6 +179,20 @@ const appTheme = createTheme({
           fontWeight: 800,
           color: textPrimary,
           backgroundColor: alpha(primaryMain, 0.03),
+        },
+      },
+    },
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          minHeight: 48,
+        },
+      },
+    },
+    MuiCheckbox: {
+      styleOverrides: {
+        root: {
+          padding: 10,
         },
       },
     },

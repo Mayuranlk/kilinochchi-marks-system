@@ -15,8 +15,6 @@ import {
   Avatar,
   Box,
   Button,
-  Card,
-  CardContent,
   Checkbox,
   Chip,
   CircularProgress,
@@ -49,10 +47,17 @@ import {
   AL_STREAM_OPTIONS,
   AL_STREAM_CODES,
   isALGrade,
-  normalizeText,
   buildALClassName,
   buildALDisplayClassName,
 } from "../constants";
+import {
+  ActionBar,
+  MobileListRow,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
@@ -628,31 +633,56 @@ export default function TeacherAssignments() {
     }))
     .filter((teacher) => teacher.assignments.length > 0);
 
-  return (
-    <Box>
-      <Box mb={2}>
-        <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
-          Teacher Assignments
-        </Typography>
+  const stats = {
+    total: assignments.length,
+    teachers: teachers.length,
+    subjects: subjects.length,
+    preview: previewCount,
+  };
 
-        <Box display="flex" gap={0.5} mt={0.75} flexWrap="wrap">
-          <Chip
-            label={`${assignments.length} Total`}
-            size="small"
-            color="primary"
-          />
-          <Chip
-            label={`${teachers.length} Teachers`}
-            size="small"
-            color="success"
-          />
-          <Chip
-            label={`${subjects.length} Active Subjects`}
-            size="small"
-            color="secondary"
-          />
-        </Box>
-      </Box>
+  return (
+    <PageContainer
+      title="Teacher Assignments"
+      subtitle="Assign subjects to teachers by grade, section, and stream."
+    >
+      <Stack spacing={2.25}>
+        {isMobile ? (
+          <Paper
+            sx={{
+              p: 1.5,
+              borderRadius: 3,
+              border: "1px solid #e8eaf6",
+              boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
+            }}
+          >
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <StatusChip status="active" label={`${stats.total} total`} />
+                <StatusChip status="saved" label={`${stats.teachers} teachers`} />
+                <StatusChip status="completed" label={`${stats.subjects} subjects`} />
+                <StatusChip status="draft" label={`${stats.preview} preview`} />
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.5}>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Assignments" value={stats.total} icon={<AssignmentIndIcon />} color="primary" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Teachers" value={stats.teachers} icon={<CheckCircleIcon />} color="success" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Active Subjects" value={stats.subjects} icon={<AssignmentIndIcon />} color="secondary" />
+            </Grid>
+            <Grid item xs={6} md={3}>
+              <StatCard title="Preview Rows" value={stats.preview} icon={<SaveIcon />} color="warning" />
+            </Grid>
+          </Grid>
+        )}
 
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
@@ -979,37 +1009,49 @@ export default function TeacherAssignments() {
           </Grid>
         </Grid>
 
-        <Box mt={2.5} display="flex" alignItems="center" gap={2} flexWrap="wrap">
-          {previewCount > 0 && (
-            <Box
-              sx={{
-                bgcolor: "#e8eaf6",
-                px: 2,
-                py: 1,
-                borderRadius: 2,
-                border: "1px solid #1a237e",
-              }}
-            >
-              <Typography variant="body2" fontWeight={700} color="#1a237e">
-                <CheckCircleIcon
-                  sx={{ fontSize: 16, mr: 0.5, verticalAlign: "middle" }}
-                />
-                Will create <strong>{previewCount}</strong> assignment
-                {previewCount !== 1 ? "s" : ""}
-              </Typography>
-            </Box>
-          )}
+        <ActionBar sticky>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <StatusChip status="active" label={`${previewCount} preview`} />
+            <StatusChip
+              status={selectedTeacher ? "saved" : "pending"}
+              label={selectedTeacher ? "Teacher selected" : "Select teacher"}
+            />
+          </Stack>
 
-          <Button
-            variant="contained"
-            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
-            onClick={handleSave}
-            disabled={saving || previewCount === 0 || !selectedTeacher}
-            sx={{ bgcolor: "#1a237e", px: 3 }}
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
           >
-            {saving ? "Saving..." : `Save ${previewCount > 0 ? previewCount : ""} Assignments`}
-          </Button>
-        </Box>
+            {previewCount > 0 ? (
+              <Box
+                sx={{
+                  bgcolor: "#e8eaf6",
+                  px: 2,
+                  py: 1,
+                  borderRadius: 2,
+                  border: "1px solid #1a237e",
+                  display: { xs: "none", sm: "block" },
+                }}
+              >
+                <Typography variant="body2" fontWeight={700} color="#1a237e">
+                  Will create {previewCount} assignment{previewCount !== 1 ? "s" : ""}
+                </Typography>
+              </Box>
+            ) : null}
+
+            <Button
+              variant="contained"
+              startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+              onClick={handleSave}
+              disabled={saving || previewCount === 0 || !selectedTeacher}
+              sx={{ bgcolor: "#1a237e", px: 3 }}
+              fullWidth={isMobile}
+            >
+              {saving ? "Saving..." : `Save ${previewCount > 0 ? previewCount : ""} Assignments`}
+            </Button>
+          </Stack>
+        </ActionBar>
       </Paper>
 
       {loading ? (
@@ -1024,17 +1066,13 @@ export default function TeacherAssignments() {
 
           {isMobile ? (
             groupedAssignments.map((teacher) => (
-              <Card
+              <MobileListRow
                 key={teacher.id}
-                sx={{
-                  mb: 1.5,
-                  borderRadius: 3,
-                  border: "1px solid #e8eaf6",
-                  boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-                }}
-              >
-                <CardContent sx={{ pb: 1 }}>
-                  <Box display="flex" alignItems="center" gap={1} mb={1}>
+                compact
+                title={teacher.name}
+                right={<Chip label={`${teacher.assignments.length}`} size="small" color="primary" />}
+                meta={
+                  <Stack direction="row" spacing={1} alignItems="center">
                     <Avatar
                       sx={{
                         bgcolor: getAvatarColor(teacher.name),
@@ -1046,53 +1084,54 @@ export default function TeacherAssignments() {
                     >
                       {safeString(teacher.name).charAt(0) || "T"}
                     </Avatar>
-
-                    <Typography variant="subtitle2" fontWeight={700} color="#1a237e">
-                      {teacher.name}
+                    <Typography variant="body2" color="text.secondary">
+                      {teacher.email || "Teacher assignments"}
                     </Typography>
-
-                    <Chip
-                      label={`${teacher.assignments.length}`}
-                      size="small"
-                      color="primary"
-                      sx={{ ml: "auto" }}
-                    />
-                  </Box>
-
-                  {teacher.assignments.map((assignment) => (
-                    <Box
-                      key={assignment.id}
-                      display="flex"
-                      justifyContent="space-between"
-                      alignItems="center"
-                      py={0.5}
-                      sx={{ borderBottom: "1px solid #f0f0f0" }}
-                    >
-                      <Box display="flex" gap={0.8} flexWrap="wrap" alignItems="center">
-                        <Chip
-                          label={getAssignmentFullClassName(assignment)}
-                          size="small"
-                          color="primary"
-                        />
-                        <Typography variant="body2">
-                          {assignment.subjectName || assignment.subject}
-                        </Typography>
-                      </Box>
-
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDelete(assignment.id)}
+                  </Stack>
+                }
+                footer={
+                  <Stack spacing={0.75}>
+                    {teacher.assignments.map((assignment) => (
+                      <Box
+                        key={assignment.id}
+                        display="flex"
+                        justifyContent="space-between"
+                        alignItems="center"
+                        py={0.5}
+                        sx={{ borderBottom: "1px solid #f0f0f0" }}
                       >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  ))}
-                </CardContent>
-              </Card>
+                        <Box display="flex" gap={0.8} flexWrap="wrap" alignItems="center">
+                          <Chip
+                            label={getAssignmentFullClassName(assignment)}
+                            size="small"
+                            color="primary"
+                          />
+                          <Typography variant="body2">
+                            {assignment.subjectName || assignment.subject}
+                          </Typography>
+                        </Box>
+
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDelete(assignment.id)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Stack>
+                }
+                sx={{
+                  mb: 1.5,
+                  border: "1px solid #e8eaf6",
+                  boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
+                }}
+              />
             ))
           ) : (
-            <Paper
+            <ResponsiveTableWrapper>
+              <Paper
               sx={{
                 borderRadius: 3,
                 overflow: "hidden",
@@ -1186,12 +1225,14 @@ export default function TeacherAssignments() {
                     ))}
                 </TableBody>
               </Table>
-            </Paper>
+              </Paper>
+            </ResponsiveTableWrapper>
           )}
         </Box>
       ) : (
         <Alert severity="info">No teacher assignments yet.</Alert>
       )}
-    </Box>
+      </Stack>
+    </PageContainer>
   );
 }

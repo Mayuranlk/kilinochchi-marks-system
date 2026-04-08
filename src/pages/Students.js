@@ -33,6 +33,7 @@ import {
   OutlinedInput,
   Paper,
   Select,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -41,6 +42,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  InputAdornment,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -52,6 +54,13 @@ import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import * as XLSX from "xlsx";
+import {
+  EmptyState,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 import {
   RELIGIONS,
   MEDIUM_OPTIONS,
@@ -764,6 +773,12 @@ export default function Students() {
 
   const activeCount = students.filter((s) => s.status === "Active").length;
   const leftCount = students.filter((s) => s.status === "Left").length;
+  const quickStats = [
+    { label: `Active: ${activeCount}`, status: "saved" },
+    { label: `Left: ${leftCount}`, status: "pending" },
+    { label: `Total: ${students.length}`, status: "active" },
+    { label: `Showing: ${filtered.length}`, status: "draft" },
+  ];
 
   const handleSave = async () => {
     const validationError = validateForm();
@@ -1132,8 +1147,29 @@ export default function Students() {
   }, [form]);
 
   return (
-    <Box>
-      <Box
+    <PageContainer
+      title="Students"
+      subtitle="Student master with enrollment-driving fields only."
+      actions={
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          size={isMobile ? "small" : "medium"}
+          onClick={() => {
+            setForm(emptyForm);
+            setEditId(null);
+            setError("");
+            setSuccess("");
+            setOpen(true);
+          }}
+          fullWidth={isMobile}
+          sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+        >
+          {isMobile ? "Add Student" : "Add Student"}
+        </Button>
+      }
+    >
+      <Paper
         sx={{
           bgcolor: "white",
           borderRadius: 3,
@@ -1141,6 +1177,9 @@ export default function Students() {
           mb: 2,
           boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
           border: "1px solid #e8eaf6",
+          position: { xs: "sticky", md: "static" },
+          top: { xs: 76, md: "auto" },
+          zIndex: { xs: 2, md: "auto" },
         }}
       >
         <Box
@@ -1151,17 +1190,12 @@ export default function Students() {
           gap={1.5}
         >
           <Box>
-            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={800} color="#1a237e">
-              Students
+            <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+              Student Tools
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.4}>
-              Student master with enrollment-driving fields only.
+              Search, filter, import, export, and manage student records.
             </Typography>
-            <Box display="flex" gap={0.8} mt={0.5} flexWrap="wrap">
-              <Chip label={`Active: ${activeCount}`} size="small" color="success" sx={{ fontWeight: 700 }} />
-              <Chip label={`Left: ${leftCount}`} size="small" color="error" sx={{ fontWeight: 700 }} />
-              <Chip label={`Total: ${students.length}`} size="small" color="primary" sx={{ fontWeight: 700 }} />
-            </Box>
           </Box>
 
           <Box display="flex" gap={1} flexWrap="wrap">
@@ -1173,7 +1207,7 @@ export default function Students() {
               onChange={handleBulkUpload}
             />
 
-            <Tooltip title="Download Grade 6–9 Template">
+            <Tooltip title="Download Grade 6-9 Template">
               <Button
                 variant="outlined"
                 size="small"
@@ -1185,7 +1219,7 @@ export default function Students() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Download Grade 10–11 Template">
+            <Tooltip title="Download Grade 10-11 Template">
               <Button
                 variant="outlined"
                 size="small"
@@ -1197,7 +1231,7 @@ export default function Students() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Download Grade 12–13 A/L Template">
+            <Tooltip title="Download Grade 12-13 A/L Template">
               <Button
                 variant="outlined"
                 size="small"
@@ -1234,21 +1268,6 @@ export default function Students() {
               </Button>
             </Tooltip>
 
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              size={isMobile ? "small" : "medium"}
-              onClick={() => {
-                setForm(emptyForm);
-                setEditId(null);
-                setError("");
-                setSuccess("");
-                setOpen(true);
-              }}
-              sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
-            >
-              {isMobile ? "Add" : "Add Student"}
-            </Button>
           </Box>
         </Box>
 
@@ -1295,7 +1314,9 @@ export default function Students() {
             sx={{ minWidth: 220, flex: 1 }}
             InputProps={{
               startAdornment: (
-                <SearchIcon fontSize="small" sx={{ mr: 0.5, color: "text.secondary" }} />
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" sx={{ color: "text.secondary" }} />
+                </InputAdornment>
               ),
             }}
           />
@@ -1366,7 +1387,37 @@ export default function Students() {
             {filtered.length} result{filtered.length !== 1 ? "s" : ""}
           </Typography>
         </Box>
-      </Box>
+      </Paper>
+
+      {isMobile ? (
+        <Paper sx={{ p: 1.5, mb: 2, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              Quick Summary
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {quickStats.map((item) => (
+                <StatusChip key={item.label} status={item.status} label={item.label} />
+              ))}
+            </Stack>
+          </Stack>
+        </Paper>
+      ) : (
+        <Grid container spacing={1.5} sx={{ mb: 2 }}>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Active" value={activeCount} icon={<PersonIcon />} color="success" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Left" value={leftCount} icon={<BlockIcon />} color="error" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Total Students" value={students.length} icon={<PersonIcon />} color="primary" />
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <StatCard title="Filtered" value={filtered.length} icon={<SearchIcon />} color="warning" />
+          </Grid>
+        </Grid>
+      )}
 
       {success && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
@@ -1385,30 +1436,20 @@ export default function Students() {
           <CircularProgress />
         </Box>
       ) : filtered.length === 0 ? (
-        <Box
-          textAlign="center"
-          py={8}
-          sx={{
-            bgcolor: "white",
-            borderRadius: 3,
-            border: "1px solid #e8eaf6",
-          }}
-        >
-          <PersonIcon sx={{ fontSize: 72, color: "#e8eaf6" }} />
-          <Typography variant="h6" color="text.secondary" mt={1} fontWeight={600}>
-            No students found
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {students.length === 0 ? 'Click "Add Student" to get started' : "Try adjusting your filters"}
-          </Typography>
-        </Box>
+        <EmptyState
+          title="No students found"
+          description={
+            students.length === 0
+              ? 'Click "Add Student" to get started'
+              : "Try adjusting your filters"
+          }
+        />
       ) : isMobile ? (
-        <Box>
+        <Stack spacing={1.25}>
           {filtered.map((s) => (
             <Card
               key={s.id}
               sx={{
-                mb: 1.5,
                 borderRadius: 3,
                 border: "1px solid #e8eaf6",
                 boxShadow: "0 2px 8px rgba(26,35,126,0.07)",
@@ -1487,7 +1528,7 @@ export default function Students() {
               </CardActions>
             </Card>
           ))}
-        </Box>
+        </Stack>
       ) : (
         <Paper
           sx={{
@@ -1497,7 +1538,8 @@ export default function Students() {
             overflow: "hidden",
           }}
         >
-          <Table size="small">
+          <ResponsiveTableWrapper minWidth={1180}>
+            <Table size="small">
             <TableHead sx={{ bgcolor: "#1a237e" }}>
               <TableRow>
                 {[
@@ -1549,7 +1591,7 @@ export default function Students() {
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" fontWeight={700} color="#1a237e">
-                      {s.admissionNo || "—"}
+                      {s.admissionNo || "-"}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1570,13 +1612,13 @@ export default function Students() {
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      {s.religion || "—"}
+                      {s.religion || "-"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      {s.stream || "—"}
+                      {s.stream || "-"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      {s.alClassName || "—"}
+                      {s.alClassName || "-"}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1626,7 +1668,8 @@ export default function Students() {
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+            </Table>
+          </ResponsiveTableWrapper>
         </Paper>
       )}
 
@@ -2158,6 +2201,6 @@ export default function Students() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }

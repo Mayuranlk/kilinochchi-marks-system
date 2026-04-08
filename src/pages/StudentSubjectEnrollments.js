@@ -34,6 +34,12 @@ import TagIcon from "@mui/icons-material/Tag";
 import { useTheme } from "@mui/material/styles";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
 
 const STREAM_OPTIONS = [
   "Physical Science",
@@ -489,33 +495,44 @@ export default function StudentSubjectEnrollments() {
 
   if (loading) {
     return (
-      <Box sx={{ p: 2, display: "flex", justifyContent: "center" }}>
-        <Stack alignItems="center" spacing={2}>
-          <CircularProgress />
-          <Typography variant="body2" color="text.secondary">
-            Loading student subject enrollments...
-          </Typography>
-        </Stack>
-      </Box>
+      <PageContainer
+        title="Student Subject Enrollments"
+        subtitle="Loading canonical enrollment groups..."
+      >
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+          <Stack alignItems="center" spacing={2}>
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Loading student subject enrollments...
+            </Typography>
+          </Stack>
+        </Paper>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 1.25, sm: 2 } }}>
+    <PageContainer
+      title="Student Subject Enrollments"
+      subtitle="Canonical enrollment view grouped by class and subject, with A/L stream and subject number support."
+    >
       <Stack spacing={2}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>
-            Student Subject Enrollments
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Canonical enrollment view grouped by class and subject, with A/L stream and subject number support.
-          </Typography>
-        </Box>
-
         {error ? <Alert severity="error">{error}</Alert> : null}
 
-        <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            p: { xs: 1.5, sm: 2 },
+            borderRadius: 3,
+            position: { xs: "sticky", md: "static" },
+            top: { xs: 76, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
+          }}
+        >
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              Filter Enrollment View
+            </Typography>
             <Grid container spacing={1.5}>
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
@@ -589,70 +606,39 @@ export default function StudentSubjectEnrollments() {
                 </FormControl>
               </Grid>
             </Grid>
-          </CardContent>
-        </Card>
+          </Stack>
+        </Paper>
 
-        <Grid container spacing={1.25}>
-          <Grid item xs={6} sm={3}>
-            <Card variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Enrollments
-                  </Typography>
-                  <Typography variant="h6" fontWeight={700}>
-                    {summary.enrollments}
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
+        {isMobile ? (
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <StatusChip status="active" label={`Enrollments: ${summary.enrollments}`} />
+                <StatusChip status="saved" label={`Students: ${summary.students}`} />
+                <StatusChip status="completed" label={`Classes: ${summary.classes}`} />
+                <StatusChip status="draft" label={`Subjects: ${summary.subjects}`} />
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.25}>
+            <Grid item xs={6} sm={3}>
+              <StatCard title="Enrollments" value={summary.enrollments} icon={<TagIcon />} color="primary" />
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <StatCard title="Students" value={summary.students} icon={<PersonIcon />} color="success" />
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <StatCard title="Classes" value={summary.classes} icon={<ClassIcon />} color="secondary" />
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <StatCard title="Subjects" value={summary.subjects} icon={<MenuBookIcon />} color="warning" />
+            </Grid>
           </Grid>
-
-          <Grid item xs={6} sm={3}>
-            <Card variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Students
-                  </Typography>
-                  <Typography variant="h6" fontWeight={700}>
-                    {summary.students}
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={6} sm={3}>
-            <Card variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Classes
-                  </Typography>
-                  <Typography variant="h6" fontWeight={700}>
-                    {summary.classes}
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={6} sm={3}>
-            <Card variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Subjects
-                  </Typography>
-                  <Typography variant="h6" fontWeight={700}>
-                    {summary.subjects}
-                  </Typography>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        )}
 
         {groupedData.length === 0 ? (
           <Alert severity="info">No student subject enrollments found for the selected filters.</Alert>
@@ -744,7 +730,8 @@ export default function StudentSubjectEnrollments() {
                             </Grid>
                           </Box>
                         ) : (
-                          <Table size="small">
+                          <ResponsiveTableWrapper minWidth={860}>
+                            <Table size="small">
                             <TableHead>
                               <TableRow>
                                 <TableCell width="5%">#</TableCell>
@@ -789,7 +776,8 @@ export default function StudentSubjectEnrollments() {
                                 </TableRow>
                               ))}
                             </TableBody>
-                          </Table>
+                            </Table>
+                          </ResponsiveTableWrapper>
                         )}
                       </Paper>
                     ))}
@@ -800,6 +788,6 @@ export default function StudentSubjectEnrollments() {
           </Stack>
         )}
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

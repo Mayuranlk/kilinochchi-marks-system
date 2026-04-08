@@ -83,13 +83,13 @@ function sortTerms(list) {
 
 function formatDateRange(termDoc) {
   if (termDoc.startDate && termDoc.endDate) {
-    return `📅 ${termDoc.startDate} → ${termDoc.endDate}`;
+    return `Date range: ${termDoc.startDate} -> ${termDoc.endDate}`;
   }
   if (termDoc.startDate) {
-    return `📅 Starts: ${termDoc.startDate}`;
+    return `Starts: ${termDoc.startDate}`;
   }
   if (termDoc.endDate) {
-    return `📅 Ends: ${termDoc.endDate}`;
+    return `Ends: ${termDoc.endDate}`;
   }
   return "No date range set";
 }
@@ -375,7 +375,7 @@ export default function AcademicTerms() {
 
       {activeTerms.length > 1 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          More than one active term was found. Use “Set Active” to correct it so only one term stays active.
+          More than one active term was found. Use "Set Active" to correct it so only one term stays active.
         </Alert>
       )}
 
@@ -393,7 +393,7 @@ export default function AcademicTerms() {
               <CheckCircleIcon sx={{ color: "#2e7d32", fontSize: 32 }} />
               <Box>
                 <Typography variant="h6" fontWeight={700} color="#2e7d32">
-                  {activeTerm.term} — {activeTerm.year}
+                  {activeTerm.term} - {activeTerm.year}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {formatDateRange(activeTerm)}
@@ -464,7 +464,7 @@ export default function AcademicTerms() {
                       Start Date
                     </Typography>
                     <Typography variant="body2" fontWeight={600}>
-                      {termDoc.startDate || "—"}
+                      {termDoc.startDate || "-"}
                     </Typography>
                   </Box>
 
@@ -473,7 +473,7 @@ export default function AcademicTerms() {
                       End Date
                     </Typography>
                     <Typography variant="body2" fontWeight={600}>
-                      {termDoc.endDate || "—"}
+                      {termDoc.endDate || "-"}
                     </Typography>
                   </Box>
                 </CardContent>

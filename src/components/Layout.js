@@ -186,8 +186,7 @@ export default function Layout() {
     ];
   }, [isAdmin, isClassTeacher]);
 
-  const hideBottomNavRoutes = ["/", "/teacher", "/teacher/marks"];
-  const shouldShowBottomNav = isMobile && !hideBottomNavRoutes.includes(location.pathname);
+  const shouldShowBottomNav = isMobile;
 
   const currentBottomNav = useMemo(() => {
     const index = bottomNavItems.findIndex((item) => {
@@ -477,7 +476,6 @@ export default function Layout() {
             onClick={handleLogout}
             sx={{
               borderRadius: 3,
-              minHeight: 46,
               "&:hover": {
                 bgcolor: "rgba(220, 38, 38, 0.08)",
               },
