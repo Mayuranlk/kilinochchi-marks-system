@@ -91,6 +91,45 @@ const normalizeAcademicYear = (value) => {
   return match ? match[0] : raw;
 };
 
+const hasValue = (value) => value !== undefined && value !== null && String(value).trim() !== "";
+
+const safeNormalizedEquals = (left, right) => {
+  if (!hasValue(left) || !hasValue(right)) return false;
+  return normalize(left) === normalize(right);
+};
+
+const buildSubjectIdentity = (item = {}, fallback = {}) => ({
+  subjectId: pick(item.subjectId, fallback.subjectId, ""),
+  subjectName: pick(item.subjectName, item.subject, fallback.subjectName, fallback.subject, ""),
+  subjectNumber: pick(item.subjectNumber, fallback.subjectNumber, ""),
+});
+
+const matchesSubjectIdentity = (item = {}, target = {}, fallback = {}) => {
+  const itemSubject = buildSubjectIdentity(item, fallback);
+  const targetSubject = buildSubjectIdentity(target);
+
+  return (
+    safeNormalizedEquals(itemSubject.subjectId, targetSubject.subjectId) ||
+    safeNormalizedEquals(itemSubject.subjectName, targetSubject.subjectName) ||
+    safeNormalizedEquals(itemSubject.subjectNumber, targetSubject.subjectNumber)
+  );
+};
+
+const buildEnrollmentDedupKey = (item = {}, fallback = {}) => {
+  const classContext = getClassContext(item, fallback);
+  const subject = buildSubjectIdentity(item, fallback);
+  const academicYear = normalizeAcademicYear(pick(item.academicYear, item.year, fallback.academicYear, fallback.year, ""));
+
+  return [
+    String(pick(item.studentId, fallback.studentId, "")).trim(),
+    normalize(classContext.fullClassName || classContext.className || ""),
+    normalize(subject.subjectId),
+    normalize(subject.subjectName),
+    normalize(subject.subjectNumber),
+    normalize(academicYear),
+  ].join("__");
+};
+
 const getClassIdentity = (item = {}) =>
   pick(item.alClassName, item.fullClassName, item.className, "");
 
@@ -666,13 +705,7 @@ export default function MarksEntry() {
           ? matchesClassContext(enrollmentContext, targetClassContext, student)
           : false;
 
-        const sameSubject =
-          normalize(pick(enrollment.subjectId, "")) ===
-            normalize(selectedSubject.subjectId) ||
-          normalize(pick(enrollment.subjectName, "")) ===
-            normalize(selectedSubject.subjectName) ||
-          normalize(pick(enrollment.subjectNumber, "")) ===
-            normalize(selectedSubject.subjectNumber);
+        const sameSubject = matchesSubjectIdentity(enrollment, selectedSubject, student);
 
         const sameYear =
           !termYear ||
@@ -684,7 +717,36 @@ export default function MarksEntry() {
         return sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
-      const mappedRows = relevantEnrollments.map((enrollment) => {
+      const uniqueRelevantEnrollments = Array.from(
+        relevantEnrollments.reduce((map, enrollment) => {
+          const student = studentMap.get(String(pick(enrollment.studentId, ""))) || {};
+          const dedupKey = buildEnrollmentDedupKey(enrollment, student);
+          if (!dedupKey) return map;
+
+          const existing = map.get(dedupKey);
+          if (!existing) {
+            map.set(dedupKey, enrollment);
+            return map;
+          }
+
+          const existingScore =
+            (hasValue(existing.subjectId) ? 4 : 0) +
+            (hasValue(existing.subjectName) ? 2 : 0) +
+            (hasValue(existing.subjectNumber) ? 1 : 0);
+          const currentScore =
+            (hasValue(enrollment.subjectId) ? 4 : 0) +
+            (hasValue(enrollment.subjectName) ? 2 : 0) +
+            (hasValue(enrollment.subjectNumber) ? 1 : 0);
+
+          if (currentScore >= existingScore) {
+            map.set(dedupKey, enrollment);
+          }
+
+          return map;
+        }, new Map()).values()
+      );
+
+      const mappedRows = uniqueRelevantEnrollments.map((enrollment) => {
         const studentId = String(pick(enrollment.studentId, ""));
         const student = studentMap.get(studentId) || {};
 
@@ -724,13 +786,7 @@ export default function MarksEntry() {
               )
             : false;
 
-          const sameSubject =
-            normalize(pick(mark.subjectId, "")) ===
-              normalize(selectedSubject.subjectId) ||
-            normalize(pick(mark.subjectName, mark.subject, "")) ===
-              normalize(selectedSubject.subjectName) ||
-            normalize(pick(mark.subjectNumber, "")) ===
-              normalize(selectedSubject.subjectNumber);
+          const sameSubject = matchesSubjectIdentity(mark, selectedSubject, mergedContext);
 
           const sameTerm =
             normalize(pick(mark.term, mark.termName, "")) ===
