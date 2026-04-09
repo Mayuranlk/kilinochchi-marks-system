@@ -5,13 +5,9 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
-  Divider,
   FormControl,
-  Grid,
   InputLabel,
   MenuItem,
   Paper,
@@ -29,7 +25,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 import { db } from "../firebase";
-import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
+import { SCHOOL_NAME } from "../constants";
 import { useAuth } from "../context/AuthContext";
 
 /* -------------------------------------------------------------------------- */
@@ -118,25 +114,18 @@ function isEnrollmentActive(row) {
   return ["", "active", "promoted", "current"].includes(getEnrollmentStatus(row));
 }
 
-function getStudentDisplayClass(student) {
+function getStudentGradeDivision(student) {
   const grade = normalizeGrade(student?.grade);
-  const section = safeText(student?.section || student?.className);
+  const division = safeText(student?.section || student?.className);
 
-  if (!grade && !section) return "—";
-  if (grade && section) return `Grade ${grade}-${section}`;
+  if (!grade && !division) return "-";
+  if (grade && division) return `Grade ${grade} - Division ${division}`;
   if (grade) return `Grade ${grade}`;
-  return section;
+  return `Division ${division}`;
 }
 
-function getStudentAesthetic(student) {
-  return safeText(student?.aestheticChoice || student?.aesthetic);
-}
-
-function getStudentBaskets(student) {
-  return [student?.basket1, student?.basket2, student?.basket3]
-    .map((x) => safeText(x))
-    .filter(Boolean)
-    .join(", ");
+function getStudentDisplayName(student) {
+  return safeText(student?.name || student?.fullName) || "-";
 }
 
 function getGradeMeta(mark, studentGrade) {
@@ -381,6 +370,55 @@ export default function ReportCard() {
   }, [expectedSubjects, marksForYear, term]);
 
   const overallAverage = useMemo(() => calcAverageText(marksForYear), [marksForYear]);
+  const selectedTermLabel = term === "All" ? "All Terms" : term;
+  const studentDisplayName = getStudentDisplayName(student);
+  const studentGradeDivision = getStudentGradeDivision(student);
+  const reportMetaItems = [
+    ["Year", selectedYear || "-"],
+    ["Term", selectedTermLabel || "-"],
+    ["Student Name", studentDisplayName],
+    ["Admission Number", student?.admissionNo || "-"],
+    ["Grade / Division", studentGradeDivision],
+  ];
+
+  const pillSx = {
+    display: "inline-flex",
+    alignItems: "center",
+    px: 1.75,
+    py: 0.85,
+    borderRadius: 999,
+    border: "1px solid #c9d7f4",
+    bgcolor: "#eef4ff",
+    color: "#163976",
+    fontWeight: 800,
+    fontSize: 13,
+  };
+  const sectionCardSx = {
+    border: "1px solid #e1e8f4",
+    borderRadius: 4,
+    px: { xs: 1.5, sm: 2.25 },
+    py: { xs: 1.5, sm: 2.25 },
+    bgcolor: "#ffffff",
+    boxShadow: "0 14px 34px rgba(15, 53, 123, 0.06)",
+  };
+  const tablePaperSx = {
+    overflowX: "auto",
+    borderRadius: 3,
+    border: "1px solid #dbe4f3",
+    boxShadow: "none",
+    bgcolor: "#ffffff",
+  };
+  const mobileResultsSx = {
+    px: { xs: 1.5, sm: 2 },
+    py: 0.25,
+    borderRadius: 3,
+    border: "1px solid #dbe4f3",
+    bgcolor: "#ffffff",
+  };
+  const supportingTextSx = {
+    mt: 0.75,
+    color: "#6a7b97",
+  };
 
   const handlePrint = () => {
     if (!printRef.current) return;
@@ -394,13 +432,136 @@ export default function ReportCard() {
         <head>
           <title>Report Card - ${safeText(student?.name || student?.fullName)}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; color: #000; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border: 1px solid #333; padding: 8px 12px; text-align: left; }
-            th { background: #1a237e; color: white; }
-            h2, h3 { margin: 4px 0; }
-            .header { text-align: center; margin-bottom: 20px; }
-            @media print { button { display: none; } }
+            * { box-sizing: border-box; }
+            body {
+              font-family: "Segoe UI", Arial, sans-serif;
+              padding: 24px;
+              color: #172033;
+              background: #ffffff;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            th, td {
+              border: 1px solid #d6deeb;
+              padding: 10px 12px;
+              text-align: left;
+            }
+            th {
+              background: #163976;
+              color: white;
+            }
+            .report-card-shell {
+              border: 1px solid #dbe4f3;
+              border-radius: 24px;
+              overflow: hidden;
+            }
+            .report-card-hero {
+              background: linear-gradient(135deg, #102b66 0%, #1f4b99 52%, #4f83d8 100%);
+              color: white;
+              padding: 28px;
+            }
+            .report-card-kicker {
+              margin: 0 0 8px;
+              font-size: 11px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              opacity: 0.8;
+            }
+            .report-card-school-name {
+              margin: 0;
+              font-size: 28px;
+              font-weight: 700;
+            }
+            .report-card-title {
+              margin: 8px 0 0;
+              font-size: 16px;
+              opacity: 0.95;
+            }
+            .report-card-meta-grid {
+              display: grid;
+              grid-template-columns: repeat(5, minmax(0, 1fr));
+              gap: 12px;
+              margin-top: 24px;
+            }
+            .report-card-meta-item {
+              background: rgba(255, 255, 255, 0.95);
+              border: 1px solid rgba(213, 225, 245, 0.95);
+              border-radius: 16px;
+              padding: 14px 16px;
+              color: #172033;
+            }
+            .report-card-meta-label {
+              margin: 0 0 6px;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              color: #6a7b97;
+            }
+            .report-card-meta-value {
+              margin: 0;
+              font-size: 16px;
+              font-weight: 700;
+            }
+            .report-card-body {
+              padding: 24px;
+            }
+            .report-card-main-block,
+            .report-card-term-block {
+              border: 1px solid #e1e8f4;
+              border-radius: 18px;
+              padding: 18px;
+              margin-bottom: 18px;
+              background: #ffffff;
+            }
+            .report-card-section-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 12px;
+              margin-bottom: 12px;
+            }
+            .report-card-section-title {
+              margin: 0;
+              font-size: 20px;
+              color: #163976;
+            }
+            .report-card-pill {
+              display: inline-block;
+              padding: 8px 14px;
+              border-radius: 999px;
+              border: 1px solid #c9d7f4;
+              background: #eef4ff;
+              color: #163976;
+              font-size: 13px;
+              font-weight: 700;
+            }
+            .report-card-summary {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 16px;
+              margin-top: 24px;
+              padding: 18px 20px;
+              border-radius: 18px;
+              background: linear-gradient(135deg, #f4f8ff 0%, #ffffff 100%);
+              border: 1px solid #dbe4f3;
+            }
+            .report-card-summary-title {
+              margin: 0;
+              font-size: 20px;
+              font-weight: 700;
+              color: #163976;
+            }
+            @media (max-width: 900px) {
+              body { padding: 16px; }
+              .report-card-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media print {
+              body { padding: 0; }
+            }
           </style>
         </head>
         <body>${content}</body>
@@ -488,10 +649,12 @@ export default function ReportCard() {
           display="flex"
           justifyContent="space-between"
           alignItems="center"
-          py={1}
-          sx={{ borderBottom: "1px solid #eee" }}
+          py={1.2}
+          sx={{ borderBottom: "1px solid #e4eaf4" }}
         >
-          <Typography variant="body2">{getMarkSubject(mark)}</Typography>
+          <Typography variant="body2" fontWeight={600}>
+            {getMarkSubject(mark)}
+          </Typography>
           <Chip
             label={label}
             size="small"
@@ -514,10 +677,12 @@ export default function ReportCard() {
         display="flex"
         justifyContent="space-between"
         alignItems="center"
-        py={1}
-        sx={{ borderBottom: "1px solid #eee" }}
+        py={1.2}
+        sx={{ borderBottom: "1px solid #e4eaf4" }}
       >
-        <Typography variant="body2">{getMarkSubject(mark)}</Typography>
+        <Typography variant="body2" fontWeight={600}>
+          {getMarkSubject(mark)}
+        </Typography>
         <Box display="flex" alignItems="center" gap={1}>
           <Typography variant="body2" fontWeight={700}>
             {value}/100
@@ -627,157 +792,177 @@ export default function ReportCard() {
             </Alert>
           )}
 
-          <Paper sx={{ p: { xs: 2, sm: 3 } }} ref={printRef}>
-            <Box textAlign="center" mb={2}>
-              <Typography variant={isMobile ? "subtitle1" : "h5"} fontWeight={700} color="#1a237e">
+          <Paper
+            ref={printRef}
+            className="report-card-shell"
+            elevation={0}
+            sx={{
+              overflow: "hidden",
+              borderRadius: { xs: 4, sm: 6 },
+              border: "1px solid #dbe4f3",
+              boxShadow: "0 24px 60px rgba(15, 53, 123, 0.10)",
+              background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 24%)",
+            }}
+          >
+            <Box
+              className="report-card-hero"
+              sx={{
+                position: "relative",
+                overflow: "hidden",
+                mx: { xs: -2, sm: -3 },
+                mt: { xs: -2, sm: -3 },
+                px: { xs: 2, sm: 3.5 },
+                py: { xs: 2.5, sm: 3.5 },
+                color: "white",
+                textAlign: "left",
+                background: "linear-gradient(135deg, #102b66 0%, #1f4b99 52%, #4f83d8 100%)",
+                "&::before": {
+                  content: '""',
+                  position: "absolute",
+                  width: 220,
+                  height: 220,
+                  borderRadius: "50%",
+                  top: -120,
+                  right: -70,
+                  background: "rgba(255,255,255,0.10)",
+                },
+                "&::after": {
+                  content: '""',
+                  position: "absolute",
+                  width: 180,
+                  height: 180,
+                  borderRadius: "50%",
+                  bottom: -110,
+                  right: 60,
+                  background: "rgba(255,255,255,0.08)",
+                },
+              }}
+            >
+              <Typography className="report-card-kicker" sx={{ mb: 1, fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", opacity: 0.8 }}>
+                Academic Record
+              </Typography>
+              <Typography className="report-card-school-name" variant={isMobile ? "h6" : "h4"} fontWeight={800}>
                 {SCHOOL_NAME}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {SCHOOL_SUBTITLE}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" mt={0.5}>
+              <Typography className="report-card-title" variant="body1" sx={{ mt: 1, opacity: 0.92 }}>
                 Student Report Card
               </Typography>
-              <Box display="flex" justifyContent="center" gap={1} mt={1} flexWrap="wrap">
-                <Chip label={`Year ${selectedYear || "—"}`} size="small" color="primary" />
-                <Chip label={term === "All" ? "All Terms" : term} size="small" />
+              <Box
+                className="report-card-meta-grid"
+                sx={{
+                  display: "grid",
+                  gap: 1.5,
+                  mt: 3,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    lg: "repeat(5, minmax(0, 1fr))",
+                  },
+                }}
+              >
+                {reportMetaItems.map(([label, value]) => (
+                  <Box
+                    key={label}
+                    className="report-card-meta-item"
+                    sx={{
+                      borderRadius: 3,
+                      px: 2,
+                      py: 1.75,
+                      background: "rgba(255,255,255,0.96)",
+                      border: "1px solid rgba(213, 225, 245, 0.95)",
+                      color: "#172033",
+                      backdropFilter: "blur(6px)",
+                    }}
+                  >
+                    <Typography
+                      className="report-card-meta-label"
+                      sx={{
+                        mb: 0.75,
+                        fontSize: 11,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: "#6a7b97",
+                      }}
+                    >
+                      {label}
+                    </Typography>
+                    <Typography
+                      className="report-card-meta-value"
+                      sx={{ fontSize: { xs: 15, sm: 16 }, fontWeight: 800 }}
+                    >
+                      {value}
+                    </Typography>
+                  </Box>
+                ))}
               </Box>
             </Box>
 
-            <Divider sx={{ mb: 2 }} />
+            <Box
+              className="report-card-body"
+              sx={{
+                px: { xs: 2, sm: 3 },
+                pb: { xs: 2.5, sm: 3.5 },
+              }}
+            >
 
-            {isMobile ? (
-              <Card sx={{ mb: 2, bgcolor: "#f5f5f5" }}>
-                <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                  <Grid container spacing={1}>
-                    {[
-                      ["Name", student.name || student.fullName || "—"],
-                      ["Adm No", student.admissionNo || "—"],
-                      ["Class", getStudentDisplayClass(student)],
-                      ["Religion", student.religion || "—"],
-                    ].map(([label, value]) => (
-                      <Grid item xs={6} key={label}>
-                        <Typography variant="caption" color="text.secondary">
-                          {label}
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {value}
-                        </Typography>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </CardContent>
-              </Card>
-            ) : (
-              <Grid container spacing={2} mb={2}>
-                {[
-                  ["Full Name", student.name || student.fullName || "—"],
-                  ["Admission No", student.admissionNo || "—"],
-                  ["Class", getStudentDisplayClass(student)],
-                  ["Gender", student.gender || "—"],
-                  ["Date of Birth", student.dob || "—"],
-                  ["Religion", student.religion || "—"],
-                  normalizeGrade(student.grade) <= 9
-                    ? ["Aesthetic", getStudentAesthetic(student) || "—"]
-                    : ["Baskets", getStudentBaskets(student) || "—"],
-                ].map(([label, value]) => (
-                  <Grid item xs={6} sm={4} key={label}>
-                    <Typography variant="caption" color="text.secondary">
-                      {label}
-                    </Typography>
-                    <Typography variant="body1" fontWeight={600}>
-                      {value}
-                    </Typography>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-
-            <Divider sx={{ mb: 2 }} />
-
-            {term !== "All" ? (
-              <>
-                <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={600} mb={1}>
-                  {term} Results
-                </Typography>
-
-                {isMobile ? (
-                  <Box>
-                    {filteredMarks.map(renderMobileRow)}
-                    {filteredMarks.length === 0 && (
-                      <Typography variant="body2" color="text.secondary" align="center" py={2}>
-                        No marks recorded for {term}.
+              {term !== "All" ? (
+                <Box className="report-card-main-block" sx={sectionCardSx}>
+                  <Box
+                    className="report-card-section-header"
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: { xs: "flex-start", sm: "center" },
+                      flexDirection: { xs: "column", sm: "row" },
+                      gap: 1.25,
+                      mb: 2,
+                    }}
+                  >
+                    <Box>
+                      <Typography
+                        className="report-card-section-title"
+                        variant={isMobile ? "subtitle1" : "h6"}
+                        fontWeight={800}
+                        color="#163976"
+                      >
+                        {selectedTermLabel} Results
                       </Typography>
-                    )}
-                  </Box>
-                ) : (
-                  <Paper sx={{ overflowX: "auto" }}>
-                    <Table size="small">
-                      <TableHead sx={{ bgcolor: "#1a237e" }}>
-                        <TableRow>
-                          {["Subject", "Marks", "Grade", "Remarks"].map((h) => (
-                            <TableCell key={h} sx={{ color: "white", fontWeight: 600 }}>
-                              {h}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {filteredMarks.map(renderDesktopRow)}
-                        {filteredMarks.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} align="center">
-                              No marks for {term}.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </Paper>
-                )}
-
-                {filteredMarks.length > 0 && calcAverageText(filteredMarks) !== null && (
-                  <Box mt={1} textAlign="right">
-                    <Typography variant="body2" fontWeight={700}>
-                      Average: {calcAverageText(filteredMarks)} / 100
-                    </Typography>
-                  </Box>
-                )}
-              </>
-            ) : (
-              availableTerms.map((t) => (
-                <Box key={t} mb={3}>
-                  <Typography variant="subtitle1" fontWeight={600} color="#1a237e" mb={1}>
-                    {t}
-                  </Typography>
+                      <Typography variant="body2" sx={supportingTextSx}>
+                        Year {selectedYear || "-"} performance summary for {studentDisplayName}.
+                      </Typography>
+                    </Box>
+                    <Box component="span" className="report-card-pill" sx={pillSx}>
+                      {selectedYear || "-"} | {selectedTermLabel}
+                    </Box>
+              </Box>
 
                   {isMobile ? (
-                    <Box>
-                      {(groupedByTerm[t] || []).map(renderMobileRow)}
-                      {(groupedByTerm[t] || []).length === 0 && (
-                        <Typography variant="caption" color="text.secondary">
-                          No marks recorded.
+                    <Box sx={mobileResultsSx}>
+                      {filteredMarks.map(renderMobileRow)}
+                      {filteredMarks.length === 0 && (
+                        <Typography variant="body2" color="text.secondary" align="center" py={2}>
+                          No marks recorded for {term}.
                         </Typography>
                       )}
                     </Box>
                   ) : (
-                    <Paper sx={{ overflowX: "auto" }}>
+                    <Paper elevation={0} sx={tablePaperSx}>
                       <Table size="small">
-                        <TableHead sx={{ bgcolor: "#e8eaf6" }}>
+                        <TableHead sx={{ bgcolor: "#163976" }}>
                           <TableRow>
-                            {["Subject", "Marks", "Grade", "Remarks"].map((h) => (
-                              <TableCell key={h} sx={{ fontWeight: 600 }}>
-                                {h}
+                            {["Subject", "Marks", "Grade", "Remarks"].map((heading) => (
+                              <TableCell key={heading} sx={{ color: "white", fontWeight: 700 }}>
+                                {heading}
                               </TableCell>
                             ))}
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {(groupedByTerm[t] || []).map(renderDesktopRow)}
-                          {(groupedByTerm[t] || []).length === 0 && (
+                          {filteredMarks.map(renderDesktopRow)}
+                          {filteredMarks.length === 0 && (
                             <TableRow>
                               <TableCell colSpan={4} align="center">
-                                No marks recorded.
+                                No marks recorded for {term}.
                               </TableCell>
                             </TableRow>
                           )}
@@ -786,29 +971,136 @@ export default function ReportCard() {
                     </Paper>
                   )}
 
-                  {(groupedByTerm[t] || []).length > 0 &&
-                    calcAverageText(groupedByTerm[t]) !== null && (
-                      <Box mt={0.5} textAlign="right">
-                        <Typography variant="body2" fontWeight={600}>
-                          {t} Average: {calcAverageText(groupedByTerm[t])} / 100
-                        </Typography>
+                  {filteredMarks.length > 0 && calcAverageText(filteredMarks) !== null && (
+                    <Box mt={2} display="flex" justifyContent="flex-end">
+                      <Box component="span" className="report-card-pill" sx={pillSx}>
+                        Term Average {calcAverageText(filteredMarks)} / 100
                       </Box>
-                    )}
+                    </Box>
+                  )}
                 </Box>
-              ))
+            ) : (
+              <Box sx={{ display: "grid", gap: 2 }}>
+                {availableTerms.length > 0 ? (
+                  availableTerms.map((t) => {
+                    const termMarks = groupedByTerm[t] || [];
+                    const termAverage = calcAverageText(termMarks);
+
+                    return (
+                      <Box key={t} className="report-card-term-block" sx={sectionCardSx}>
+                        <Box
+                          className="report-card-section-header"
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: { xs: "flex-start", sm: "center" },
+                            flexDirection: { xs: "column", sm: "row" },
+                            gap: 1.25,
+                            mb: 2,
+                          }}
+                        >
+                          <Box>
+                            <Typography
+                              className="report-card-section-title"
+                              variant={isMobile ? "subtitle1" : "h6"}
+                              fontWeight={800}
+                              color="#163976"
+                            >
+                              {t}
+                            </Typography>
+                            <Typography variant="body2" sx={supportingTextSx}>
+                              Consolidated subject performance for {t}.
+                            </Typography>
+                          </Box>
+                          {termAverage !== null && (
+                            <Box component="span" className="report-card-pill" sx={pillSx}>
+                              Avg {termAverage} / 100
+                            </Box>
+                          )}
+                        </Box>
+
+                        {isMobile ? (
+                          <Box sx={mobileResultsSx}>
+                            {termMarks.map(renderMobileRow)}
+                            {termMarks.length === 0 && (
+                              <Typography variant="body2" color="text.secondary" align="center" py={2}>
+                                No marks recorded for {t}.
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : (
+                          <Paper elevation={0} sx={tablePaperSx}>
+                            <Table size="small">
+                              <TableHead sx={{ bgcolor: "#edf3ff" }}>
+                                <TableRow>
+                                  {["Subject", "Marks", "Grade", "Remarks"].map((heading) => (
+                                    <TableCell key={heading} sx={{ fontWeight: 700, color: "#163976" }}>
+                                      {heading}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {termMarks.map(renderDesktopRow)}
+                                {termMarks.length === 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={4} align="center">
+                                      No marks recorded for {t}.
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </Paper>
+                        )}
+                      </Box>
+                    );
+                  })
+                ) : (
+                  <Box
+                    className="report-card-main-block"
+                    sx={{
+                      ...sectionCardSx,
+                      textAlign: "center",
+                      color: "#6a7b97",
+                    }}
+                  >
+                    No marks recorded for {selectedYear || "the selected year"}.
+                  </Box>
+                )}
+              </Box>
             )}
 
             {marksForYear.length > 0 && overallAverage !== null && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant={isMobile ? "subtitle1" : "h6"} fontWeight={700}>
-                    Overall Average
+              <Box
+                className="report-card-summary"
+                sx={{
+                  mt: 2.5,
+                  flexDirection: { xs: "column", sm: "row" },
+                  alignItems: { xs: "flex-start", sm: "center" },
+                }}
+              >
+                <Box>
+                  <Typography
+                    className="report-card-summary-title"
+                    variant={isMobile ? "subtitle1" : "h6"}
+                  >
+                    Year Average
                   </Typography>
-                  <Chip label={`${overallAverage} / 100`} color="primary" />
+                  <Typography variant="body2" sx={supportingTextSx}>
+                    Across all recorded subjects in {selectedYear || "the selected year"}.
+                  </Typography>
                 </Box>
-              </>
+                <Box
+                  component="span"
+                  className="report-card-pill"
+                  sx={{ ...pillSx, px: 2.25, py: 1 }}
+                >
+                  {overallAverage} / 100
+                </Box>
+              </Box>
             )}
+            </Box>
           </Paper>
 
           {isMobile && (

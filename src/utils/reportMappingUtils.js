@@ -49,6 +49,26 @@ export function resolveReligionColumnFromStudent(student = {}) {
   return RELIGION_REPORT_MAP[religion] || null;
 }
 
+export function getStudentAestheticChoice(student = {}) {
+  return student.aestheticChoice || student.aesthetic || "";
+}
+
+export function getStudentBasketChoice(student = {}, bucket = "") {
+  if (bucket === "A") {
+    return student.basketAChoice || student.basket1 || "";
+  }
+
+  if (bucket === "B") {
+    return student.basketBChoice || student.basket2 || "";
+  }
+
+  if (bucket === "C") {
+    return student.basketCChoice || student.basket3 || "";
+  }
+
+  return "";
+}
+
 export function resolveColumnKeyFromSubjectName(schema, subjectName) {
   if (!schema || !subjectName) return null;
 
@@ -88,4 +108,61 @@ export function createEmptyAttendanceByColumn(schema) {
     acc[column.key] = false;
     return acc;
   }, {});
+}
+
+function getMappedColumnKeysFromSubjectRows(schema, rows = []) {
+  return rows.reduce((keys, row) => {
+    const subjectName = row?.subjectName || row?.subject || "";
+    const columnKey = resolveColumnKeyFromSubjectName(schema, subjectName);
+
+    if (columnKey) {
+      keys.push(columnKey);
+    }
+
+    return keys;
+  }, []);
+}
+
+export function getEligibleColumnKeysForStudent({
+  schema,
+  student = {},
+  enrollments = [],
+  marks = [],
+}) {
+  if (!schema || !Array.isArray(schema.groups)) return [];
+
+  const eligibleKeys = new Set();
+
+  schema.groups.forEach((group) => {
+    if (group.key === "core" || group.key === "other") {
+      (group.columns || []).forEach((column) => eligibleKeys.add(column.key));
+    }
+  });
+
+  const religionColumn = resolveReligionColumnFromStudent(student);
+  if (religionColumn) {
+    eligibleKeys.add(religionColumn);
+  }
+
+  const aestheticColumn = resolveColumnKeyFromSubjectName(schema, getStudentAestheticChoice(student));
+  if (aestheticColumn) {
+    eligibleKeys.add(aestheticColumn);
+  }
+
+  ["A", "B", "C"].forEach((bucket) => {
+    const basketColumn = resolveColumnKeyFromSubjectName(
+      schema,
+      getStudentBasketChoice(student, bucket)
+    );
+
+    if (basketColumn) {
+      eligibleKeys.add(basketColumn);
+    }
+  });
+
+  [...getMappedColumnKeysFromSubjectRows(schema, enrollments), ...getMappedColumnKeysFromSubjectRows(schema, marks)].forEach(
+    (columnKey) => eligibleKeys.add(columnKey)
+  );
+
+  return Array.from(eligibleKeys);
 }

@@ -6,6 +6,7 @@ import {
   createEmptyAttendanceByColumn,
   createEmptyMarksByColumn,
   extractMarkValue,
+  getEligibleColumnKeysForStudent,
   getStudentDisplayId,
   getStudentDisplayName,
   getStudentIndexNo,
@@ -133,7 +134,17 @@ export function buildClassMarksReportData({
       }
     }
 
-    const { total, average, subjectCount } = calculateStudentTotalAndAverage(marksByColumn);
+    const eligibleColumnKeys = getEligibleColumnKeysForStudent({
+      schema,
+      student,
+      enrollments: studentEnrollments,
+      marks: studentMarks,
+    });
+
+    const { total, average, subjectCount } = calculateStudentTotalAndAverage(
+      marksByColumn,
+      schema
+    );
 
     return {
       rowNo: index + 1,
@@ -142,6 +153,7 @@ export function buildClassMarksReportData({
       studentName: getStudentDisplayName(student),
       student,
       enrollments: studentEnrollments,
+      eligibleColumnKeys,
       marksByColumn,
       absencesByColumn,
       total,

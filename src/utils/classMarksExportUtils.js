@@ -5,9 +5,14 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { flattenSchemaColumns, ANALYSIS_BANDS } from "./reportSchemas";
+import {
+  flattenSchemaColumns,
+  ANALYSIS_BANDS,
+  getOverallExclusionNote,
+} from "./reportSchemas";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
+const A4_LANDSCAPE_WIDTH_MM = 297;
 
 function safeText(value) {
   return value === null || value === undefined ? "" : String(value);
@@ -43,6 +48,52 @@ function isGradeSixToNine(reportData) {
 function isGradeTenToEleven(reportData) {
   const grade = Number(reportData?.grade || 0);
   return grade >= 10 && grade <= 11;
+}
+
+function getScheduleColumnWidths(reportData) {
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const is69 = isGradeSixToNine(reportData);
+  const is1011 = isGradeTenToEleven(reportData);
+  const widths = [is1011 ? 6 : 8, is1011 ? 16 : 20, is1011 ? 13 : 16, is1011 ? 28 : 32];
+
+  flatColumns.forEach((column) => {
+    const labelLength = (column.label || "").length;
+
+    let width = 10;
+
+    if (is69) {
+      if (labelLength <= 4) width = 7;
+      else if (labelLength <= 7) width = 8.5;
+      else if (labelLength <= 10) width = 10;
+      else width = 11.5;
+    } else if (is1011) {
+      if (labelLength <= 4) width = 5.6;
+      else if (labelLength <= 8) width = 6.4;
+      else if (labelLength <= 12) width = 7.4;
+      else width = 8.6;
+    } else {
+      if (labelLength <= 5) width = 9;
+      else if (labelLength <= 10) width = 10.5;
+      else width = 12;
+    }
+
+    widths.push(width);
+  });
+
+  widths.push(is1011 ? 8.5 : 10, is1011 ? 10 : 12, is1011 ? 7.5 : 9);
+
+  return widths;
+}
+
+function fitColumnWidthsToPage(widths, maxWidth) {
+  const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+
+  if (!maxWidth || totalWidth <= maxWidth) {
+    return widths;
+  }
+
+  const scale = maxWidth / totalWidth;
+  return widths.map((width) => Number((width * scale).toFixed(2)));
 }
 
 function buildGroupedHeaderRows(schema) {
@@ -145,10 +196,13 @@ function drawHeader(doc, title, reportData) {
   );
 }
 
-function drawFooter(doc, reportData) {
+function drawFooter(doc, reportData, options = {}) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const y = pageHeight - 8;
+  const overallExclusionNote = options.showOverallExclusionNote
+    ? getOverallExclusionNote(reportData.schema)
+    : "";
 
   const classTeacher = reportData.classroom?.classTeacherName || "Class Teacher";
   const sectionalHead = reportData.classroom?.sectionHeadName || "Sectional Head";
@@ -156,13 +210,22 @@ function drawFooter(doc, reportData) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
 
+  if (overallExclusionNote) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.text(overallExclusionNote, 10, y - 4, {
+      maxWidth: pageWidth - 20,
+    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+  }
+
   doc.text(classTeacher, 10, y);
   doc.text(sectionalHead, pageWidth / 2, y, { align: "center" });
   doc.text("Principal", pageWidth - 10, y, { align: "right" });
 }
 
 function getScheduleTableSettings(reportData) {
-  const flatColumns = flattenSchemaColumns(reportData.schema);
   const is69 = isGradeSixToNine(reportData);
   const is1011 = isGradeTenToEleven(reportData);
 
@@ -184,57 +247,60 @@ function getScheduleTableSettings(reportData) {
   }
 
   if (is1011) {
-    base.fontSize = 5.35;
-    base.cellPadding = 0.45;
-    base.headerFontSize = 5.2;
-    base.topHeaderFontSize = 5.5;
+    base.marginLeft = 3;
+    base.marginRight = 3;
+    base.startY = 17.5;
+    base.fontSize = 5.1;
+    base.cellPadding = 0.35;
+    base.headerFontSize = 4.95;
+    base.topHeaderFontSize = 5.15;
   }
 
-  const columnStyles = {
-    0: { cellWidth: is1011 ? 7 : 8, halign: "center" },
-    1: { cellWidth: is1011 ? 18 : 20, halign: "center" },
-    2: { cellWidth: is1011 ? 15 : 16, halign: "center" },
-    3: { cellWidth: is1011 ? 30 : 32, halign: "left" },
-  };
-
-  let currentIndex = 4;
-
-  flatColumns.forEach((column) => {
-    const labelLength = (column.label || "").length;
-
-    let width = 10;
-
-    if (is69) {
-      if (labelLength <= 4) width = 7;
-      else if (labelLength <= 7) width = 8.5;
-      else if (labelLength <= 10) width = 10;
-      else width = 11.5;
-    } else if (is1011) {
-      if (labelLength <= 4) width = 6.2;
-      else if (labelLength <= 8) width = 7.4;
-      else if (labelLength <= 12) width = 8.8;
-      else width = 10.2;
-    } else {
-      if (labelLength <= 5) width = 9;
-      else if (labelLength <= 10) width = 10.5;
-      else width = 12;
-    }
-
-    columnStyles[currentIndex] = {
+  const availableTableWidth = A4_LANDSCAPE_WIDTH_MM - base.marginLeft - base.marginRight;
+  const fittedWidths = fitColumnWidthsToPage(
+    getScheduleColumnWidths(reportData),
+    availableTableWidth
+  );
+  const columnStyles = fittedWidths.reduce((styles, width, index) => {
+    styles[index] = {
       cellWidth: width,
-      halign: "center",
+      halign: index === 3 ? "left" : "center",
     };
-
-    currentIndex += 1;
-  });
-
-  columnStyles[currentIndex] = { cellWidth: is1011 ? 9 : 10, halign: "center" };
-  columnStyles[currentIndex + 1] = { cellWidth: is1011 ? 11 : 12, halign: "center" };
-  columnStyles[currentIndex + 2] = { cellWidth: is1011 ? 8 : 9, halign: "center" };
+    return styles;
+  }, {});
 
   return {
     ...base,
     columnStyles,
+    tableWidth: Number(fittedWidths.reduce((sum, width) => sum + width, 0).toFixed(2)),
+  };
+}
+
+export function getClassMarksSchedulePreviewLayout(reportData) {
+  if (!isGradeTenToEleven(reportData)) {
+    return {
+      compact: false,
+      fontSize: 12,
+      cellPadding: "6px 8px",
+      minWidth: 1200,
+      tableWidth: null,
+      columnWidths: [],
+    };
+  }
+
+  const previewScale = 5.5;
+  const columnWidths = getScheduleColumnWidths(reportData).map((width) =>
+    Math.round(width * previewScale)
+  );
+  const tableWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+
+  return {
+    compact: true,
+    fontSize: 10.5,
+    cellPadding: "4px 5px",
+    minWidth: tableWidth,
+    tableWidth,
+    columnWidths,
   };
 }
 
@@ -301,6 +367,7 @@ function buildPdfDoc(reportData) {
     head: buildGroupedHeaderRows(reportData.schema),
     body: buildScheduleBody(reportData),
     theme: "grid",
+    tableWidth: scheduleSettings.tableWidth,
     margin: {
       left: scheduleSettings.marginLeft,
       right: scheduleSettings.marginRight,
@@ -331,20 +398,18 @@ function buildPdfDoc(reportData) {
     didParseCell: (data) => {
       if (data.section === "head") {
         data.cell.styles.overflow = "linebreak";
+        if (data.row.index === 0) {
+          data.cell.styles.fontSize = scheduleSettings.topHeaderFontSize;
+        }
       }
 
       if (data.section === "body" && data.column.index === 3) {
         data.cell.styles.halign = "left";
       }
     },
-    didDrawCell: (data) => {
-      if (data.section === "head" && data.row.index === 0) {
-        data.cell.styles.fontSize = scheduleSettings.topHeaderFontSize;
-      }
-    },
   });
 
-  drawFooter(doc, reportData);
+  drawFooter(doc, reportData, { showOverallExclusionNote: true });
 
   doc.addPage("a4", "landscape");
 
@@ -438,6 +503,7 @@ function makeScheduleSheetRows(reportData) {
     [],
     headers,
     ...bodyRows,
+    ...(getOverallExclusionNote(reportData.schema) ? [[], [getOverallExclusionNote(reportData.schema)]] : []),
   ];
 }
 

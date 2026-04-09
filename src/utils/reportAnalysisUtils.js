@@ -1,9 +1,17 @@
 // src/utils/reportAnalysisUtils.js
 
-import { ANALYSIS_BANDS, flattenSchemaColumns } from "./reportSchemas";
+import {
+  ANALYSIS_BANDS,
+  flattenSchemaColumns,
+  getColumnsIncludedInOverall,
+} from "./reportSchemas";
 
-export function calculateStudentTotalAndAverage(marksByColumn = {}) {
-  const validMarks = Object.values(marksByColumn).filter(
+export function calculateStudentTotalAndAverage(marksByColumn = {}, schema = null) {
+  const valuesToProcess = schema
+    ? getColumnsIncludedInOverall(schema).map((column) => marksByColumn[column.key])
+    : Object.values(marksByColumn);
+
+  const validMarks = valuesToProcess.filter(
     (value) => value !== null && value !== undefined && Number.isFinite(Number(value))
   );
 
@@ -47,6 +55,7 @@ export function buildEmptyAnalysisForSchema(schema) {
   allColumns.forEach((column) => {
     result[column.key] = {
       total: 0,
+      marksTotal: 0,
       appeared: 0,
       passCount: 0,
       passPercentage: 0,
@@ -65,17 +74,27 @@ export function calculateAnalysis(rows = [], schema) {
   const allColumns = flattenSchemaColumns(schema);
 
   for (const row of rows) {
+    const eligibleColumnKeys = new Set(row.eligibleColumnKeys || []);
+
     for (const column of allColumns) {
+      const item = analysis[column.key];
       const mark = row.marksByColumn[column.key];
+      const hasEligibleStudent =
+        eligibleColumnKeys.has(column.key) ||
+        row.absencesByColumn?.[column.key] === true ||
+        Number.isFinite(Number(mark));
+
+      if (hasEligibleStudent) {
+        item.total += 1;
+      }
 
       if (mark === null || mark === undefined || !Number.isFinite(Number(mark))) {
         continue;
       }
 
       const numericMark = Number(mark);
-      const item = analysis[column.key];
 
-      item.total += numericMark;
+      item.marksTotal += numericMark;
       item.appeared += 1;
 
       for (const band of ANALYSIS_BANDS) {

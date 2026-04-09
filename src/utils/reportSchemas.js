@@ -61,6 +61,12 @@ export const REPORT_SCHEMA_6_TO_9 = {
           aliases: ["Tamil"],
         },
         {
+          key: "SINHALA",
+          label: "Sinhala",
+          aliases: ["Sinhala"],
+          includeInOverall: false,
+        },
+        {
           key: "MATHS",
           label: "Maths",
           aliases: ["Mathematics", "Maths"],
@@ -335,4 +341,23 @@ export function getReportSchemaByGrade(grade) {
 export function flattenSchemaColumns(schema) {
   if (!schema || !Array.isArray(schema.groups)) return [];
   return schema.groups.flatMap((group) => group.columns || []);
+}
+
+export function getColumnsIncludedInOverall(schema) {
+  return flattenSchemaColumns(schema).filter((column) => column.includeInOverall !== false);
+}
+
+export function getColumnsExcludedFromOverall(schema) {
+  return flattenSchemaColumns(schema).filter((column) => column.includeInOverall === false);
+}
+
+export function getOverallExclusionNote(schema) {
+  const excludedColumns = getColumnsExcludedFromOverall(schema);
+
+  if (excludedColumns.length === 0) return "";
+
+  const labels = excludedColumns.map((column) => column.label).join(", ");
+  return excludedColumns.length === 1
+    ? `${labels} is not included in Total and Ranking.`
+    : `${labels} are not included in Total and Ranking.`;
 }
