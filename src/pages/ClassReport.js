@@ -234,6 +234,60 @@ function shortSubject(name) {
   return `${name.slice(0, 12)}…`;
 }
 
+function getOptimiStudents(studentRows = []) {
+  const normalized = (value) => normalizeSubjectName(String(value || ""));
+  const isReligionSubject = (subjectKey) => {
+    const key = subjectKey.toLowerCase();
+    return [
+      "religion",
+      "saivam",
+      "nrc",
+      "rc",
+      "islam",
+      "hinduism",
+      "christianity",
+      "catholicism",
+      "muslim",
+    ].some((term) => key.includes(term));
+  };
+
+  return studentRows
+    .map((student) => {
+      const subjects = Object.keys(student.marksBySubject || {});
+      const tamil = subjects
+        .filter((subject) => normalized(subject).includes("tamil"))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+      const english = subjects
+        .filter((subject) => normalized(subject).includes("english"))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+      const religion = subjects
+        .filter((subject) => isReligionSubject(subject))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+
+      return {
+        ...student,
+        tamil,
+        english,
+        religion,
+      };
+    })
+    .filter((student) => {
+      return (
+        student.average !== null &&
+        student.average >= 75 &&
+        Number.isFinite(Number(student.tamil)) &&
+        student.tamil >= 75 &&
+        Number.isFinite(Number(student.english)) &&
+        student.english >= 60 &&
+        Number.isFinite(Number(student.religion)) &&
+        student.religion >= 75
+      );
+    });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -537,6 +591,8 @@ export default function ClassReport() {
       };
     });
   }, [classSubjects, termMarks, classTeacherClass]);
+
+  const optimiStudents = useMemo(() => getOptimiStudents(finalRows), [finalRows]);
 
   const classSummary = useMemo(() => {
     const averages = finalRows
@@ -1067,6 +1123,54 @@ export default function ClassReport() {
                 ))}
               </TableBody>
             </Table>
+          </Paper>
+
+          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+            Optimi Student List
+          </Typography>
+
+          <Paper sx={{ overflowX: "auto", mb: 3, p: 2 }}>
+            {optimiStudents.length === 0 ? (
+              <Typography variant="body2">
+                No Optimi students found for this class. Optimi students must have overall average ≥ 75, Tamil ≥ 75, Religion ≥ 75, and English ≥ 60.
+              </Typography>
+            ) : (
+              <Table size="small">
+                <TableHead sx={{ bgcolor: "#3949ab" }}>
+                  <TableRow>
+                    {[
+                      "Rank",
+                      "Student",
+                      "Average",
+                      "Tamil",
+                      "English",
+                      "Religion",
+                    ].map((head) => (
+                      <TableCell
+                        key={head}
+                        sx={{ color: "white", fontWeight: 600, textAlign: "center" }}
+                      >
+                        {head}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {optimiStudents.map((student) => (
+                    <TableRow key={student.id} hover>
+                      <TableCell sx={{ textAlign: "center" }}>{student.rank}</TableCell>
+                      <TableCell>{getStudentName(student)}</TableCell>
+                      <TableCell sx={{ textAlign: "center", fontWeight: 600 }}>
+                        {student.average}
+                      </TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.tamil ?? "—"}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.english ?? "—"}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.religion ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </Paper>
 
           <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>

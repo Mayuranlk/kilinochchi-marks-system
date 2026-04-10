@@ -1,6 +1,6 @@
 // src/utils/classMarksReportBuilder.js
 
-import { getReportSchemaByGrade } from "./reportSchemas";
+import { getReportSchemaByGrade, flattenSchemaColumns } from "./reportSchemas";
 import {
   buildSchemaColumnMap,
   createEmptyAttendanceByColumn,
@@ -42,6 +42,109 @@ export function filterStudentsForClass(students = [], grade, section) {
   return students.filter((student) => {
     return Number(student.grade) === Number(grade) && String(student.section || "") === String(section);
   });
+}
+
+function getHighestMarksData(schema, rows = []) {
+  const flatColumns = flattenSchemaColumns(schema);
+  const highestMarksByColumn = {};
+  const highestStudentsByColumn = {};
+
+  flatColumns.forEach((column) => {
+    highestMarksByColumn[column.key] = null;
+    highestStudentsByColumn[column.key] = [];
+  });
+
+  rows.forEach((row) => {
+    flatColumns.forEach((column) => {
+      const rawMark = row.marksByColumn[column.key];
+      const mark = rawMark === null || rawMark === undefined ? null : Number(rawMark);
+      if (!Number.isFinite(mark)) return;
+
+      const currentHigh = highestMarksByColumn[column.key];
+      if (currentHigh === null || mark > currentHigh) {
+        highestMarksByColumn[column.key] = mark;
+        highestStudentsByColumn[column.key] = [row.studentName];
+        return;
+      }
+
+      if (mark === currentHigh) {
+        highestStudentsByColumn[column.key].push(row.studentName);
+      }
+    });
+  });
+
+  return { highestMarksByColumn, highestStudentsByColumn };
+}
+
+function buildSubjectStats(schema, analysis, highestMarksByColumn, highestStudentsByColumn) {
+  return flattenSchemaColumns(schema).reduce((acc, column) => {
+    const columnAnalysis = analysis[column.key] || {};
+    const average = columnAnalysis.appeared
+      ? Number((columnAnalysis.marksTotal / columnAnalysis.appeared).toFixed(2))
+      : 0;
+
+    acc[column.key] = {
+      average,
+      highestMark: highestMarksByColumn[column.key],
+      topStudents: highestStudentsByColumn[column.key] || [],
+      appeared: columnAnalysis.appeared || 0,
+      passCount: columnAnalysis.passCount || 0,
+      passPercentage: columnAnalysis.passPercentage || 0,
+    };
+
+    return acc;
+  }, {});
+}
+
+function buildGroupStats(schema, analysis) {
+  return (schema.groups || []).map((group) => {
+    const subjectKeys = (group.columns || []).map((column) => column.key);
+    const appeared = subjectKeys.reduce((sum, key) => sum + (analysis[key]?.appeared || 0), 0);
+    const marksTotal = subjectKeys.reduce((sum, key) => sum + (analysis[key]?.marksTotal || 0), 0);
+    const passCount = subjectKeys.reduce((sum, key) => sum + (analysis[key]?.passCount || 0), 0);
+    return {
+      key: group.key,
+      label: group.label || "Group",
+      subjectCount: subjectKeys.length,
+      appeared,
+      average: appeared ? Number((marksTotal / appeared).toFixed(2)) : 0,
+      passPercentage: appeared ? Number(((passCount / appeared) * 100).toFixed(2)) : 0,
+    };
+  });
+}
+
+function getOptimiStudents(rows = []) {
+  return rows
+    .filter((row) => {
+      const tamil = Number(row.marksByColumn?.TAMIL ?? NaN);
+      const english = Number(row.marksByColumn?.ENGLISH ?? NaN);
+      const religionColumn = resolveReligionColumnFromStudent(row.student);
+      const religion = Number(row.marksByColumn?.[religionColumn] ?? NaN);
+
+      return (
+        Number(row.average) >= 75 &&
+        Number.isFinite(tamil) && tamil >= 75 &&
+        Number.isFinite(english) && english >= 60 &&
+        religionColumn &&
+        Number.isFinite(religion) &&
+        religion >= 75
+      );
+    })
+    .map((row) => {
+      const religionColumn = resolveReligionColumnFromStudent(row.student);
+      return {
+        rowNo: row.rowNo,
+        studentId: row.studentId,
+        studentIndexNo: row.studentIndexNo,
+        studentName: row.studentName,
+        total: row.total,
+        average: row.average,
+        tamil: row.marksByColumn?.TAMIL ?? null,
+        english: row.marksByColumn?.ENGLISH ?? null,
+        religionColumn,
+        religionMark: row.marksByColumn?.[religionColumn] ?? null,
+      };
+    });
 }
 
 export function buildClassMarksReportData({
@@ -169,6 +272,18 @@ export function buildClassMarksReportData({
   }));
 
   const analysis = calculateAnalysis(rankedRows, schema);
+  const { highestMarksByColumn, highestStudentsByColumn } = getHighestMarksData(
+    schema,
+    rankedRows
+  );
+  const subjectStats = buildSubjectStats(
+    schema,
+    analysis,
+    highestMarksByColumn,
+    highestStudentsByColumn
+  );
+  const groupStats = buildGroupStats(schema, analysis);
+  const optimiStudents = getOptimiStudents(rankedRows);
 
   return {
     schema,
@@ -180,5 +295,10 @@ export function buildClassMarksReportData({
     year: Number(year),
     rows: rankedRows,
     analysis,
+    highestMarksByColumn,
+    highestStudentsByColumn,
+    subjectStats,
+    groupStats,
+    optimiStudents,
   };
 }

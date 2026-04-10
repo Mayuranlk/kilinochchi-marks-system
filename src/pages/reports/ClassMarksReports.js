@@ -135,13 +135,25 @@ function SchedulePreview({ reportData }) {
                     {row.studentName}
                   </td>
 
-                  {flatColumns.map((column) => (
-                    <td key={column.key} style={bodyCellStyle}>
-                      {row.absencesByColumn[column.key]
-                        ? "AB"
-                        : row.marksByColumn[column.key] ?? ""}
-                    </td>
-                  ))}
+                  {flatColumns.map((column) => {
+                    const mark = row.marksByColumn[column.key];
+                    const isHighest =
+                      Number.isFinite(Number(mark)) &&
+                      mark === reportData.highestMarksByColumn?.[column.key];
+                    return (
+                      <td
+                        key={column.key}
+                        style={{
+                          ...bodyCellStyle,
+                          ...(isHighest ? { background: "#fff9c4", fontWeight: 700 } : {}),
+                        }}
+                      >
+                        {row.absencesByColumn[column.key]
+                          ? "AB"
+                          : row.marksByColumn[column.key] ?? ""}
+                      </td>
+                    );
+                  })}
 
                   <td style={bodyCellStyle}>{formatNumber(row.total)}</td>
                   <td style={bodyCellStyle}>{formatNumber(row.average)}</td>
@@ -151,6 +163,9 @@ function SchedulePreview({ reportData }) {
             </tbody>
           </table>
         </Box>
+        <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
+          Highest marks in each subject are highlighted in yellow.
+        </Typography>
 
         {overallExclusionNote && (
           <Typography
@@ -186,6 +201,9 @@ function SchedulePreview({ reportData }) {
 function AnalysisPreview({ reportData }) {
   const { schema, analysis, className, year, termName } = reportData;
   const flatColumns = flattenSchemaColumns(schema);
+  const subjectStats = reportData.subjectStats || {};
+  const groupStats = reportData.groupStats || [];
+  const optimiStudents = reportData.optimiStudents || [];
   const compact = Number(reportData?.grade || 0) >= 10 && Number(reportData?.grade || 0) <= 11;
   const headCellStyle = createPreviewCellStyle({ compact, header: true });
   const bodyCellStyle = createPreviewCellStyle({ compact });
@@ -259,6 +277,96 @@ function AnalysisPreview({ reportData }) {
             </tbody>
           </table>
         </Box>
+
+        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1, fontWeight: 700 }}>
+          Section Subject Analysis
+        </Typography>
+
+        <Box sx={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              minWidth: 720,
+              fontSize: 12,
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={headCellStyle}>Subject</th>
+                <th style={headCellStyle}>Average</th>
+                <th style={headCellStyle}>Highest Mark</th>
+                <th style={headCellStyle}>Top Student(s)</th>
+                <th style={headCellStyle}>Appeared</th>
+                <th style={headCellStyle}>Pass %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {flatColumns.map((column) => {
+                const stats = subjectStats[column.key] || {};
+                return (
+                  <tr key={column.key}>
+                    <td style={bodyCellStyle}>{column.label}</td>
+                    <td style={bodyCellStyle}>{formatNumber(stats.average, 2)}</td>
+                    <td style={bodyCellStyle}>{stats.highestMark ?? ""}</td>
+                    <td style={bodyCellStyle}>
+                      {stats.topStudents?.join(", ") || "-"}
+                    </td>
+                    <td style={bodyCellStyle}>{stats.appeared}</td>
+                    <td style={bodyCellStyle}>{formatNumber(stats.passPercentage, 2)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Box>
+
+        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1, fontWeight: 700 }}>
+          Divisional Analysis
+        </Typography>
+
+        <Grid container spacing={2}>
+          {groupStats.map((group) => (
+            <Grid item xs={12} md={6} key={group.key}>
+              <Card variant="outlined" sx={{ borderRadius: 2, p: 1 }}>
+                <CardContent sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {group.label || "Division"}
+                  </Typography>
+                  <Typography variant="body2">
+                    Subjects: {group.subjectCount}
+                  </Typography>
+                  <Typography variant="body2">
+                    Average Mark: {formatNumber(group.average, 2)}
+                  </Typography>
+                  <Typography variant="body2">
+                    Pass %: {formatNumber(group.passPercentage, 2)}%
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {optimiStudents.length > 0 && (
+          <Card sx={{ borderRadius: 3, mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight={700} gutterBottom>
+                Optimi Student List
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Students meeting overall average ≥ 75, Tamil ≥ 75, Religion ≥ 75, and English ≥ 60.
+              </Typography>
+              <Box component="ol" sx={{ pl: 3, mb: 0 }}>
+                {optimiStudents.map((student) => (
+                  <Typography key={student.studentId} component="li" variant="body2" sx={{ mb: 0.5 }}>
+                    {student.studentName} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
+                  </Typography>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        )}
 
         <Grid container spacing={2} sx={{ mt: 3 }}>
           <Grid item xs={4}>

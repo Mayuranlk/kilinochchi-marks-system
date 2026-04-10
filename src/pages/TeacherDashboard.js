@@ -807,6 +807,17 @@ export default function TeacherDashboard() {
                 </Stack>
               </Stack>
 
+              <Box>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={() => navigate("/teacher/class-report")}
+                  startIcon={<MenuBookRoundedIcon />}
+                >
+                  View Class Schedule & Analysis
+                </Button>
+              </Box>
+
               {isMobile ? (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <StatusChip status="active" label={`${classTeacherData.totalStudents} students`} />
