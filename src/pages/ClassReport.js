@@ -27,10 +27,17 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
+import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
+import {
+  exportClassMarksPdf,
+  exportClassMarksExcel,
+} from "../utils/classMarksExportUtils";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -309,6 +316,8 @@ export default function ClassReport() {
   const [terms, setTerms] = useState([]);
   const [activeTerm, setActiveTerm] = useState(null);
   const [selectedTerm, setSelectedTerm] = useState("active");
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -396,6 +405,55 @@ export default function ClassReport() {
   const currentTermName = useMemo(() => {
     return currentTerm ? text(currentTerm.term) : "";
   }, [currentTerm]);
+
+  const classReportData = useMemo(() => {
+    if (!classTeacherClass || !currentTerm) return null;
+
+    try {
+      return buildClassMarksReportData({
+        students,
+        enrollments,
+        marks: allMarks,
+        classrooms: [classTeacherClass],
+        grade: classTeacherClass.grade,
+        className: classTeacherClass.className,
+        section: classTeacherClass.section,
+        termName: currentTermName,
+        year: currentTermYear,
+      });
+    } catch (err) {
+      console.error("Failed to build export report data:", err);
+      return null;
+    }
+  }, [allMarks, classTeacherClass, currentTerm, currentTermName, currentTermYear, enrollments, students]);
+
+  const handleExportPdf = async () => {
+    if (!classReportData) return;
+    setExportingPdf(true);
+
+    try {
+      exportClassMarksPdf(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!classReportData) return;
+    setExportingExcel(true);
+
+    try {
+      exportClassMarksExcel(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   const classSubjects = useMemo(() => {
     const filteredEnrollments = enrollments.filter((enrollment) => {
@@ -592,6 +650,15 @@ export default function ClassReport() {
     });
   }, [classSubjects, termMarks, classTeacherClass]);
 
+  const subjectHighestMarks = useMemo(() => {
+    return subjectAnalysis.reduce((acc, subjectRow) => {
+      if (subjectRow.subject && subjectRow.highest !== null) {
+        acc[subjectRow.subject] = subjectRow.highest;
+      }
+      return acc;
+    }, {});
+  }, [subjectAnalysis]);
+
   const optimiStudents = useMemo(() => getOptimiStudents(finalRows), [finalRows]);
 
   const classSummary = useMemo(() => {
@@ -734,14 +801,33 @@ export default function ClassReport() {
           </FormControl>
 
           {!isMobile && (
-            <Button
-              variant="contained"
-              startIcon={<PrintIcon />}
-              onClick={handlePrint}
-              sx={{ bgcolor: "#1a237e" }}
-            >
-              Print
-            </Button>
+            <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
+              <Button
+                variant="contained"
+                startIcon={<PictureAsPdfIcon />}
+                onClick={handleExportPdf}
+                disabled={!classReportData || exportingPdf}
+                sx={{ bgcolor: "#d32f2f" }}
+              >
+                {exportingPdf ? "Exporting PDF..." : "Export PDF"}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<TableViewRoundedIcon />}
+                onClick={handleExportExcel}
+                disabled={!classReportData || exportingExcel}
+              >
+                {exportingExcel ? "Exporting Excel..." : "Export Excel"}
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ bgcolor: "#1a237e" }}
+              >
+                Print
+              </Button>
+            </Box>
           )}
         </Box>
       </Box>
@@ -887,13 +973,18 @@ export default function ClassReport() {
                         const mark = student.marksBySubject[subjectInfo.subjectName];
                         const letterInfo =
                           mark !== null ? getGradeLetter(mark, classTeacherClass.grade) : null;
+                        const isHighestMark =
+                          mark !== null &&
+                          subjectHighestMarks[subjectInfo.subjectName] !== undefined &&
+                          mark === subjectHighestMarks[subjectInfo.subjectName];
 
                         return (
                           <TableCell
                             key={`${student.id}-${subjectInfo.subjectId || subjectInfo.subjectName}`}
                             sx={{
                               textAlign: "center",
-                              bgcolor: mark !== null ? letterInfo?.bg : "#fafafa",
+                              bgcolor: isHighestMark ? "#fff9c4" : mark !== null ? letterInfo?.bg : "#fafafa",
+                              fontWeight: isHighestMark ? 700 : undefined,
                             }}
                           >
                             {mark !== null ? (

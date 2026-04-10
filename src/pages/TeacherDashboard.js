@@ -27,6 +27,8 @@ import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
@@ -37,6 +39,11 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
+import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
+import {
+  exportClassMarksPdf,
+  exportClassMarksExcel,
+} from "../utils/classMarksExportUtils";
 import {
   normalizeText,
   isALGrade,
@@ -327,9 +334,16 @@ export default function TeacherDashboard() {
   const [teacherName, setTeacherName] = useState("Teacher");
   const [subjectRows, setSubjectRows] = useState([]);
   const [classTeacherData, setClassTeacherData] = useState(null);
+  const [assignedClassroom, setAssignedClassroom] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [marks, setMarks] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
-  const activeTerm = useMemo(
-    () => terms.find((term) => buildTermKey(term) === selectedTermKey) || null,
+  const currentTerm = useMemo(
+    () => terms.find((term) => buildTermKey(term) === selectedTermKey) || terms.find(isActiveTerm) || null,
     [terms, selectedTermKey]
   );
 
@@ -348,6 +362,7 @@ export default function TeacherDashboard() {
         classroomsSnap,
         enrollmentsSnap,
         marksSnap,
+        studentsSnap,
         termsSnap,
       ] = await Promise.all([
         getDocs(collection(db, "users")),
@@ -355,6 +370,7 @@ export default function TeacherDashboard() {
         getDocs(collection(db, "classrooms")),
         getDocs(collection(db, "studentSubjectEnrollments")),
         getDocs(collection(db, "marks")),
+        getDocs(collection(db, "students")),
         getDocs(collection(db, "academicTerms")),
       ]);
 
@@ -363,7 +379,13 @@ export default function TeacherDashboard() {
       const classrooms = classroomsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const studentsData = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const loadedTerms = termsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      setStudents(studentsData);
+      setEnrollments(enrollments);
+      setMarks(marks);
+      setClassrooms(classrooms);
 
       const currentTeacher =
         users.find(
@@ -487,6 +509,7 @@ export default function TeacherDashboard() {
       );
 
       if (myClass) {
+        setAssignedClassroom(myClass);
         const classIdentity = getClassDisplayName(myClass);
         const classContext = getClassContext(myClass);
         const classStream = normalizeText(myClass.stream);
@@ -594,6 +617,7 @@ export default function TeacherDashboard() {
         });
       } else {
         setClassTeacherData(null);
+        setAssignedClassroom(null);
       }
     } catch (e) {
       console.error(e);
@@ -615,6 +639,64 @@ export default function TeacherDashboard() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTermKey]);
+
+  const buildAssignedClassReportData = useCallback(() => {
+    if (!assignedClassroom || !currentTerm || !students.length) return null;
+
+    const termName = pick(currentTerm.term, currentTerm.termName, "");
+    const year = pick(currentTerm.year, currentTerm.academicYear, "");
+
+    try {
+      return buildClassMarksReportData({
+        students,
+        enrollments,
+        marks,
+        classrooms,
+        grade: assignedClassroom.grade,
+        className: assignedClassroom.className,
+        section: assignedClassroom.section,
+        termName,
+        year,
+      });
+    } catch (err) {
+      console.error("Failed to build teacher report data:", err);
+      return null;
+    }
+  }, [assignedClassroom, students, enrollments, marks, classrooms, currentTerm]);
+
+  const handleExportPdf = async () => {
+    if (!assignedClassroom || !currentTerm) return;
+    setExportingPdf(true);
+    setError("");
+
+    try {
+      const reportData = buildAssignedClassReportData();
+      if (!reportData) throw new Error("Unable to build class report data.");
+      exportClassMarksPdf(reportData);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to export PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!assignedClassroom || !currentTerm) return;
+    setExportingExcel(true);
+    setError("");
+
+    try {
+      const reportData = buildAssignedClassReportData();
+      if (!reportData) throw new Error("Unable to build class report data.");
+      exportClassMarksExcel(reportData);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to export Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   const openMarks = useCallback(
     (row) => {
@@ -706,7 +788,7 @@ export default function TeacherDashboard() {
                 useFlexGap
                 justifyContent={{ xs: "flex-start", md: "flex-end" }}
               >
-                {activeTerm ? <Chip label={buildTermLabel(activeTerm)} color="primary" /> : null}
+                {currentTerm ? <Chip label={buildTermLabel(currentTerm)} color="primary" /> : null}
                 <Chip label={`Subject Assignments: ${subjectRows.length}`} />
                 <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
               </Stack>
@@ -807,7 +889,7 @@ export default function TeacherDashboard() {
                 </Stack>
               </Stack>
 
-              <Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                 <Button
                   variant="contained"
                   color="primary"
@@ -815,6 +897,24 @@ export default function TeacherDashboard() {
                   startIcon={<MenuBookRoundedIcon />}
                 >
                   View Class Schedule & Analysis
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  onClick={handleExportPdf}
+                  disabled={!assignedClassroom || !currentTerm || exportingPdf}
+                  startIcon={<PictureAsPdfIcon />}
+                >
+                  {exportingPdf ? "Exporting PDF..." : "Export PDF"}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="info"
+                  onClick={handleExportExcel}
+                  disabled={!assignedClassroom || !currentTerm || exportingExcel}
+                  startIcon={<TableViewRoundedIcon />}
+                >
+                  {exportingExcel ? "Exporting Excel..." : "Export Excel"}
                 </Button>
               </Box>
 

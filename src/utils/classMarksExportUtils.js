@@ -358,6 +358,9 @@ function buildPdfDoc(reportData) {
     compress: true,
   });
 
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const subjectColumnStart = 4;
+  const subjectColumnEnd = 4 + flatColumns.length - 1;
   const scheduleSettings = getScheduleTableSettings(reportData);
 
   drawHeader(doc, "Mark Schedule", reportData);
@@ -406,8 +409,33 @@ function buildPdfDoc(reportData) {
       if (data.section === "body" && data.column.index === 3) {
         data.cell.styles.halign = "left";
       }
+
+      if (
+        data.section === "body" &&
+        data.column.index >= subjectColumnStart &&
+        data.column.index <= subjectColumnEnd
+      ) {
+        const columnIndex = data.column.index - subjectColumnStart;
+        const column = flatColumns[columnIndex];
+        const markValue = Number(data.cell.raw);
+        const highest = reportData.highestMarksByColumn?.[column.key];
+
+        if (Number.isFinite(markValue) && highest !== null && markValue === highest) {
+          data.cell.styles.fillColor = [255, 249, 196];
+          data.cell.styles.fontStyle = "bold";
+        }
+      }
     },
   });
+
+  const scheduleNoteY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 4 : doc.internal.pageSize.getHeight() - 20;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text(
+    "Highest marks are highlighted in yellow in the Mark Schedule.",
+    scheduleSettings.marginLeft,
+    scheduleNoteY
+  );
 
   drawFooter(doc, reportData, { showOverallExclusionNote: true });
 
@@ -452,6 +480,75 @@ function buildPdfDoc(reportData) {
       }
     },
   });
+
+  if (Array.isArray(reportData.optimiStudents) && reportData.optimiStudents.length > 0) {
+    doc.addPage("a4", "landscape");
+    drawHeader(doc, "Optimi Students", reportData);
+
+    const optimiRows = reportData.optimiStudents.map((student) => [
+      student.rank,
+      student.studentId,
+      student.studentIndexNo,
+      student.studentName,
+      student.average,
+      student.tamil,
+      student.english,
+      student.religionMark,
+    ]);
+
+    autoTable(doc, {
+      startY: 18,
+      head: [[
+        "Rank",
+        "Student ID",
+        "Index No",
+        "Student Name",
+        "Average",
+        "Tamil",
+        "English",
+        "Religion",
+      ]],
+      body: optimiRows,
+      theme: "grid",
+      margin: {
+        left: 10,
+        right: 10,
+      },
+      styles: {
+        font: "helvetica",
+        fontSize: 8,
+        cellPadding: 2,
+        lineWidth: 0.08,
+        lineColor: [120, 120, 120],
+        textColor: 20,
+        valign: "middle",
+        halign: "center",
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fillColor: [245, 245, 245],
+        textColor: 20,
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        0: { halign: "center", cellWidth: 10 },
+        1: { halign: "left", cellWidth: 30 },
+        2: { halign: "left", cellWidth: 22 },
+        3: { halign: "left", cellWidth: 48 },
+        4: { halign: "center", cellWidth: 18 },
+        5: { halign: "center", cellWidth: 18 },
+        6: { halign: "center", cellWidth: 18 },
+        7: { halign: "center", cellWidth: 18 },
+      },
+      pageBreak: "auto",
+      rowPageBreak: "avoid",
+    });
+  } else {
+    doc.addPage("a4", "landscape");
+    drawHeader(doc, "Optimi Students", reportData);
+    doc.setFontSize(9);
+    doc.text("No Optimi students qualified for this class.", 14, 26);
+  }
 
   drawFooter(doc, reportData);
 
@@ -535,6 +632,49 @@ function makeAnalysisSheetRows(reportData) {
   ];
 }
 
+function makeOptimiSheetRows(reportData) {
+  const rows = [
+    [`${SCHOOL_NAME} - Optimi Students`],
+    [
+      `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(
+        reportData.termName
+      )}`,
+    ],
+    [],
+  ];
+
+  if (!Array.isArray(reportData.optimiStudents) || reportData.optimiStudents.length === 0) {
+    rows.push(["No Optimi students qualified for this class."]);
+    return rows;
+  }
+
+  rows.push([
+    "Rank",
+    "Student ID",
+    "Index No",
+    "Student Name",
+    "Average",
+    "Tamil",
+    "English",
+    "Religion",
+  ]);
+
+  reportData.optimiStudents.forEach((student) => {
+    rows.push([
+      student.rank,
+      student.studentId,
+      student.studentIndexNo,
+      student.studentName,
+      student.average,
+      student.tamil,
+      student.english,
+      student.religionMark,
+    ]);
+  });
+
+  return rows;
+}
+
 function setExcelCols(worksheet, count, firstWidths = []) {
   const cols = [];
   for (let i = 0; i < count; i += 1) {
@@ -561,8 +701,12 @@ export function exportClassMarksExcel(reportData) {
     [22, ...flatColumns.map(() => 12)]
   );
 
+  const optimiSheet = XLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
+  setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
+
   XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Mark Schedule");
   XLSX.utils.book_append_sheet(workbook, analysisSheet, "Mark Analysis");
+  XLSX.utils.book_append_sheet(workbook, optimiSheet, "Optimi Students");
 
   const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
     reportData.year
@@ -614,8 +758,12 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
         [22, ...flatColumns.map(() => 12)]
       );
 
+      const optimiSheet = XLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
+      setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
+
       XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Mark Schedule");
       XLSX.utils.book_append_sheet(workbook, analysisSheet, "Mark Analysis");
+      XLSX.utils.book_append_sheet(workbook, optimiSheet, "Optimi Students");
 
       const excelArray = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       classFolder.file(
