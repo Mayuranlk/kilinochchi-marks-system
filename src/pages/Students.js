@@ -350,6 +350,7 @@ const downloadJuniorTemplate = () => {
   const template = [
     {
       "Admission No": "ADM001",
+      StudentID: "1010200001001",
       Name: "Junior Student",
       Grade: 8,
       Section: "A",
@@ -370,6 +371,7 @@ const downloadOLTemplate = () => {
   const template = [
     {
       "Admission No": "ADM010",
+      StudentID: "1010200001010",
       Name: "OL Student",
       Grade: 11,
       Section: "B",
@@ -392,6 +394,7 @@ const downloadALTemplate = () => {
   const template = [
     {
       "Admission No": "ADM100",
+      StudentID: "1010200001100",
       Name: "AL Physical Science Student",
       Grade: 12,
       Section: "A",
@@ -412,6 +415,7 @@ const downloadALTemplate = () => {
     },
     {
       "Admission No": "ADM101",
+      StudentID: "1010200001101",
       Name: "AL Arts Student",
       Grade: 12,
       Section: "B",
@@ -1445,7 +1449,8 @@ export default function Students() {
               Student Tools
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.4}>
-              Search, filter, import, export, and manage student records.
+              Search, filter, import, export, and manage student records. Future bulk templates
+              include both Admission No and StudentID.
             </Typography>
           </Box>
 
