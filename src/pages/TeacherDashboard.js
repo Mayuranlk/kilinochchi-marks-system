@@ -43,6 +43,8 @@ import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
 import {
   exportClassMarksPdf,
   exportClassMarksExcel,
+  exportClassMarksEmisExcel,
+  isClassMarksEmisExportSupported,
 } from "../utils/classMarksExportUtils";
 import {
   normalizeText,
@@ -698,6 +700,20 @@ export default function TeacherDashboard() {
     }
   };
 
+  const handleExportEmis = async () => {
+    if (!assignedClassroom || !currentTerm) return;
+    setError("");
+
+    try {
+      const reportData = buildAssignedClassReportData();
+      if (!reportData) throw new Error("Unable to build class report data.");
+      exportClassMarksEmisExcel(reportData);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to export EMIS Excel.");
+    }
+  };
+
   const openMarks = useCallback(
     (row) => {
       const params = new URLSearchParams();
@@ -916,6 +932,17 @@ export default function TeacherDashboard() {
                 >
                   {exportingExcel ? "Exporting Excel..." : "Export Excel"}
                 </Button>
+                {assignedClassroom && isClassMarksEmisExportSupported({ grade: assignedClassroom.grade }) && (
+                  <Button
+                    variant="outlined"
+                    color="success"
+                    onClick={handleExportEmis}
+                    disabled={!assignedClassroom || !currentTerm}
+                    startIcon={<TableViewRoundedIcon />}
+                  >
+                    Export EMIS NP
+                  </Button>
+                )}
               </Box>
 
               {isMobile ? (

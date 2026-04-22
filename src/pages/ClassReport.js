@@ -37,6 +37,8 @@ import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
 import {
   exportClassMarksPdf,
   exportClassMarksExcel,
+  exportClassMarksEmisExcel,
+  isClassMarksEmisExportSupported,
 } from "../utils/classMarksExportUtils";
 
 /* -------------------------------------------------------------------------- */
@@ -455,6 +457,17 @@ export default function ClassReport() {
     }
   };
 
+  const handleExportEmis = async () => {
+    if (!classReportData) return;
+
+    try {
+      exportClassMarksEmisExcel(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export EMIS Excel.");
+    }
+  };
+
   const classSubjects = useMemo(() => {
     const filteredEnrollments = enrollments.filter((enrollment) => {
       if (!currentTermYear) return true;
@@ -819,6 +832,16 @@ export default function ClassReport() {
               >
                 {exportingExcel ? "Exporting Excel..." : "Export Excel"}
               </Button>
+              {classReportData && isClassMarksEmisExportSupported(classReportData) && (
+                <Button
+                  variant="outlined"
+                  startIcon={<TableViewRoundedIcon />}
+                  onClick={handleExportEmis}
+                  disabled={!classReportData}
+                >
+                  Export EMIS NP
+                </Button>
+              )}
               <Button
                 variant="contained"
                 startIcon={<PrintIcon />}

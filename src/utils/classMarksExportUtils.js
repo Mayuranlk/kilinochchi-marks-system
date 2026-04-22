@@ -10,12 +10,20 @@ import {
   ANALYSIS_BANDS,
   getOverallExclusionNote,
 } from "./reportSchemas";
+import {
+  resolveColumnKeyFromSubjectName,
+  resolveReligionColumnFromStudent,
+} from "./reportMappingUtils";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
 const A4_LANDSCAPE_WIDTH_MM = 297;
 
 function safeText(value) {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
 }
 
 function formatNumber(value, decimals = 2) {
@@ -48,6 +56,10 @@ function isGradeSixToNine(reportData) {
 function isGradeTenToEleven(reportData) {
   const grade = Number(reportData?.grade || 0);
   return grade >= 10 && grade <= 11;
+}
+
+export function isClassMarksEmisExportSupported(reportData) {
+  return isGradeTenToEleven(reportData);
 }
 
 function getScheduleColumnWidths(reportData) {
@@ -683,6 +695,94 @@ function setExcelCols(worksheet, count, firstWidths = []) {
   worksheet["!cols"] = cols;
 }
 
+function getEmisTermValue(termName = "") {
+  const match = String(termName || "").match(/(\d+)/);
+  return match ? match[1] : safeText(termName);
+}
+
+function getEmisStudentId(student = {}) {
+  return normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
+}
+
+function getMarkCellValue(row, columnKey) {
+  if (!columnKey) return "";
+  if (row.absencesByColumn?.[columnKey]) return "AB";
+
+  const value = row.marksByColumn?.[columnKey];
+  return value === null || value === undefined ? "" : value;
+}
+
+function getFirstLanguageMark(row) {
+  const preferredKeys = ["TAMIL", "SINHALA"];
+
+  for (const key of preferredKeys) {
+    const value = getMarkCellValue(row, key);
+    if (value !== "") return value;
+  }
+
+  return "";
+}
+
+function getChoiceMark(row, schema, subjectName) {
+  const columnKey = resolveColumnKeyFromSubjectName(schema, subjectName);
+  return getMarkCellValue(row, columnKey);
+}
+
+function makeEmisNpSheetRows(reportData) {
+  if (!isClassMarksEmisExportSupported(reportData)) {
+    throw new Error("Northern Province EMIS export is only available for Grades 10 and 11.");
+  }
+
+  const headers = [
+    "StFullName",
+    "StudentID",
+    "Grade",
+    "GradeDivision",
+    "yearofstudy",
+    "ExamTerm",
+    "Religion",
+    "FirstLang",
+    "Maths",
+    "English",
+    "Science",
+    "History",
+    "FirstGroup",
+    "SecondGro",
+    "ThirdGroup",
+    "Science Practical",
+    "Geometry",
+  ];
+
+  const bodyRows = reportData.rows.map((row) => {
+    const student = row.student || {};
+    const religionColumn = resolveReligionColumnFromStudent(student);
+    const mathsMark = getMarkCellValue(row, "MATHS");
+    const scienceMark = getMarkCellValue(row, "SCIENCE");
+
+    return [
+      safeText(row.studentName),
+      getEmisStudentId(student),
+      Number(student.grade || reportData.grade || 0) || "",
+      normalizeText(student.section || reportData.section || student.className || ""),
+      safeText(reportData.year),
+      getEmisTermValue(reportData.termName),
+      getMarkCellValue(row, religionColumn),
+      getFirstLanguageMark(row),
+      mathsMark,
+      getMarkCellValue(row, "ENGLISH"),
+      scienceMark,
+      getMarkCellValue(row, "HISTORY"),
+      getChoiceMark(row, reportData.schema, student.basketAChoice || student.basket1),
+      getChoiceMark(row, reportData.schema, student.basketBChoice || student.basket2),
+      getChoiceMark(row, reportData.schema, student.basketCChoice || student.basket3),
+      scienceMark,
+      mathsMark,
+    ];
+  });
+
+  return [headers, ...bodyRows];
+}
+
 export function exportClassMarksExcel(reportData) {
   const workbook = XLSX.utils.book_new();
   const flatColumns = flattenSchemaColumns(reportData.schema);
@@ -711,6 +811,25 @@ export function exportClassMarksExcel(reportData) {
   const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.xlsx`;
+
+  XLSX.writeFile(workbook, fileName);
+}
+
+export function exportClassMarksEmisExcel(reportData) {
+  const workbook = XLSX.utils.book_new();
+  const emisSheet = XLSX.utils.aoa_to_sheet(makeEmisNpSheetRows(reportData));
+
+  setExcelCols(
+    emisSheet,
+    17,
+    [28, 16, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
+  );
+
+  XLSX.utils.book_append_sheet(workbook, emisSheet, "EMIS NP");
+
+  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_NP_EMIS.xlsx`;
 
   XLSX.writeFile(workbook, fileName);
 }

@@ -24,8 +24,10 @@ import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/repor
 import {
   exportAllClassesReportsZip,
   exportClassMarksExcel,
+  exportClassMarksEmisExcel,
   exportClassMarksPdf,
   getClassMarksSchedulePreviewLayout,
+  isClassMarksEmisExportSupported,
 } from "../../utils/classMarksExportUtils";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -687,6 +689,19 @@ export default function ClassMarksReports() {
               >
                 Download Excel
               </Button>
+
+              {reportData && isClassMarksEmisExportSupported(reportData) && (
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={() => {
+                    if (reportData) exportClassMarksEmisExcel(reportData);
+                  }}
+                  disabled={!reportData || loading || bulkLoading}
+                >
+                  Download EMIS NP
+                </Button>
+              )}
 
               <Button
                 variant="contained"

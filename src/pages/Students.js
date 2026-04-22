@@ -83,6 +83,7 @@ const GENDERS = ["Male", "Female", "Other"];
 const emptyForm = {
   name: "",
   admissionNo: "",
+  emisStudentId: "",
   grade: "",
   section: "",
   gender: "",
@@ -240,11 +241,109 @@ const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
 const dedupeTextArray = (items = []) =>
   [...new Set((items || []).map(normalizeText).filter(Boolean))];
 
+const getEmisStudentId = (student = {}) =>
+  normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
+
+const getEmisStudentIdFromRow = (row = {}) =>
+  normalizeText(
+    row["EMIS Student ID"] ||
+      row["Student ID"] ||
+      row.StudentID ||
+      row.emisStudentId ||
+      row.emisId ||
+      ""
+  );
+
+const EMIS_ID_FIX_HEADERS = [
+  "Admission No",
+  "StFullName",
+  "StudentID",
+  "Grade",
+  "GradeDivision",
+  "yearofstudy",
+  "ExamTerm",
+  "Religion",
+  "FirstLang",
+  "Maths",
+  "English",
+  "Science",
+  "History",
+  "FirstGroup",
+  "SecondGro",
+  "ThirdGroup",
+  "Science Practical",
+  "Geometry",
+];
+
+const buildEmisExportRow = (student = {}) => {
+  const grade = Number(student.grade);
+  return {
+    StFullName: getStudentName(student),
+    StudentID: getEmisStudentId(student),
+    Grade: grade || "",
+    GradeDivision: normalizeSectionValue(student.section || student.className || ""),
+    yearofstudy: String(new Date().getFullYear()),
+    ExamTerm: "",
+    Religion: "",
+    FirstLang: "",
+    Maths: "",
+    English: "",
+    Science: "",
+    History: "",
+    FirstGroup: "",
+    SecondGro: "",
+    ThirdGroup: "",
+    "Science Practical": "",
+    Geometry: "",
+  };
+};
+
 const downloadWorksheet = (rows, sheetName, fileName) => {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   XLSX.writeFile(wb, fileName);
+};
+
+const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  if (widths.length > 0) {
+    ws["!cols"] = widths.map((wch) => ({ wch }));
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, fileName);
+};
+
+const buildEmisIdFixWorksheetRows = (students = []) => {
+  const bodyRows = students.map((student) => {
+    const row = buildEmisExportRow(student);
+
+    return [
+      normalizeText(student.admissionNo),
+      row.StFullName,
+      row.StudentID,
+      row.Grade,
+      row.GradeDivision,
+      row.yearofstudy,
+      row.ExamTerm,
+      row.Religion,
+      row.FirstLang,
+      row.Maths,
+      row.English,
+      row.Science,
+      row.History,
+      row.FirstGroup,
+      row.SecondGro,
+      row.ThirdGroup,
+      row["Science Practical"],
+      row.Geometry,
+    ];
+  });
+
+  return [EMIS_ID_FIX_HEADERS, ...bodyRows];
 };
 
 const downloadJuniorTemplate = () => {
@@ -348,6 +447,7 @@ export default function Students() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const fileInputRef = useRef();
+  const emisIdFileInputRef = useRef();
 
   const [students, setStudents] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
@@ -370,6 +470,8 @@ export default function Students() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [bulkResults, setBulkResults] = useState(null);
+  const [emisSyncing, setEmisSyncing] = useState(false);
+  const [emisSyncResults, setEmisSyncResults] = useState(null);
 
   const classroomLookup = useMemo(() => {
     const map = new Set();
@@ -564,6 +666,7 @@ export default function Students() {
           alSubjectChoices: Array.isArray(raw.alSubjectChoices)
             ? raw.alSubjectChoices
             : [],
+          emisStudentId: getEmisStudentId(raw),
           stream: raw.stream || "",
           streamCode: raw.streamCode || "",
           alClassName: raw.alClassName || "",
@@ -654,6 +757,7 @@ export default function Students() {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
       admissionNo: normalizeText(cleaned.admissionNo),
+      emisStudentId: normalizeText(cleaned.emisStudentId),
       grade,
       section,
       className: section,
@@ -696,6 +800,37 @@ export default function Students() {
     return duplicate ? "Admission number already exists." : "";
   };
 
+  const findStudentByAdmissionNo = (admissionNo, excludeId = "") => {
+    const normalizedAdmissionNo = normalizeLower(admissionNo);
+    if (!normalizedAdmissionNo) return null;
+
+    return (
+      students.find((student) => {
+        if (excludeId && student.id === excludeId) return false;
+        return normalizeLower(student.admissionNo) === normalizedAdmissionNo;
+      }) || null
+    );
+  };
+
+  const findStudentByEmisStudentId = (emisStudentId, excludeId = "") => {
+    const normalizedStudentId = normalizeLower(emisStudentId);
+    if (!normalizedStudentId) return null;
+
+    return (
+      students.find((student) => {
+        if (excludeId && student.id === excludeId) return false;
+        return normalizeLower(getEmisStudentId(student)) === normalizedStudentId;
+      }) || null
+    );
+  };
+
+  const validateEmisStudentIdUniqueness = (emisStudentId = form.emisStudentId, excludeId = editId) => {
+    if (!normalizeText(emisStudentId)) return "";
+    return findStudentByEmisStudentId(emisStudentId, excludeId)
+      ? "EMIS StudentID already exists."
+      : "";
+  };
+
   const validateForm = () => {
     if (!normalizeText(form.name)) return "Student name is required.";
     if (!normalizeText(form.admissionNo)) return "Admission number is required.";
@@ -717,6 +852,9 @@ export default function Students() {
 
     const duplicateAdmission = validateAdmissionNoUniqueness();
     if (duplicateAdmission) return duplicateAdmission;
+
+    const duplicateEmisStudentId = validateEmisStudentIdUniqueness();
+    if (duplicateEmisStudentId) return duplicateEmisStudentId;
 
     if (shouldShowReligion(grade) && !normalizeText(form.religion)) {
       return "Religion is required for Grades 6 to 11.";
@@ -759,6 +897,7 @@ export default function Students() {
       !q ||
       studentName.includes(q) ||
       normalizeText(s.admissionNo).toLowerCase().includes(q) ||
+      getEmisStudentId(s).toLowerCase().includes(q) ||
       normalizeText(s.religion).toLowerCase().includes(q) ||
       normalizeText(s.stream).toLowerCase().includes(q) ||
       normalizeText(s.alClassName).toLowerCase().includes(q);
@@ -826,6 +965,7 @@ export default function Students() {
     setForm({
       name: s.name || s.fullName || "",
       admissionNo: s.admissionNo || "",
+      emisStudentId: getEmisStudentId(s),
       grade: s.grade || "",
       section: s.section || s.className || "",
       gender: s.gender || "",
@@ -878,6 +1018,7 @@ export default function Students() {
     const raw = {
       name: normalizeText(row["Name"] || row.name),
       admissionNo: normalizeText(row["Admission No"] || row.admissionNo || row.AdmissionNo),
+      emisStudentId: getEmisStudentIdFromRow(row),
       grade: normalizeGradeValue(row["Grade"] || row.grade),
       section: normalizeSectionValue(row["Section"] || row.section),
       gender: normalizeText(row["Gender"] || row.gender),
@@ -898,7 +1039,7 @@ export default function Students() {
     return cleanFormByGrade(raw);
   };
 
-  const validateBulkRow = (student, rowNumber, seenAdmissionNos) => {
+  const validateBulkRow = (student, rowNumber, seenAdmissionNos, seenEmisStudentIds) => {
     const grade = Number(student.grade);
     const band = getGradeBandLabel(grade);
 
@@ -914,6 +1055,16 @@ export default function Students() {
     );
     if (existingStudent) {
       return `Row ${rowNumber} (${band}): Admission number already exists in the system.`;
+    }
+
+    if (student.emisStudentId) {
+      if (seenEmisStudentIds.has(normalizeLower(student.emisStudentId))) {
+        return `Row ${rowNumber} (${band}): Duplicate EMIS StudentID found within the upload file.`;
+      }
+
+      if (findStudentByEmisStudentId(student.emisStudentId)) {
+        return `Row ${rowNumber} (${band}): EMIS StudentID already exists in the system.`;
+      }
     }
 
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
@@ -993,6 +1144,7 @@ export default function Students() {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
       admissionNo: normalizeText(cleaned.admissionNo),
+      emisStudentId: normalizeText(cleaned.emisStudentId),
       grade,
       section,
       className: section,
@@ -1044,14 +1196,24 @@ export default function Students() {
       }
 
       const seenAdmissionNos = new Set();
+      const seenEmisStudentIds = new Set();
 
       const preparedRows = rows.map((row, idx) => {
         const student = mapExcelRowToStudent(row);
         const rowNumber = idx + 2;
-        const validationError = validateBulkRow(student, rowNumber, seenAdmissionNos);
+        const validationError = validateBulkRow(
+          student,
+          rowNumber,
+          seenAdmissionNos,
+          seenEmisStudentIds
+        );
 
         if (!validationError && student.admissionNo) {
           seenAdmissionNos.add(normalizeLower(student.admissionNo));
+        }
+
+        if (!validationError && student.emisStudentId) {
+          seenEmisStudentIds.add(normalizeLower(student.emisStudentId));
         }
 
         return { student, rowNumber, validationError };
@@ -1094,37 +1256,126 @@ export default function Students() {
     }
   };
 
-  const handleExport = () => {
-    const exportData = filtered.map((s) => ({
-      "Admission No": s.admissionNo || "",
-      Name: getStudentName(s),
-      Grade: s.grade || "",
-      Section: s.section || s.className || "",
-      Gender: s.gender || "",
-      DOB: s.dob || "",
-      Status: s.status || "",
-      "Join Date": s.joinDate || "",
-      Religion: s.religion || "",
-      "Aesthetic Choice": s.aestheticChoice || s.aesthetic || "",
-      "Basket A Choice": s.basketAChoice || s.basket1 || "",
-      "Basket B Choice": s.basketBChoice || s.basket2 || "",
-      "Basket C Choice": s.basketCChoice || s.basket3 || "",
-      Stream: s.stream || "",
-      "Stream Code": s.streamCode || "",
-      "A/L Class Name": s.alClassName || "",
-      "AL Subject No 1": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[0] || "" : "",
-      "AL Subject No 2": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[1] || "" : "",
-      "AL Subject No 3": Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers[2] || "" : "",
-      "AL Subject 1": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[0] || "" : "",
-      "AL Subject 2": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[1] || "" : "",
-      "AL Subject 3": Array.isArray(s.alSubjectChoices) ? s.alSubjectChoices[2] || "" : "",
-      Medium: s.medium || "",
-    }));
+  const handleEmisStudentIdUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Students");
-    XLSX.writeFile(wb, `students_export_${Date.now()}.xlsx`);
+    setEmisSyncing(true);
+    setEmisSyncResults(null);
+    setError("");
+    setSuccess("");
+
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+
+      if (!rows.length) {
+        throw new Error("The selected Excel file is empty.");
+      }
+
+      const seenAdmissions = new Set();
+      const seenStudentIds = new Set();
+      const errors = [];
+      const updates = [];
+
+      rows.forEach((row, idx) => {
+        const rowNumber = idx + 2;
+        const admissionNo = normalizeText(
+          row["Admission No"] || row.admissionNo || row.AdmissionNo || ""
+        );
+        const emisStudentId = getEmisStudentIdFromRow(row);
+
+        if (!admissionNo) {
+          errors.push(`Row ${rowNumber}: Admission number is required to update StudentID.`);
+          return;
+        }
+
+        if (!emisStudentId) {
+          errors.push(`Row ${rowNumber}: StudentID is required.`);
+          return;
+        }
+
+        const normalizedAdmissionNo = normalizeLower(admissionNo);
+        if (seenAdmissions.has(normalizedAdmissionNo)) {
+          errors.push(`Row ${rowNumber}: Duplicate admission number found within the update file.`);
+          return;
+        }
+        seenAdmissions.add(normalizedAdmissionNo);
+
+        const normalizedStudentId = normalizeLower(emisStudentId);
+        if (seenStudentIds.has(normalizedStudentId)) {
+          errors.push(`Row ${rowNumber}: Duplicate StudentID found within the update file.`);
+          return;
+        }
+        seenStudentIds.add(normalizedStudentId);
+
+        const student = findStudentByAdmissionNo(admissionNo);
+        if (!student) {
+          errors.push(`Row ${rowNumber}: No student found for Admission No ${admissionNo}.`);
+          return;
+        }
+
+        const duplicateEmisStudent = findStudentByEmisStudentId(emisStudentId, student.id);
+        if (duplicateEmisStudent) {
+          errors.push(`Row ${rowNumber}: StudentID ${emisStudentId} is already used by another student.`);
+          return;
+        }
+
+        updates.push({ studentId: student.id, emisStudentId, rowNumber });
+      });
+
+      let updatedCount = 0;
+      for (let i = 0; i < updates.length; i += 1) {
+        const item = updates[i];
+        try {
+          await updateDoc(doc(db, "students", item.studentId), {
+            emisStudentId: item.emisStudentId,
+            updatedAt: new Date().toISOString(),
+          });
+          updatedCount += 1;
+        } catch (err) {
+          errors.push(`Row ${item.rowNumber}: ${err.message}`);
+        }
+      }
+
+      setEmisSyncResults({
+        updatedCount,
+        failCount: errors.length,
+        errors,
+      });
+
+      if (updatedCount > 0) {
+        setSuccess(`Updated EMIS StudentID for ${updatedCount} student${updatedCount === 1 ? "" : "s"}.`);
+        await fetchData();
+      }
+    } catch (err) {
+      setError("EMIS StudentID update failed: " + err.message);
+    } finally {
+      setEmisSyncing(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleEmisIdFixExport = () => {
+    if (filtered.length === 0) {
+      setError("No students available to export.");
+      return;
+    }
+
+    const worksheetRows = buildEmisIdFixWorksheetRows(filtered);
+
+    downloadAoAWorksheet(
+      worksheetRows,
+      "EMIS StudentID Fix",
+      `students_emis_id_fix_${Date.now()}.xlsx`,
+      [16, 30, 18, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
+    );
+
+    setSuccess(
+      "StudentID fix export downloaded in EMIS column order. Fill the StudentID column and upload the same file with Update EMIS IDs."
+    );
   };
 
   const handleDownloadTemplate = (type) => {
@@ -1206,6 +1457,13 @@ export default function Students() {
               style={{ display: "none" }}
               onChange={handleBulkUpload}
             />
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              ref={emisIdFileInputRef}
+              style={{ display: "none" }}
+              onChange={handleEmisStudentIdUpload}
+            />
 
             <Tooltip title="Download Grade 6-9 Template">
               <Button
@@ -1249,27 +1507,45 @@ export default function Students() {
                 size="small"
                 startIcon={<UploadFileIcon />}
                 onClick={() => fileInputRef.current.click()}
-                disabled={bulkUploading}
+                disabled={bulkUploading || emisSyncing}
                 sx={{ borderColor: "#43a047", color: "#43a047" }}
               >
                 {isMobile ? "" : "Bulk Upload"}
               </Button>
             </Tooltip>
 
-            <Tooltip title="Export to Excel">
+            <Tooltip title="Update EMIS Student IDs using Admission No + StudentID columns">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<UploadFileIcon />}
+                onClick={() => emisIdFileInputRef.current.click()}
+                disabled={bulkUploading || emisSyncing}
+                sx={{ borderColor: "#ef6c00", color: "#ef6c00" }}
+              >
+                {isMobile ? "" : "Update EMIS IDs"}
+              </Button>
+            </Tooltip>
+
+            <Tooltip title="Export an EMIS-format sheet with Admission No so you can fill StudentID and upload it back">
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<DownloadIcon />}
-                onClick={handleExport}
+                onClick={handleEmisIdFixExport}
                 sx={{ borderColor: "#0288d1", color: "#0288d1" }}
               >
-                {isMobile ? "" : "Export"}
+                {isMobile ? "" : "ID Fix Export"}
               </Button>
             </Tooltip>
 
           </Box>
         </Box>
+
+        <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
+          Tip: use ID Fix Export to fill missing EMIS StudentID values, import them with Update EMIS IDs,
+          then use the Grade 10-11 marks report export to download the final EMIS sheet.
+        </Typography>
 
         {bulkUploading && (
           <Box mt={1.5}>
@@ -1277,6 +1553,15 @@ export default function Students() {
               Uploading... {bulkProgress}%
             </Typography>
             <LinearProgress variant="determinate" value={bulkProgress} sx={{ mt: 0.5, borderRadius: 2 }} />
+          </Box>
+        )}
+
+        {emisSyncing && (
+          <Box mt={1.5}>
+            <Typography variant="caption" color="text.secondary">
+              Updating EMIS Student IDs...
+            </Typography>
+            <LinearProgress sx={{ mt: 0.5, borderRadius: 2 }} />
           </Box>
         )}
 
@@ -1305,10 +1590,36 @@ export default function Students() {
           </Alert>
         )}
 
+        {emisSyncResults && (
+          <Alert
+            severity={emisSyncResults.failCount > 0 ? "warning" : "success"}
+            sx={{ mt: 1.5, borderRadius: 2 }}
+            onClose={() => setEmisSyncResults(null)}
+          >
+            Updated EMIS StudentID for {emisSyncResults.updatedCount} student
+            {emisSyncResults.updatedCount === 1 ? "" : "s"}
+            {emisSyncResults.failCount > 0 && `, ${emisSyncResults.failCount} failed`}
+            {emisSyncResults.errors.length > 0 && (
+              <Box mt={0.5}>
+                {emisSyncResults.errors.slice(0, 8).map((err, i) => (
+                  <Typography key={i} variant="caption" display="block">
+                    {err}
+                  </Typography>
+                ))}
+                {emisSyncResults.errors.length > 8 && (
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    + {emisSyncResults.errors.length - 8} more row error(s)
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Alert>
+        )}
+
         <Box display="flex" flexWrap="wrap" gap={1.5} mt={2} alignItems="center">
           <TextField
             size="small"
-            placeholder="Search name, adm no, religion, stream"
+            placeholder="Search name, adm no, EMIS ID, religion, stream"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 220, flex: 1 }}
@@ -1474,7 +1785,8 @@ export default function Students() {
                         {getStudentName(s)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {s.admissionNo || "No Adm#"} • Grade {s.grade}-{s.section || s.className}
+                        {s.admissionNo || "No Adm#"} | EMIS: {getEmisStudentId(s) || "-"} | Grade {s.grade}-
+                        {s.section || s.className}
                       </Typography>
                     </Box>
                   </Box>
@@ -1545,7 +1857,7 @@ export default function Students() {
                 {[
                   "#",
                   "Student",
-                  "Adm No",
+                  "Adm / EMIS",
                   "Grade/Sec",
                   "Status",
                   "Religion / Stream",
@@ -1590,8 +1902,11 @@ export default function Students() {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption" fontWeight={700} color="#1a237e">
+                    <Typography variant="caption" fontWeight={700} color="#1a237e" display="block">
                       {s.admissionNo || "-"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      EMIS: {getEmisStudentId(s) || "-"}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -1717,6 +2032,16 @@ export default function Students() {
                         label="Admission No."
                         value={form.admissionNo}
                         onChange={(e) => setForm({ ...form, admissionNo: e.target.value })}
+                      />
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="EMIS StudentID"
+                        value={form.emisStudentId}
+                        onChange={(e) => setForm({ ...form, emisStudentId: e.target.value })}
+                        helperText="Optional now, but required for EMIS export."
                       />
                     </Grid>
 
