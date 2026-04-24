@@ -222,8 +222,13 @@ const isKnownBasketChoice = (bucket, value) =>
     )
   );
 
-const buildBasketMenuOptions = (subjects = [], currentValue = "") => {
-  const subjectNames = [...new Set(subjects.map(subjectDisplayName).filter(Boolean))];
+const buildBasketMenuOptions = (bucket, subjects = [], currentValue = "") => {
+  const subjectNames = [
+    ...new Set([
+      ...subjects.map(subjectDisplayName).filter(Boolean),
+      ...(BASKET_OPTIONS[bucket] || []),
+    ]),
+  ];
   const cleanCurrentValue = normalizeText(currentValue);
 
   if (
@@ -676,9 +681,15 @@ export default function Students() {
     }
 
     if (shouldShowBasketChoices(grade)) {
-      if (basketOptions.A.length === 0) warnings.push("No Basket A subjects found for this grade.");
-      if (basketOptions.B.length === 0) warnings.push("No Basket B subjects found for this grade.");
-      if (basketOptions.C.length === 0) warnings.push("No Basket C subjects found for this grade.");
+      if (basketOptions.A.length === 0 && BASKET_OPTIONS.A.length === 0) {
+        warnings.push("No Basket A subjects found for this grade.");
+      }
+      if (basketOptions.B.length === 0 && BASKET_OPTIONS.B.length === 0) {
+        warnings.push("No Basket B subjects found for this grade.");
+      }
+      if (basketOptions.C.length === 0 && BASKET_OPTIONS.C.length === 0) {
+        warnings.push("No Basket C subjects found for this grade.");
+      }
     }
 
     if (shouldShowALFields(grade)) {
@@ -935,7 +946,11 @@ export default function Students() {
     }
 
     if (shouldShowBasketChoices(grade)) {
-      if (basketOptions.A.length === 0 || basketOptions.B.length === 0 || basketOptions.C.length === 0) {
+      if (
+        (basketOptions.A.length === 0 && BASKET_OPTIONS.A.length === 0) ||
+        (basketOptions.B.length === 0 && BASKET_OPTIONS.B.length === 0) ||
+        (basketOptions.C.length === 0 && BASKET_OPTIONS.C.length === 0)
+      ) {
         return "Basket subject definitions are incomplete for this grade.";
       }
       if (!normalizeText(form.basketAChoice)) return "Basket A choice is required.";
@@ -1031,7 +1046,8 @@ export default function Students() {
         ? s.alSubjectChoices
         : deriveALChoiceNamesFromNumbers(choiceNumbers);
 
-    setForm({
+    setForm(
+      cleanFormByGrade({
       name: s.name || s.fullName || "",
       admissionNo: s.admissionNo || "",
       emisStudentId: getEmisStudentId(s),
@@ -1052,7 +1068,8 @@ export default function Students() {
       alSubjectChoiceNumbers: choiceNumbers,
       alSubjectChoices: choiceNames,
       medium: s.medium || "",
-    });
+      })
+    );
 
     setEditId(s.id);
     setError("");
@@ -1477,9 +1494,9 @@ export default function Students() {
 
   const basketMenuOptions = useMemo(
     () => ({
-      A: buildBasketMenuOptions(basketOptions.A, form.basketAChoice),
-      B: buildBasketMenuOptions(basketOptions.B, form.basketBChoice),
-      C: buildBasketMenuOptions(basketOptions.C, form.basketCChoice),
+      A: buildBasketMenuOptions("A", basketOptions.A, form.basketAChoice),
+      B: buildBasketMenuOptions("B", basketOptions.B, form.basketBChoice),
+      C: buildBasketMenuOptions("C", basketOptions.C, form.basketCChoice),
     }),
     [basketOptions, form.basketAChoice, form.basketBChoice, form.basketCChoice]
   );
