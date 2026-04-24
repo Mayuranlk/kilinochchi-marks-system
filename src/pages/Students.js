@@ -66,11 +66,13 @@ import {
   MEDIUM_OPTIONS,
   normalizeText,
   normalizeLower,
+  normalizeLoose,
   isALGrade,
   buildALClassName,
   buildALDisplayClassName,
   AL_STREAM_OPTIONS,
   AL_STREAM_CODES,
+  BASKET_OPTIONS,
   getALOptionalSubjectsForStream,
   validateALChoices,
   convertALChoiceNumbersToSubjects,
@@ -171,11 +173,68 @@ const subjectDisplayName = (subject) =>
 
 const subjectCategory = (subject) => normalizeLower(subject.category);
 const subjectReligion = (subject) => normalizeText(subject.religion);
-const subjectBasketGroup = (subject) =>
-  normalizeText(subject.basketGroup || "").toUpperCase();
+const subjectBasketGroup = (subject) => {
+  const raw = normalizeText(subject.basketGroup || subject.basketLabel || "").toUpperCase();
+  if (["A", "B", "C"].includes(raw)) return raw;
+
+  const match = raw.match(/(?:^|[_\s-])([ABC])$/);
+  return match ? match[1] : raw;
+};
 
 const isActiveSubject = (subject) =>
   normalizeLower(subject.status || "active") === "active";
+
+const BASKET_CHOICE_ALIASES = {
+  A: {
+    civics: "Civic Education",
+    citizenshipandgovernance: "Civic Education",
+    businessandaccountingstudies: "Business & Accounting Studies",
+  },
+  B: {
+    englishliterature: "Appreciation of English Literary Texts",
+    englishlit: "Appreciation of English Literary Texts",
+    tamilliterature: "Appreciation of Tamil Literary Texts",
+    music: "Music (Carnatic)",
+    dancing: "Dancing (Bharata)",
+    dramaandtheatre: "Drama and Theatre (Tamil)",
+  },
+  C: {
+    ict: "Information & Communication Technology",
+  },
+};
+
+const canonicalizeBasketChoice = (bucket, value) => {
+  const cleanValue = normalizeText(value);
+  if (!cleanValue) return "";
+
+  const canonicalOption =
+    BASKET_OPTIONS[bucket]?.find((option) => normalizeLoose(option) === normalizeLoose(cleanValue)) || "";
+
+  if (canonicalOption) return canonicalOption;
+
+  return BASKET_CHOICE_ALIASES[bucket]?.[normalizeLoose(cleanValue)] || cleanValue;
+};
+
+const isKnownBasketChoice = (bucket, value) =>
+  Boolean(
+    BASKET_OPTIONS[bucket]?.some(
+      (option) => normalizeLoose(option) === normalizeLoose(canonicalizeBasketChoice(bucket, value))
+    )
+  );
+
+const buildBasketMenuOptions = (subjects = [], currentValue = "") => {
+  const subjectNames = [...new Set(subjects.map(subjectDisplayName).filter(Boolean))];
+  const cleanCurrentValue = normalizeText(currentValue);
+
+  if (
+    cleanCurrentValue &&
+    !subjectNames.some((item) => normalizeLoose(item) === normalizeLoose(cleanCurrentValue))
+  ) {
+    return [cleanCurrentValue, ...subjectNames];
+  }
+
+  return subjectNames;
+};
 
 const subjectSupportsGrade = (subject, grade) => {
   const g = Number(grade);
@@ -715,9 +774,15 @@ export default function Students() {
       ...data,
       religion: shouldShowReligion(grade) ? normalizeText(data.religion) : "",
       aestheticChoice: shouldShowAesthetic(grade) ? normalizeText(data.aestheticChoice) : "",
-      basketAChoice: shouldShowBasketChoices(grade) ? normalizeText(data.basketAChoice) : "",
-      basketBChoice: shouldShowBasketChoices(grade) ? normalizeText(data.basketBChoice) : "",
-      basketCChoice: shouldShowBasketChoices(grade) ? normalizeText(data.basketCChoice) : "",
+      basketAChoice: shouldShowBasketChoices(grade)
+        ? canonicalizeBasketChoice("A", data.basketAChoice)
+        : "",
+      basketBChoice: shouldShowBasketChoices(grade)
+        ? canonicalizeBasketChoice("B", data.basketBChoice)
+        : "",
+      basketCChoice: shouldShowBasketChoices(grade)
+        ? canonicalizeBasketChoice("C", data.basketCChoice)
+        : "",
       stream: shouldShowALFields(grade) ? normalizeText(data.stream) : "",
       medium: normalizeText(data.medium),
     };
@@ -1131,6 +1196,15 @@ export default function Students() {
       if (!normalizeText(student.basketCChoice)) {
         return `Row ${rowNumber} (Grades 10-11): Basket C Choice is required. Use the Grades 10-11 template.`;
       }
+      if (!isKnownBasketChoice("A", student.basketAChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket A Choice "${student.basketAChoice}" is not recognized.`;
+      }
+      if (!isKnownBasketChoice("B", student.basketBChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket B Choice "${student.basketBChoice}" is not recognized.`;
+      }
+      if (!isKnownBasketChoice("C", student.basketCChoice)) {
+        return `Row ${rowNumber} (Grades 10-11): Basket C Choice "${student.basketCChoice}" is not recognized.`;
+      }
 
       return "";
     }
@@ -1400,6 +1474,15 @@ export default function Students() {
       choiceNames: cleaned.alSubjectChoices,
     });
   }, [form]);
+
+  const basketMenuOptions = useMemo(
+    () => ({
+      A: buildBasketMenuOptions(basketOptions.A, form.basketAChoice),
+      B: buildBasketMenuOptions(basketOptions.B, form.basketBChoice),
+      C: buildBasketMenuOptions(basketOptions.C, form.basketCChoice),
+    }),
+    [basketOptions, form.basketAChoice, form.basketBChoice, form.basketCChoice]
+  );
 
   return (
     <PageContainer
@@ -2298,7 +2381,7 @@ export default function Students() {
                         {shouldShowBasketChoices(form.grade) && (
                           <>
                             <Grid item xs={12} md={4}>
-                              <FormControl fullWidth required disabled={basketOptions.A.length === 0}>
+                              <FormControl fullWidth required disabled={basketMenuOptions.A.length === 0}>
                                 <InputLabel>Basket A Choice</InputLabel>
                                 <Select
                                   value={form.basketAChoice}
@@ -2307,20 +2390,20 @@ export default function Students() {
                                     setForm({ ...form, basketAChoice: e.target.value })
                                   }
                                 >
-                                  {basketOptions.A.map((subject) => (
-                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
-                                      {subjectDisplayName(subject)}
+                                  {basketMenuOptions.A.map((subjectName) => (
+                                    <MenuItem key={subjectName} value={subjectName}>
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
-                                {basketOptions.A.length === 0 && (
+                                {basketMenuOptions.A.length === 0 && (
                                   <FormHelperText error>No Basket A subjects found.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
 
                             <Grid item xs={12} md={4}>
-                              <FormControl fullWidth required disabled={basketOptions.B.length === 0}>
+                              <FormControl fullWidth required disabled={basketMenuOptions.B.length === 0}>
                                 <InputLabel>Basket B Choice</InputLabel>
                                 <Select
                                   value={form.basketBChoice}
@@ -2329,20 +2412,20 @@ export default function Students() {
                                     setForm({ ...form, basketBChoice: e.target.value })
                                   }
                                 >
-                                  {basketOptions.B.map((subject) => (
-                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
-                                      {subjectDisplayName(subject)}
+                                  {basketMenuOptions.B.map((subjectName) => (
+                                    <MenuItem key={subjectName} value={subjectName}>
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
-                                {basketOptions.B.length === 0 && (
+                                {basketMenuOptions.B.length === 0 && (
                                   <FormHelperText error>No Basket B subjects found.</FormHelperText>
                                 )}
                               </FormControl>
                             </Grid>
 
                             <Grid item xs={12} md={4}>
-                              <FormControl fullWidth required disabled={basketOptions.C.length === 0}>
+                              <FormControl fullWidth required disabled={basketMenuOptions.C.length === 0}>
                                 <InputLabel>Basket C Choice</InputLabel>
                                 <Select
                                   value={form.basketCChoice}
@@ -2351,13 +2434,13 @@ export default function Students() {
                                     setForm({ ...form, basketCChoice: e.target.value })
                                   }
                                 >
-                                  {basketOptions.C.map((subject) => (
-                                    <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
-                                      {subjectDisplayName(subject)}
+                                  {basketMenuOptions.C.map((subjectName) => (
+                                    <MenuItem key={subjectName} value={subjectName}>
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
-                                {basketOptions.C.length === 0 && (
+                                {basketMenuOptions.C.length === 0 && (
                                   <FormHelperText error>No Basket C subjects found.</FormHelperText>
                                 )}
                               </FormControl>
