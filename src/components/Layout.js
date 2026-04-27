@@ -125,6 +125,7 @@ export default function Layout() {
       section: "Marks & Reports",
       items: [
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
+        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/sba" },
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
@@ -143,6 +144,7 @@ export default function Layout() {
     const items = [
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+      { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
     ];
 
     if (isClassTeacher) {

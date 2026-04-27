@@ -37,6 +37,7 @@ const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports")
 
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
 const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
+const SBAForm = lazy(() => import("./pages/SBAForm"));
 
 function LoadingScreen() {
   return (
@@ -271,6 +272,16 @@ export default function App() {
                 }
               />
               <Route
+                path="sba"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <SBAForm />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
                 path="marks-upload"
                 element={
                   <AdminRoute>
@@ -360,6 +371,17 @@ export default function App() {
                   <TeacherRoute>
                     <LazyRoute>
                       <MarksEntry />
+                    </LazyRoute>
+                  </TeacherRoute>
+                }
+              />
+
+              <Route
+                path="sba"
+                element={
+                  <TeacherRoute>
+                    <LazyRoute>
+                      <SBAForm />
                     </LazyRoute>
                   </TeacherRoute>
                 }
