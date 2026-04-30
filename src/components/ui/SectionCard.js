@@ -13,7 +13,7 @@ const SectionCard = ({
     <Card sx={{ overflow: "hidden", ...sx }}>
       {(title || subtitle || action) && (
         <>
-          <Box sx={{ px: { xs: 2, sm: 2.5 }, py: 2 }}>
+          <Box sx={{ px: { xs: 2, sm: 2.25 }, py: 1.75, bgcolor: "background.paper" }}>
             <Stack
               direction={{ xs: "column", sm: "row" }}
               alignItems={{ xs: "flex-start", sm: "center" }}
@@ -21,7 +21,11 @@ const SectionCard = ({
               spacing={1.5}
             >
               <Box>
-                {title ? <Typography variant="h6">{title}</Typography> : null}
+                {title ? (
+                  <Typography variant="h6" sx={{ lineHeight: 1.25 }}>
+                    {title}
+                  </Typography>
+                ) : null}
                 {subtitle ? (
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
                     {subtitle}

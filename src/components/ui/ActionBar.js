@@ -15,11 +15,11 @@ const ActionBar = ({ children, sticky = false, sx = {} }) => {
       <Box
         sx={{
           p: { xs: 1, sm: 1.25 },
-          borderRadius: { xs: 14, sm: 16 },
+          borderRadius: 2,
           border: "1px solid",
           borderColor: "divider",
           bgcolor: "background.paper",
-          boxShadow: sticky ? "0px 12px 32px rgba(15, 23, 42, 0.1)" : "none",
+          boxShadow: sticky ? "0px 12px 28px rgba(15, 23, 42, 0.10)" : "none",
         }}
       >
         <Stack

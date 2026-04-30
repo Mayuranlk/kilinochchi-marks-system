@@ -22,8 +22,8 @@ const PageContainer = ({
             ? 960
             : 720,
         mx: "auto",
-        px: { xs: 1.5, sm: 2, md: 3 },
-        py: { xs: 2, sm: 2.5, md: 3 },
+        px: { xs: 1.5, sm: 2.25, md: 3 },
+        py: { xs: 1.75, sm: 2.25, md: 2.75 },
         ...sx,
       }}
     >
@@ -37,7 +37,14 @@ const PageContainer = ({
         >
           <Box>
             {title ? (
-              <Typography variant="h5" sx={{ mb: subtitle ? 0.5 : 0 }}>
+              <Typography
+                variant="h5"
+                sx={{
+                  mb: subtitle ? 0.35 : 0,
+                  color: "text.primary",
+                  lineHeight: 1.2,
+                }}
+              >
                 {title}
               </Typography>
             ) : null}

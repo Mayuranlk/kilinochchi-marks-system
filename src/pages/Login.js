@@ -4,6 +4,7 @@ import { auth } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
+  alpha,
   Box,
   Card,
   CardContent,
@@ -117,41 +118,49 @@ export default function Login() {
     <Box
       sx={{
         minHeight: "100vh",
-        display: "flex",
+        display: "grid",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%)",
-        px: 2,
+        background:
+          "linear-gradient(135deg, #eef4ff 0%, #f8fafc 45%, #ecfdf5 100%)",
+        px: { xs: 1.5, sm: 2 },
+        py: 4,
       }}
     >
       <Card
         sx={{
           width: "100%",
-          maxWidth: 420,
+          maxWidth: 440,
           borderRadius: 3,
-          boxShadow: 10,
+          borderColor: "rgba(148, 163, 184, 0.32)",
+          boxShadow: "0px 24px 70px rgba(15, 23, 42, 0.14)",
         }}
       >
-        <CardContent sx={{ p: 4 }}>
+        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Box textAlign="center" mb={3}>
             <Box
               sx={{
                 display: "inline-flex",
-                p: 2,
-                borderRadius: "50%",
-                bgcolor: "#e8eaf6",
+                width: 64,
+                height: 64,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 2.5,
+                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
+                border: "1px solid",
+                borderColor: "divider",
                 mb: 2,
               }}
             >
-              <SchoolIcon sx={{ fontSize: 48, color: "#1a237e" }} />
+              <SchoolIcon sx={{ fontSize: 34, color: "primary.main" }} />
             </Box>
 
-            <Typography variant="h5" fontWeight={700} color="#1a237e">
+            <Typography variant="h5" fontWeight={800}>
               Kilinochchi Marks System
             </Typography>
 
             <Typography variant="body2" color="text.secondary" mt={0.5}>
-              Sign in to your account
+              Professional assessment and marks management
             </Typography>
 
             <Stack direction="row" justifyContent="center" mt={1.5}>
@@ -205,11 +214,9 @@ export default function Login() {
               size="large"
               disabled={loading}
               sx={{
-                bgcolor: "#1a237e",
-                py: 1.5,
+                py: 1.25,
                 fontSize: 16,
-                fontWeight: 600,
-                "&:hover": { bgcolor: "#283593" },
+                fontWeight: 800,
               }}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}

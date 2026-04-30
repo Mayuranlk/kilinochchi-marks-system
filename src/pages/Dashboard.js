@@ -299,7 +299,7 @@ export default function Dashboard() {
         <SectionCard
           sx={{
             background:
-              "linear-gradient(135deg, rgba(37,99,235,0.10) 0%, rgba(124,58,237,0.04) 100%)",
+              "linear-gradient(135deg, rgba(29,78,216,0.08) 0%, rgba(15,118,110,0.05) 100%)",
           }}
         >
           <Stack spacing={2}>

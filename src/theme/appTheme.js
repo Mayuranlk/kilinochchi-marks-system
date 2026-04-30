@@ -1,24 +1,24 @@
 import { alpha, createTheme } from "@mui/material/styles";
 
-const primaryMain = "#2563eb";
-const secondaryMain = "#7c3aed";
+const primaryMain = "#1d4ed8";
+const secondaryMain = "#0f766e";
 const successMain = "#16a34a";
 const warningMain = "#d97706";
 const errorMain = "#dc2626";
 const infoMain = "#0284c7";
-const backgroundDefault = "#f5f7fb";
+const backgroundDefault = "#f6f7f9";
 const backgroundPaper = "#ffffff";
-const borderColor = "#e5e7eb";
-const textPrimary = "#111827";
-const textSecondary = "#6b7280";
+const borderColor = "#dfe3ea";
+const textPrimary = "#0f172a";
+const textSecondary = "#64748b";
 
 const shadows = [
   "none",
   "0px 1px 2px rgba(15, 23, 42, 0.06)",
-  "0px 4px 12px rgba(15, 23, 42, 0.06)",
-  "0px 8px 24px rgba(15, 23, 42, 0.08)",
-  "0px 12px 32px rgba(15, 23, 42, 0.1)",
-  ...Array(20).fill("0px 12px 32px rgba(15, 23, 42, 0.1)"),
+  "0px 3px 10px rgba(15, 23, 42, 0.05)",
+  "0px 8px 20px rgba(15, 23, 42, 0.07)",
+  "0px 12px 28px rgba(15, 23, 42, 0.08)",
+  ...Array(20).fill("0px 12px 28px rgba(15, 23, 42, 0.08)"),
 ];
 
 const appTheme = createTheme({
@@ -41,7 +41,7 @@ const appTheme = createTheme({
     },
   },
   shape: {
-    borderRadius: 16,
+    borderRadius: 10,
   },
   spacing: 8,
   shadows,
@@ -58,17 +58,17 @@ const appTheme = createTheme({
     h4: {
       fontWeight: 800,
       fontSize: "1.8rem",
-      letterSpacing: "-0.02em",
+      letterSpacing: 0,
     },
     h5: {
       fontWeight: 800,
       fontSize: "1.35rem",
-      letterSpacing: "-0.02em",
+      letterSpacing: 0,
     },
     h6: {
       fontWeight: 700,
       fontSize: "1.05rem",
-      letterSpacing: "-0.01em",
+      letterSpacing: 0,
     },
     subtitle1: {
       fontWeight: 600,
@@ -97,6 +97,9 @@ const appTheme = createTheme({
         "*": {
           boxSizing: "border-box",
         },
+        "::selection": {
+          backgroundColor: alpha(primaryMain, 0.16),
+        },
       },
     },
     MuiPaper: {
@@ -106,16 +109,16 @@ const appTheme = createTheme({
           backgroundImage: "none",
         },
         rounded: {
-          borderRadius: 18,
+          borderRadius: 10,
         },
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 18,
+          borderRadius: 10,
           border: `1px solid ${borderColor}`,
-          boxShadow: "0px 8px 24px rgba(15, 23, 42, 0.06)",
+          boxShadow: "0px 2px 10px rgba(15, 23, 42, 0.04)",
         },
       },
     },
@@ -125,12 +128,12 @@ const appTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          minHeight: 48,
-          borderRadius: 12,
+          minHeight: 42,
+          borderRadius: 8,
           paddingInline: 16,
         },
         contained: {
-          boxShadow: "0px 8px 20px rgba(37, 99, 235, 0.18)",
+          boxShadow: "0px 6px 14px rgba(29, 78, 216, 0.16)",
         },
         outlined: {
           borderColor: alpha(primaryMain, 0.25),
@@ -154,9 +157,9 @@ const appTheme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
+          borderRadius: 8,
           backgroundColor: alpha("#fff", 0.9),
-          minHeight: 48,
+          minHeight: 42,
           "& fieldset": {
             borderColor: borderColor,
           },
@@ -165,6 +168,7 @@ const appTheme = createTheme({
           },
           "&.Mui-focused fieldset": {
             borderWidth: 1.5,
+            boxShadow: `0 0 0 3px ${alpha(primaryMain, 0.1)}`,
           },
         },
         input: {
@@ -175,17 +179,31 @@ const appTheme = createTheme({
     },
     MuiTableCell: {
       styleOverrides: {
+        root: {
+          borderBottomColor: borderColor,
+          paddingTop: 10,
+          paddingBottom: 10,
+        },
         head: {
           fontWeight: 800,
           color: textPrimary,
-          backgroundColor: alpha(primaryMain, 0.03),
+          backgroundColor: "#f8fafc",
+        },
+      },
+    },
+    MuiTableRow: {
+      styleOverrides: {
+        root: {
+          "&:hover": {
+            backgroundColor: alpha(primaryMain, 0.035),
+          },
         },
       },
     },
     MuiListItemButton: {
       styleOverrides: {
         root: {
-          minHeight: 48,
+          minHeight: 42,
         },
       },
     },

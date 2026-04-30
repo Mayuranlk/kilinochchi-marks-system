@@ -291,7 +291,7 @@ export default function Layout() {
           mx: 1.25,
           mb: 0.5,
           minHeight: 46,
-          borderRadius: 3,
+          borderRadius: 2,
           px: 1.25,
           py: 0.75,
           alignItems: "center",
@@ -361,7 +361,7 @@ export default function Layout() {
           borderBottom: "1px solid",
           borderColor: "divider",
           background:
-            "linear-gradient(135deg, rgba(37,99,235,0.12) 0%, rgba(124,58,237,0.08) 100%)",
+            "linear-gradient(135deg, rgba(29,78,216,0.10) 0%, rgba(15,118,110,0.06) 100%)",
         }}
       >
         <Stack direction="row" spacing={1.5} alignItems="center">
@@ -369,7 +369,7 @@ export default function Layout() {
             sx={{
               width: 44,
               height: 44,
-              borderRadius: 3,
+              borderRadius: 2,
               display: "grid",
               placeItems: "center",
               bgcolor: "primary.main",
@@ -562,7 +562,7 @@ export default function Layout() {
                 mr: 1,
                 border: "1px solid",
                 borderColor: "divider",
-                borderRadius: 2.5,
+                borderRadius: 2,
               }}
             >
               <MenuRoundedIcon />
@@ -573,7 +573,7 @@ export default function Layout() {
                 sx={{
                   width: 34,
                   height: 34,
-                  borderRadius: 2.5,
+                borderRadius: 2,
                   display: "grid",
                   placeItems: "center",
                   bgcolor: "primary.main",
