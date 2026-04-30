@@ -75,6 +75,100 @@ const TAB_CONFIG = [
   { value: "sheet", label: "A3 Grading Sheet" },
 ];
 
+const A3_SUBJECT_ORDER = [
+  {
+    groupKey: "religion",
+    aliases: ["saivam", "hinduism", "hindu"],
+    shortLabel: "Saivam",
+  },
+  {
+    groupKey: "religion",
+    aliases: ["nrc", "christianity", "christian"],
+    shortLabel: "NRC",
+  },
+  {
+    groupKey: "religion",
+    aliases: ["rc", "catholicism", "roman catholic", "catholic"],
+    shortLabel: "RC",
+  },
+  {
+    groupKey: "religion",
+    aliases: ["islam", "muslim"],
+    shortLabel: "Islam",
+  },
+  { groupKey: "core", aliases: ["tamil"], shortLabel: "Tamil" },
+  { groupKey: "core", aliases: ["maths", "mathematics", "math"], shortLabel: "Maths" },
+  { groupKey: "core", aliases: ["english"], shortLabel: "English" },
+  { groupKey: "core", aliases: ["science"], shortLabel: "Science" },
+  { groupKey: "core", aliases: ["history"], shortLabel: "History" },
+  {
+    groupKey: "basket1",
+    aliases: ["citizenship", "civics", "civic education", "citizenship and governance", "citizenship & gov"],
+    shortLabel: "Citizenship & Gov",
+  },
+  { groupKey: "basket1", aliases: ["geography"], shortLabel: "Geography" },
+  {
+    groupKey: "basket1",
+    aliases: ["business", "business & accounting", "business and accounting", "business & accounting studies"],
+    shortLabel: "Business & Acc",
+  },
+  {
+    groupKey: "basket1",
+    aliases: ["entrepreneurship", "enterpreneurship", "entrepreneurship studies"],
+    shortLabel: "Entrepreneurship Stu",
+  },
+  { groupKey: "basket2", aliases: ["art"], shortLabel: "Art" },
+  { groupKey: "basket2", aliases: ["dance", "dancing"], shortLabel: "Dance" },
+  { groupKey: "basket2", aliases: ["music"], shortLabel: "Music" },
+  {
+    groupKey: "basket2",
+    aliases: ["drama", "drama & theatre", "drama and theatre", "drama & theater"],
+    shortLabel: "Drama & Theater",
+  },
+  {
+    groupKey: "basket2",
+    aliases: ["tamil literature", "appreciation of tamil"],
+    shortLabel: "Tamil Literature",
+  },
+  {
+    groupKey: "basket2",
+    aliases: ["english literature", "eng-literature", "eng literature", "appreciation of english"],
+    shortLabel: "Eng-Literature",
+  },
+  {
+    groupKey: "basket3",
+    aliases: ["agriculture", "agriculture & food", "agriculture & food technology"],
+    shortLabel: "Agriculture & Food Tec",
+  },
+  {
+    groupKey: "basket3",
+    aliases: ["health", "health & physical", "health & physical education"],
+    shortLabel: "Health & Phy",
+  },
+  { groupKey: "basket3", aliases: ["home economics", "home economic"], shortLabel: "Home economics" },
+  { groupKey: "basket3", aliases: ["ict", "information & communication"], shortLabel: "ICT" },
+  {
+    groupKey: "basket3",
+    aliases: ["communication & media", "media studies", "com & media"],
+    shortLabel: "Com & Media Studies",
+  },
+  {
+    groupKey: "basket3",
+    aliases: ["design & construction", "design and construction"],
+    shortLabel: "Design & Const Tec",
+  },
+  {
+    groupKey: "basket3",
+    aliases: ["design & mechanical", "design and mechanical"],
+    shortLabel: "Design& Mech Tec",
+  },
+  {
+    groupKey: "basket3",
+    aliases: ["design, electrical", "design & electrical", "design and electrical", "electronic technology"],
+    shortLabel: "Design & Elect Tec",
+  },
+];
+
 function clean(value) {
   return String(value ?? "").trim();
 }
@@ -125,6 +219,87 @@ function getSubjectId(row = {}) {
 
 function getSubjectKey(row = {}) {
   return getSubjectId(row) || `name:${normalize(getSubjectName(row))}`;
+}
+
+function getA3SubjectConfig(subjectName = "") {
+  const value = normalize(subjectName);
+  return A3_SUBJECT_ORDER.find((item) =>
+    item.aliases.some((alias) => value === alias || value.includes(alias))
+  ) || null;
+}
+
+function getSubjectGroupKey(subject = {}) {
+  const configured = getA3SubjectConfig(getSubjectName(subject));
+  if (configured?.groupKey) return configured.groupKey;
+
+  const category = normalize(subject.category);
+  const basketGroup = clean(subject.basketGroup || subject.basket || subject.group).toUpperCase();
+
+  if (category === "religion") return "religion";
+  if (category === "basket") {
+    if (basketGroup === "A" || basketGroup === "1" || basketGroup === "I") return "basket1";
+    if (basketGroup === "B" || basketGroup === "2" || basketGroup === "II") return "basket2";
+    if (basketGroup === "C" || basketGroup === "3" || basketGroup === "III") return "basket3";
+  }
+  if (category === "basket_a") return "basket1";
+  if (category === "basket_b") return "basket2";
+  if (category === "basket_c") return "basket3";
+
+  return "core";
+}
+
+function getSubjectGroupLabel(groupKey) {
+  const labels = {
+    religion: "Religion",
+    core: "",
+    basket1: "Basket - I",
+    basket2: "Basket - II",
+    basket3: "Basket - III",
+  };
+
+  return labels[groupKey] ?? "";
+}
+
+function getSubjectGroupOrder(groupKey) {
+  const order = {
+    religion: 1,
+    core: 2,
+    basket1: 3,
+    basket2: 4,
+    basket3: 5,
+  };
+  return order[groupKey] || 99;
+}
+
+function getA3SubjectOrder(subject = {}) {
+  const subjectName = getSubjectName(subject) || subject.subjectName || "";
+  const configuredIndex = A3_SUBJECT_ORDER.findIndex((item) =>
+    item.aliases.some((alias) => normalize(subjectName) === alias || normalize(subjectName).includes(alias))
+  );
+
+  if (configuredIndex >= 0) return configuredIndex + 1;
+  return getSubjectGroupOrder(subject.groupKey || getSubjectGroupKey(subject)) * 100;
+}
+
+function getA3SubjectLabel(subject = {}) {
+  const subjectName = subject.subjectName || getSubjectName(subject);
+  const configured = getA3SubjectConfig(subjectName);
+  if (configured?.shortLabel) return configured.shortLabel;
+
+  const explicitShort = clean(subject.shortName);
+  if (explicitShort) return explicitShort;
+
+  return subjectName
+    .replace(/ and /gi, " & ")
+    .replace(/technology/gi, "Tec")
+    .replace(/studies/gi, "Stu")
+    .replace(/education/gi, "Edu");
+}
+
+function getA3CanonicalSubjectKey(subject = {}) {
+  const label = getA3SubjectLabel(subject);
+  const groupKey = subject.groupKey || getSubjectGroupKey(subject);
+  return `${groupKey}__${normalize(label)}`;
 }
 
 function getEnrollmentClassName(enrollment = {}) {
@@ -334,17 +509,33 @@ function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) 
     39
   );
 
+  const groupedHeaders = buildA3SubjectHeaderRows(subjects);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const availableWidth = pageWidth - 12;
+  const baseColumnWidths = [8, 21, 36, 11, 17, 12];
+  const subjectColumnWidth = Math.max(
+    5.2,
+    (availableWidth - baseColumnWidths.reduce((sum, width) => sum + width, 0)) /
+      Math.max(subjects.length * 2, 1)
+  );
+  const columnStyles = {
+    0: { cellWidth: baseColumnWidths[0] },
+    1: { cellWidth: baseColumnWidths[1] },
+    2: { cellWidth: baseColumnWidths[2], halign: "left" },
+    3: { cellWidth: baseColumnWidths[3] },
+    4: { cellWidth: baseColumnWidths[4], fontStyle: "bold" },
+    5: { cellWidth: baseColumnWidths[5] },
+  };
+
+  subjects.forEach((subject, index) => {
+    const markColumnIndex = 6 + index * 2;
+    columnStyles[markColumnIndex] = { cellWidth: subjectColumnWidth };
+    columnStyles[markColumnIndex + 1] = { cellWidth: subjectColumnWidth, fontStyle: "bold" };
+  });
+
   autoTable(doc, {
     startY: 44,
-    head: [[
-      "No",
-      "Student ID",
-      "Student Name",
-      "Class",
-      "Results",
-      "Qualified",
-      ...subjects.flatMap((subject) => [`${subject.subjectName} Mark`, "Gr"]),
-    ]],
+    head: groupedHeaders.pdfHead,
     body: rows.map((row, index) => [
       index + 1,
       row.indexNo || row.studentId,
@@ -375,16 +566,15 @@ function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) 
       lineWidth: 0.12,
       lineColor: [25, 25, 25],
     },
-    columnStyles: {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 38, halign: "left" },
-      3: { cellWidth: 12 },
-      4: { cellWidth: 18, fontStyle: "bold" },
-      5: { cellWidth: 12 },
-    },
+    columnStyles,
     didParseCell: (data) => {
       if (data.section === "body" && data.column.index === 4) {
+        data.cell.styles.fontStyle = "bold";
+      }
+      if (data.section === "body" && data.column.index === 5 && data.cell.raw === "Yes") {
+        data.cell.styles.fontStyle = "bold";
+      }
+      if (data.section === "body" && data.cell.raw === "W") {
         data.cell.styles.fontStyle = "bold";
       }
     },
@@ -592,8 +782,18 @@ function getGrade11PassStatus(student, subjects) {
 
 function buildSheetRows(records, subjects) {
   const studentMap = new Map();
+  const subjectLookup = new Map();
+
+  subjects.forEach((subject) => {
+    (subject.sourceSubjectKeys || [subject.subjectKey]).forEach((key) => {
+      subjectLookup.set(key, subject);
+    });
+  });
 
   records.forEach((record) => {
+    const sheetSubject = subjectLookup.get(record.subjectKey);
+    if (!sheetSubject) return;
+
     if (!studentMap.has(record.studentId)) {
       studentMap.set(record.studentId, {
         studentId: record.studentId,
@@ -604,11 +804,20 @@ function buildSheetRows(records, subjects) {
       });
     }
 
-    studentMap.get(record.studentId).results[record.subjectKey] = {
+    const currentResult = studentMap.get(record.studentId).results[sheetSubject.subjectKey];
+    const nextResult = {
       mark: record.mark,
       absent: record.absent,
       symbol: record.absent ? "AB" : getGradeSymbol(record.mark),
     };
+
+    if (
+      !currentResult ||
+      (!Number.isFinite(Number(currentResult.mark)) && Number.isFinite(Number(nextResult.mark))) ||
+      (currentResult.absent && !nextResult.absent)
+    ) {
+      studentMap.get(record.studentId).results[sheetSubject.subjectKey] = nextResult;
+    }
   });
 
   return Array.from(studentMap.values())
@@ -730,12 +939,28 @@ export default function SubjectAnalysis() {
 
   const gradeSubjectOptions = useMemo(() => {
     const enrolledMap = new Map();
+    const subjectMetaByName = new Map(
+      subjects.map((subject) => [normalize(getSubjectName(subject)), subject])
+    );
+
     records
       .filter((record) => Number(record.grade) === Number(selectedGrade))
       .forEach((record) => {
+        const subjectMeta = subjectMetaByName.get(normalize(record.subjectName)) || {};
+        const groupKey = getSubjectGroupKey({
+          ...subjectMeta,
+          subjectName: record.subjectName,
+        });
+
         enrolledMap.set(record.subjectKey, {
           subjectKey: record.subjectKey,
           subjectName: record.subjectName,
+          groupKey,
+          groupLabel: getSubjectGroupLabel(groupKey),
+          shortLabel: getA3SubjectLabel({
+            ...subjectMeta,
+            subjectName: record.subjectName,
+          }),
         });
       });
 
@@ -743,15 +968,32 @@ export default function SubjectAnalysis() {
       .filter((subject) => subjectAppliesToGrade(subject, selectedGrade))
       .forEach((subject) => {
         const subjectKey = getSubjectKey(subject);
-        if (!enrolledMap.has(subjectKey)) {
+        const groupKey = getSubjectGroupKey(subject);
+        const existing = enrolledMap.get(subjectKey);
+        const subjectPayload = {
+          subjectKey,
+          subjectName: getSubjectName(subject),
+          groupKey,
+          groupLabel: getSubjectGroupLabel(groupKey),
+          shortLabel: getA3SubjectLabel(subject),
+        };
+
+        if (existing) {
           enrolledMap.set(subjectKey, {
-            subjectKey,
-            subjectName: getSubjectName(subject),
+            ...existing,
+            ...subjectPayload,
           });
+          return;
+        }
+
+        if (!enrolledMap.has(subjectKey)) {
+          enrolledMap.set(subjectKey, subjectPayload);
         }
       });
 
     return Array.from(enrolledMap.values()).sort((a, b) =>
+      getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
+      getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
       a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
     );
   }, [records, subjects, selectedGrade]);
@@ -814,7 +1056,34 @@ export default function SubjectAnalysis() {
   const sheetSubjects = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
     const keys = new Set(sourceRecords.map((record) => record.subjectKey));
-    return gradeSubjectOptions.filter((subject) => keys.has(subject.subjectKey));
+    const canonicalMap = new Map();
+
+    gradeSubjectOptions
+      .filter((subject) => keys.has(subject.subjectKey))
+      .forEach((subject) => {
+        const canonicalKey = getA3CanonicalSubjectKey(subject);
+        const existing = canonicalMap.get(canonicalKey);
+
+        if (existing) {
+          existing.sourceSubjectKeys.push(subject.subjectKey);
+          existing.subjectName = existing.shortLabel || existing.subjectName;
+          return;
+        }
+
+        canonicalMap.set(canonicalKey, {
+          ...subject,
+          subjectKey: canonicalKey,
+          sourceSubjectKeys: [subject.subjectKey],
+          shortLabel: subject.shortLabel || getA3SubjectLabel(subject),
+          subjectName: subject.shortLabel || getA3SubjectLabel(subject),
+        });
+      });
+
+    return Array.from(canonicalMap.values()).sort((a, b) =>
+      getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
+      getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
+      a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
+    );
   }, [gradeSubjectOptions, gradeRecords, classRecords, selectedClass]);
 
   const sheetRows = useMemo(() => {
@@ -1346,6 +1615,55 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
   );
 }
 
+function buildA3SubjectHeaderRows(subjects = []) {
+  const groups = [];
+  let currentGroup = null;
+
+  subjects.forEach((subject) => {
+    const groupKey = subject.groupKey || "core";
+    const groupLabel = subject.groupLabel ?? getSubjectGroupLabel(groupKey);
+
+    if (!currentGroup || currentGroup.key !== groupKey || currentGroup.label !== groupLabel) {
+      currentGroup = {
+        key: groupKey,
+        label: groupLabel,
+        subjects: [],
+      };
+      groups.push(currentGroup);
+    }
+
+    currentGroup.subjects.push(subject);
+  });
+
+  const baseTop = [
+    { content: "No", rowSpan: 3 },
+    { content: "Student ID", rowSpan: 3 },
+    { content: "Student Name", rowSpan: 3 },
+    { content: "Class", rowSpan: 3 },
+    { content: "Results", rowSpan: 3 },
+    { content: "Qualified", rowSpan: 3 },
+  ];
+
+  const pdfHead = [
+    [
+      ...baseTop,
+      ...groups.map((group) => ({
+        content: group.label || " ",
+        colSpan: group.subjects.length * 2,
+      })),
+    ],
+    subjects.flatMap((subject) => [
+      { content: subject.shortLabel || getA3SubjectLabel(subject), colSpan: 2 },
+    ]),
+    subjects.flatMap(() => ["Mark", "Gr"]),
+  ];
+
+  return {
+    groups,
+    pdfHead,
+  };
+}
+
 function A3GradingSheet({
   year,
   term,
@@ -1364,6 +1682,7 @@ function A3GradingSheet({
     return sum + subjects.filter((subject) => row.results[subject.subjectKey]?.symbol === "W").length;
   }, 0);
   const title = `${scopeLabel} - A3 Grading Sheet`;
+  const groupedHeaders = buildA3SubjectHeaderRows(subjects);
   const createPdf = () =>
     createA3GradingPdf({
       title,
@@ -1448,6 +1767,7 @@ function A3GradingSheet({
               overflowX: "auto",
               "& table": {
                 border: "1px solid #1f2937",
+                tableLayout: "fixed",
               },
               "& th, & td": {
                 border: "1px solid #1f2937",
@@ -1478,31 +1798,49 @@ function A3GradingSheet({
                 borderCollapse: "collapse",
                 fontSize: 11,
                 fontFamily: "Times New Roman, serif",
+                tableLayout: "fixed",
               }}
             >
+              <colgroup>
+                <col style={{ width: "28px" }} />
+                <col style={{ width: "92px" }} />
+                <col style={{ width: "170px" }} />
+                <col style={{ width: "48px" }} />
+                <col style={{ width: "72px" }} />
+                <col style={{ width: "62px" }} />
+                {subjects.flatMap((subject) => [
+                  <col key={`${subject.subjectKey}-mark-col`} style={{ width: "48px" }} />,
+                  <col key={`${subject.subjectKey}-grade-col`} style={{ width: "34px" }} />,
+                ])}
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={printCellStyle}>No</th>
-                  <th style={printCellStyle}>Student ID</th>
-                  <th style={printCellStyle}>Student Name</th>
-                  <th style={printCellStyle}>Class</th>
-                  <th style={printCellStyle}>Results</th>
-                  <th style={printCellStyle}>Qualified</th>
-                  {subjects.map((subject) => (
-                    <th key={subject.subjectKey} style={printCellStyle} colSpan={2}>
-                      {subject.subjectName}
+                  <th style={printCellStyle} rowSpan={3}>No</th>
+                  <th style={printCellStyle} rowSpan={3}>Student ID</th>
+                  <th style={printCellStyle} rowSpan={3}>Student Name</th>
+                  <th style={printCellStyle} rowSpan={3}>Class</th>
+                  <th style={printCellStyle} rowSpan={3}>Results</th>
+                  <th style={printCellStyle} rowSpan={3}>Qualified</th>
+                  {groupedHeaders.groups.map((group, index) => (
+                    <th
+                      key={`${group.key}-${index}`}
+                      style={printCellStyle}
+                      colSpan={group.subjects.length * 2}
+                    >
+                      {group.label || ""}
                     </th>
                   ))}
                 </tr>
                 <tr>
-                  <th style={printCellStyle}></th>
-                  <th style={printCellStyle}></th>
-                  <th style={printCellStyle}></th>
-                  <th style={printCellStyle}></th>
-                  <th style={printCellStyle}></th>
-                  <th style={printCellStyle}></th>
                   {subjects.map((subject) => (
-                    <React.Fragment key={`${subject.subjectKey}-sub`}>
+                    <th key={`${subject.subjectKey}-subject`} style={printCellStyle} colSpan={2}>
+                      {subject.shortLabel || getA3SubjectLabel(subject)}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {subjects.map((subject) => (
+                    <React.Fragment key={`${subject.subjectKey}-mark-grade`}>
                       <th style={printCellStyle}>Mark</th>
                       <th style={printCellStyle}>Gr</th>
                     </React.Fragment>
@@ -1541,13 +1879,27 @@ function TableRowForPrint({ row, index, subjects }) {
       <td style={{ ...printCellStyle, textAlign: "left", minWidth: 160 }}>{row.studentName}</td>
       <td style={printCellStyle}>{row.className}</td>
       <td style={{ ...printCellStyle, fontWeight: 800 }}>{row.resultCode}</td>
-      <td style={printCellStyle}>{row.grade11Pass?.qualified ? "Yes" : "No"}</td>
+      <td
+        style={{
+          ...printCellStyle,
+          fontWeight: row.grade11Pass?.qualified ? 800 : 400,
+        }}
+      >
+        {row.grade11Pass?.qualified ? "Yes" : "No"}
+      </td>
       {subjects.map((subject) => {
         const result = row.results[subject.subjectKey] || {};
         return (
           <React.Fragment key={subject.subjectKey}>
             <td style={printCellStyle}>{result.absent ? "AB" : result.mark ?? ""}</td>
-            <td style={printCellStyle}>{result.symbol || ""}</td>
+            <td
+              style={{
+                ...printCellStyle,
+                fontWeight: result.symbol === "W" ? 800 : 400,
+              }}
+            >
+              {result.symbol || ""}
+            </td>
           </React.Fragment>
         );
       })}
