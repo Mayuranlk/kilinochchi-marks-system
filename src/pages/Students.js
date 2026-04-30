@@ -162,8 +162,9 @@ const shouldShowBasketChoices = (grade) => isOLGrade(grade);
 const shouldShowALFields = (grade) => isALGrade(grade);
 
 const sectionCardSx = {
-  border: "1px solid #e8eaf6",
-  borderRadius: 3,
+  border: "1px solid",
+  borderColor: "divider",
+  borderRadius: 2,
   boxShadow: "none",
   height: "100%",
 };
@@ -1518,7 +1519,7 @@ export default function Students() {
             setOpen(true);
           }}
           fullWidth={isMobile}
-          sx={{ bgcolor: "#1a237e", fontWeight: 700, borderRadius: 2 }}
+          sx={{ fontWeight: 700, borderRadius: 2 }}
         >
           {isMobile ? "Add Student" : "Add Student"}
         </Button>
@@ -1526,12 +1527,13 @@ export default function Students() {
     >
       <Paper
         sx={{
-          bgcolor: "white",
-          borderRadius: 3,
+          bgcolor: "background.paper",
+          borderRadius: 2,
           p: { xs: 2, sm: 2.5 },
           mb: 2,
-          boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-          border: "1px solid #e8eaf6",
+          boxShadow: "none",
+          border: "1px solid",
+          borderColor: "divider",
           position: { xs: "sticky", md: "static" },
           top: { xs: 76, md: "auto" },
           zIndex: { xs: 2, md: "auto" },
@@ -1545,7 +1547,7 @@ export default function Students() {
           gap={1.5}
         >
           <Box>
-            <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+            <Typography variant="subtitle1" fontWeight={800} color="text.primary">
               Student Tools
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.4}>
@@ -1576,7 +1578,6 @@ export default function Students() {
                 size="small"
                 startIcon={<DownloadIcon />}
                 onClick={() => handleDownloadTemplate("junior")}
-                sx={{ borderColor: "#1a237e", color: "#1a237e" }}
               >
                 {isMobile ? "6-9" : "Template 6-9"}
               </Button>
@@ -1794,7 +1795,7 @@ export default function Students() {
               setFilterSection("");
               setFilterStatus("");
             }}
-            sx={{ borderColor: "#e8eaf6", color: "text.secondary" }}
+            sx={{ color: "text.secondary" }}
           >
             Clear
           </Button>
@@ -1806,9 +1807,18 @@ export default function Students() {
       </Paper>
 
       {isMobile ? (
-        <Paper sx={{ p: 1.5, mb: 2, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+        <Paper
+          sx={{
+            p: 1.5,
+            mb: 2,
+            borderRadius: 2,
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: "none",
+          }}
+        >
           <Stack spacing={1}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "text.primary" }}>
               Quick Summary
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -1866,9 +1876,10 @@ export default function Students() {
             <Card
               key={s.id}
               sx={{
-                borderRadius: 3,
-                border: "1px solid #e8eaf6",
-                boxShadow: "0 2px 8px rgba(26,35,126,0.07)",
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "none",
               }}
             >
               <CardContent sx={{ pb: 0 }}>
@@ -1876,7 +1887,7 @@ export default function Students() {
                   <Box display="flex" alignItems="center" gap={1.5}>
                     <Avatar
                       sx={{
-                        bgcolor: "#1a237e",
+                        bgcolor: "primary.main",
                         width: 38,
                         height: 38,
                         fontSize: 14,
@@ -1928,7 +1939,6 @@ export default function Students() {
                   variant="outlined"
                   startIcon={<EditIcon />}
                   onClick={() => handleEdit(s)}
-                  sx={{ borderColor: "#1a237e", color: "#1a237e" }}
                 >
                   Edit
                 </Button>
@@ -1949,15 +1959,16 @@ export default function Students() {
       ) : (
         <Paper
           sx={{
-            borderRadius: 3,
-            boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-            border: "1px solid #e8eaf6",
+            borderRadius: 2,
+            boxShadow: "none",
+            border: "1px solid",
+            borderColor: "divider",
             overflow: "hidden",
           }}
         >
           <ResponsiveTableWrapper minWidth={1180}>
             <Table size="small">
-            <TableHead sx={{ bgcolor: "#1a237e" }}>
+            <TableHead>
               <TableRow>
                 {[
                   "#",
@@ -1969,7 +1980,7 @@ export default function Students() {
                   "Enrollment Fields",
                   "Actions",
                 ].map((h) => (
-                  <TableCell key={h} sx={{ color: "white", fontWeight: 700, fontSize: 13 }}>
+                  <TableCell key={h} sx={{ fontWeight: 700, fontSize: 13 }}>
                     {h}
                   </TableCell>
                 ))}
@@ -1977,7 +1988,7 @@ export default function Students() {
             </TableHead>
             <TableBody>
               {filtered.map((s, idx) => (
-                <TableRow key={s.id} hover sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}>
+                <TableRow key={s.id} hover>
                   <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>
                     {idx + 1}
                   </TableCell>
@@ -1987,7 +1998,7 @@ export default function Students() {
                         sx={{
                           width: 30,
                           height: 30,
-                          bgcolor: "#1a237e",
+                          bgcolor: "primary.main",
                           fontSize: 11,
                           fontWeight: 800,
                         }}
@@ -2007,7 +2018,7 @@ export default function Students() {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption" fontWeight={700} color="#1a237e" display="block">
+                    <Typography variant="caption" fontWeight={700} color="primary.main" display="block">
                       {s.admissionNo || "-"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
@@ -2100,7 +2111,15 @@ export default function Students() {
         fullWidth
         fullScreen={isMobile}
       >
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white", fontWeight: 700 }}>
+        <DialogTitle
+          sx={{
+            bgcolor: "background.paper",
+            color: "text.primary",
+            fontWeight: 800,
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
           {editId ? "Edit Student" : "Add Student"}
         </DialogTitle>
 
@@ -2619,7 +2638,7 @@ export default function Students() {
             variant="contained"
             disabled={saving}
             fullWidth={isMobile}
-            sx={{ bgcolor: "#1a237e", fontWeight: 700 }}
+            sx={{ fontWeight: 700 }}
           >
             {saving ? (
               <CircularProgress size={20} color="inherit" />

@@ -6,21 +6,24 @@ import {
   Avatar,
   Box,
   Button,
-  CircularProgress,
-  Grid,
-  Stack,
-  Typography,
-  useMediaQuery,
+  Card,
+  CardActionArea,
+  CardContent,
   Chip,
+  CircularProgress,
   Divider,
+  Grid,
+  LinearProgress,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
-  Card,
-  CardContent,
+  Typography,
+  useMediaQuery,
 } from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
 import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
 import GradingRoundedIcon from "@mui/icons-material/GradingRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
@@ -38,7 +41,6 @@ import {
   PageContainer,
   ResponsiveTableWrapper,
   SectionCard,
-  StatCard,
   StatusChip,
 } from "../components/ui";
 
@@ -82,7 +84,7 @@ function getInitials(name = "") {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase())
+    .map((word) => word[0]?.toUpperCase())
     .join("");
 }
 
@@ -98,58 +100,125 @@ function sortStudents(list) {
   });
 }
 
+function MetricTile({ title, value, helperText, icon, color = "primary", onClick }) {
+  const theme = useTheme();
+  const palette = theme.palette[color] || theme.palette.primary;
+
+  return (
+    <Card
+      sx={{
+        height: "100%",
+        borderRadius: 2,
+        boxShadow: "none",
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: "background.paper",
+      }}
+    >
+      <CardActionArea onClick={onClick} sx={{ height: "100%" }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 }, "&:last-child": { pb: { xs: 1.5, sm: 2 } } }}>
+          <Stack spacing={1.2}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+                {title}
+              </Typography>
+              <Box
+                sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 2,
+                  display: "grid",
+                  placeItems: "center",
+                  bgcolor: alpha(palette.main, 0.1),
+                  color: palette.main,
+                  flexShrink: 0,
+                }}
+              >
+                {icon}
+              </Box>
+            </Stack>
+            <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1 }}>
+              {value}
+            </Typography>
+            {helperText ? (
+              <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.25 }}>
+                {helperText}
+              </Typography>
+            ) : null}
+          </Stack>
+        </CardContent>
+      </CardActionArea>
+    </Card>
+  );
+}
+
 function QuickActionCard({ title, description, buttonText, onClick, icon }) {
   return (
     <Card
       sx={{
         height: "100%",
-        borderRadius: 4,
-        boxShadow: "0px 8px 24px rgba(15, 23, 42, 0.06)",
+        borderRadius: 2,
+        boxShadow: "none",
+        border: "1px solid",
+        borderColor: "divider",
       }}
     >
-      <CardContent sx={{ p: { xs: 2, sm: 2.25 } }}>
-        <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1.2} alignItems="center">
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 3,
-                display: "grid",
-                placeItems: "center",
-                bgcolor: "rgba(37,99,235,0.10)",
-                color: "primary.main",
-                flexShrink: 0,
-              }}
-            >
-              {icon}
-            </Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-              {title}
+      <CardActionArea onClick={onClick} sx={{ height: "100%" }}>
+        <CardContent sx={{ p: { xs: 1.75, sm: 2.25 }, "&:last-child": { pb: { xs: 1.75, sm: 2.25 } } }}>
+          <Stack spacing={1.35}>
+            <Stack direction="row" spacing={1.2} alignItems="center">
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2,
+                  display: "grid",
+                  placeItems: "center",
+                  bgcolor: "action.selected",
+                  color: "primary.main",
+                  flexShrink: 0,
+                }}
+              >
+                {icon}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 850, lineHeight: 1.2 }}>
+                  {title}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {buttonText}
+                </Typography>
+              </Box>
+              <ArrowForwardRoundedIcon color="primary" sx={{ ml: "auto" }} />
+            </Stack>
+
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.45 }}>
+              {description}
             </Typography>
           </Stack>
-
-          <Typography variant="body2" color="text.secondary">
-            {description}
-          </Typography>
-
-          <Button
-            variant="outlined"
-            endIcon={<ArrowForwardRoundedIcon />}
-            onClick={onClick}
-            fullWidth
-          >
-            {buttonText}
-          </Button>
-        </Stack>
-      </CardContent>
+        </CardContent>
+      </CardActionArea>
     </Card>
+  );
+}
+
+function SnapshotRow({ label, value }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
+        {value}
+      </Typography>
+    </Stack>
   );
 }
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
@@ -165,7 +234,7 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [studSnap, usersSnap, marksSnap, subjectsSnap, enrollmentsSnap] =
+        const [studentsSnap, usersSnap, marksSnap, subjectsSnap, enrollmentsSnap] =
           await Promise.all([
             getDocs(collection(db, "students")),
             getDocs(collection(db, "users")),
@@ -174,11 +243,11 @@ export default function Dashboard() {
             getDocs(collection(db, "studentSubjectEnrollments")),
           ]);
 
-        const loadedStudents = studSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const loadedUsers = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const loadedStudents = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const loadedUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
         setStudents(sortStudents(loadedStudents));
-        setTeachers(loadedUsers.filter((u) => normalizeLower(u.role) === "teacher"));
+        setTeachers(loadedUsers.filter((user) => normalizeLower(user.role) === "teacher"));
         setMarksCount(marksSnap.size);
         setSubjectsCount(subjectsSnap.size);
         setEnrollmentsCount(enrollmentsSnap.size);
@@ -194,76 +263,77 @@ export default function Dashboard() {
   }, []);
 
   const activeStudents = useMemo(
-    () => students.filter((s) => isActiveStudent(s)),
+    () => students.filter((student) => isActiveStudent(student)),
     [students]
   );
 
   const leftStudents = useMemo(
-    () => students.filter((s) => normalizeLower(getStudentStatus(s)) === "left"),
+    () => students.filter((student) => normalizeLower(getStudentStatus(student)) === "left"),
     [students]
   );
 
   const activeClassesCount = useMemo(() => {
     return new Set(
-      activeStudents.map((s) => `${parseGrade(s.grade)}-${getStudentSection(s)}`)
+      activeStudents.map((student) => `${parseGrade(student.grade)}-${getStudentSection(student)}`)
     ).size;
   }, [activeStudents]);
 
-  const recentStudents = useMemo(() => students.slice(0, 6), [students]);
+  const recentStudents = useMemo(() => students.slice(0, isMobile ? 4 : 6), [isMobile, students]);
+  const activePercent = students.length ? Math.round((activeStudents.length / students.length) * 100) : 0;
 
-  const statCards = [
+  const metricCards = [
     {
       title: "Students",
       value: students.length,
       helperText: `${activeStudents.length} active`,
-      icon: <PeopleRoundedIcon />,
+      icon: <PeopleRoundedIcon fontSize="small" />,
       color: "primary",
       onClick: () => navigate("/students"),
     },
     {
       title: "Teachers",
       value: teachers.length,
-      helperText: "From users",
-      icon: <PersonRoundedIcon />,
-      color: "success",
+      helperText: "User accounts",
+      icon: <PersonRoundedIcon fontSize="small" />,
+      color: "secondary",
       onClick: () => navigate("/teachers"),
     },
     {
-      title: "Marks Records",
+      title: "Marks",
       value: marksCount,
-      helperText: "Saved documents",
-      icon: <GradingRoundedIcon />,
+      helperText: "Saved records",
+      icon: <GradingRoundedIcon fontSize="small" />,
       color: "warning",
       onClick: () => navigate("/marks"),
     },
     {
-      title: "Active Classes",
+      title: "Classes",
       value: activeClassesCount,
-      helperText: "Based on active students",
-      icon: <AssessmentRoundedIcon />,
-      color: "secondary",
+      helperText: "Active sections",
+      icon: <AssessmentRoundedIcon fontSize="small" />,
+      color: "success",
       onClick: () => navigate("/students"),
     },
   ];
 
   const quickActions = [
     {
-      title: "Manage Students",
-      description: "Add, edit, bulk upload, and maintain student records.",
+      title: "Students",
+      description: "Add records, bulk upload, edit details, and maintain class data.",
       buttonText: "Open Students",
       onClick: () => navigate("/students"),
       icon: <PeopleRoundedIcon />,
     },
     {
-      title: "Subject Definitions",
+      title: "Subjects",
       description: "Manage core, religion, aesthetic, basket, and A/L subject setup.",
       buttonText: "Open Subjects",
       onClick: () => navigate("/subjects"),
       icon: <MenuBookRoundedIcon />,
     },
     {
-      title: "Generate Enrollments",
-      description: "Rebuild or generate student subject enrollments safely.",
+      title: "Enrollments",
+      description: "Generate or rebuild student subject enrollments safely.",
       buttonText: "Open Enrollments",
       onClick: () => navigate("/student-subject-enrollments"),
       icon: <AutoFixHighRoundedIcon />,
@@ -272,10 +342,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <PageContainer
-        title="Admin Dashboard"
-        subtitle="Loading overview of the Kilinochchi Marks Management System..."
-      >
+      <PageContainer maxWidth="lg" sx={{ pb: { xs: 10, md: 3 } }}>
         <SectionCard>
           <Stack alignItems="center" spacing={2} py={6}>
             <CircularProgress />
@@ -289,114 +356,113 @@ export default function Dashboard() {
   }
 
   return (
-    <PageContainer
-      title="Admin Dashboard"
-      subtitle="Overview of the Kilinochchi Marks Management System"
-    >
-      <Stack spacing={2}>
+    <PageContainer maxWidth="xl" sx={{ pb: { xs: 10, md: 3 } }}>
+      <Stack spacing={{ xs: 1.5, md: 2 }}>
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
-        <SectionCard
+        <Card
           sx={{
-            background:
-              "linear-gradient(135deg, rgba(29,78,216,0.08) 0%, rgba(15,118,110,0.05) 100%)",
+            borderRadius: 2,
+            boxShadow: "none",
+            border: "1px solid",
+            borderColor: "divider",
+            overflow: "hidden",
+            background: {
+              xs: "background.paper",
+              md: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(
+                theme.palette.secondary.main,
+                0.08
+              )} 100%)`,
+            },
           }}
         >
-          <Stack spacing={2}>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
-            >
-              <Box>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                  <SchoolRoundedIcon color="primary" />
-                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                    School Overview
-                  </Typography>
+          <CardContent sx={{ p: { xs: 1.75, sm: 2.5, md: 3 }, "&:last-child": { pb: { xs: 1.75, sm: 2.5, md: 3 } } }}>
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", md: "center" }}
+                spacing={2}
+              >
+                <Stack direction="row" spacing={1.4} alignItems="center">
+                  <Box
+                    sx={{
+                      width: { xs: 44, md: 52 },
+                      height: { xs: 44, md: 52 },
+                      borderRadius: 2,
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: "primary.main",
+                      color: "primary.contrastText",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <SchoolRoundedIcon />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant={isMobile ? "h6" : "h5"} sx={{ fontWeight: 900, lineHeight: 1.15 }}>
+                      Admin Dashboard
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                      Kilinochchi Marks Management System
+                    </Typography>
+                  </Box>
                 </Stack>
 
-                <Typography variant="body2" color="text.secondary">
-                  Core system summary, quick access, and recent student activity.
-                </Typography>
+                <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
+                  <Button
+                    variant="contained"
+                    onClick={() => navigate("/marks")}
+                    fullWidth={isMobile}
+                    endIcon={<ArrowForwardRoundedIcon />}
+                  >
+                    Marks
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => navigate("/subject-analysis")}
+                    fullWidth={isMobile}
+                  >
+                    Analysis
+                  </Button>
+                </Stack>
+              </Stack>
+
+              <Box>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
+                    Active student coverage
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 850 }}>
+                    {activePercent}%
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={activePercent}
+                  sx={{ height: 7, borderRadius: 999, bgcolor: alpha(theme.palette.primary.main, 0.12) }}
+                />
               </Box>
 
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={1}
-                sx={{ width: { xs: "100%", md: "auto" } }}
-              >
-                <Button
-                  variant="contained"
-                  onClick={() => navigate("/marks")}
-                  fullWidth={isMobile}
-                >
-                  Open Marks Entry
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={() => navigate("/terms")}
-                  fullWidth={isMobile}
-                >
-                  Academic Terms
-                </Button>
-              </Stack>
-            </Stack>
-
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip
-                icon={<CheckCircleRoundedIcon />}
-                label={`${activeStudents.length} Active Students`}
-                color="success"
-              />
-              <Chip
-                icon={<WarningAmberRoundedIcon />}
-                label={`${leftStudents.length} Left Students`}
-                color="warning"
-              />
-              <Chip label={`${subjectsCount} Subjects`} color="primary" variant="outlined" />
-              <Chip label={`${enrollmentsCount} Enrollments`} color="secondary" variant="outlined" />
-            </Stack>
-          </Stack>
-        </SectionCard>
-
-        {isMobile ? (
-          <SectionCard>
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
-                Quick Summary
-              </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                {statCards.map((card) => (
-                  <StatusChip
-                    key={card.title}
-                    status="active"
-                    label={`${card.title}: ${card.value}`}
-                  />
-                ))}
+                <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudents.length} active`} color="success" />
+                <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudents.length} left`} color="warning" />
+                <Chip label={`${subjectsCount} subjects`} variant="outlined" color="primary" />
+                <Chip label={`${enrollmentsCount} enrollments`} variant="outlined" color="secondary" />
               </Stack>
             </Stack>
-          </SectionCard>
-        ) : (
-          <Grid container spacing={1.5}>
-            {statCards.map((card) => (
-              <Grid item xs={6} md={3} key={card.title}>
-                <StatCard
-                  title={card.title}
-                  value={card.value}
-                  helperText={card.helperText}
-                  icon={card.icon}
-                  color={card.color}
-                  sx={{ cursor: "pointer", height: "100%" }}
-                  onClick={card.onClick}
-                />
-              </Grid>
-            ))}
-          </Grid>
-        )}
+          </CardContent>
+        </Card>
 
-        <Grid container spacing={1.5}>
+        <Grid container spacing={1.25}>
+          {metricCards.map((card) => (
+            <Grid item xs={6} md={3} key={card.title}>
+              <MetricTile {...card} />
+            </Grid>
+          ))}
+        </Grid>
+
+        <Grid container spacing={1.25}>
           {quickActions.map((item) => (
             <Grid item xs={12} md={4} key={item.title}>
               <QuickActionCard {...item} />
@@ -404,7 +470,7 @@ export default function Dashboard() {
           ))}
         </Grid>
 
-        <Grid container spacing={1.5} alignItems="stretch">
+        <Grid container spacing={1.25} alignItems="stretch">
           <Grid item xs={12} lg={7}>
             <SectionCard
               title="Recent Students"
@@ -424,10 +490,11 @@ export default function Dashboard() {
                   description="Add students to start using the marks system."
                 />
               ) : isMobile ? (
-                <Stack spacing={1.25}>
-                  {recentStudents.slice(0, 4).map((student) => (
+                <Stack spacing={1}>
+                  {recentStudents.map((student) => (
                     <MobileListRow
                       key={student.id}
+                      compact
                       title={getStudentName(student)}
                       subtitle={[
                         student.admissionNo || "No admission no",
@@ -436,25 +503,18 @@ export default function Dashboard() {
                       right={
                         <Avatar
                           sx={{
-                            width: 52,
-                            height: 52,
+                            width: 42,
+                            height: 42,
                             bgcolor: "primary.main",
-                            fontSize: 20,
-                            fontWeight: 800,
+                            fontSize: 16,
+                            fontWeight: 850,
                           }}
                         >
                           {getInitials(getStudentName(student))}
                         </Avatar>
                       }
                       footer={
-                        <Stack
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="center"
-                          spacing={1}
-                          flexWrap="wrap"
-                          useFlexGap
-                        >
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                           <StatusChip
                             status={isActiveStudent(student) ? "active" : "inactive"}
                             label={getStudentStatus(student)}
@@ -464,7 +524,7 @@ export default function Dashboard() {
                             variant="outlined"
                             onClick={() => navigate(`/report/${student.id}`)}
                           >
-                            View Report
+                            Report
                           </Button>
                         </Stack>
                       }
@@ -487,7 +547,7 @@ export default function Dashboard() {
                     <TableBody>
                       {recentStudents.map((student) => (
                         <TableRow key={student.id} hover>
-                          <TableCell>{student.admissionNo || "—"}</TableCell>
+                          <TableCell>{student.admissionNo || "-"}</TableCell>
                           <TableCell>
                             <Stack direction="row" spacing={1.2} alignItems="center">
                               <Avatar
@@ -496,18 +556,18 @@ export default function Dashboard() {
                                   height: 32,
                                   bgcolor: "primary.main",
                                   fontSize: 12,
-                                  fontWeight: 800,
+                                  fontWeight: 850,
                                 }}
                               >
                                 {getInitials(getStudentName(student))}
                               </Avatar>
-                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 750 }}>
                                 {getStudentName(student)}
                               </Typography>
                             </Stack>
                           </TableCell>
                           <TableCell>{`G${parseGrade(student.grade)}`}</TableCell>
-                          <TableCell>{getStudentSection(student) || "—"}</TableCell>
+                          <TableCell>{getStudentSection(student) || "-"}</TableCell>
                           <TableCell>
                             <StatusChip
                               status={isActiveStudent(student) ? "active" : "inactive"}
@@ -539,107 +599,38 @@ export default function Dashboard() {
               sx={{ height: "100%" }}
             >
               <Stack spacing={1.25}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Active students
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {activeStudents.length}
-                  </Typography>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Left students
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {leftStudents.length}
-                  </Typography>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Teachers
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {teachers.length}
-                  </Typography>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Subject definitions
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {subjectsCount}
-                  </Typography>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Subject enrollments
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {enrollmentsCount}
-                  </Typography>
-                </Stack>
-
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2" color="text.secondary">
-                    Marks documents
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {marksCount}
-                  </Typography>
-                </Stack>
+                <SnapshotRow label="Active students" value={activeStudents.length} />
+                <SnapshotRow label="Left students" value={leftStudents.length} />
+                <SnapshotRow label="Teachers" value={teachers.length} />
+                <SnapshotRow label="Subject definitions" value={subjectsCount} />
+                <SnapshotRow label="Subject enrollments" value={enrollmentsCount} />
+                <SnapshotRow label="Marks documents" value={marksCount} />
               </Stack>
 
               <Divider sx={{ my: 2 }} />
 
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.25 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 850, mb: 1.25 }}>
                 Quick Links
               </Typography>
 
               <Stack spacing={1}>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => navigate("/subjects")}
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  Subject Management
-                </Button>
-
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => navigate("/assignments")}
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  Teacher Assignments
-                </Button>
-
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => navigate("/classrooms")}
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  Classrooms
-                </Button>
-
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  onClick={() => navigate("/student-subject-enrollments")}
-                  endIcon={<ArrowForwardRoundedIcon />}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  Subject Enrollments
-                </Button>
+                {[
+                  ["Subject Management", "/subjects"],
+                  ["Teacher Assignments", "/assignments"],
+                  ["Classrooms", "/classrooms"],
+                  ["Subject Enrollments", "/student-subject-enrollments"],
+                ].map(([label, path]) => (
+                  <Button
+                    key={path}
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => navigate(path)}
+                    endIcon={<ArrowForwardRoundedIcon />}
+                    sx={{ justifyContent: "space-between" }}
+                  >
+                    {label}
+                  </Button>
+                ))}
               </Stack>
             </SectionCard>
           </Grid>

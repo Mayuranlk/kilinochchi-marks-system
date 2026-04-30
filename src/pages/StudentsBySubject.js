@@ -704,7 +704,6 @@ export default function StudentsBySubject() {
           size={isMobile ? "small" : "medium"}
           variant="outlined"
           fullWidth={isMobile}
-          sx={{ color: "#1a237e", borderColor: "#1a237e" }}
         >
           Back
         </Button>
@@ -720,11 +719,12 @@ export default function StudentsBySubject() {
       <Box
         mb={2}
         sx={{
-          bgcolor: "white",
-          borderRadius: 3,
+          bgcolor: "background.paper",
+          borderRadius: 2,
           p: 2,
-          boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
-          border: "1px solid #e8eaf6",
+          boxShadow: "none",
+          border: "1px solid",
+          borderColor: "divider",
         }}
       >
         <ToggleButtonGroup
@@ -744,9 +744,9 @@ export default function StudentsBySubject() {
             sx={{
               fontWeight: 600,
               "&.Mui-selected": {
-                bgcolor: "#1a237e",
+                bgcolor: "primary.main",
                 color: "white",
-                "&:hover": { bgcolor: "#283593" },
+                "&:hover": { bgcolor: "primary.dark" },
               },
             }}
           >
@@ -759,9 +759,9 @@ export default function StudentsBySubject() {
             sx={{
               fontWeight: 600,
               "&.Mui-selected": {
-                bgcolor: "#1a237e",
+                bgcolor: "primary.main",
                 color: "white",
-                "&:hover": { bgcolor: "#283593" },
+                "&:hover": { bgcolor: "primary.dark" },
               },
             }}
           >
@@ -785,9 +785,11 @@ export default function StudentsBySubject() {
       <Card
         sx={{
           mb: 2,
-          bgcolor: "#f8f9ff",
-          border: "1px solid #e8eaf6",
-          borderRadius: 3,
+          bgcolor: "background.paper",
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          boxShadow: "none",
         }}
       >
         <CardContent sx={{ pb: "16px !important" }}>
@@ -872,7 +874,6 @@ export default function StudentsBySubject() {
                 onClick={handleSearch}
                 disabled={!subject || loading}
                 sx={{
-                  bgcolor: "#1a237e",
                   height: 40,
                   fontWeight: 700,
                   borderRadius: 2,
@@ -895,11 +896,12 @@ export default function StudentsBySubject() {
               mb={1.5}
               flexWrap="wrap"
               sx={{
-                bgcolor: "white",
-                borderRadius: 3,
+                bgcolor: "background.paper",
+                borderRadius: 2,
                 p: 1.5,
-                border: "1px solid #e8eaf6",
-                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "none",
               }}
             >
               <Chip
@@ -911,7 +913,7 @@ export default function StudentsBySubject() {
                   fontWeight: 700,
                 }}
               />
-              <Typography variant="body2" fontWeight={700} color="#1a237e">
+              <Typography variant="body2" fontWeight={700} color="text.primary">
                 {selectedSubjectLabel}
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -928,17 +930,18 @@ export default function StudentsBySubject() {
           {isMobile ? (
             <Box
               sx={{
-                bgcolor: "white",
-                borderRadius: 3,
+                bgcolor: "background.paper",
+                borderRadius: 2,
                 p: 1.5,
                 mb: 2,
-                border: "1px solid #e8eaf6",
-                boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "none",
               }}
             >
               <Typography
                 variant="subtitle2"
-                sx={{ fontWeight: 800, color: "#1a237e", mb: 1 }}
+                sx={{ fontWeight: 800, color: "text.primary", mb: 1 }}
               >
                 Quick Summary
               </Typography>
@@ -1012,7 +1015,7 @@ export default function StudentsBySubject() {
               sx: { borderRadius: 2 },
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon fontSize="small" sx={{ color: "#1a237e" }} />
+                  <SearchIcon fontSize="small" color="primary" />
                 </InputAdornment>
               ),
             }}
@@ -1085,8 +1088,9 @@ export default function StudentsBySubject() {
                             sx={{
                               p: 1,
                               borderRadius: 2,
-                              bgcolor: "#f8f9ff",
-                              border: "1px solid #e8eaf6",
+                              bgcolor: "action.hover",
+                              border: "1px solid",
+                              borderColor: "divider",
                             }}
                           >
                             <Stack
@@ -1121,7 +1125,6 @@ export default function StudentsBySubject() {
                           fullWidth
                           startIcon={<AssessmentIcon />}
                           onClick={() => navigate(`/report/${student.id}`)}
-                          sx={{ borderColor: "#1a237e", color: "#1a237e" }}
                         >
                           View Report
                         </Button>
@@ -1134,15 +1137,17 @@ export default function StudentsBySubject() {
           ) : (
             <Paper
               sx={{
-                borderRadius: 3,
-                boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
+                borderRadius: 2,
+                boxShadow: "none",
+                border: "1px solid",
+                borderColor: "divider",
                 overflow: "hidden",
               }}
             >
               <ResponsiveTableWrapper minWidth={860}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: "#1a237e" }}>
+                    <TableRow>
                       {[
                         "#",
                         "Student",
@@ -1153,7 +1158,6 @@ export default function StudentsBySubject() {
                         <TableCell
                           key={heading}
                           sx={{
-                            color: "white",
                             fontWeight: 700,
                             fontSize: { xs: 11, sm: 13 },
                             whiteSpace: "nowrap",
@@ -1172,11 +1176,7 @@ export default function StudentsBySubject() {
                       const alStudent = isALGrade(studentGrade);
 
                       return (
-                        <TableRow
-                          key={student.id}
-                          hover
-                          sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
-                        >
+                        <TableRow key={student.id} hover>
                           <TableCell sx={{ fontSize: { xs: 12, sm: 14 } }}>
                             {mode === "marks" ? (
                               <Avatar
@@ -1191,8 +1191,8 @@ export default function StudentsBySubject() {
                                       ? "#c0c0c0"
                                       : idx === 2
                                       ? "#cd7f32"
-                                      : "#e8eaf6",
-                                  color: idx < 3 ? "#000" : "#1a237e",
+                                      : "action.selected",
+                                  color: idx < 3 ? "#000" : "primary.main",
                                 }}
                               >
                                 {idx + 1}
@@ -1296,8 +1296,6 @@ export default function StudentsBySubject() {
                               sx={{
                                 fontSize: 13,
                                 px: 2,
-                                borderColor: "#1a237e",
-                                color: "#1a237e",
                               }}
                             >
                               Report
