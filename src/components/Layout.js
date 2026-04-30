@@ -129,6 +129,7 @@ export default function Layout() {
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
+        { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "NEW" },
       ],
     },
     {

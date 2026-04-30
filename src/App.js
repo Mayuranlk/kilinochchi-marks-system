@@ -34,6 +34,7 @@ const TeacherMarkSheets = lazy(() => import("./pages/TeacherMarkSheets"));
 const ReportCard = lazy(() => import("./pages/ReportCard"));
 const ClassReport = lazy(() => import("./pages/ClassReport"));
 const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports"));
+const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
 const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
@@ -307,6 +308,16 @@ export default function App() {
                   <AdminRoute>
                     <LazyRoute>
                       <ClassMarksReports />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="subject-analysis"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <SubjectAnalysis />
                     </LazyRoute>
                   </AdminRoute>
                 }
