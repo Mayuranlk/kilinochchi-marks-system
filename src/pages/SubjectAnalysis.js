@@ -68,10 +68,14 @@ const RANGE_BANDS = [
   { key: "90-100", min: 90, max: 100 },
 ];
 
+const LOW_MARK_BANDS = RANGE_BANDS.filter((band) => band.max <= 34);
+
 const TAB_CONFIG = [
   { value: "grade", label: "Grade Subject Analysis" },
   { value: "class", label: "Class Subject Analysis" },
   { value: "range", label: "Subject Mark Range" },
+  { value: "threeCThreeS", label: "Below 3C 3S List" },
+  { value: "lowMarks", label: "Low Mark Students" },
   { value: "sheet", label: "A3 Grading Sheet" },
 ];
 
@@ -223,9 +227,24 @@ function getSubjectKey(row = {}) {
 
 function getA3SubjectConfig(subjectName = "") {
   const value = normalize(subjectName);
-  return A3_SUBJECT_ORDER.find((item) =>
-    item.aliases.some((alias) => value === alias || value.includes(alias))
-  ) || null;
+  const matches = A3_SUBJECT_ORDER.flatMap((item, index) =>
+    item.aliases
+      .filter((alias) => value === alias || value.includes(alias))
+      .map((alias) => ({
+        item,
+        index,
+        aliasLength: alias.length,
+        exact: value === alias,
+      }))
+  );
+
+  matches.sort((a, b) => {
+    if (a.exact !== b.exact) return a.exact ? -1 : 1;
+    if (a.aliasLength !== b.aliasLength) return b.aliasLength - a.aliasLength;
+    return a.index - b.index;
+  });
+
+  return matches[0]?.item || null;
 }
 
 function getSubjectGroupKey(subject = {}) {
@@ -273,9 +292,8 @@ function getSubjectGroupOrder(groupKey) {
 
 function getA3SubjectOrder(subject = {}) {
   const subjectName = getSubjectName(subject) || subject.subjectName || "";
-  const configuredIndex = A3_SUBJECT_ORDER.findIndex((item) =>
-    item.aliases.some((alias) => normalize(subjectName) === alias || normalize(subjectName).includes(alias))
-  );
+  const configured = getA3SubjectConfig(subjectName);
+  const configuredIndex = configured ? A3_SUBJECT_ORDER.indexOf(configured) : -1;
 
   if (configuredIndex >= 0) return configuredIndex + 1;
   return getSubjectGroupOrder(subject.groupKey || getSubjectGroupKey(subject)) * 100;
@@ -297,9 +315,13 @@ function getA3SubjectLabel(subject = {}) {
 }
 
 function getA3CanonicalSubjectKey(subject = {}) {
-  const label = getA3SubjectLabel(subject);
+  const configured = getA3SubjectConfig(subject.subjectName || getSubjectName(subject));
   const groupKey = subject.groupKey || getSubjectGroupKey(subject);
-  return `${groupKey}__${normalize(label)}`;
+  if (configured) {
+    return `${groupKey}__${normalize(configured.shortLabel)}`;
+  }
+
+  return `${groupKey}__${getSubjectKey(subject)}`;
 }
 
 function getEnrollmentClassName(enrollment = {}) {
@@ -483,6 +505,96 @@ function createRangeStatsPdf({ title, context, rows }) {
     columnStyles: {
       0: { cellWidth: 52, halign: "left", fontStyle: "bold" },
       1: { cellWidth: 16 },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
+function createThreeCThreeSPdf({ title, context, rows }) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["No", "Name", "Grade", "Division", "Results", "W Subjects"]],
+    body: rows.map((row, index) => [
+      index + 1,
+      row.studentName,
+      row.grade,
+      row.division,
+      row.resultCode || "-",
+      row.wSubjects || "-",
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7.4,
+      cellPadding: 1.1,
+      valign: "middle",
+      halign: "center",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      1: { cellWidth: 58, halign: "left", fontStyle: "bold" },
+      5: { cellWidth: 110, halign: "left" },
+    },
+    didParseCell: (data) => {
+      if (data.section === "body" && data.column.index === 5 && rows[data.row.index]?.hasCoreWSubject) {
+        data.cell.styles.fontStyle = "bold";
+      }
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
+function createLowMarkStudentsPdf({ title, context, rows }) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["No", "Range", "Name", "Marks", "Grade", "Division"]],
+    body: rows.map((row, index) => [
+      index + 1,
+      row.rangeKey,
+      row.studentName,
+      row.mark,
+      row.grade,
+      row.division,
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.2,
+      valign: "middle",
+      halign: "center",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      2: { cellWidth: 72, halign: "left", fontStyle: "bold" },
     },
     margin: { left: 8, right: 8 },
   });
@@ -838,6 +950,108 @@ function buildSheetRows(records, subjects) {
     });
 }
 
+function getDivisionFromClassName(className = "") {
+  return normalizeSection(className);
+}
+
+function getThreeCThreeSStatus(student, subjects) {
+  const subjectResults = subjects.map((subject) => ({
+    subjectName: subject.shortLabel || subject.subjectName,
+    groupKey: subject.groupKey || getSubjectGroupKey(subject),
+    ...(student.results[subject.subjectKey] || {}),
+  }));
+
+  const creditOrAboveCount = subjectResults.filter((result) =>
+    ["A", "B", "C"].includes(result.symbol)
+  ).length;
+  const passOrAboveCount = subjectResults.filter((result) =>
+    isPassOrAbove(result.symbol)
+  ).length;
+  const wSubjects = subjectResults
+    .filter((result) => result.symbol === "W")
+    .map((result) => ({
+      name: result.subjectName,
+      isCore: result.groupKey === "core",
+    }))
+    .filter((subject) => subject.name);
+
+  const wSubjectNames = wSubjects
+    .map((subject) => subject.name)
+    .filter(Boolean);
+
+  return {
+    creditOrAboveCount,
+    passOrAboveCount,
+    wSubjects,
+    wSubjectNames,
+    hasCoreWSubject: wSubjects.some((subject) => subject.isCore),
+    achieved: creditOrAboveCount >= 3 && passOrAboveCount >= 6,
+  };
+}
+
+function buildThreeCThreeSRows(rows, subjects) {
+  return rows
+    .map((row) => {
+      const status = getThreeCThreeSStatus(row, subjects);
+      return {
+        ...row,
+        grade: parseGrade(row.className),
+        division: getDivisionFromClassName(row.className),
+        wSubjectItems: status.wSubjects,
+        wSubjects: status.wSubjectNames.join(", "),
+        hasCoreWSubject: status.hasCoreWSubject,
+        threeCThreeS: status,
+      };
+    })
+    .filter((row) => !row.threeCThreeS.achieved)
+    .sort((a, b) => {
+      const classDiff = a.className.localeCompare(b.className, undefined, { numeric: true });
+      if (classDiff !== 0) return classDiff;
+      const indexDiff = clean(a.indexNo).localeCompare(clean(b.indexNo), undefined, { numeric: true });
+      if (indexDiff !== 0) return indexDiff;
+      return a.studentName.localeCompare(b.studentName);
+    });
+}
+
+function getLowMarkBand(mark) {
+  const number = Number(mark);
+  if (!Number.isFinite(number)) return null;
+  return LOW_MARK_BANDS.find((band) => number >= band.min && number <= band.max) || null;
+}
+
+function buildLowMarkStudentRows(records, selectedSubjectKey) {
+  if (!selectedSubjectKey || selectedSubjectKey === ALL) return [];
+
+  return records
+    .filter((record) => record.subjectKey === selectedSubjectKey)
+    .map((record) => {
+      const band = getLowMarkBand(record.mark);
+      if (!band) return null;
+
+      return {
+        studentId: record.studentId,
+        studentName: record.studentName,
+        grade: record.grade,
+        division: record.section || getDivisionFromClassName(record.className),
+        className: record.className,
+        subjectName: record.subjectName,
+        mark: record.mark,
+        symbol: getGradeSymbol(record.mark),
+        rangeKey: band.key,
+        rangeOrder: LOW_MARK_BANDS.findIndex((item) => item.key === band.key),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.rangeOrder !== b.rangeOrder) return a.rangeOrder - b.rangeOrder;
+      const markDiff = Number(a.mark) - Number(b.mark);
+      if (markDiff !== 0) return markDiff;
+      const classDiff = a.className.localeCompare(b.className, undefined, { numeric: true });
+      if (classDiff !== 0) return classDiff;
+      return a.studentName.localeCompare(b.studentName);
+    });
+}
+
 export default function SubjectAnalysis() {
   const [tab, setTab] = useState("grade");
   const [loading, setLoading] = useState(false);
@@ -1091,6 +1305,16 @@ export default function SubjectAnalysis() {
     return buildSheetRows(sourceRecords, sheetSubjects);
   }, [gradeRecords, classRecords, selectedClass, sheetSubjects]);
 
+  const threeCThreeSRows = useMemo(
+    () => buildThreeCThreeSRows(sheetRows, sheetSubjects),
+    [sheetRows, sheetSubjects]
+  );
+
+  const lowMarkStudentRows = useMemo(() => {
+    const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
+    return buildLowMarkStudentRows(sourceRecords, selectedSubject);
+  }, [gradeRecords, classRecords, selectedClass, selectedSubject]);
+
   const selectedRecordsForStats = useMemo(() => {
     if (tab === "grade") return gradeRecords;
     return selectedClass === ALL ? gradeRecords : classRecords;
@@ -1296,6 +1520,31 @@ export default function SubjectAnalysis() {
                 context={shareContext}
                 onPrint={() => handlePrint("subject-range-analysis", "A4 landscape")}
                 rows={rangeRows}
+              />
+            )}
+
+            {tab === "threeCThreeS" && (
+              <ThreeCThreeSReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Below 3C 3S List`}
+                reportId="below-3c-3s-list"
+                activePrint={printTarget === "below-3c-3s-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("below-3c-3s-list", "A4 landscape")}
+                rows={threeCThreeSRows}
+              />
+            )}
+
+            {tab === "lowMarks" && (
+              <LowMarkStudentsReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                  selectedSubjectName || "Selected Subject"
+                } Low Mark Students`}
+                reportId="low-mark-students"
+                activePrint={printTarget === "low-mark-students"}
+                context={shareContext}
+                onPrint={() => handlePrint("low-mark-students", "A4 portrait")}
+                rows={lowMarkStudentRows}
+                selectedSubject={selectedSubject}
               />
             )}
 
@@ -1605,6 +1854,146 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                   {RANGE_BANDS.map((band) => (
                     <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
                   ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ResponsiveTableWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ThreeCThreeSReport({ title, rows, reportId, activePrint, context, onPrint }) {
+  if (!rows.length) {
+    return (
+      <EmptyState
+        title="No below 3C 3S students"
+        description="Every listed student in this scope has at least 3 credits and 6 passes."
+      />
+    );
+  }
+
+  const createPdf = () => createThreeCThreeSPdf({ title, context, rows });
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={createPdf}
+          extra="Below 3C 3S means fewer than 3 A/B/C results or fewer than 6 A/B/C/S passes."
+        />
+        <ReportHeader title={title} context={context} />
+        <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Grade</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Division</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Results</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>W Subjects</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row, index) => (
+                <TableRow key={row.studentId || `${row.studentName}-${index}`} hover>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell align="center">{row.grade}</TableCell>
+                  <TableCell align="center">{row.division}</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
+                  <TableCell>
+                    {row.wSubjectItems?.length ? (
+                      row.wSubjectItems.map((subject, subjectIndex) => (
+                        <React.Fragment key={`${row.studentId}-${subject.name}-${subjectIndex}`}>
+                          {subjectIndex > 0 ? ", " : ""}
+                          <Box component="span" sx={{ fontWeight: subject.isCore ? 800 : 400 }}>
+                            {subject.name}
+                          </Box>
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      "-"
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ResponsiveTableWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LowMarkStudentsReport({
+  title,
+  rows,
+  reportId,
+  activePrint,
+  context,
+  onPrint,
+  selectedSubject,
+}) {
+  if (selectedSubject === ALL) {
+    return (
+      <EmptyState
+        title="Select a subject"
+        description="Choose one subject to list students in the 0-9, 10-19, 20-29, and 30-34 mark ranges."
+      />
+    );
+  }
+
+  if (!rows.length) {
+    return (
+      <EmptyState
+        title="No low-mark students"
+        description="No students were found in the 0-34 mark range for this subject and scope."
+      />
+    );
+  }
+
+  const createPdf = () => createLowMarkStudentsPdf({ title, context, rows });
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={createPdf}
+          extra="Low mark ranges: 0-9, 10-19, 20-29, 30-34."
+        />
+        <ReportHeader title={title} context={context} />
+        <ResponsiveTableWrapper minWidth={820} sx={borderedReportTableSx}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Range</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 800 }}>Marks</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Grade</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Division</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row, index) => (
+                <TableRow key={`${row.studentId}-${row.rangeKey}-${index}`} hover>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell align="center">{row.rangeKey}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell align="right">{formatNumber(row.mark, 0)}</TableCell>
+                  <TableCell align="center">{row.grade}</TableCell>
+                  <TableCell align="center">{row.division}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
