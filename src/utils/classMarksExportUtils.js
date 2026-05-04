@@ -16,6 +16,8 @@ import {
 } from "./reportMappingUtils";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
+const OL_TITLE = "G.C.E O/L Examination";
+const KCC_LOGO_URL = `${process.env.PUBLIC_URL || ""}/kcc-logo.png`;
 const A4_LANDSCAPE_WIDTH_MM = 297;
 
 function safeText(value) {
@@ -46,6 +48,178 @@ function sanitizeFilenamePart(value) {
     .trim()
     .replace(/[\\/:*?"<>|]+/g, "_")
     .replace(/\s+/g, "_");
+}
+
+function getOlGradeLetter(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (String(value).toUpperCase() === "AB") return "AB";
+
+  const mark = Number(value);
+  if (!Number.isFinite(mark)) return "";
+  if (mark >= 75) return "A";
+  if (mark >= 65) return "B";
+  if (mark >= 55) return "C";
+  if (mark >= 40) return "S";
+  return "W";
+}
+
+function getLogoDataUrl(src = KCC_LOGO_URL) {
+  return new Promise((resolve) => {
+    if (!src) {
+      resolve("");
+      return;
+    }
+
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    image.onerror = () => resolve("");
+    image.src = src;
+  });
+}
+
+function getStudentResultRows(reportData, row) {
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const eligibleKeys = new Set(row.eligibleColumnKeys || []);
+
+  return flatColumns
+    .filter((column) => eligibleKeys.has(column.key))
+    .map((column) => {
+      const mark = row.absencesByColumn?.[column.key]
+        ? "AB"
+        : row.marksByColumn?.[column.key];
+
+      return [
+        String(column.label || "").toUpperCase(),
+        getOlGradeLetter(mark),
+      ];
+    })
+    .filter(([, result]) => result !== "");
+}
+
+function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const centerX = pageWidth / 2;
+
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", centerX - 11, 12, 22, 22);
+  }
+
+  doc.setTextColor(32, 44, 58);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Kilinochchi Central College", centerX, 43, { align: "center" });
+
+  doc.setFontSize(18);
+  doc.text(OL_TITLE, centerX, 58, { align: "center" });
+
+  const detailRows = [
+    ["Examination", OL_TITLE],
+    ["Year", safeText(reportData.year)],
+    ["Term", safeText(reportData.termName)],
+    ["Name", safeText(row.studentName).toUpperCase()],
+    ["Index Number", safeText(row.studentIndexNo || row.studentId)],
+    ["Class", safeText(reportData.className)],
+  ];
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  let detailY = 73;
+  detailRows.forEach(([label, value]) => {
+    doc.setFont("helvetica", "normal");
+    doc.text(label, centerX - 10, detailY, { align: "right" });
+    doc.setFont("helvetica", label === "Name" ? "bold" : "normal");
+    doc.text(value, centerX + 4, detailY);
+    detailY += 6;
+  });
+}
+
+function drawOlResultFooter(doc) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(
+    "Please note that this school result sheet is generated for internal academic use only.",
+    pageWidth / 2,
+    pageHeight - 32,
+    { align: "center" }
+  );
+  doc.text(
+    "Copyright (c) Kilinochchi Central College",
+    pageWidth / 2,
+    pageHeight - 23,
+    { align: "center" }
+  );
+}
+
+function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
+  drawOlResultHeader(doc, reportData, row, logoDataUrl);
+
+  autoTable(doc, {
+    startY: 111,
+    head: [["Subject", "Result"]],
+    body: getStudentResultRows(reportData, row),
+    theme: "plain",
+    margin: { left: 0, right: 0 },
+    tableWidth: doc.internal.pageSize.getWidth(),
+    styles: {
+      font: "helvetica",
+      fontSize: 8.5,
+      cellPadding: { top: 5, right: 18, bottom: 5, left: 18 },
+      lineWidth: 0.08,
+      lineColor: [232, 232, 232],
+      textColor: [32, 44, 58],
+      valign: "middle",
+    },
+    headStyles: {
+      fillColor: [208, 206, 206],
+      textColor: [32, 44, 58],
+      fontStyle: "bold",
+      halign: "center",
+    },
+    alternateRowStyles: {
+      fillColor: [248, 248, 248],
+    },
+    columnStyles: {
+      0: { halign: "right", cellWidth: doc.internal.pageSize.getWidth() * 0.485 },
+      1: { halign: "left", cellWidth: doc.internal.pageSize.getWidth() * 0.515 },
+    },
+  });
+
+  drawOlResultFooter(doc);
+}
+
+function ensureGradeElevenReport(reportData) {
+  if (Number(reportData?.grade) !== 11) {
+    throw new Error("G.C.E O/L result sheets are available only for Grade 11.");
+  }
+}
+
+function buildOlResultDoc(reportData, rows, logoDataUrl = "") {
+  ensureGradeElevenReport(reportData);
+
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+
+  rows.forEach((row, index) => {
+    if (index > 0) doc.addPage("a4", "portrait");
+    addOlStudentResultPage(doc, reportData, row, logoDataUrl);
+  });
+
+  return doc;
 }
 
 function isGradeSixToNine(reportData) {
@@ -573,6 +747,55 @@ export function exportClassMarksPdf(reportData) {
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.pdf`;
   doc.save(fileName);
+}
+
+export async function printGradeElevenOlResultSheets(reportData) {
+  ensureGradeElevenReport(reportData);
+
+  if (!Array.isArray(reportData.rows) || reportData.rows.length === 0) {
+    throw new Error("No students available for O/L result sheet printing.");
+  }
+
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    throw new Error("Unable to open print window. Please allow pop-ups for this site.");
+  }
+
+  const logoDataUrl = await getLogoDataUrl();
+  const doc = buildOlResultDoc(reportData, reportData.rows, logoDataUrl);
+  doc.autoPrint();
+  printWindow.location.href = doc.output("bloburl");
+}
+
+export async function exportGradeElevenOlResultSheetsZip(reportData) {
+  ensureGradeElevenReport(reportData);
+
+  if (!Array.isArray(reportData.rows) || reportData.rows.length === 0) {
+    throw new Error("No students available for O/L result sheet export.");
+  }
+
+  const logoDataUrl = await getLogoDataUrl();
+  const zip = new JSZip();
+  const folder = zip.folder(
+    `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+      reportData.year
+    )}_${sanitizeFilenamePart(reportData.termName)}_OL_Result_Sheets`
+  );
+
+  for (const row of reportData.rows) {
+    const doc = buildOlResultDoc(reportData, [row], logoDataUrl);
+    const fileName = `${sanitizeFilenamePart(
+      row.studentIndexNo || row.studentId || row.rowNo
+    )}_${sanitizeFilenamePart(row.studentName)}_OL_Result.pdf`;
+    folder.file(fileName, doc.output("blob"));
+  }
+
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  const zipName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_OL_Result_Sheets.zip`;
+
+  saveAs(zipBlob, zipName);
 }
 
 function makeScheduleSheetRows(reportData) {

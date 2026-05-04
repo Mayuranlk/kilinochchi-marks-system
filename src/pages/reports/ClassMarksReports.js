@@ -26,8 +26,10 @@ import {
   exportClassMarksExcel,
   exportClassMarksEmisExcel,
   exportClassMarksPdf,
+  exportGradeElevenOlResultSheetsZip,
   getClassMarksSchedulePreviewLayout,
   isClassMarksEmisExportSupported,
+  printGradeElevenOlResultSheets,
 } from "../../utils/classMarksExportUtils";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -584,6 +586,36 @@ export default function ClassMarksReports() {
     }
   }
 
+  async function handlePrintOlResultSheets() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      await printGradeElevenOlResultSheets(reportData);
+    } catch (err) {
+      console.error("O/L result sheet print failed:", err);
+      setError(err.message || "O/L result sheet print failed.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleExportOlResultSheetsZip() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      await exportGradeElevenOlResultSheetsZip(reportData);
+    } catch (err) {
+      console.error("O/L result sheet ZIP export failed:", err);
+      setError(err.message || "O/L result sheet ZIP export failed.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack spacing={3}>
@@ -701,6 +733,28 @@ export default function ClassMarksReports() {
                 >
                   Download EMIS NP
                 </Button>
+              )}
+
+              {reportData && Number(reportData.grade) === 11 && (
+                <>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={handlePrintOlResultSheets}
+                    disabled={!reportData || loading || bulkLoading}
+                  >
+                    Print O/L Sheets
+                  </Button>
+
+                  <Button
+                    variant="contained"
+                    color="info"
+                    onClick={handleExportOlResultSheetsZip}
+                    disabled={!reportData || loading || bulkLoading}
+                  >
+                    Download O/L ZIP
+                  </Button>
+                </>
               )}
 
               <Button
