@@ -27,6 +27,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import * as XLSX from "xlsx";
 
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -115,6 +116,7 @@ function escapeHtml(value) {
 }
 
 export default function ClasswiseStudentList() {
+  const { isSectionalHead, assignedGrades } = useAuth();
   const printRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -138,8 +140,13 @@ export default function ClasswiseStudentList() {
   }, [classrooms]);
 
   const filteredClassrooms = useMemo(() => {
+    const assignedGradeSet = new Set((assignedGrades || []).map(Number));
     return classrooms
-      .filter((item) => getClassYear(item) === Number(selectedYear))
+      .filter(
+        (item) =>
+          getClassYear(item) === Number(selectedYear) &&
+          (!isSectionalHead || assignedGradeSet.has(parseGrade(item.grade)))
+      )
       .sort((a, b) => {
         const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
         if (gradeDiff !== 0) return gradeDiff;
@@ -148,7 +155,7 @@ export default function ClasswiseStudentList() {
           sensitivity: "base",
         });
       });
-  }, [classrooms, selectedYear]);
+  }, [classrooms, selectedYear, isSectionalHead, assignedGrades]);
 
   const selectedPurpose = purpose === "Custom Purpose" ? customPurpose : purpose;
 
@@ -210,8 +217,13 @@ export default function ClasswiseStudentList() {
         setSelectedYear(defaultYear);
       }
 
+      const assignedGradeSet = new Set((assignedGrades || []).map(Number));
       const firstClass = loadedClassrooms
-        .filter((item) => getClassYear(item) === (defaultYear || CURRENT_YEAR))
+        .filter(
+          (item) =>
+            getClassYear(item) === (defaultYear || CURRENT_YEAR) &&
+            (!isSectionalHead || assignedGradeSet.has(parseGrade(item.grade)))
+        )
         .sort((a, b) => {
           const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
           if (gradeDiff !== 0) return gradeDiff;

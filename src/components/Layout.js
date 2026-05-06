@@ -53,7 +53,7 @@ import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 const DRAWER_WIDTH = 280;
 
 export default function Layout() {
-  const { profile, isAdmin, isClassTeacher, logout } = useAuth();
+  const { profile, isAdmin, isTeacher, isClassTeacher, isSectionalHead, assignedGrades, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -71,6 +71,7 @@ export default function Layout() {
         { label: "Classrooms", icon: <MeetingRoomRoundedIcon />, path: "/classrooms" },
         { label: "Subjects", icon: <BookRoundedIcon />, path: "/subjects" },
         { label: "Academic Terms", icon: <CalendarMonthRoundedIcon />, path: "/terms" },
+        { label: "Practice Exams", icon: <AssessmentRoundedIcon />, path: "/practice-exams" },
         {
           label: "School Setup",
           icon: <SettingsSuggestRoundedIcon />,
@@ -162,8 +163,49 @@ export default function Layout() {
     return items;
   }, [isClassTeacher]);
 
+  const sectionalHeadMenu = useMemo(() => {
+    const items = [
+      { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/sectional-head" },
+      {
+        label: "Class Reports",
+        icon: <AssessmentRoundedIcon />,
+        path: "/sectional-head/class-marks-reports",
+      },
+      {
+        label: "Subject Analysis",
+        icon: <BarChartRoundedIcon />,
+        path: "/sectional-head/subject-analysis",
+      },
+      {
+        label: "Classwise Lists",
+        icon: <FactCheckRoundedIcon />,
+        path: "/sectional-head/classwise-list",
+      },
+    ];
+
+    if (isTeacher) {
+      items.push(
+        { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" }
+      );
+    }
+
+    if (isClassTeacher) {
+      items.push({
+        label: "Class Report",
+        icon: <BarChartRoundedIcon />,
+        path: "/teacher/class-report",
+        badge: "CT",
+      });
+    }
+
+    return items;
+  }, [isTeacher, isClassTeacher]);
+
   const menuItems = isAdmin
     ? adminMenuSections.flatMap((section) => section.items)
+    : isSectionalHead
+    ? sectionalHeadMenu
     : teacherMenu;
 
   const bottomNavItems = useMemo(() => {
@@ -175,6 +217,22 @@ export default function Layout() {
         { label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" },
         { label: "More", icon: <MoreHorizRoundedIcon />, path: null },
       ];
+    }
+
+    if (isSectionalHead) {
+      const items = [
+        { label: "Home", icon: <DashboardRoundedIcon />, path: "/sectional-head" },
+        { label: "Reports", icon: <AssessmentRoundedIcon />, path: "/sectional-head/class-marks-reports" },
+        { label: "Analysis", icon: <BarChartRoundedIcon />, path: "/sectional-head/subject-analysis" },
+      ];
+
+      if (isTeacher) {
+        items.push({ label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" });
+      } else {
+        items.push({ label: "Lists", icon: <FactCheckRoundedIcon />, path: "/sectional-head/classwise-list" });
+      }
+
+      return items;
     }
 
     if (isClassTeacher) {
@@ -189,7 +247,7 @@ export default function Layout() {
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
     ];
-  }, [isAdmin, isClassTeacher]);
+  }, [isAdmin, isClassTeacher, isSectionalHead, isTeacher]);
 
   const shouldShowBottomNav = isMobile && !mobileOpen;
 
@@ -198,6 +256,7 @@ export default function Layout() {
       if (!item.path) return false;
       if (item.path === "/") return location.pathname === "/";
       if (item.path === "/teacher") return location.pathname === "/teacher";
+      if (item.path === "/sectional-head") return location.pathname === "/sectional-head";
       return location.pathname.startsWith(item.path);
     });
 
@@ -212,6 +271,7 @@ export default function Layout() {
   const isActive = (path) => {
     if (path === "/") return location.pathname === "/";
     if (path === "/teacher") return location.pathname === "/teacher";
+    if (path === "/sectional-head") return location.pathname === "/sectional-head";
     return location.pathname.startsWith(path);
   };
 
@@ -445,6 +505,20 @@ export default function Layout() {
                   }}
                 />
               )}
+
+              {isSectionalHead && (
+                <Chip
+                  label={`SH G${assignedGrades.join(",") || "-"}`}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    bgcolor: "info.light",
+                    color: "info.dark",
+                  }}
+                />
+              )}
             </Stack>
           </Box>
         </Stack>
@@ -459,6 +533,11 @@ export default function Layout() {
                 <List disablePadding>{section.items.map(renderMenuItem)}</List>
               </React.Fragment>
             ))}
+          </>
+        ) : isSectionalHead ? (
+          <>
+            <SidebarSectionLabel>Sectional Head</SidebarSectionLabel>
+            <List disablePadding>{menuItems.map(renderMenuItem)}</List>
           </>
         ) : (
           <>

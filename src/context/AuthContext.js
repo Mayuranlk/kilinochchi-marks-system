@@ -7,6 +7,29 @@ import { auth, db } from "../firebase";
 
 const AuthContext = createContext(null);
 
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function parseAssignedGrades(profile = {}) {
+  const source =
+    profile.assignedGrades ||
+    profile.sectionalHeadGrades ||
+    profile.grades ||
+    profile.assignedGrade ||
+    profile.sectionalHeadGrade ||
+    [];
+  const rawValues = Array.isArray(source) ? source : [source];
+
+  return [
+    ...new Set(
+      rawValues
+        .map((value) => Number(String(value ?? "").match(/\d+/)?.[0] || 0))
+        .filter(Boolean)
+    ),
+  ].sort((a, b) => a - b);
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -58,7 +81,12 @@ export function AuthProvider({ children }) {
   const logout = () => signOut(auth);
 
   const value = useMemo(() => {
-    const role = profile?.role || null;
+    const role = normalizeRole(profile?.role);
+    const hasSectionalHeadCapability =
+      role === "sectional_head" || profile?.isSectionalHead === true;
+    const hasSubjectTeacherCapability =
+      role === "teacher" || profile?.isSubjectTeacher === true;
+    const assignedGrades = parseAssignedGrades(profile || {});
 
     return {
       user,
@@ -69,7 +97,10 @@ export function AuthProvider({ children }) {
 
       role,
       isAdmin: role === "admin",
-      isTeacher: role === "teacher",
+      isTeacher: hasSubjectTeacherCapability,
+      isSubjectTeacher: hasSubjectTeacherCapability,
+      isSectionalHead: hasSectionalHeadCapability,
+      assignedGrades,
 
       isClassTeacher: profile?.isClassTeacher === true,
       classGrade: profile?.classGrade || null,

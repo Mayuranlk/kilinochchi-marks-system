@@ -62,7 +62,12 @@ export default function Login() {
         return;
       }
 
-      if (role === "teacher") {
+      if (role === "sectional_head" || profile.isSectionalHead === true) {
+        navigate("/sectional-head", { replace: true });
+        return;
+      }
+
+      if (role === "teacher" || profile.isSubjectTeacher === true) {
         navigate("/teacher", { replace: true });
         return;
       }

@@ -10,10 +10,12 @@ import Layout from "./components/Layout";
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
+const SectionalHeadDashboard = lazy(() => import("./pages/SectionalHeadDashboard"));
 
 const ClassroomManagement = lazy(() => import("./pages/ClassroomManagement"));
 const SubjectManagement = lazy(() => import("./pages/SubjectManagement"));
 const AcademicTerms = lazy(() => import("./pages/AcademicTerms"));
+const PracticeExams = lazy(() => import("./pages/PracticeExams"));
 const SetupSchoolDefaults = lazy(() => import("./pages/SetupSchoolDefaults"));
 
 const Students = lazy(() => import("./pages/Students"));
@@ -69,11 +71,11 @@ function PrivateRoute({ children }) {
 }
 
 function AdminRoute({ children }) {
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading, isAdmin, isSectionalHead } = useAuth();
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/teacher" replace />;
+  if (!isAdmin) return <Navigate to={isSectionalHead ? "/sectional-head" : "/teacher"} replace />;
 
   return children;
 }
@@ -84,6 +86,16 @@ function TeacherRoute({ children }) {
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
   if (!isTeacher && !isAdmin) return <Navigate to="/" replace />;
+
+  return children;
+}
+
+function SectionalHeadRoute({ children }) {
+  const { user, loading, isSectionalHead, isAdmin } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isSectionalHead && !isAdmin) return <Navigate to="/" replace />;
 
   return children;
 }
@@ -151,6 +163,16 @@ export default function App() {
                   <AdminRoute>
                     <LazyRoute>
                       <AcademicTerms />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="practice-exams"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <PracticeExams />
                     </LazyRoute>
                   </AdminRoute>
                 }
@@ -363,6 +385,57 @@ export default function App() {
                       <ExportFirestoreSamples />
                     </LazyRoute>
                   </AdminRoute>
+                }
+              />
+            </Route>
+
+            {/* Sectional Head Layout */}
+            <Route
+              path="/sectional-head"
+              element={
+                <PrivateRoute>
+                  <Layout />
+                </PrivateRoute>
+              }
+            >
+              <Route
+                index
+                element={
+                  <SectionalHeadRoute>
+                    <LazyRoute>
+                      <SectionalHeadDashboard />
+                    </LazyRoute>
+                  </SectionalHeadRoute>
+                }
+              />
+              <Route
+                path="class-marks-reports"
+                element={
+                  <SectionalHeadRoute>
+                    <LazyRoute>
+                      <ClassMarksReports />
+                    </LazyRoute>
+                  </SectionalHeadRoute>
+                }
+              />
+              <Route
+                path="subject-analysis"
+                element={
+                  <SectionalHeadRoute>
+                    <LazyRoute>
+                      <SubjectAnalysis />
+                    </LazyRoute>
+                  </SectionalHeadRoute>
+                }
+              />
+              <Route
+                path="classwise-list"
+                element={
+                  <SectionalHeadRoute>
+                    <LazyRoute>
+                      <ClasswiseStudentList />
+                    </LazyRoute>
+                  </SectionalHeadRoute>
                 }
               />
             </Route>

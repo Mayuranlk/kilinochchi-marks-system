@@ -28,6 +28,7 @@ import {
   Tooltip,
   useMediaQuery,
   useTheme,
+  MenuItem,
   Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -45,19 +46,7 @@ import {
   StatusChip,
 } from "../components/ui";
 
-const EXAM_SESSION_SUGGESTIONS = [
-  "Term 1",
-  "Term 1 Practice 1",
-  "Term 1 Practice 2",
-  "Term 2",
-  "Term 2 Practice 1",
-  "Term 2 Practice 2",
-  "Term 3",
-  "Term 3 Practice 1",
-  "Term 3 Practice 2",
-  "Mid Term Practice Exam",
-  "Revision Exam",
-];
+const TERMS = ["Term 1", "Term 2", "Term 3"];
 
 function getEmptyForm() {
   return {
@@ -91,28 +80,11 @@ function normalizeTermDoc(docData = {}, id = "") {
 }
 
 function sortTerms(list) {
-  const getTermSortValue = (termName = "") => {
-    const normalized = normalizeText(termName).toLowerCase();
-    const termMatch = normalized.match(/term\s*(\d+)/);
-    const practiceMatch = normalized.match(/practice\s*(\d+)/);
-
-    if (termMatch) {
-      const termNumber = Number(termMatch[1]);
-      const practiceNumber = practiceMatch ? Number(practiceMatch[1]) : 0;
-      return termNumber * 100 + practiceNumber;
-    }
-
-    if (normalized.includes("mid")) return 450;
-    if (normalized.includes("revision")) return 900;
-
-    return 999;
-  };
+  const termOrder = { "Term 1": 1, "Term 2": 2, "Term 3": 3 };
 
   return [...list].sort((a, b) => {
     if (a.year !== b.year) return b.year - a.year;
-    const termDiff = getTermSortValue(a.term) - getTermSortValue(b.term);
-    if (termDiff !== 0) return termDiff;
-    return normalizeText(a.term).localeCompare(normalizeText(b.term));
+    return (termOrder[a.term] || 99) - (termOrder[b.term] || 99);
   });
 }
 
@@ -650,17 +622,17 @@ export default function AcademicTerms() {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Exam / Term Name"
+                select
+                label="Term"
                 value={form.term}
                 onChange={(e) => setForm({ ...form, term: e.target.value })}
-                helperText="Examples: Term 1, Term 1 Practice 1, Mid Term Practice Exam"
-                inputProps={{ list: "exam-session-suggestions" }}
-              />
-              <datalist id="exam-session-suggestions">
-                {EXAM_SESSION_SUGGESTIONS.map((term) => (
-                  <option key={term} value={term} />
+              >
+                {TERMS.map((term) => (
+                  <MenuItem key={term} value={term}>
+                    {term}
+                  </MenuItem>
                 ))}
-              </datalist>
+              </TextField>
             </Grid>
 
             <Grid item xs={12} sm={6}>

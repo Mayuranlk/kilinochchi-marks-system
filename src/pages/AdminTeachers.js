@@ -59,6 +59,9 @@ const empty = {
   name: "",
   email: "",
   password: "",
+  role: "teacher",
+  isSubjectTeacher: true,
+  assignedGrades: [],
   phone: "",
   signatureNo: "",
   status: "active",
@@ -103,6 +106,15 @@ function normalizeTeacher(docId, data = {}) {
     ),
     status: normalizeText(data.status || "active") || "active",
     role: normalizeText(data.role || ""),
+    isSubjectTeacher:
+      data.isSubjectTeacher === true || normalizeLower(data.role) === "teacher",
+    isSectionalHead:
+      data.isSectionalHead === true || normalizeLower(data.role) === "sectional_head",
+    assignedGrades: Array.isArray(data.assignedGrades)
+      ? data.assignedGrades.map(Number).filter(Boolean)
+      : [data.assignedGrade, data.sectionalHeadGrade, ...(data.sectionalHeadGrades || [])]
+          .map(Number)
+          .filter(Boolean),
     transferredDate: normalizeText(data.transferredDate),
     transferredReason: normalizeText(data.transferredReason),
     transferredTo: normalizeText(data.transferredTo),
@@ -210,7 +222,7 @@ export default function AdminTeachers() {
 
       const teacherRows = userSnap.docs
         .map((d) => normalizeTeacher(d.id, d.data()))
-        .filter((user) => normalizeLower(user.role) === "teacher")
+        .filter((user) => ["teacher", "sectional_head"].includes(normalizeLower(user.role)))
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const classroomRows = classroomSnap.docs
@@ -313,6 +325,11 @@ export default function AdminTeachers() {
       return;
     }
 
+    if (form.role === "sectional_head" && form.assignedGrades.length === 0) {
+      setError("Select at least one assigned grade for a sectional head.");
+      return;
+    }
+
     setSaving(true);
     setError("");
 
@@ -322,14 +339,17 @@ export default function AdminTeachers() {
       await setDoc(doc(db, "users", cred.user.uid), {
         name: normalizeText(form.name),
         email: normalizeText(form.email).toLowerCase(),
-        role: "teacher",
+        role: form.role,
+        isSectionalHead: form.role === "sectional_head",
+        isSubjectTeacher: form.role === "teacher" || form.isSubjectTeacher === true,
+        assignedGrades: form.role === "sectional_head" ? form.assignedGrades.map(Number) : [],
         phone: normalizeText(form.phone),
         signatureNo: normalizeText(form.signatureNo),
         status: "active",
         createdAt: new Date().toISOString(),
       });
 
-      setSuccess(`Teacher ${form.name} added.`);
+      setSuccess(`${form.role === "sectional_head" ? "Sectional Head" : "Teacher"} ${form.name} added.`);
       setOpen(false);
       setForm(empty);
       await fetchData();
@@ -350,12 +370,25 @@ export default function AdminTeachers() {
       return;
     }
 
+    if (editForm.role === "sectional_head" && (editForm.assignedGrades || []).length === 0) {
+      setError("Select at least one assigned grade for a sectional head.");
+      return;
+    }
+
     setSaving(true);
     setError("");
 
     try {
       await updateDoc(doc(db, "users", selectedTeacher.id), {
         name: normalizeText(editForm.name),
+        role: editForm.role || "teacher",
+        isSectionalHead: editForm.role === "sectional_head",
+        isSubjectTeacher:
+          editForm.role === "teacher" || editForm.isSubjectTeacher === true,
+        assignedGrades:
+          editForm.role === "sectional_head"
+            ? (editForm.assignedGrades || []).map(Number)
+            : [],
         phone: normalizeText(editForm.phone),
         signatureNo: normalizeText(editForm.signatureNo),
         updatedAt: new Date().toISOString(),
@@ -531,6 +564,9 @@ export default function AdminTeachers() {
     setSelectedTeacher(teacher);
     setEditForm({
       name: teacher.name,
+      role: teacher.role || "teacher",
+      isSubjectTeacher: teacher.role === "teacher" || teacher.isSubjectTeacher === true,
+      assignedGrades: teacher.assignedGrades || [],
       phone: teacher.phone || "",
       signatureNo: teacher.signatureNo || "",
     });
@@ -1167,6 +1203,28 @@ export default function AdminTeachers() {
             </Grid>
 
             <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Login Role</InputLabel>
+                <Select
+                  value={form.role}
+                  label="Login Role"
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      role: e.target.value,
+                      isSubjectTeacher: e.target.value === "teacher" ? true : form.isSubjectTeacher,
+                      assignedGrades:
+                        e.target.value === "sectional_head" ? form.assignedGrades : [],
+                    })
+                  }
+                >
+                  <MenuItem value="teacher">Subject Teacher</MenuItem>
+                  <MenuItem value="sectional_head">Sectional Head</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Phone Number"
@@ -1174,6 +1232,53 @@ export default function AdminTeachers() {
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
               />
             </Grid>
+
+            {form.role === "sectional_head" && (
+              <>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Subject Teacher Access</InputLabel>
+                    <Select
+                      value={form.isSubjectTeacher ? "yes" : "no"}
+                      label="Subject Teacher Access"
+                      onChange={(e) =>
+                        setForm({ ...form, isSubjectTeacher: e.target.value === "yes" })
+                      }
+                    >
+                      <MenuItem value="no">No - Sectional Head only</MenuItem>
+                      <MenuItem value="yes">Yes - Sectional Head + Subject Teacher</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>Assigned Grades</InputLabel>
+                    <Select
+                      multiple
+                      value={form.assignedGrades}
+                      label="Assigned Grades"
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          assignedGrades:
+                            typeof e.target.value === "string"
+                              ? e.target.value.split(",").map(Number)
+                              : e.target.value.map(Number),
+                        })
+                      }
+                      renderValue={(selected) => selected.map((grade) => `Grade ${grade}`).join(", ")}
+                    >
+                      {GRADES.map((grade) => (
+                        <MenuItem key={grade} value={grade}>
+                          Grade {grade}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </>
+            )}
 
             <Grid item xs={12} sm={6}>
               <TextField
@@ -1228,6 +1333,31 @@ export default function AdminTeachers() {
             </Grid>
 
             <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Login Role</InputLabel>
+                <Select
+                  value={editForm.role || "teacher"}
+                  label="Login Role"
+                  onChange={(e) =>
+                    setEditForm({
+                      ...editForm,
+                      role: e.target.value,
+                      isSubjectTeacher:
+                        e.target.value === "teacher" ? true : editForm.isSubjectTeacher,
+                      assignedGrades:
+                        e.target.value === "sectional_head"
+                          ? editForm.assignedGrades || []
+                          : [],
+                    })
+                  }
+                >
+                  <MenuItem value="teacher">Subject Teacher</MenuItem>
+                  <MenuItem value="sectional_head">Sectional Head</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Phone Number"
@@ -1235,6 +1365,56 @@ export default function AdminTeachers() {
                 onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
               />
             </Grid>
+
+            {editForm.role === "sectional_head" && (
+              <>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Subject Teacher Access</InputLabel>
+                    <Select
+                      value={editForm.isSubjectTeacher ? "yes" : "no"}
+                      label="Subject Teacher Access"
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          isSubjectTeacher: e.target.value === "yes",
+                        })
+                      }
+                    >
+                      <MenuItem value="no">No - Sectional Head only</MenuItem>
+                      <MenuItem value="yes">Yes - Sectional Head + Subject Teacher</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <InputLabel>Assigned Grades</InputLabel>
+                    <Select
+                      multiple
+                      value={editForm.assignedGrades || []}
+                      label="Assigned Grades"
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          assignedGrades:
+                            typeof e.target.value === "string"
+                              ? e.target.value.split(",").map(Number)
+                              : e.target.value.map(Number),
+                        })
+                      }
+                      renderValue={(selected) => selected.map((grade) => `Grade ${grade}`).join(", ")}
+                    >
+                      {GRADES.map((grade) => (
+                        <MenuItem key={grade} value={grade}>
+                          Grade {grade}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </>
+            )}
 
             <Grid item xs={12} sm={6}>
               <TextField

@@ -36,6 +36,7 @@ import autoTable from "jspdf-autotable";
 import { saveAs } from "file-saver";
 
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import {
   EmptyState,
   PageContainer,
@@ -808,7 +809,7 @@ function finishStats(stats) {
   };
 }
 
-function findMatchingMark(marks, enrollment, termName, year) {
+function findMatchingMark(marks, enrollment, termName, year, assessmentId = "__TERM__") {
   const studentId = clean(enrollment.studentId);
   const subjectId = getSubjectId(enrollment);
   const subjectName = normalize(getSubjectName(enrollment));
@@ -819,6 +820,13 @@ function findMatchingMark(marks, enrollment, termName, year) {
     if (clean(mark.termName || mark.term) !== clean(termName)) return false;
     if (getAcademicYear(mark) && Number(getAcademicYear(mark)) !== Number(year)) return false;
     if (getMarkClassName(mark) && getMarkClassName(mark) !== className) return false;
+    const selectedAssessmentId = assessmentId === "__TERM__" ? "" : assessmentId;
+    const markAssessmentId = clean(mark.assessmentId || mark.practiceExamId);
+    if (selectedAssessmentId) {
+      if (markAssessmentId !== selectedAssessmentId) return false;
+    } else if (markAssessmentId) {
+      return false;
+    }
 
     const markSubjectId = clean(mark.subjectId);
     const markSubjectName = normalize(mark.subjectName || mark.subject);
@@ -826,13 +834,13 @@ function findMatchingMark(marks, enrollment, termName, year) {
   });
 }
 
-function buildRecords({ enrollments, studentsById, marks, termName, year }) {
+function buildRecords({ enrollments, studentsById, marks, termName, year, assessmentId = "__TERM__" }) {
   return enrollments
     .filter((enrollment) => isActive(enrollment))
     .filter((enrollment) => !getAcademicYear(enrollment) || Number(getAcademicYear(enrollment)) === Number(year))
     .map((enrollment) => {
       const student = studentsById.get(clean(enrollment.studentId)) || {};
-      const markDoc = findMatchingMark(marks, enrollment, termName, year);
+      const markDoc = findMatchingMark(marks, enrollment, termName, year, assessmentId);
       const grade = parseGrade(enrollment.grade || student.grade || enrollment.className);
       const section = normalizeSection(enrollment.section || student.section || enrollment.className);
       const className = getEnrollmentClassName(enrollment) || buildClassName(grade, section);
@@ -1121,6 +1129,7 @@ function buildAbsentStudentRows(records, selectedSubjectKey) {
 }
 
 export default function SubjectAnalysis() {
+  const { isSectionalHead, assignedGrades } = useAuth();
   const [tab, setTab] = useState("grade");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1130,9 +1139,11 @@ export default function SubjectAnalysis() {
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [practiceExams, setPracticeExams] = useState([]);
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedTerm, setSelectedTerm] = useState("");
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState("__TERM__");
   const [selectedGrade, setSelectedGrade] = useState(6);
   const [selectedClass, setSelectedClass] = useState(ALL);
   const [selectedSubject, setSelectedSubject] = useState(ALL);
@@ -1144,7 +1155,7 @@ export default function SubjectAnalysis() {
       setLoading(true);
       setError("");
 
-      const [studentsSnap, subjectsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap] =
+      const [studentsSnap, subjectsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap, practiceExamSnap] =
         await Promise.all([
           getDocs(collection(db, "students")),
           getDocs(collection(db, "subjects")),
@@ -1152,6 +1163,7 @@ export default function SubjectAnalysis() {
           getDocs(collection(db, "marks")),
           getDocs(collection(db, "classrooms")),
           getDocs(collection(db, "academicTerms")),
+          getDocs(collection(db, "practiceExams")).catch(() => ({ docs: [] })),
         ]);
 
       const nextStudents = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -1160,6 +1172,7 @@ export default function SubjectAnalysis() {
       const nextMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const nextClassrooms = classroomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const nextTerms = termsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const nextPracticeExams = practiceExamSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
       setStudents(nextStudents);
       setSubjects(nextSubjects);
@@ -1167,6 +1180,7 @@ export default function SubjectAnalysis() {
       setMarks(nextMarks);
       setClassrooms(nextClassrooms);
       setTerms(nextTerms);
+      setPracticeExams(nextPracticeExams);
 
       const activeTerm = nextTerms.find((term) => term.isActive) || nextTerms[0] || null;
       if (activeTerm?.term) {
@@ -1192,8 +1206,17 @@ export default function SubjectAnalysis() {
 
   const records = useMemo(() => {
     if (!selectedTerm) return [];
-    return buildRecords({ enrollments, studentsById, marks, termName: selectedTerm, year: selectedYear });
-  }, [enrollments, studentsById, marks, selectedTerm, selectedYear]);
+    const gradeSet = new Set((assignedGrades || []).map(Number));
+    return buildRecords({
+      enrollments,
+      studentsById,
+      marks,
+      termName: selectedTerm,
+      year: selectedYear,
+      assessmentId: selectedAssessmentId,
+    })
+      .filter((record) => !isSectionalHead || gradeSet.has(Number(record.grade)));
+  }, [enrollments, studentsById, marks, selectedTerm, selectedYear, selectedAssessmentId, isSectionalHead, assignedGrades]);
 
   const yearOptions = useMemo(() => {
     const years = new Set([
@@ -1207,8 +1230,12 @@ export default function SubjectAnalysis() {
 
   const gradeOptions = useMemo(() => {
     const grades = new Set(records.map((record) => record.grade).filter(Boolean));
-    return Array.from(grades).sort((a, b) => a - b);
-  }, [records]);
+    const gradeList = Array.from(grades).sort((a, b) => a - b);
+    if (!isSectionalHead) return gradeList;
+
+    const assignedGradeSet = new Set((assignedGrades || []).map(Number));
+    return gradeList.filter((grade) => assignedGradeSet.has(Number(grade)));
+  }, [records, isSectionalHead, assignedGrades]);
 
   const classOptions = useMemo(() => {
     const classes = new Set(
@@ -1297,6 +1324,31 @@ export default function SubjectAnalysis() {
     () => gradeSubjectOptions.find((subject) => subject.subjectKey === selectedSubject)?.subjectName || "",
     [gradeSubjectOptions, selectedSubject]
   );
+
+  const assessmentOptions = useMemo(() => {
+    const matchingPracticeExams = practiceExams
+      .filter((exam) => {
+        const sameTerm = clean(exam.term || exam.termName) === clean(selectedTerm);
+        const sameYear = Number(exam.year || exam.academicYear || 0) === Number(selectedYear);
+        const sameGrade = !selectedGrade || Number(exam.grade || 0) === Number(selectedGrade);
+        const sameSubject =
+          selectedSubject === ALL ||
+          normalize(exam.subjectName) === normalize(selectedSubjectName);
+        return sameTerm && sameYear && sameGrade && sameSubject;
+      })
+      .sort((a, b) => clean(a.name).localeCompare(clean(b.name), undefined, { numeric: true }));
+
+    return [
+      { id: "__TERM__", name: "Main Term Exam" },
+      ...matchingPracticeExams.map((exam) => ({ id: exam.id, name: exam.name })),
+    ];
+  }, [practiceExams, selectedTerm, selectedYear, selectedGrade, selectedSubject, selectedSubjectName]);
+
+  useEffect(() => {
+    if (!assessmentOptions.some((option) => option.id === selectedAssessmentId)) {
+      setSelectedAssessmentId("__TERM__");
+    }
+  }, [assessmentOptions, selectedAssessmentId]);
 
   useEffect(() => {
     if (gradeOptions.length && !gradeOptions.includes(Number(selectedGrade))) {
@@ -1486,6 +1538,16 @@ export default function SubjectAnalysis() {
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
                     {terms.map((term) => (
                       <MenuItem key={term.id} value={term.term}>{term.term}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Exam</InputLabel>
+                  <Select value={selectedAssessmentId} label="Exam" onChange={(event) => setSelectedAssessmentId(event.target.value)}>
+                    {assessmentOptions.map((exam) => (
+                      <MenuItem key={exam.id} value={exam.id}>{exam.name}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>

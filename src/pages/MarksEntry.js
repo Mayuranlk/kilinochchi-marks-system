@@ -326,11 +326,13 @@ export default function MarksEntry() {
   const [teacherProfile, setTeacherProfile] = useState(null);
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [practiceExams, setPracticeExams] = useState([]);
   const [marksDocs, setMarksDocs] = useState([]);
 
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
   const [selectedTermKey, setSelectedTermKey] = useState("");
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState("__TERM__");
   const [searchText, setSearchText] = useState("");
 
   const [studentRows, setStudentRows] = useState([]);
@@ -491,6 +493,41 @@ export default function MarksEntry() {
     [selectedSubjectKey, subjectOptions]
   );
 
+  const assessmentOptions = useMemo(() => {
+    if (!activeTerm || !selectedSubject || !selectedClassRow) {
+      return [{ id: "__TERM__", name: "Main Term Exam" }];
+    }
+
+    const termName = pick(activeTerm.term, activeTerm.termName, "");
+    const termYear = Number(pick(activeTerm.year, activeTerm.academicYear, 0));
+    const classGrade = Number(selectedClassRow.grade);
+    const subjectName = normalize(selectedSubject.subjectName);
+
+    const matchingPracticeExams = practiceExams
+      .filter((exam) => {
+        const sameTerm = normalize(pick(exam.term, exam.termName, "")) === normalize(termName);
+        const sameYear = Number(pick(exam.year, exam.academicYear, 0)) === termYear;
+        const sameGrade = Number(exam.grade || 0) === classGrade;
+        const sameSubject = normalize(exam.subjectName) === subjectName;
+        return sameTerm && sameYear && sameGrade && sameSubject;
+      })
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+
+    return [
+      { id: "__TERM__", name: "Main Term Exam" },
+      ...matchingPracticeExams.map((exam) => ({
+        id: exam.id,
+        name: exam.name,
+        exam,
+      })),
+    ];
+  }, [activeTerm, selectedSubject, selectedClassRow, practiceExams]);
+
+  const selectedAssessment = useMemo(
+    () => assessmentOptions.find((option) => option.id === selectedAssessmentId) || assessmentOptions[0],
+    [assessmentOptions, selectedAssessmentId]
+  );
+
   const filteredRows = useMemo(() => {
     const search = normalize(searchText);
 
@@ -558,13 +595,14 @@ export default function MarksEntry() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, marksSnap] =
+      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, practiceExamSnap, marksSnap] =
         await Promise.all([
           getDocs(collection(db, "users")),
           getDocs(collection(db, "teacherAssignments")),
           getDocs(
             query(collection(db, "academicTerms"), orderBy("year", "desc"))
           ).catch(() => getDocs(collection(db, "academicTerms"))),
+          getDocs(collection(db, "practiceExams")).catch(() => ({ docs: [] })),
           getDocs(collection(db, "marks")),
         ]);
 
@@ -617,6 +655,7 @@ export default function MarksEntry() {
       });
 
       setTerms(sortedTerms);
+      setPracticeExams(practiceExamSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
 
       const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
 
@@ -798,8 +837,14 @@ export default function MarksEntry() {
           const sameYear =
             normalizeAcademicYear(pick(mark.academicYear, mark.year, "")) ===
             normalize(termYear);
+          const selectedPracticeExamId =
+            selectedAssessmentId === "__TERM__" ? "" : selectedAssessmentId;
+          const markPracticeExamId = pick(mark.practiceExamId, mark.assessmentId, "");
+          const sameAssessment = selectedPracticeExamId
+            ? markPracticeExamId === selectedPracticeExamId
+            : !markPracticeExamId;
 
-          return sameStudent && sameClass && sameSubject && sameTerm && sameYear;
+          return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameAssessment;
         });
 
         const studentName = pick(
@@ -822,7 +867,7 @@ export default function MarksEntry() {
         );
 
         return {
-          key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}`,
+          key: `${studentId}-${selectedSubject.subjectName}-${termName}-${termYear}-${selectedAssessmentId}`,
           enrollmentId: enrollment.id,
           studentId,
           studentName,
@@ -849,6 +894,8 @@ export default function MarksEntry() {
           ),
           term: termName,
           academicYear: termYear,
+          assessmentId: selectedAssessmentId === "__TERM__" ? "" : selectedAssessmentId,
+          assessmentName: selectedAssessmentId === "__TERM__" ? "" : selectedAssessment?.name || "",
           mark: absent ? "" : markValue ?? "",
           absent,
           existingDocId: existingMark?.id || "",
@@ -877,7 +924,7 @@ export default function MarksEntry() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, marksDocs, selectedClass, selectedSubject, selectedClassRow]);
+  }, [activeTerm, marksDocs, selectedClass, selectedSubject, selectedClassRow, selectedAssessmentId, selectedAssessment]);
 
   useEffect(() => {
     loadBase();
@@ -926,6 +973,12 @@ export default function MarksEntry() {
       }
     }
   }, [bootLoading, navigationSelection.termKey, terms, selectedTermKey]);
+
+  useEffect(() => {
+    if (!assessmentOptions.some((option) => option.id === selectedAssessmentId)) {
+      setSelectedAssessmentId("__TERM__");
+    }
+  }, [assessmentOptions, selectedAssessmentId]);
 
   useEffect(() => {
     if (bootLoading) return;
@@ -1085,6 +1138,11 @@ export default function MarksEntry() {
           termName: row.term,
           academicYear: row.academicYear,
           year: row.academicYear,
+          assessmentType: row.assessmentId ? "practice" : "term",
+          assessmentId: row.assessmentId || "",
+          assessmentName: row.assessmentName || "",
+          practiceExamId: row.assessmentId || "",
+          practiceExamName: row.assessmentName || "",
           mark: absent ? null : markValue,
           marks: absent ? null : markValue,
           score: absent ? null : markValue,
@@ -1238,6 +1296,24 @@ export default function MarksEntry() {
                       </MenuItem>
                     );
                   })}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.5}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="marks-entry-assessment-label">Exam</InputLabel>
+                <Select
+                  labelId="marks-entry-assessment-label"
+                  label="Exam"
+                  value={selectedAssessmentId}
+                  onChange={(e) => setSelectedAssessmentId(e.target.value)}
+                >
+                  {assessmentOptions.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>
+                      {option.name}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>

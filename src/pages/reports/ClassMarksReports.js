@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
+import { useAuth } from "../../context/AuthContext";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
 import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
 import {
@@ -395,6 +396,7 @@ function AnalysisPreview({ reportData }) {
 }
 
 export default function ClassMarksReports() {
+  const { isSectionalHead, assignedGrades } = useAuth();
   const [loading, setLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [error, setError] = useState("");
@@ -436,6 +438,7 @@ export default function ClassMarksReports() {
   }, [students, enrollments, marks, classrooms, selectedClassroom, selectedTerm, selectedYear]);
 
   const filteredClassrooms = useMemo(() => {
+    const assignedGradeSet = new Set((assignedGrades || []).map(Number));
     return classrooms
       .filter((item) => {
         const grade = Number(item.grade);
@@ -443,6 +446,7 @@ export default function ClassMarksReports() {
 
         return (
           year === Number(selectedYear) &&
+          (!isSectionalHead || assignedGradeSet.has(grade)) &&
           ((grade >= 6 && grade <= 9) || (grade >= 10 && grade <= 11))
         );
       })
@@ -451,7 +455,7 @@ export default function ClassMarksReports() {
         if (gradeDiff !== 0) return gradeDiff;
         return String(a.className).localeCompare(String(b.className));
       });
-  }, [classrooms, selectedYear]);
+  }, [classrooms, selectedYear, isSectionalHead, assignedGrades]);
 
   const availableYears = useMemo(() => {
     const years = new Set(
@@ -464,6 +468,7 @@ export default function ClassMarksReports() {
 
   useEffect(() => {
     loadBaseData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadBaseData() {
@@ -516,11 +521,13 @@ export default function ClassMarksReports() {
         setSelectedTerm(activeTerm.term);
       }
 
+      const assignedGradeSet = new Set((assignedGrades || []).map(Number));
       const defaultClassrooms = classroomsData
         .filter((item) => {
           const grade = Number(item.grade);
           return (
             Number(item.year || item.academicYear) === Number(CURRENT_YEAR) &&
+            (!isSectionalHead || assignedGradeSet.has(grade)) &&
             ((grade >= 6 && grade <= 9) || (grade >= 10 && grade <= 11))
           );
         })
