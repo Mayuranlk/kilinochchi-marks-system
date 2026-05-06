@@ -94,6 +94,10 @@ function getMarkStatus(mark) {
   return "present";
 }
 
+function markCountsAsEntered(mark) {
+  return getMarkValue(mark) !== null || getMarkStatus(mark) !== "present";
+}
+
 function getEnrollmentSubjectName(row) {
   return safeText(row?.subjectName || row?.subject);
 }
@@ -156,14 +160,16 @@ function getGradeMeta(mark, studentGrade) {
   return bands[bands.length - 1];
 }
 
-function calcAverageNumber(marksList) {
+function calcAverageNumber(marksList, subjectCount = null) {
   const numeric = marksList.map((m) => getMarkValue(m)).filter((v) => v !== null);
-  if (!numeric.length) return null;
-  return numeric.reduce((sum, v) => sum + v, 0) / numeric.length;
+  const enteredCount = marksList.filter(markCountsAsEntered).length;
+  const denominator = Number(subjectCount) || numeric.length;
+  if (!enteredCount || !denominator) return null;
+  return numeric.reduce((sum, v) => sum + v, 0) / denominator;
 }
 
-function calcAverageText(marksList) {
-  const avg = calcAverageNumber(marksList);
+function calcAverageText(marksList, subjectCount = null) {
+  const avg = calcAverageNumber(marksList, subjectCount);
   return avg === null ? null : avg.toFixed(1);
 }
 
@@ -971,10 +977,19 @@ export default function ReportCard() {
                     </Paper>
                   )}
 
-                  {filteredMarks.length > 0 && calcAverageText(filteredMarks) !== null && (
+                  {filteredMarks.length > 0 &&
+                    calcAverageText(
+                      filteredMarks,
+                      term === "All" ? null : expectedSubjects.length
+                    ) !== null && (
                     <Box mt={2} display="flex" justifyContent="flex-end">
                       <Box component="span" className="report-card-pill" sx={pillSx}>
-                        Term Average {calcAverageText(filteredMarks)} / 100
+                        Term Average{" "}
+                        {calcAverageText(
+                          filteredMarks,
+                          term === "All" ? null : expectedSubjects.length
+                        )}{" "}
+                        / 100
                       </Box>
                     </Box>
                   )}
@@ -984,7 +999,7 @@ export default function ReportCard() {
                 {availableTerms.length > 0 ? (
                   availableTerms.map((t) => {
                     const termMarks = groupedByTerm[t] || [];
-                    const termAverage = calcAverageText(termMarks);
+                    const termAverage = calcAverageText(termMarks, expectedSubjects.length);
 
                     return (
                       <Box key={t} className="report-card-term-block" sx={sectionCardSx}>

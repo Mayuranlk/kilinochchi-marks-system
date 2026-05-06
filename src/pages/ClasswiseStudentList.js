@@ -1,0 +1,500 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/Download";
+import PrintIcon from "@mui/icons-material/Print";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import * as XLSX from "xlsx";
+
+import { db } from "../firebase";
+import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
+
+const CURRENT_YEAR = new Date().getFullYear();
+const PURPOSE_OPTIONS = [
+  "Parents Meeting Signature",
+  "Custom Purpose",
+];
+
+function text(value) {
+  return String(value || "").trim();
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = text(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function normalizeStatus(value) {
+  return text(value || "Active").toLowerCase();
+}
+
+function getStudentName(student = {}) {
+  return text(student.fullName || student.name || "Unnamed Student");
+}
+
+function getAdmissionNo(student = {}) {
+  return text(student.admissionNo || student.indexNo || "");
+}
+
+function getTelephoneNumber(student = {}) {
+  return text(
+    student.telephone ||
+      student.phone ||
+      student.mobile ||
+      student.contactNo ||
+      student.contactNumber ||
+      student.parentPhone ||
+      student.guardianPhone ||
+      ""
+  );
+}
+
+function getClassDisplayName(classroom = {}) {
+  return text(classroom.className || classroom.fullClassName) || `${classroom.grade}${classroom.section}`;
+}
+
+function getClassYear(classroom = {}) {
+  return Number(classroom.year || classroom.academicYear || CURRENT_YEAR);
+}
+
+function sortStudents(list = []) {
+  return [...list].sort((a, b) => {
+    const admissionA = getAdmissionNo(a);
+    const admissionB = getAdmissionNo(b);
+    if (admissionA || admissionB) {
+      const admissionCompare = admissionA.localeCompare(admissionB, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (admissionCompare !== 0) return admissionCompare;
+    }
+
+    return getStudentName(a).localeCompare(getStudentName(b), undefined, {
+      sensitivity: "base",
+    });
+  });
+}
+
+function makeSafeFileName(value) {
+  return text(value).replace(/[^a-z0-9_-]+/gi, "_").replace(/^_+|_+$/g, "");
+}
+
+function escapeHtml(value) {
+  return text(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export default function ClasswiseStudentList() {
+  const printRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [students, setStudents] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [purpose, setPurpose] = useState(PURPOSE_OPTIONS[0]);
+  const [customPurpose, setCustomPurpose] = useState("");
+
+  const selectedClassroom = useMemo(
+    () => classrooms.find((item) => item.id === selectedClassId) || null,
+    [classrooms, selectedClassId]
+  );
+
+  const availableYears = useMemo(() => {
+    const years = new Set(
+      classrooms.map((item) => getClassYear(item)).filter(Boolean)
+    );
+    return Array.from(years).sort((a, b) => b - a);
+  }, [classrooms]);
+
+  const filteredClassrooms = useMemo(() => {
+    return classrooms
+      .filter((item) => getClassYear(item) === Number(selectedYear))
+      .sort((a, b) => {
+        const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
+        if (gradeDiff !== 0) return gradeDiff;
+        return getClassDisplayName(a).localeCompare(getClassDisplayName(b), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+  }, [classrooms, selectedYear]);
+
+  const selectedPurpose = purpose === "Custom Purpose" ? customPurpose : purpose;
+
+  const classStudents = useMemo(() => {
+    if (!selectedClassroom) return [];
+
+    const grade = parseGrade(selectedClassroom.grade);
+    const section = normalizeSection(selectedClassroom.section || selectedClassroom.className);
+
+    return sortStudents(
+      students.filter((student) => {
+        const sameGrade = parseGrade(student.grade) === grade;
+        const sameSection = normalizeSection(student.section || student.className) === section;
+        const isActive = normalizeStatus(student.status) === "active";
+        return sameGrade && sameSection && isActive;
+      })
+    );
+  }, [students, selectedClassroom]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (filteredClassrooms.length > 0 && !filteredClassrooms.some((item) => item.id === selectedClassId)) {
+      setSelectedClassId(filteredClassrooms[0].id);
+    }
+  }, [filteredClassrooms, selectedClassId]);
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const [studentSnap, classroomSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "classrooms")),
+      ]);
+
+      const loadedStudents = studentSnap.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      }));
+
+      const loadedClassrooms = classroomSnap.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      }));
+
+      setStudents(loadedStudents);
+      setClassrooms(loadedClassrooms);
+
+      const defaultYear =
+        loadedClassrooms.some((item) => getClassYear(item) === CURRENT_YEAR)
+          ? CURRENT_YEAR
+          : getClassYear(loadedClassrooms[0] || {});
+
+      if (defaultYear) {
+        setSelectedYear(defaultYear);
+      }
+
+      const firstClass = loadedClassrooms
+        .filter((item) => getClassYear(item) === (defaultYear || CURRENT_YEAR))
+        .sort((a, b) => {
+          const gradeDiff = parseGrade(a.grade) - parseGrade(b.grade);
+          if (gradeDiff !== 0) return gradeDiff;
+          return getClassDisplayName(a).localeCompare(getClassDisplayName(b), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+        })[0];
+
+      if (firstClass) {
+        setSelectedClassId(firstClass.id);
+      }
+    } catch (err) {
+      console.error("Failed to load classwise student list:", err);
+      setError(err.message || "Failed to load classwise student list.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function exportExcel() {
+    if (!selectedClassroom) return;
+
+    const headingRows = [
+      ["Kilinochchi Central College"],
+      [selectedPurpose || "Classwise Student List"],
+      [`Class: ${getClassDisplayName(selectedClassroom)}`, `Year: ${selectedYear}`],
+      [],
+    ];
+
+    const rows = classStudents.map((student, index) => [
+      index + 1,
+      getAdmissionNo(student),
+      getStudentName(student),
+      text(student.gender),
+      getTelephoneNumber(student),
+      "",
+    ]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ...headingRows,
+      ["No", "Admission No", "Student Name", "Gender", "Telephone Number", "Signature"],
+      ...rows,
+    ]);
+
+    worksheet["!cols"] = [
+      { wch: 6 },
+      { wch: 16 },
+      { wch: 34 },
+      { wch: 12 },
+      { wch: 20 },
+      { wch: 22 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Class List");
+    const fileName = `${makeSafeFileName(getClassDisplayName(selectedClassroom))}_${makeSafeFileName(selectedPurpose || "class_list")}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  }
+
+  function printList() {
+    if (!selectedClassroom || !printRef.current) return;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${escapeHtml(selectedPurpose || "Classwise Student List")}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #000; padding: 18px; }
+            h1 { font-size: 18px; text-align: center; margin: 0 0 4px; }
+            h2 { font-size: 15px; text-align: center; margin: 0 0 12px; font-weight: 600; }
+            .meta { display: flex; justify-content: space-between; margin: 12px 0; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #333; padding: 7px 6px; }
+            th { background: #f2f2f2; }
+            td:nth-child(4) { text-align: left; }
+            .signature { height: 28px; }
+            .footer { display: flex; justify-content: space-between; margin-top: 32px; font-size: 12px; }
+            @page { size: A4 portrait; margin: 12mm; }
+          </style>
+        </head>
+        <body>${printRef.current.innerHTML}</body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
+  return (
+    <PageContainer
+      title="Classwise Student List"
+      subtitle="Print or export class lists for meetings, distribution, and signatures."
+    >
+      <Stack spacing={2.5}>
+        <Card sx={{ borderRadius: 2 }}>
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={2.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Year"
+                    onChange={(event) => {
+                      setSelectedYear(Number(event.target.value));
+                      setSelectedClassId("");
+                    }}
+                  >
+                    {availableYears.map((year) => (
+                      <MenuItem key={year} value={year}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Class</InputLabel>
+                  <Select
+                    value={selectedClassId}
+                    label="Class"
+                    onChange={(event) => setSelectedClassId(event.target.value)}
+                  >
+                    {filteredClassrooms.map((classroom) => (
+                      <MenuItem key={classroom.id} value={classroom.id}>
+                        {getClassDisplayName(classroom)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Purpose</InputLabel>
+                  <Select
+                    value={purpose}
+                    label="Purpose"
+                    onChange={(event) => setPurpose(event.target.value)}
+                  >
+                    {PURPOSE_OPTIONS.map((item) => (
+                      <MenuItem key={item} value={item}>
+                        {item}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Custom Purpose"
+                  value={customPurpose}
+                  onChange={(event) => setCustomPurpose(event.target.value)}
+                  disabled={purpose !== "Custom Purpose"}
+                />
+              </Grid>
+            </Grid>
+
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={loadData}
+                disabled={loading}
+              >
+                Reload
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={printList}
+                disabled={!selectedClassroom || classStudents.length === 0}
+              >
+                Print List
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<DownloadIcon />}
+                onClick={exportExcel}
+                disabled={!selectedClassroom || classStudents.length === 0}
+              >
+                Export Excel
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {loading && (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+            <CircularProgress />
+          </Box>
+        )}
+
+        {!!error && <Alert severity="error">{error}</Alert>}
+
+        {!loading && selectedClassroom && (
+          <>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Class" value={getClassDisplayName(selectedClassroom)} />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Active Students" value={classStudents.length} color="success" />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Purpose" value={selectedPurpose || "Class List"} color="warning" />
+              </Grid>
+            </Grid>
+
+            <Card sx={{ borderRadius: 2 }}>
+              <CardContent>
+                <Box ref={printRef}>
+                  <Typography variant="h6" align="center" fontWeight={800}>
+                    Kilinochchi Central College
+                  </Typography>
+                  <Typography variant="subtitle1" align="center" sx={{ mb: 1 }}>
+                    {selectedPurpose || "Classwise Student List"}
+                  </Typography>
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    sx={{ mb: 1.5 }}
+                  >
+                    <Typography variant="body2">
+                      Class: {getClassDisplayName(selectedClassroom)}
+                    </Typography>
+                    <Typography variant="body2">Year: {selectedYear}</Typography>
+                    <Typography variant="body2">Students: {classStudents.length}</Typography>
+                  </Stack>
+
+                  <ResponsiveTableWrapper>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell align="center">No</TableCell>
+                          <TableCell>Admission No</TableCell>
+                          <TableCell>Student Name</TableCell>
+                          <TableCell>Gender</TableCell>
+                          <TableCell>Telephone Number</TableCell>
+                          <TableCell>Signature</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {classStudents.map((student, index) => (
+                          <TableRow key={student.id}>
+                            <TableCell align="center">{index + 1}</TableCell>
+                            <TableCell>{getAdmissionNo(student)}</TableCell>
+                            <TableCell>{getStudentName(student)}</TableCell>
+                            <TableCell>{text(student.gender)}</TableCell>
+                            <TableCell>{getTelephoneNumber(student)}</TableCell>
+                            <TableCell sx={{ minWidth: 150, height: 42 }} />
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+
+                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 4 }}>
+                    <Typography variant="body2">Class Teacher</Typography>
+                    <Typography variant="body2">Sectional Head</Typography>
+                    <Typography variant="body2">Principal</Typography>
+                  </Stack>
+                </Box>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {!loading && selectedClassroom && classStudents.length === 0 && (
+          <Alert severity="info">No active students found for the selected class.</Alert>
+        )}
+      </Stack>
+    </PageContainer>
+  );
+}

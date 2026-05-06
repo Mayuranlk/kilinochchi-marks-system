@@ -246,7 +246,8 @@ export function buildClassMarksReportData({
 
     const { total, average, subjectCount } = calculateStudentTotalAndAverage(
       marksByColumn,
-      schema
+      schema,
+      eligibleColumnKeys
     );
 
     return {

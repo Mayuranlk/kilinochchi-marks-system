@@ -540,6 +540,21 @@ export default function BulkMarksUpload() {
     return values.length ? values : [Number(getCurrentYear())];
   }, [allTerms, allEnrollments]);
 
+  const availableTerms = useMemo(() => {
+    const filtered = allTerms
+      .filter((term) => !selectedYear || String(term.year || term.academicYear || "") === String(selectedYear))
+      .map((term) => normalizeText(term.term || term.termName || term.name))
+      .filter(Boolean);
+
+    const uniqueTerms = uniqueSorted(filtered);
+
+    if (selectedTerm && !uniqueTerms.includes(selectedTerm)) {
+      return [selectedTerm, ...uniqueTerms];
+    }
+
+    return uniqueTerms;
+  }, [allTerms, selectedYear, selectedTerm]);
+
   const availableClasses = useMemo(() => {
     const filtered = allEnrollments.filter(
       (enrollment) =>
@@ -902,7 +917,7 @@ export default function BulkMarksUpload() {
                     onChange={(e) => setSelectedTerm(e.target.value)}
                     disabled={loading}
                   >
-                    {["Term 1", "Term 2", "Term 3"].map((term) => (
+                    {availableTerms.map((term) => (
                       <MenuItem key={term} value={term}>
                         {term}
                       </MenuItem>

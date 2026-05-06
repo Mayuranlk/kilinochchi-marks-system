@@ -74,6 +74,7 @@ const TAB_CONFIG = [
   { value: "grade", label: "Grade Subject Analysis" },
   { value: "class", label: "Class Subject Analysis" },
   { value: "range", label: "Subject Mark Range" },
+  { value: "absent", label: "Absent Students" },
   { value: "threeCThreeS", label: "Below 3C 3S List" },
   { value: "lowMarks", label: "Low Mark Students" },
   { value: "sheet", label: "A3 Grading Sheet" },
@@ -603,6 +604,48 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
   return doc;
 }
 
+function createAbsentStudentsPdf({ title, context, rows }) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["No", "Admission No", "Student Name", "Class", "Subject"]],
+    body: rows.map((row, index) => [
+      index + 1,
+      row.indexNo || row.studentId,
+      row.studentName,
+      row.className,
+      row.subjectName,
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.2,
+      valign: "middle",
+      halign: "center",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      2: { cellWidth: 70, halign: "left", fontStyle: "bold" },
+      4: { cellWidth: 48, halign: "left" },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
 function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A3 Landscape" });
@@ -1052,6 +1095,31 @@ function buildLowMarkStudentRows(records, selectedSubjectKey) {
     });
 }
 
+function buildAbsentStudentRows(records, selectedSubjectKey) {
+  return records
+    .filter((record) => record.absent)
+    .filter((record) => selectedSubjectKey === ALL || record.subjectKey === selectedSubjectKey)
+    .map((record) => ({
+      studentId: record.studentId,
+      studentName: record.studentName,
+      indexNo: record.indexNo,
+      grade: record.grade,
+      division: record.section || getDivisionFromClassName(record.className),
+      className: record.className,
+      subjectName: record.subjectName,
+      subjectKey: record.subjectKey,
+    }))
+    .sort((a, b) => {
+      const classDiff = a.className.localeCompare(b.className, undefined, { numeric: true });
+      if (classDiff !== 0) return classDiff;
+      const subjectDiff = a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true });
+      if (subjectDiff !== 0) return subjectDiff;
+      const indexDiff = clean(a.indexNo).localeCompare(clean(b.indexNo), undefined, { numeric: true });
+      if (indexDiff !== 0) return indexDiff;
+      return a.studentName.localeCompare(b.studentName);
+    });
+}
+
 export default function SubjectAnalysis() {
   const [tab, setTab] = useState("grade");
   const [loading, setLoading] = useState(false);
@@ -1315,6 +1383,11 @@ export default function SubjectAnalysis() {
     return buildLowMarkStudentRows(sourceRecords, selectedSubject);
   }, [gradeRecords, classRecords, selectedClass, selectedSubject]);
 
+  const absentStudentRows = useMemo(() => {
+    const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
+    return buildAbsentStudentRows(sourceRecords, selectedSubject);
+  }, [gradeRecords, classRecords, selectedClass, selectedSubject]);
+
   const selectedRecordsForStats = useMemo(() => {
     if (tab === "grade") return gradeRecords;
     return selectedClass === ALL ? gradeRecords : classRecords;
@@ -1545,6 +1618,20 @@ export default function SubjectAnalysis() {
                 onPrint={() => handlePrint("low-mark-students", "A4 portrait")}
                 rows={lowMarkStudentRows}
                 selectedSubject={selectedSubject}
+              />
+            )}
+
+            {tab === "absent" && (
+              <AbsentStudentsReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                  selectedSubjectName || "All Subjects"
+                } Absent Students`}
+                reportId="absent-students"
+                activePrint={printTarget === "absent-students"}
+                context={shareContext}
+                onPrint={() => handlePrint("absent-students", "A4 portrait")}
+                rows={absentStudentRows}
+                selectedSubjectName={selectedSubjectName}
               />
             )}
 
@@ -1994,6 +2081,75 @@ function LowMarkStudentsReport({
                   <TableCell align="right">{formatNumber(row.mark, 0)}</TableCell>
                   <TableCell align="center">{row.grade}</TableCell>
                   <TableCell align="center">{row.division}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ResponsiveTableWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AbsentStudentsReport({
+  title,
+  rows,
+  reportId,
+  activePrint,
+  context,
+  onPrint,
+  selectedSubjectName,
+}) {
+  if (!rows.length) {
+    return (
+      <EmptyState
+        title="No absent students"
+        description={
+          selectedSubjectName
+            ? "No absent students were found for this subject and exam scope."
+            : "No absent students were found for the selected exam scope."
+        }
+      />
+    );
+  }
+
+  const createPdf = () => createAbsentStudentsPdf({ title, context, rows });
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={createPdf}
+          extra={
+            selectedSubjectName
+              ? `Absent list for ${selectedSubjectName}.`
+              : "Absent list across all selected subjects."
+          }
+        />
+        <ReportHeader title={title} context={context} />
+        <ResponsiveTableWrapper minWidth={820} sx={borderedReportTableSx}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Admission No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Student Name</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Class</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row, index) => (
+                <TableRow key={`${row.studentId}-${row.subjectKey}-${index}`} hover>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell>{row.indexNo || row.studentId}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell align="center">{row.className}</TableCell>
+                  <TableCell>{row.subjectName}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

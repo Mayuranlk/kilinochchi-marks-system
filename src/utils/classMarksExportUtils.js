@@ -98,10 +98,11 @@ function getStudentResultRows(reportData, row) {
 
       return [
         String(column.label || "").toUpperCase(),
+        mark === null || mark === undefined ? "" : String(mark),
         getOlGradeLetter(mark),
       ];
     })
-    .filter(([, result]) => result !== "");
+    .filter(([, mark, result]) => mark !== "" || result !== "");
 }
 
 function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
@@ -166,7 +167,7 @@ function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
 
   autoTable(doc, {
     startY: 111,
-    head: [["Subject", "Result"]],
+    head: [["Subject", "Marks", "Result"]],
     body: getStudentResultRows(reportData, row),
     theme: "plain",
     margin: { left: 0, right: 0 },
@@ -190,8 +191,9 @@ function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
       fillColor: [248, 248, 248],
     },
     columnStyles: {
-      0: { halign: "right", cellWidth: doc.internal.pageSize.getWidth() * 0.485 },
-      1: { halign: "left", cellWidth: doc.internal.pageSize.getWidth() * 0.515 },
+      0: { halign: "right", cellWidth: doc.internal.pageSize.getWidth() * 0.42 },
+      1: { halign: "center", cellWidth: doc.internal.pageSize.getWidth() * 0.16 },
+      2: { halign: "left", cellWidth: doc.internal.pageSize.getWidth() * 0.42 },
     },
   });
 

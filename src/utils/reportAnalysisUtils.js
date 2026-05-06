@@ -6,9 +6,19 @@ import {
   getColumnsIncludedInOverall,
 } from "./reportSchemas";
 
-export function calculateStudentTotalAndAverage(marksByColumn = {}, schema = null) {
+export function calculateStudentTotalAndAverage(
+  marksByColumn = {},
+  schema = null,
+  eligibleColumnKeys = []
+) {
+  const includedColumns = schema ? getColumnsIncludedInOverall(schema) : [];
+  const eligibleKeySet = new Set(eligibleColumnKeys || []);
+  const columnsToProcess =
+    schema && eligibleKeySet.size > 0
+      ? includedColumns.filter((column) => eligibleKeySet.has(column.key))
+      : includedColumns;
   const valuesToProcess = schema
-    ? getColumnsIncludedInOverall(schema).map((column) => marksByColumn[column.key])
+    ? columnsToProcess.map((column) => marksByColumn[column.key])
     : Object.values(marksByColumn);
 
   const validMarks = valuesToProcess.filter(
@@ -16,12 +26,13 @@ export function calculateStudentTotalAndAverage(marksByColumn = {}, schema = nul
   );
 
   const total = validMarks.reduce((sum, value) => sum + Number(value), 0);
-  const average = validMarks.length ? total / validMarks.length : 0;
+  const subjectCount = schema ? columnsToProcess.length : validMarks.length;
+  const average = subjectCount ? total / subjectCount : 0;
 
   return {
     total,
     average,
-    subjectCount: validMarks.length,
+    subjectCount,
   };
 }
 

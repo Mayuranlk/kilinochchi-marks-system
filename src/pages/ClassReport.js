@@ -533,6 +533,7 @@ export default function ClassReport() {
       const marksBySubject = {};
       let total = 0;
       let enteredCount = 0;
+      let eligibleSubjectCount = 0;
 
       classSubjects.forEach((subjectInfo) => {
         const subjectKey = subjectInfo.subjectId || normalizeSubjectName(subjectInfo.subjectName);
@@ -542,6 +543,8 @@ export default function ClassReport() {
           marksBySubject[subjectInfo.subjectName] = null;
           return;
         }
+
+        eligibleSubjectCount += 1;
 
         const matchedMark = termMarks.find((mark) => {
           const sameStudent = text(mark.studentId) === studentId;
@@ -561,19 +564,26 @@ export default function ClassReport() {
 
         marksBySubject[subjectInfo.subjectName] = markValue;
 
+        if (matchedMark && markCountsAsEntered(matchedMark)) {
+          enteredCount += 1;
+        }
+
         if (markValue !== null) {
           total += markValue;
-          enteredCount += 1;
         }
       });
 
-      const avgValue = enteredCount > 0 ? Number((total / enteredCount).toFixed(1)) : null;
+      const avgValue =
+        enteredCount > 0 && eligibleSubjectCount > 0
+          ? Number((total / eligibleSubjectCount).toFixed(1))
+          : null;
 
       return {
         ...student,
         marksBySubject,
         total,
         enteredCount,
+        subjectCount: eligibleSubjectCount,
         average: avgValue,
       };
     });

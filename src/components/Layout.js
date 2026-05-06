@@ -48,6 +48,7 @@ import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -83,6 +84,7 @@ export default function Layout() {
       items: [
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
         { label: "Students By Subject", icon: <MenuBookRoundedIcon />, path: "/students/by-subject" },
+        { label: "Classwise Lists", icon: <FactCheckRoundedIcon />, path: "/students/classwise-list" },
         {
           label: "Class Data Management",
           icon: <DeleteSweepRoundedIcon />,
