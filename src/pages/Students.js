@@ -78,9 +78,11 @@ import {
   convertALChoiceNumbersToSubjects,
   convertALChoiceNamesToSubjects,
 } from "../constants";
+import { regenerateSingleStudent } from "../services/enrollmentGenerator";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
+const currentAcademicYear = () => String(new Date().getFullYear());
 
 const emptyForm = {
   name: "",
@@ -1017,22 +1019,40 @@ export default function Students() {
 
     try {
       const payload = buildPayloadFromForm();
+      let savedStudentId = editId;
+      let enrollmentSyncResult = null;
 
       if (editId) {
         await updateDoc(doc(db, "students", editId), payload);
-        setSuccess("Student updated successfully.");
       } else {
-        await addDoc(collection(db, "students"), {
+        const createdRef = await addDoc(collection(db, "students"), {
           ...payload,
           createdAt: new Date().toISOString(),
         });
-        setSuccess("Student added successfully.");
+        savedStudentId = createdRef.id;
+      }
+
+      if (savedStudentId) {
+        enrollmentSyncResult = await regenerateSingleStudent({
+          academicYear: currentAcademicYear(),
+          studentId: savedStudentId,
+        });
       }
 
       setOpen(false);
       setForm(emptyForm);
       setEditId(null);
       await fetchData();
+
+      const syncedCount =
+        (enrollmentSyncResult?.created || 0) +
+        (enrollmentSyncResult?.reactivated || 0) +
+        (enrollmentSyncResult?.updated || 0);
+      const deactivatedCount = enrollmentSyncResult?.deactivated || 0;
+      const actionText = editId ? "updated" : "added";
+      setSuccess(
+        `Student ${actionText} successfully. Subject enrollments synced: ${syncedCount} active, ${deactivatedCount} old removed.`
+      );
     } catch (err) {
       setError("Save failed: " + err.message);
     } finally {
@@ -1086,7 +1106,13 @@ export default function Students() {
         status: "Left",
         updatedAt: new Date().toISOString(),
       });
-      setSuccess("Student status updated to Left.");
+      const result = await regenerateSingleStudent({
+        academicYear: currentAcademicYear(),
+        studentId: student.id,
+      });
+      setSuccess(
+        `Student status updated to Left. Active subject enrollments removed: ${result.deactivated || 0}.`
+      );
       await fetchData();
     } catch (err) {
       setError("Status update failed: " + err.message);

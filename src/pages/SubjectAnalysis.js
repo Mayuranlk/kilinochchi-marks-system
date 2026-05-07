@@ -605,24 +605,59 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
   return doc;
 }
 
+function buildGroupedAbsentRows(rows = []) {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const key = `${row.studentId || row.indexNo || row.studentName}-${row.className}`;
+    const existing =
+      grouped.get(key) ||
+      {
+        studentId: row.studentId,
+        studentName: row.studentName,
+        indexNo: row.indexNo,
+        className: row.className,
+        subjects: [],
+        subjectKeys: [],
+      };
+
+    if (!existing.subjectKeys.includes(row.subjectKey)) {
+      existing.subjects.push(row.subjectName);
+      existing.subjectKeys.push(row.subjectKey);
+    }
+
+    grouped.set(key, existing);
+  });
+
+  return Array.from(grouped.values()).map((row) => ({
+    ...row,
+    subjectCount: row.subjects.length,
+    subjectList: row.subjects.join(", "),
+    subjectListForPdf: row.subjects.join("\n"),
+  }));
+}
+
 function createAbsentStudentsPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
+  const groupedRows = buildGroupedAbsentRows(rows);
 
   autoTable(doc, {
     startY: 34,
-    head: [["No", "Admission No", "Student Name", "Class", "Subject"]],
-    body: rows.map((row, index) => [
+    head: [["No", "Admission No", "Student Name", "Class", "Absent Subjects"]],
+    body: groupedRows.map((row, index) => [
       index + 1,
       row.indexNo || row.studentId,
       row.studentName,
       row.className,
-      row.subjectName,
+      row.subjectCount > 1
+        ? `${row.subjectCount} subjects:\n${row.subjectListForPdf}`
+        : row.subjectListForPdf,
     ]),
     theme: "grid",
     styles: {
-      fontSize: 8,
-      cellPadding: 1.2,
+      fontSize: 7.6,
+      cellPadding: { top: 1, right: 1.2, bottom: 1, left: 1.2 },
       valign: "middle",
       halign: "center",
       lineWidth: 0.12,
@@ -637,10 +672,14 @@ function createAbsentStudentsPdf({ title, context, rows }) {
       lineColor: [30, 30, 30],
     },
     columnStyles: {
-      2: { cellWidth: 70, halign: "left", fontStyle: "bold" },
-      4: { cellWidth: 48, halign: "left" },
+      0: { cellWidth: 9, halign: "center", fontStyle: "bold" },
+      1: { cellWidth: 24, halign: "center" },
+      2: { cellWidth: 74, halign: "left", fontStyle: "bold" },
+      3: { cellWidth: 17, halign: "center" },
+      4: { cellWidth: 70, halign: "left", fontSize: 7.2 },
     },
     margin: { left: 8, right: 8 },
+    rowPageBreak: "avoid",
   });
 
   addPdfFooter(doc);
@@ -1874,16 +1913,13 @@ const borderedReportTableSx = {
     "& table": {
       width: "100%",
       minWidth: "0 !important",
-      tableLayout: "fixed",
+      tableLayout: "auto",
       fontSize: "8.4px",
     },
     "& th, & td": {
       padding: "3px 4px",
       border: "1px solid #000",
       lineHeight: 1.15,
-    },
-    "& th:first-of-type, & td:first-of-type": {
-      width: "24%",
     },
   },
 };
@@ -1892,11 +1928,90 @@ const rangeReportTableSx = {
   ...borderedReportTableSx,
   "@media print": {
     ...borderedReportTableSx["@media print"],
+    "& table": {
+      ...borderedReportTableSx["@media print"]["& table"],
+      tableLayout: "fixed",
+    },
     "& th:first-of-type, & td:first-of-type": {
       width: "22%",
     },
     "& th:not(:first-of-type), & td:not(:first-of-type)": {
       width: "6.5%",
+    },
+  },
+};
+
+const absentReportTableSx = {
+  ...borderedReportTableSx,
+  "& .absent-no-col": {
+    width: 48,
+  },
+  "& .absent-admission-col": {
+    width: 100,
+  },
+  "& .absent-name-col": {
+    width: 260,
+  },
+  "& .absent-class-col": {
+    width: 72,
+  },
+  "& .absent-subject-col": {
+    width: 270,
+  },
+  "& .absent-name-cell": {
+    fontWeight: 800,
+    textAlign: "left",
+    whiteSpace: "normal",
+    overflowWrap: "break-word",
+  },
+  "& .absent-subject-cell": {
+    textAlign: "left",
+    whiteSpace: "normal",
+    overflowWrap: "break-word",
+  },
+  "@media print": {
+    ...borderedReportTableSx["@media print"],
+    "& table": {
+      ...borderedReportTableSx["@media print"]["& table"],
+      tableLayout: "fixed",
+      fontSize: "7.8px",
+    },
+    "& th, & td": {
+      ...borderedReportTableSx["@media print"]["& th, & td"],
+      padding: "2.4px 3px",
+      verticalAlign: "middle",
+    },
+    "& .absent-no-col": {
+      width: "8mm !important",
+    },
+    "& .absent-admission-col": {
+      width: "22mm !important",
+    },
+    "& .absent-name-col": {
+      width: "58mm !important",
+    },
+    "& .absent-class-col": {
+      width: "15mm !important",
+    },
+    "& .absent-subject-col": {
+      width: "75mm !important",
+    },
+    "& .absent-name-cell, & .absent-subject-cell": {
+      whiteSpace: "normal !important",
+      overflowWrap: "anywhere",
+      wordBreak: "normal",
+      textAlign: "left",
+    },
+    "& .absent-count": {
+      display: "block",
+      marginBottom: "1px",
+      fontSize: "7.2px",
+      lineHeight: 1.05,
+    },
+    "& .absent-subject-list": {
+      display: "block",
+      fontSize: "7.5px",
+      lineHeight: 1.12,
     },
   },
 };
@@ -2176,6 +2291,7 @@ function AbsentStudentsReport({
   }
 
   const createPdf = () => createAbsentStudentsPdf({ title, context, rows });
+  const groupedRows = buildGroupedAbsentRows(rows);
 
   return (
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
@@ -2183,7 +2299,7 @@ function AbsentStudentsReport({
         <ReportActions
           title={title}
           context={context}
-          rowsCount={rows.length}
+          rowsCount={groupedRows.length}
           onPrint={onPrint}
           createPdf={createPdf}
           extra={
@@ -2193,25 +2309,43 @@ function AbsentStudentsReport({
           }
         />
         <ReportHeader title={title} context={context} />
-        <ResponsiveTableWrapper minWidth={820} sx={borderedReportTableSx}>
+        <ResponsiveTableWrapper minWidth={780} sx={absentReportTableSx}>
           <Table size="small">
+            <colgroup>
+              <col className="absent-no-col" />
+              <col className="absent-admission-col" />
+              <col className="absent-name-col" />
+              <col className="absent-class-col" />
+              <col className="absent-subject-col" />
+            </colgroup>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Admission No</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Student Name</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 800 }}>Class</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Absent Subjects</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row, index) => (
-                <TableRow key={`${row.studentId}-${row.subjectKey}-${index}`} hover>
+              {groupedRows.map((row, index) => (
+                <TableRow key={`${row.studentId}-${row.className}-${index}`} hover>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>{row.indexNo || row.studentId}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell className="absent-name-cell">{row.studentName}</TableCell>
                   <TableCell align="center">{row.className}</TableCell>
-                  <TableCell>{row.subjectName}</TableCell>
+                  <TableCell className="absent-subject-cell">
+                    {row.subjectCount > 1 ? (
+                      <Stack spacing={0.25}>
+                        <Typography className="absent-count" variant="caption" sx={{ fontWeight: 800, color: "error.main" }}>
+                          {row.subjectCount} subjects absent
+                        </Typography>
+                        <Typography className="absent-subject-list" variant="body2">{row.subjectList}</Typography>
+                      </Stack>
+                    ) : (
+                      row.subjectList
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

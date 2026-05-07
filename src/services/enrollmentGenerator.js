@@ -907,21 +907,51 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     throw new Error("Student not found.");
   }
 
+  const deactivateEnrollments = (enrollments) => {
+    const operations = [];
+    let deactivated = 0;
+    const deactivatedIds = new Set();
+
+    for (const enrollment of enrollments) {
+      if (!enrollment?.id || deactivatedIds.has(enrollment.id)) continue;
+      if (enrollment.status !== "inactive") {
+        const ref = doc(db, ENROLLMENTS_COLLECTION, enrollment.id);
+        deactivated += 1;
+        deactivatedIds.add(enrollment.id);
+        operations.push((batch) =>
+          batch.set(
+            ref,
+            {
+              status: "inactive",
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          )
+        );
+      }
+    }
+
+    return { operations, deactivated };
+  };
+
   if (!isStudentActive(student)) {
+    const { operations, deactivated } = deactivateEnrollments(existingEnrollments);
+    await commitOperations(operations);
+
     return {
       mode: ENROLLMENT_MODES.REGENERATE_STUDENT,
       totalProcessed: 1,
       created: 0,
       reactivated: 0,
       updated: 0,
-      deactivated: 0,
+      deactivated,
       skipped: 1,
       errors: 0,
       logs: [
         {
           type: "warning",
           message: `${getStudentName(student) || student.id} skipped`,
-          details: "Student is inactive",
+          details: `Student is inactive. Active enrollments deactivated: ${deactivated}`,
         },
       ],
     };
@@ -950,28 +980,16 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     };
   }
 
-  const operations = [];
+  const desiredSubjectKeys = new Set(desiredSubjects.map(subjectKey));
+  const staleEnrollments = existingEnrollments.filter(
+    (enrollment) => !desiredSubjectKeys.has(existingEnrollmentKey(enrollment))
+  );
+  const { operations, deactivated: initiallyDeactivated } = deactivateEnrollments(staleEnrollments);
   let created = 0;
   let reactivated = 0;
   let updated = 0;
-  let deactivated = 0;
-
-  for (const enrollment of existingEnrollments) {
-    if (enrollment.status !== "inactive") {
-      const ref = doc(db, ENROLLMENTS_COLLECTION, enrollment.id);
-      deactivated += 1;
-      operations.push((batch) =>
-        batch.set(
-          ref,
-          {
-            status: "inactive",
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        )
-      );
-    }
-  }
+  let deactivated = initiallyDeactivated;
+  const deactivatedEnrollmentIds = new Set(staleEnrollments.map((enrollment) => enrollment.id));
 
   for (const subject of desiredSubjects) {
     const existing = existingEnrollments.find(
@@ -990,6 +1008,21 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     else updated += 1;
 
     operations.push((batch) => batch.set(ref, payload, { merge: true }));
+
+    if (existing?.id && existing.id !== ref.id && !deactivatedEnrollmentIds.has(existing.id)) {
+      deactivated += 1;
+      deactivatedEnrollmentIds.add(existing.id);
+      operations.push((batch) =>
+        batch.set(
+          doc(db, ENROLLMENTS_COLLECTION, existing.id),
+          {
+            status: "inactive",
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        )
+      );
+    }
   }
 
   await commitOperations(operations);

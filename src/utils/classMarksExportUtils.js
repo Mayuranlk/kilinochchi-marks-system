@@ -110,16 +110,16 @@ function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
   const centerX = pageWidth / 2;
 
   if (logoDataUrl) {
-    doc.addImage(logoDataUrl, "PNG", centerX - 11, 12, 22, 22);
+    doc.addImage(logoDataUrl, "PNG", centerX - 8, 9, 16, 16);
   }
 
   doc.setTextColor(32, 44, 58);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Kilinochchi Central College", centerX, 43, { align: "center" });
+  doc.setFontSize(10.5);
+  doc.text("Kilinochchi Central College", centerX, 31, { align: "center" });
 
-  doc.setFontSize(18);
-  doc.text(OL_TITLE, centerX, 58, { align: "center" });
+  doc.setFontSize(16);
+  doc.text(OL_TITLE, centerX, 43, { align: "center" });
 
   const detailRows = [
     ["Examination", OL_TITLE],
@@ -130,15 +130,19 @@ function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
     ["Class", safeText(reportData.className)],
   ];
 
+  doc.setDrawColor(190, 198, 208);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(46, 52, pageWidth - 92, 38, 1.4, 1.4);
+
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  let detailY = 73;
+  doc.setFontSize(8);
+  let detailY = 59;
   detailRows.forEach(([label, value]) => {
     doc.setFont("helvetica", "normal");
-    doc.text(label, centerX - 10, detailY, { align: "right" });
+    doc.text(label, centerX - 12, detailY, { align: "right" });
     doc.setFont("helvetica", label === "Name" ? "bold" : "normal");
-    doc.text(value, centerX + 4, detailY);
-    detailY += 6;
+    doc.text(value, centerX + 5, detailY, { maxWidth: 64 });
+    detailY += 5.5;
   });
 }
 
@@ -147,53 +151,62 @@ function drawOlResultFooter(doc) {
   const pageHeight = doc.internal.pageSize.getHeight();
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.8);
   doc.text(
     "Please note that this school result sheet is generated for internal academic use only.",
     pageWidth / 2,
-    pageHeight - 32,
+    pageHeight - 24,
     { align: "center" }
   );
   doc.text(
     "Copyright (c) Kilinochchi Central College",
     pageWidth / 2,
-    pageHeight - 23,
+    pageHeight - 17,
     { align: "center" }
   );
 }
 
 function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
   drawOlResultHeader(doc, reportData, row, logoDataUrl);
+  const pageWidth = doc.internal.pageSize.getWidth();
 
   autoTable(doc, {
-    startY: 111,
+    startY: 98,
     head: [["Subject", "Marks", "Result"]],
     body: getStudentResultRows(reportData, row),
-    theme: "plain",
-    margin: { left: 0, right: 0 },
-    tableWidth: doc.internal.pageSize.getWidth(),
+    theme: "grid",
+    margin: { left: 22, right: 22 },
+    tableWidth: pageWidth - 44,
     styles: {
       font: "helvetica",
-      fontSize: 8.5,
-      cellPadding: { top: 5, right: 18, bottom: 5, left: 18 },
-      lineWidth: 0.08,
-      lineColor: [232, 232, 232],
+      fontSize: 8.4,
+      cellPadding: { top: 2.1, right: 2.5, bottom: 2.1, left: 2.5 },
+      lineWidth: 0.12,
+      lineColor: [185, 190, 198],
       textColor: [32, 44, 58],
       valign: "middle",
+      overflow: "linebreak",
     },
     headStyles: {
-      fillColor: [208, 206, 206],
+      fillColor: [226, 229, 233],
       textColor: [32, 44, 58],
       fontStyle: "bold",
       halign: "center",
+      fontSize: 8.4,
     },
     alternateRowStyles: {
-      fillColor: [248, 248, 248],
+      fillColor: [248, 249, 251],
     },
     columnStyles: {
-      0: { halign: "right", cellWidth: doc.internal.pageSize.getWidth() * 0.42 },
-      1: { halign: "center", cellWidth: doc.internal.pageSize.getWidth() * 0.16 },
-      2: { halign: "left", cellWidth: doc.internal.pageSize.getWidth() * 0.42 },
+      0: { halign: "left", cellWidth: 104, fontStyle: "bold" },
+      1: { halign: "center", cellWidth: 24, overflow: "visible", fontStyle: "bold" },
+      2: { halign: "center", cellWidth: 38, fontStyle: "bold" },
+    },
+    didParseCell: (data) => {
+      if (data.column.index === 1) {
+        data.cell.styles.overflow = "visible";
+        data.cell.styles.cellPadding = { top: 2.1, right: 1, bottom: 2.1, left: 1 };
+      }
     },
   });
 
