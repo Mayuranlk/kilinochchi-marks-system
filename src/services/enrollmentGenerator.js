@@ -693,22 +693,25 @@ async function fetchSubjects() {
 }
 
 async function fetchEnrollmentsByYear(academicYear) {
-  const q = query(
-    collection(db, ENROLLMENTS_COLLECTION),
-    where("academicYear", "==", normalizeAcademicYear(academicYear))
+  const normalizedYear = normalizeAcademicYear(academicYear);
+  const snap = await getDocs(collection(db, ENROLLMENTS_COLLECTION));
+  return mapDocs(snap).filter(
+    (enrollment) =>
+      normalizeAcademicYear(enrollment?.academicYear || enrollment?.year) === normalizedYear
   );
-  const snap = await getDocs(q);
-  return mapDocs(snap);
 }
 
 async function fetchEnrollmentsByStudent(academicYear, studentId) {
   const q = query(
     collection(db, ENROLLMENTS_COLLECTION),
-    where("academicYear", "==", normalizeAcademicYear(academicYear)),
     where("studentId", "==", studentId)
   );
   const snap = await getDocs(q);
-  return mapDocs(snap);
+  const normalizedYear = normalizeAcademicYear(academicYear);
+  return mapDocs(snap).filter(
+    (enrollment) =>
+      normalizeAcademicYear(enrollment?.academicYear || enrollment?.year) === normalizedYear
+  );
 }
 
 /* -------------------------------------------------------------------------- */
