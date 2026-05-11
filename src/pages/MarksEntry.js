@@ -257,6 +257,32 @@ const buildTermLabel = (term) => {
   return year ? `${termName} - ${year}` : termName;
 };
 
+const LEGACY_PRACTICE_ASSESSMENT_PREFIX = "__LEGACY_PRACTICE_TERM__:";
+
+const getLegacyPracticeTermInfo = (term = {}) => {
+  const termName = normalizeText(pick(term.term, term.termName, term.name, ""));
+  const match = termName.match(/^(Term\s+\d+)\s+(.+)$/i);
+  if (!match) return null;
+
+  const suffix = normalizeText(match[2]);
+  if (!/practice|exam|unit|test/i.test(suffix)) return null;
+
+  return {
+    baseTerm: normalizeText(match[1]).replace(/\s+/g, " "),
+    label: termName,
+    legacyTermName: termName,
+    year: Number(pick(term.year, term.academicYear, 0)),
+  };
+};
+
+const buildLegacyPracticeAssessmentId = (termName) =>
+  `${LEGACY_PRACTICE_ASSESSMENT_PREFIX}${encodeURIComponent(normalizeText(termName))}`;
+
+const getLegacyPracticeTermNameFromAssessmentId = (assessmentId = "") => {
+  if (!String(assessmentId).startsWith(LEGACY_PRACTICE_ASSESSMENT_PREFIX)) return "";
+  return decodeURIComponent(String(assessmentId).slice(LEGACY_PRACTICE_ASSESSMENT_PREFIX.length));
+};
+
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
   if (typeof raw === "boolean") return raw;
@@ -389,6 +415,20 @@ export default function MarksEntry() {
     [terms, selectedTermKey]
   );
 
+  const termOptions = useMemo(() => {
+    const baseTermKeys = new Set(
+      terms
+        .filter((term) => !getLegacyPracticeTermInfo(term))
+        .map((term) => `${normalizeText(pick(term.term, term.termName, ""))}__${Number(pick(term.year, term.academicYear, 0))}`)
+    );
+
+    return terms.filter((term) => {
+      const legacyInfo = getLegacyPracticeTermInfo(term);
+      if (!legacyInfo) return true;
+      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
+    });
+  }, [terms]);
+
   const classOptions = useMemo(() => {
     const map = new Map();
 
@@ -503,6 +543,20 @@ export default function MarksEntry() {
     const classGrade = Number(selectedClassRow.grade);
     const subjectName = normalize(selectedSubject.subjectName);
 
+    const legacyPracticeTerms = terms
+      .map((term) => getLegacyPracticeTermInfo(term))
+      .filter(
+        (term) =>
+          term &&
+          normalize(term.baseTerm) === normalize(termName) &&
+          Number(term.year || 0) === termYear
+      )
+      .map((term) => ({
+        id: buildLegacyPracticeAssessmentId(term.legacyTermName),
+        name: term.label,
+        legacyTermName: term.legacyTermName,
+      }));
+
     const matchingPracticeExams = practiceExams
       .filter((exam) => {
         const sameTerm = normalize(pick(exam.term, exam.termName, "")) === normalize(termName);
@@ -515,13 +569,14 @@ export default function MarksEntry() {
 
     return [
       { id: "__TERM__", name: "Main Term Exam" },
+      ...legacyPracticeTerms,
       ...matchingPracticeExams.map((exam) => ({
         id: exam.id,
         name: exam.name,
         exam,
       })),
     ];
-  }, [activeTerm, selectedSubject, selectedClassRow, practiceExams]);
+  }, [activeTerm, selectedSubject, selectedClassRow, practiceExams, terms]);
 
   const selectedAssessment = useMemo(
     () => assessmentOptions.find((option) => option.id === selectedAssessmentId) || assessmentOptions[0],
@@ -657,7 +712,17 @@ export default function MarksEntry() {
       setTerms(sortedTerms);
       setPracticeExams(practiceExamSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
 
-      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+      const activeTermDoc = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+      const activeLegacyInfo = getLegacyPracticeTermInfo(activeTermDoc);
+      const defaultTerm =
+        activeLegacyInfo
+          ? sortedTerms.find(
+              (term) =>
+                !getLegacyPracticeTermInfo(term) &&
+                normalize(pick(term.term, term.termName, "")) === normalize(activeLegacyInfo.baseTerm) &&
+                Number(pick(term.year, term.academicYear, 0)) === activeLegacyInfo.year
+            ) || activeTermDoc
+          : activeTermDoc;
 
       if (!selectedTermKey && defaultTerm) {
         setSelectedTermKey(buildTermKey(defaultTerm));
@@ -717,6 +782,19 @@ export default function MarksEntry() {
 
       const termName = pick(activeTerm.term, activeTerm.termName, "");
       const termYear = normalizeAcademicYear(pick(activeTerm.year, activeTerm.academicYear, ""));
+      const selectedLegacyTermName = getLegacyPracticeTermNameFromAssessmentId(selectedAssessmentId);
+      const selectedPracticeExamId =
+        selectedAssessmentId === "__TERM__" || selectedLegacyTermName ? "" : selectedAssessmentId;
+      const selectedAssessmentName = normalizeText(
+        selectedAssessmentId === "__TERM__" ? "" : selectedAssessment?.name || ""
+      );
+      const selectedAssessmentTermNames = [
+        selectedLegacyTermName,
+        selectedAssessmentName,
+        selectedAssessmentName ? `${termName} ${selectedAssessmentName}` : "",
+      ]
+        .map((value) => normalize(value))
+        .filter(Boolean);
 
       const targetClassContext = selectedClassRow
         ? {
@@ -830,21 +908,33 @@ export default function MarksEntry() {
 
           const sameSubject = matchesSubjectIdentity(mark, selectedSubject, mergedContext);
 
-          const sameTerm =
-            normalize(pick(mark.term, mark.termName, "")) ===
-            normalize(termName);
+          const markTerm = normalize(pick(mark.term, mark.termName, ""));
 
           const sameYear =
             normalizeAcademicYear(pick(mark.academicYear, mark.year, "")) ===
             normalize(termYear);
-          const selectedPracticeExamId =
-            selectedAssessmentId === "__TERM__" ? "" : selectedAssessmentId;
           const markPracticeExamId = pick(mark.practiceExamId, mark.assessmentId, "");
-          const sameAssessment = selectedPracticeExamId
-            ? markPracticeExamId === selectedPracticeExamId
-            : !markPracticeExamId;
+          const markAssessmentName = normalize(pick(mark.practiceExamName, mark.assessmentName, ""));
+          const sameAssessment = (() => {
+            if (selectedAssessmentId === "__TERM__") {
+              return markTerm === normalize(termName) && !markPracticeExamId;
+            }
 
-          return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameAssessment;
+            if (selectedLegacyTermName) {
+              return (
+                selectedAssessmentTermNames.includes(markTerm) ||
+                selectedAssessmentTermNames.includes(markAssessmentName)
+              );
+            }
+
+            return (
+              markPracticeExamId === selectedPracticeExamId ||
+              (markTerm === normalize(termName) && markAssessmentName === normalize(selectedAssessmentName)) ||
+              (!markPracticeExamId && selectedAssessmentTermNames.includes(markTerm))
+            );
+          })();
+
+          return sameStudent && sameClass && sameSubject && sameYear && sameAssessment;
         });
 
         const studentName = pick(
@@ -892,10 +982,13 @@ export default function MarksEntry() {
             selectedSubject.subjectNumber,
             ""
           ),
-          term: termName,
+          term: selectedLegacyTermName || termName,
+          baseTerm: termName,
           academicYear: termYear,
-          assessmentId: selectedAssessmentId === "__TERM__" ? "" : selectedAssessmentId,
-          assessmentName: selectedAssessmentId === "__TERM__" ? "" : selectedAssessment?.name || "",
+          assessmentId:
+            selectedAssessmentId === "__TERM__" || selectedLegacyTermName ? "" : selectedAssessmentId,
+          assessmentName:
+            selectedAssessmentId === "__TERM__" ? "" : selectedAssessment?.name || "",
           mark: absent ? "" : markValue ?? "",
           absent,
           existingDocId: existingMark?.id || "",
@@ -967,12 +1060,24 @@ export default function MarksEntry() {
     );
 
     if (matchedTerm) {
-      const nextTermKey = buildTermKey(matchedTerm);
+      const legacyInfo = getLegacyPracticeTermInfo(matchedTerm);
+      const baseTerm = legacyInfo
+        ? terms.find(
+            (term) =>
+              !getLegacyPracticeTermInfo(term) &&
+              normalize(pick(term.term, term.termName, "")) === normalize(legacyInfo.baseTerm) &&
+              Number(pick(term.year, term.academicYear, 0)) === legacyInfo.year
+          )
+        : null;
+      const nextTermKey = buildTermKey(baseTerm || matchedTerm);
       if (selectedTermKey !== nextTermKey) {
         setSelectedTermKey(nextTermKey);
       }
+      if (legacyInfo && selectedAssessmentId === "__TERM__") {
+        setSelectedAssessmentId(buildLegacyPracticeAssessmentId(legacyInfo.legacyTermName));
+      }
     }
-  }, [bootLoading, navigationSelection.termKey, terms, selectedTermKey]);
+  }, [bootLoading, navigationSelection.termKey, terms, selectedTermKey, selectedAssessmentId]);
 
   useEffect(() => {
     if (!assessmentOptions.some((option) => option.id === selectedAssessmentId)) {
@@ -1288,7 +1393,7 @@ export default function MarksEntry() {
                   value={selectedTermKey}
                   onChange={(e) => setSelectedTermKey(e.target.value)}
                 >
-                  {terms.map((term) => {
+                  {termOptions.map((term) => {
                     const key = buildTermKey(term);
                     return (
                       <MenuItem key={term.id} value={key}>

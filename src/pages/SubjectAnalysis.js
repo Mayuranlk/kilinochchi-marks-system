@@ -183,6 +183,33 @@ function normalize(value) {
   return clean(value).toLowerCase();
 }
 
+const LEGACY_PRACTICE_ASSESSMENT_PREFIX = "__LEGACY_PRACTICE_TERM__:";
+
+function getLegacyPracticeTermInfo(term = {}) {
+  const termName = clean(term.term || term.termName || term.name);
+  const match = termName.match(/^(Term\s+\d+)\s+(.+)$/i);
+  if (!match) return null;
+
+  const suffix = clean(match[2]);
+  if (!/practice|exam|unit|test/i.test(suffix)) return null;
+
+  return {
+    baseTerm: clean(match[1]).replace(/\s+/g, " "),
+    label: termName,
+    legacyTermName: termName,
+    year: Number(term.year || term.academicYear || 0),
+  };
+}
+
+function buildLegacyPracticeAssessmentId(termName) {
+  return `${LEGACY_PRACTICE_ASSESSMENT_PREFIX}${encodeURIComponent(clean(termName))}`;
+}
+
+function getLegacyPracticeTermNameFromAssessmentId(assessmentId = "") {
+  if (!String(assessmentId).startsWith(LEGACY_PRACTICE_ASSESSMENT_PREFIX)) return "";
+  return decodeURIComponent(String(assessmentId).slice(LEGACY_PRACTICE_ASSESSMENT_PREFIX.length));
+}
+
 function parseGrade(value) {
   const match = clean(value).match(/\d+/);
   return match ? Number(match[0]) : 0;
@@ -385,9 +412,11 @@ function sanitizeFilename(value) {
 }
 
 function makeReportFileName(title, context) {
+  const assessmentPart =
+    context.assessmentName && context.assessmentName !== "Main Term Exam" ? context.assessmentName : "";
   return `${sanitizeFilename(title)}_${sanitizeFilename(getReportScopeLabel(context))}_${sanitizeFilename(
     context.term || ""
-  )}_${sanitizeFilename(context.year || "")}.pdf`;
+  )}_${sanitizeFilename(assessmentPart)}_${sanitizeFilename(context.year || "")}.pdf`;
 }
 
 function getReportScopeLabel({ grade, className, subjectName = "" }) {
@@ -409,7 +438,11 @@ function drawPdfHeader(doc, { title, context, pageLabel }) {
   doc.setFontSize(8.5);
   const metaY = 25;
   doc.text(getReportScopeLabel(context), 10, metaY);
-  doc.text(`Term: ${context.term || "-"}`, pageWidth / 2, metaY, { align: "center" });
+  const termText =
+    context.assessmentName && context.assessmentName !== "Main Term Exam"
+      ? `Term: ${context.term || "-"} | Exam: ${context.assessmentName}`
+      : `Term: ${context.term || "-"}`;
+  doc.text(termText, pageWidth / 2, metaY, { align: "center" });
   doc.text(`Year: ${context.year || "-"}`, pageWidth - 10, metaY, { align: "right" });
 }
 
@@ -853,13 +886,16 @@ function findMatchingMark(marks, enrollment, termName, year, assessmentId = "__T
   const subjectId = getSubjectId(enrollment);
   const subjectName = normalize(getSubjectName(enrollment));
   const className = getEnrollmentClassName(enrollment);
+  const legacyPracticeTermName = getLegacyPracticeTermNameFromAssessmentId(assessmentId);
+  const targetTermName = legacyPracticeTermName || termName;
 
   return marks.find((mark) => {
     if (clean(mark.studentId) !== studentId) return false;
-    if (clean(mark.termName || mark.term) !== clean(termName)) return false;
+    if (clean(mark.termName || mark.term) !== clean(targetTermName)) return false;
     if (getAcademicYear(mark) && Number(getAcademicYear(mark)) !== Number(year)) return false;
     if (getMarkClassName(mark) && getMarkClassName(mark) !== className) return false;
-    const selectedAssessmentId = assessmentId === "__TERM__" ? "" : assessmentId;
+    const selectedAssessmentId =
+      assessmentId === "__TERM__" || legacyPracticeTermName ? "" : assessmentId;
     const markAssessmentId = clean(mark.assessmentId || mark.practiceExamId);
     if (selectedAssessmentId) {
       if (markAssessmentId !== selectedAssessmentId) return false;
@@ -1222,8 +1258,15 @@ export default function SubjectAnalysis() {
       setPracticeExams(nextPracticeExams);
 
       const activeTerm = nextTerms.find((term) => term.isActive) || nextTerms[0] || null;
-      if (activeTerm?.term) {
-        setSelectedTerm((current) => current || activeTerm.term);
+      const activeTermName = clean(activeTerm?.term || activeTerm?.termName);
+      if (activeTermName) {
+        const legacyInfo = getLegacyPracticeTermInfo(activeTerm);
+        setSelectedTerm((current) => current || legacyInfo?.baseTerm || activeTermName);
+        if (legacyInfo) {
+          setSelectedAssessmentId((current) =>
+            current === "__TERM__" ? buildLegacyPracticeAssessmentId(legacyInfo.legacyTermName) : current
+          );
+        }
         setSelectedYear((current) => Number(activeTerm.year || current || CURRENT_YEAR));
       }
     } catch (err) {
@@ -1266,6 +1309,20 @@ export default function SubjectAnalysis() {
     ].filter(Boolean));
     return Array.from(years).sort((a, b) => b - a);
   }, [terms, classrooms, enrollments]);
+
+  const termOptions = useMemo(() => {
+    const baseTermKeys = new Set(
+      terms
+        .filter((term) => !getLegacyPracticeTermInfo(term))
+        .map((term) => `${clean(term.term || term.termName)}__${Number(term.year || term.academicYear || 0)}`)
+    );
+
+    return terms.filter((term) => {
+      const legacyInfo = getLegacyPracticeTermInfo(term);
+      if (!legacyInfo) return true;
+      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
+    });
+  }, [terms]);
 
   const gradeOptions = useMemo(() => {
     const grades = new Set(records.map((record) => record.grade).filter(Boolean));
@@ -1365,13 +1422,26 @@ export default function SubjectAnalysis() {
   );
 
   const assessmentOptions = useMemo(() => {
+    const legacyPracticeTerms = terms
+      .map((term) => getLegacyPracticeTermInfo(term))
+      .filter(
+        (term) =>
+          term &&
+          clean(term.baseTerm) === clean(selectedTerm) &&
+          Number(term.year || 0) === Number(selectedYear)
+      )
+      .map((term) => ({
+        id: buildLegacyPracticeAssessmentId(term.legacyTermName),
+        name: term.label,
+      }));
+
     const matchingPracticeExams = practiceExams
       .filter((exam) => {
         const sameTerm = clean(exam.term || exam.termName) === clean(selectedTerm);
         const sameYear = Number(exam.year || exam.academicYear || 0) === Number(selectedYear);
         const sameGrade = !selectedGrade || Number(exam.grade || 0) === Number(selectedGrade);
         const sameSubject =
-          selectedSubject === ALL ||
+          selectedSubject !== ALL &&
           normalize(exam.subjectName) === normalize(selectedSubjectName);
         return sameTerm && sameYear && sameGrade && sameSubject;
       })
@@ -1379,9 +1449,10 @@ export default function SubjectAnalysis() {
 
     return [
       { id: "__TERM__", name: "Main Term Exam" },
+      ...legacyPracticeTerms,
       ...matchingPracticeExams.map((exam) => ({ id: exam.id, name: exam.name })),
     ];
-  }, [practiceExams, selectedTerm, selectedYear, selectedGrade, selectedSubject, selectedSubjectName]);
+  }, [practiceExams, terms, selectedTerm, selectedYear, selectedGrade, selectedSubject, selectedSubjectName]);
 
   useEffect(() => {
     if (!assessmentOptions.some((option) => option.id === selectedAssessmentId)) {
@@ -1501,13 +1572,21 @@ export default function SubjectAnalysis() {
     [sheetRows]
   );
 
+  const selectedAssessmentName = useMemo(
+    () =>
+      assessmentOptions.find((option) => option.id === selectedAssessmentId)?.name ||
+      "Main Term Exam",
+    [assessmentOptions, selectedAssessmentId]
+  );
+
   const shareContext = useMemo(() => ({
     year: selectedYear,
     term: selectedTerm,
+    assessmentName: selectedAssessmentName,
     grade: selectedGrade,
     className: selectedClass,
     subjectName: selectedSubjectName,
-  }), [selectedYear, selectedTerm, selectedGrade, selectedClass, selectedSubjectName]);
+  }), [selectedYear, selectedTerm, selectedAssessmentName, selectedGrade, selectedClass, selectedSubjectName]);
 
   const handlePrint = (target, size = "A4 landscape") => {
     setPrintTarget(target);
@@ -1575,9 +1654,12 @@ export default function SubjectAnalysis() {
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
-                    {terms.map((term) => (
-                      <MenuItem key={term.id} value={term.term}>{term.term}</MenuItem>
-                    ))}
+                    {termOptions.map((term) => {
+                      const termName = clean(term.term || term.termName);
+                      return (
+                        <MenuItem key={term.id} value={termName}>{termName}</MenuItem>
+                      );
+                    })}
                   </Select>
                 </FormControl>
               </Grid>
@@ -1838,6 +1920,9 @@ function ReportHeader({ title, context }) {
         </Typography>
         <Typography variant="body2" sx={{ textAlign: "center" }}>
           Term: {context.term || "-"}
+          {context.assessmentName && context.assessmentName !== "Main Term Exam"
+            ? ` | Exam: ${context.assessmentName}`
+            : ""}
         </Typography>
         <Typography variant="body2" sx={{ textAlign: "right" }}>
           Year: {context.year || "-"}
@@ -2469,6 +2554,9 @@ function A3GradingSheet({
             </Typography>
             <Typography variant="body2" sx={{ textAlign: "center" }}>
               Term: {term}
+              {context?.assessmentName && context.assessmentName !== "Main Term Exam"
+                ? ` | Exam: ${context.assessmentName}`
+                : ""}
             </Typography>
             <Typography variant="body2" sx={{ textAlign: "right" }}>
               Year: {year}
