@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { GRADES, RELIGIONS } from "../constants";
+import { getOlGradeLetter } from "../utils/gradeUtils";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -254,11 +255,12 @@ function hasMarkEntry(mark) {
 
 function getGradeLabel(mark) {
   if (mark === null || mark === undefined) return null;
-  if (mark >= 75) return { label: "A", color: "success" };
-  if (mark >= 65) return { label: "B", color: "primary" };
-  if (mark >= 55) return { label: "C", color: "warning" };
-  if (mark >= 35) return { label: "S", color: "default" };
-  return { label: "F", color: "error" };
+  const label = getOlGradeLetter(mark);
+  if (label === "A") return { label, color: "success" };
+  if (label === "B") return { label, color: "primary" };
+  if (label === "C") return { label, color: "warning" };
+  if (label === "S") return { label, color: "default" };
+  return { label: label || "W", color: "error" };
 }
 
 function getSubjectTypeBadge(subject, grade) {

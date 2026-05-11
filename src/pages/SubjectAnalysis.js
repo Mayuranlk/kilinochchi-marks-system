@@ -512,6 +512,69 @@ function createRangeStatsPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
 
+  if (rows.length === 1) {
+    const row = rows[0];
+    const rangePairs = RANGE_BANDS.map((band) => [
+      band.key,
+      row.rangeCounts[band.key] || 0,
+    ]);
+    const columnsPerRow = 3;
+    const body = [];
+
+    for (let index = 0; index < rangePairs.length; index += columnsPerRow) {
+      const chunk = rangePairs.slice(index, index + columnsPerRow);
+      body.push(
+        Array.from({ length: columnsPerRow }).flatMap((_, chunkIndex) => {
+          const pair = chunk[chunkIndex] || ["", ""];
+          return pair;
+        })
+      );
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`${row.subjectName} - Appeared: ${row.appeared}`, 10, 32);
+
+    autoTable(doc, {
+      startY: 38,
+      head: [[
+        "Marks Range",
+        "No. of Students",
+        "Marks Range",
+        "No. of Students",
+        "Marks Range",
+        "No. of Students",
+      ]],
+      body,
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        cellPadding: 1.8,
+        valign: "middle",
+        halign: "center",
+        lineWidth: 0.14,
+        lineColor: [40, 40, 40],
+        textColor: 20,
+      },
+      headStyles: {
+        fillColor: [235, 239, 245],
+        textColor: 20,
+        fontStyle: "bold",
+        lineWidth: 0.16,
+        lineColor: [30, 30, 30],
+      },
+      columnStyles: {
+        0: { fontStyle: "bold" },
+        2: { fontStyle: "bold" },
+        4: { fontStyle: "bold" },
+      },
+      margin: { left: 20, right: 20 },
+    });
+
+    addPdfFooter(doc);
+    return doc;
+  }
+
   autoTable(doc, {
     startY: 34,
     head: [["Subject", "Appeared", ...RANGE_BANDS.map((band) => band.key)]],
@@ -2172,6 +2235,18 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
   }
 
   const createPdf = () => createRangeStatsPdf({ title, context, rows });
+  const singleSubjectRow = rows.length === 1 ? rows[0] : null;
+  const compactRangeRows = singleSubjectRow
+    ? RANGE_BANDS.map((band) => ({
+        range: band.key,
+        count: singleSubjectRow.rangeCounts[band.key] || 0,
+      })).reduce((chunks, item, index) => {
+        const chunkIndex = Math.floor(index / 3);
+        if (!chunks[chunkIndex]) chunks[chunkIndex] = [];
+        chunks[chunkIndex].push(item);
+        return chunks;
+      }, [])
+    : [];
 
   return (
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
@@ -2184,30 +2259,70 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
           createPdf={createPdf}
         />
         <ReportHeader title={title} context={context} />
-        <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
-                {RANGE_BANDS.map((band) => (
-                  <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.subjectKey} hover>
-                  <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
-                  <TableCell align="right">{row.appeared}</TableCell>
+        {singleSubjectRow ? (
+          <Box>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+              <Chip label={`Subject: ${singleSubjectRow.subjectName}`} variant="outlined" />
+              <Chip label={`Appeared: ${singleSubjectRow.appeared}`} color="primary" variant="outlined" />
+            </Stack>
+            <ResponsiveTableWrapper minWidth={620} sx={borderedReportTableSx}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    {[0, 1, 2].flatMap((index) => [
+                      <TableCell key={`range-${index}`} sx={{ fontWeight: 800 }}>Marks Range</TableCell>,
+                      <TableCell key={`count-${index}`} align="right" sx={{ fontWeight: 800 }}>
+                        No. of Students
+                      </TableCell>,
+                    ])}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {compactRangeRows.map((row, rowIndex) => (
+                    <TableRow key={rowIndex} hover>
+                      {[0, 1, 2].flatMap((index) => {
+                        const item = row[index];
+                        return [
+                          <TableCell key={`range-${rowIndex}-${index}`} sx={{ fontWeight: item ? 700 : 400 }}>
+                            {item?.range || ""}
+                          </TableCell>,
+                          <TableCell key={`count-${rowIndex}-${index}`} align="right">
+                            {item ? item.count : ""}
+                          </TableCell>,
+                        ];
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ResponsiveTableWrapper>
+          </Box>
+        ) : (
+          <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
                   {RANGE_BANDS.map((band) => (
-                    <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
+                    <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
                   ))}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </ResponsiveTableWrapper>
+              </TableHead>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.subjectKey} hover>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
+                    <TableCell align="right">{row.appeared}</TableCell>
+                    {RANGE_BANDS.map((band) => (
+                      <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ResponsiveTableWrapper>
+        )}
       </CardContent>
     </Card>
   );

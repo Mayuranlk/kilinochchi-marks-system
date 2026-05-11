@@ -14,6 +14,7 @@ import {
   resolveColumnKeyFromSubjectName,
   resolveReligionColumnFromStudent,
 } from "./reportMappingUtils";
+import { getOlGradeLetter } from "./gradeUtils";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
 const OL_TITLE = "G.C.E O/L Examination";
@@ -48,19 +49,6 @@ function sanitizeFilenamePart(value) {
     .trim()
     .replace(/[\\/:*?"<>|]+/g, "_")
     .replace(/\s+/g, "_");
-}
-
-function getOlGradeLetter(value) {
-  if (value === null || value === undefined || value === "") return "";
-  if (String(value).toUpperCase() === "AB") return "AB";
-
-  const mark = Number(value);
-  if (!Number.isFinite(mark)) return "";
-  if (mark >= 75) return "A";
-  if (mark >= 65) return "B";
-  if (mark >= 55) return "C";
-  if (mark >= 40) return "S";
-  return "W";
 }
 
 function getLogoDataUrl(src = KCC_LOGO_URL) {

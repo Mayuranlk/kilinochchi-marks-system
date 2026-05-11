@@ -40,6 +40,7 @@ import {
   exportClassMarksEmisExcel,
   isClassMarksEmisExportSupported,
 } from "../utils/classMarksExportUtils";
+import { getOlGradeBand } from "../utils/gradeUtils";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -226,11 +227,12 @@ function getGradeLetter(mark, grade) {
     return { label: "E", color: "#c62828", bg: "#ffebee" };
   }
 
-  if (mark >= 75) return { label: "A", color: "#2e7d32", bg: "#e8f5e9" };
-  if (mark >= 65) return { label: "B", color: "#1565c0", bg: "#e3f2fd" };
-  if (mark >= 55) return { label: "C", color: "#e65100", bg: "#fff3e0" };
-  if (mark >= 40) return { label: "S", color: "#555", bg: "#f5f5f5" };
-  return { label: "F", color: "#c62828", bg: "#ffebee" };
+  const olBand = getOlGradeBand(mark);
+  if (olBand?.label === "A") return { label: "A", color: "#2e7d32", bg: "#e8f5e9" };
+  if (olBand?.label === "B") return { label: "B", color: "#1565c0", bg: "#e3f2fd" };
+  if (olBand?.label === "C") return { label: "C", color: "#e65100", bg: "#fff3e0" };
+  if (olBand?.label === "S") return { label: "S", color: "#555", bg: "#f5f5f5" };
+  return { label: "W", color: "#c62828", bg: "#ffebee" };
 }
 
 function average(values = []) {

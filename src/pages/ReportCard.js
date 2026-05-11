@@ -27,6 +27,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { db } from "../firebase";
 import { SCHOOL_NAME } from "../constants";
 import { useAuth } from "../context/AuthContext";
+import { getOlGradeBand } from "../utils/gradeUtils";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -145,13 +146,19 @@ function getGradeMeta(mark, studentGrade) {
 
   const upperGrades = [
     { min: 75, label: "A", color: "#2e7d32", bg: "#e8f5e9", desc: "Distinction" },
-    { min: 65, label: "B", color: "#1565c0", bg: "#e3f2fd", desc: "Very Good" },
-    { min: 55, label: "C", color: "#e65100", bg: "#fff3e0", desc: "Credit Pass" },
-    { min: 40, label: "S", color: "#555", bg: "#f5f5f5", desc: "Simple Pass" },
-    { min: 0, label: "F", color: "#c62828", bg: "#ffebee", desc: "Failure" },
+    { min: 65, label: "B", color: "#1565c0", bg: "#e3f2fd", desc: "Very Good Pass" },
+    { min: 50, label: "C", color: "#e65100", bg: "#fff3e0", desc: "Credit Pass" },
+    { min: 35, label: "S", color: "#555", bg: "#f5f5f5", desc: "Ordinary Pass" },
+    { min: 0, label: "W", color: "#c62828", bg: "#ffebee", desc: "Weak" },
   ];
 
-  const bands = grade >= 6 && grade <= 9 ? lowerGrades : upperGrades;
+  if (!(grade >= 6 && grade <= 9)) {
+    const olBand = getOlGradeBand(mark);
+    const meta = upperGrades.find((band) => band.label === olBand?.label);
+    return meta || upperGrades[upperGrades.length - 1];
+  }
+
+  const bands = lowerGrades;
 
   for (const band of bands) {
     if (Number(mark) >= band.min) return band;

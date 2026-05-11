@@ -941,10 +941,10 @@ export const buildALSubjectPayloadFromStudent = (student) => {
 export const getGradeLetter = (marks, grade) => {
   if (grade >= 10) {
     if (marks >= 75) return { letter: "A", desc: "Distinction" };
-    if (marks >= 65) return { letter: "B", desc: "Very Good" };
-    if (marks >= 55) return { letter: "C", desc: "Credit Pass" };
-    if (marks >= 40) return { letter: "S", desc: "Simple Pass" };
-    return { letter: "F", desc: "Failure" };
+    if (marks >= 65) return { letter: "B", desc: "Very Good Pass" };
+    if (marks >= 50) return { letter: "C", desc: "Credit Pass" };
+    if (marks >= 35) return { letter: "S", desc: "Ordinary Pass" };
+    return { letter: "W", desc: "Weak" };
   }
 
   if (marks >= 75) return { letter: "A", desc: "Excellent" };
