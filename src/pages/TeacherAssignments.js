@@ -11,6 +11,9 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Avatar,
   Box,
@@ -23,16 +26,13 @@ import {
   FormGroup,
   Grid,
   IconButton,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Paper,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
+  TextField,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -42,8 +42,9 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import SearchIcon from "@mui/icons-material/Search";
 import {
-  GRADES,
   AL_STREAM_OPTIONS,
   AL_STREAM_CODES,
   isALGrade,
@@ -52,9 +53,7 @@ import {
 } from "../constants";
 import {
   ActionBar,
-  MobileListRow,
   PageContainer,
-  ResponsiveTableWrapper,
   StatCard,
   StatusChip,
 } from "../components/ui";
@@ -62,11 +61,6 @@ import {
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
-
-const SECTIONS = [
-  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-];
 
 const safeString = (value) => {
   if (value === undefined || value === null) return "";
@@ -174,6 +168,8 @@ const subjectKey = (row) => {
 const getAssignmentSubjectName = (row) =>
   safeString(row.subjectName || row.subject);
 
+const getClassroomSection = (row) => normalizeSection(row.section || row.className);
+
 const getAssignmentFullClassName = (row) => {
   if (safeString(row.fullClassName)) return safeString(row.fullClassName);
 
@@ -186,6 +182,33 @@ const getAssignmentFullClassName = (row) => {
   }
 
   return `${grade}${section}`;
+};
+
+const getAssignmentGroupKey = (assignment) => {
+  const grade = normalizeGrade(assignment.grade) || "";
+  const section = normalizeSection(assignment.section);
+  const stream = safeString(assignment.stream);
+  return `${grade}-${section}-${stream}`;
+};
+
+const groupAssignmentsByClass = (teacherAssignments = []) => {
+  const map = new Map();
+
+  teacherAssignments.forEach((assignment) => {
+    const key = getAssignmentGroupKey(assignment);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: getAssignmentFullClassName(assignment),
+        stream: safeString(assignment.stream),
+        assignments: [],
+      });
+    }
+
+    map.get(key).assignments.push(assignment);
+  });
+
+  return Array.from(map.values());
 };
 
 /* -------------------------------------------------------------------------- */
@@ -209,6 +232,8 @@ export default function TeacherAssignments() {
   const [selectedSections, setSelectedSections] = useState([]);
   const [selectedStreams, setSelectedStreams] = useState([]);
   const [selectedSubjectKeys, setSelectedSubjectKeys] = useState([]);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [expandedTeacherId, setExpandedTeacherId] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -271,6 +296,14 @@ export default function TeacherAssignments() {
     [selectedGrades]
   );
 
+  const availableGrades = useMemo(() => {
+    const createdGrades = classrooms
+      .map((row) => normalizeGrade(row.grade))
+      .filter(Boolean);
+
+    return [...new Set(createdGrades)].sort((a, b) => a - b);
+  }, [classrooms]);
+
   const availableStreams = useMemo(() => {
     const classroomStreams = classrooms
       .filter((row) => isALGrade(normalizeGrade(row.grade)))
@@ -281,7 +314,7 @@ export default function TeacherAssignments() {
   }, [classrooms]);
 
   const availableSections = useMemo(() => {
-    if (!selectedGrades.length) return SECTIONS;
+    if (!selectedGrades.length) return [];
 
     const derived = classrooms
       .filter((row) => selectedGrades.includes(normalizeGrade(row.grade)))
@@ -292,16 +325,15 @@ export default function TeacherAssignments() {
         }
         return true;
       })
-      .map((row) => normalizeSection(row.section || row.className))
+      .map((row) => getClassroomSection(row))
       .filter(Boolean);
 
-    const merged = [...new Set([...SECTIONS, ...derived])];
-    return merged.sort();
+    return [...new Set(derived)].sort((a, b) => a.localeCompare(b));
   }, [classrooms, selectedGrades, selectedStreams]);
 
   const availableSubjects = useMemo(() => {
     if (!selectedGrades.length) {
-      return subjects;
+      return [];
     }
 
     return subjects.filter((subject) =>
@@ -379,6 +411,18 @@ export default function TeacherAssignments() {
 
   const previewCount = previewCombos.length;
 
+  useEffect(() => {
+    setSelectedGrades((prev) =>
+      prev.filter((grade) => availableGrades.includes(grade))
+    );
+  }, [availableGrades]);
+
+  useEffect(() => {
+    setSelectedSections((prev) =>
+      prev.filter((section) => availableSections.includes(section))
+    );
+  }, [availableSections]);
+
   const toggleGrade = (grade) => {
     setSelectedGrades((prev) => {
       const next = prev.includes(grade)
@@ -423,7 +467,7 @@ export default function TeacherAssignments() {
 
   const toggleAllGrades = () => {
     setSelectedGrades((prev) =>
-      prev.length === GRADES.length ? [] : [...GRADES]
+      prev.length === availableGrades.length ? [] : [...availableGrades]
     );
     setSelectedSubjectKeys([]);
   };
@@ -633,6 +677,38 @@ export default function TeacherAssignments() {
     }))
     .filter((teacher) => teacher.assignments.length > 0);
 
+  const filteredGroupedAssignments = useMemo(() => {
+    const term = lower(assignmentSearch);
+    if (!term) return groupedAssignments;
+
+    return groupedAssignments.filter((teacher) => {
+      const teacherText = [
+        teacher.name,
+        teacher.email,
+        teacher.phone,
+        teacher.nic,
+      ]
+        .map(lower)
+        .join(" ");
+
+      if (teacherText.includes(term)) return true;
+
+      return teacher.assignments.some((assignment) =>
+        [
+          getAssignmentFullClassName(assignment),
+          assignment.stream,
+          assignment.subjectName,
+          assignment.subject,
+          assignment.subjectNumber,
+          assignment.subjectCode,
+        ]
+          .map(lower)
+          .join(" ")
+          .includes(term)
+      );
+    });
+  }, [assignmentSearch, groupedAssignments]);
+
   const stats = {
     total: assignments.length,
     teachers: teachers.length,
@@ -779,31 +855,38 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0 }}
                   onClick={toggleAllGrades}
+                  disabled={availableGrades.length === 0}
                 >
-                  {selectedGrades.length === GRADES.length ? "None" : "All"}
+                  {selectedGrades.length === availableGrades.length ? "None" : "All"}
                 </Button>
               </Box>
 
-              <FormGroup>
-                {GRADES.map((grade) => (
-                  <FormControlLabel
-                    key={grade}
-                    control={
-                      <Checkbox
-                        checked={selectedGrades.includes(grade)}
-                        onChange={() => toggleGrade(grade)}
-                        size="small"
-                        sx={{
-                          py: 0.3,
-                          color: "#1a237e",
-                          "&.Mui-checked": { color: "#1a237e" },
-                        }}
-                      />
-                    }
-                    label={<Typography variant="body2">Grade {grade}</Typography>}
-                  />
-                ))}
-              </FormGroup>
+              {availableGrades.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  Create classrooms first to enable assignment.
+                </Typography>
+              ) : (
+                <FormGroup>
+                  {availableGrades.map((grade) => (
+                    <FormControlLabel
+                      key={grade}
+                      control={
+                        <Checkbox
+                          checked={selectedGrades.includes(grade)}
+                          onChange={() => toggleGrade(grade)}
+                          size="small"
+                          sx={{
+                            py: 0.3,
+                            color: "#1a237e",
+                            "&.Mui-checked": { color: "#1a237e" },
+                          }}
+                        />
+                      }
+                      label={<Typography variant="body2">Grade {grade}</Typography>}
+                    />
+                  ))}
+                </FormGroup>
+              )}
 
               {selectedGrades.length > 0 && (
                 <Chip
@@ -834,31 +917,42 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#2e7d32" }}
                   onClick={toggleAllSections}
+                  disabled={availableSections.length === 0}
                 >
                   {selectedSections.length === availableSections.length ? "None" : "All"}
                 </Button>
               </Box>
 
-              <FormGroup>
-                {availableSections.map((section) => (
-                  <FormControlLabel
-                    key={section}
-                    control={
-                      <Checkbox
-                        checked={selectedSections.includes(section)}
-                        onChange={() => toggleSection(section)}
-                        size="small"
-                        sx={{
-                          py: 0.3,
-                          color: "#2e7d32",
-                          "&.Mui-checked": { color: "#2e7d32" },
-                        }}
-                      />
-                    }
-                    label={<Typography variant="body2">Section {section}</Typography>}
-                  />
-                ))}
-              </FormGroup>
+              {selectedGrades.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  Select a grade to show its classroom sections.
+                </Typography>
+              ) : availableSections.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  No sections found for the selected classroom filters.
+                </Typography>
+              ) : (
+                <FormGroup>
+                  {availableSections.map((section) => (
+                    <FormControlLabel
+                      key={section}
+                      control={
+                        <Checkbox
+                          checked={selectedSections.includes(section)}
+                          onChange={() => toggleSection(section)}
+                          size="small"
+                          sx={{
+                            py: 0.3,
+                            color: "#2e7d32",
+                            "&.Mui-checked": { color: "#2e7d32" },
+                          }}
+                        />
+                      }
+                      label={<Typography variant="body2">Section {section}</Typography>}
+                    />
+                  ))}
+                </FormGroup>
+              )}
 
               {selectedSections.length > 0 && (
                 <Chip
@@ -953,13 +1047,23 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#e65100" }}
                   onClick={toggleAllSubjects}
+                  disabled={availableSubjects.length === 0}
                 >
                   {selectedSubjectKeys.length === availableSubjects.length ? "None" : "All"}
                 </Button>
               </Box>
 
-              <FormGroup>
-                {availableSubjects.map((subject) => {
+              {selectedGrades.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  Select a grade to load matching subjects.
+                </Typography>
+              ) : availableSubjects.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  No active subjects found for the selected filters.
+                </Typography>
+              ) : (
+                <FormGroup>
+                  {availableSubjects.map((subject) => {
                   const key = subjectKey({
                     subjectId: subject.id,
                     subjectName: getSubjectName(subject),
@@ -994,8 +1098,9 @@ export default function TeacherAssignments() {
                       }
                     />
                   );
-                })}
-              </FormGroup>
+                  })}
+                </FormGroup>
+              )}
 
               {selectedSubjectKeys.length > 0 && (
                 <Chip
@@ -1060,173 +1165,168 @@ export default function TeacherAssignments() {
         </Box>
       ) : groupedAssignments.length > 0 ? (
         <Box>
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
-            Current Assignments
-          </Typography>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.25}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", sm: "center" }}
+            mb={1.5}
+          >
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700} color="#1a237e">
+                Current Assignments
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {filteredGroupedAssignments.length} of {groupedAssignments.length} teachers shown
+              </Typography>
+            </Box>
 
-          {isMobile ? (
-            groupedAssignments.map((teacher) => (
-              <MobileListRow
-                key={teacher.id}
-                compact
-                title={teacher.name}
-                right={<Chip label={`${teacher.assignments.length}`} size="small" color="primary" />}
-                meta={
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: getAvatarColor(teacher.name),
-                        width: 32,
-                        height: 32,
-                        fontSize: 14,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {safeString(teacher.name).charAt(0) || "T"}
-                    </Avatar>
-                    <Typography variant="body2" color="text.secondary">
-                      {teacher.email || "Teacher assignments"}
-                    </Typography>
-                  </Stack>
-                }
-                footer={
-                  <Stack spacing={0.75}>
-                    {teacher.assignments.map((assignment) => (
-                      <Box
-                        key={assignment.id}
-                        display="flex"
-                        justifyContent="space-between"
+            <TextField
+              value={assignmentSearch}
+              onChange={(e) => setAssignmentSearch(e.target.value)}
+              placeholder="Search teacher, class, subject..."
+              size="small"
+              sx={{ width: { xs: "100%", sm: 360 } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Stack>
+
+          {filteredGroupedAssignments.length === 0 ? (
+            <Alert severity="info">No assignments match your search.</Alert>
+          ) : (
+            <Stack spacing={1} sx={{ maxHeight: 620, overflowY: "auto", pr: 0.5 }}>
+              {filteredGroupedAssignments.map((teacher) => {
+                const classGroups = groupAssignmentsByClass(teacher.assignments);
+
+                return (
+                  <Accordion
+                    key={teacher.id}
+                    expanded={expandedTeacherId === teacher.id}
+                    onChange={(_, expanded) =>
+                      setExpandedTeacherId(expanded ? teacher.id : "")
+                    }
+                    disableGutters
+                    sx={{
+                      border: "1px solid #e8eaf6",
+                      borderRadius: "12px !important",
+                      boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+                      "&:before": { display: "none" },
+                    }}
+                  >
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Stack
+                        direction="row"
+                        spacing={1.25}
                         alignItems="center"
-                        py={0.5}
-                        sx={{ borderBottom: "1px solid #f0f0f0" }}
+                        sx={{ width: "100%", minWidth: 0, pr: 1 }}
                       >
-                        <Box display="flex" gap={0.8} flexWrap="wrap" alignItems="center">
-                          <Chip
-                            label={getAssignmentFullClassName(assignment)}
-                            size="small"
-                            color="primary"
-                          />
-                          <Typography variant="body2">
-                            {assignment.subjectName || assignment.subject}
+                        <Avatar
+                          sx={{
+                            bgcolor: getAvatarColor(teacher.name),
+                            width: 34,
+                            height: 34,
+                            fontSize: 14,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {safeString(teacher.name).charAt(0) || "T"}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="body2" fontWeight={800} noWrap>
+                            {teacher.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {teacher.email || "Teacher assignments"}
                           </Typography>
                         </Box>
-
-                        <IconButton
+                        <Chip
+                          label={`${teacher.assignments.length} assigned`}
                           size="small"
-                          color="error"
-                          onClick={() => handleDelete(assignment.id)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    ))}
-                  </Stack>
-                }
-                sx={{
-                  mb: 1.5,
-                  border: "1px solid #e8eaf6",
-                  boxShadow: "0 2px 8px rgba(26,35,126,0.08)",
-                }}
-              />
-            ))
-          ) : (
-            <ResponsiveTableWrapper>
-              <Paper
-              sx={{
-                borderRadius: 3,
-                overflow: "hidden",
-                boxShadow: "0 2px 12px rgba(26,35,126,0.08)",
-              }}
-            >
-              <Table size="small">
-                <TableHead sx={{ bgcolor: "#1a237e" }}>
-                  <TableRow>
-                    {["#", "Teacher", "Class", "Stream", "Subject", "Action"].map((head) => (
-                      <TableCell key={head} sx={{ color: "white", fontWeight: 600 }}>
-                        {head}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
+                          color="primary"
+                          variant="outlined"
+                        />
+                      </Stack>
+                    </AccordionSummary>
 
-                <TableBody>
-                  {assignments
-                    .slice()
-                    .sort((a, b) => {
-                      const gradeDiff = Number(a.grade) - Number(b.grade);
-                      if (gradeDiff !== 0) return gradeDiff;
+                    <AccordionDetails sx={{ pt: 0 }}>
+                      <Stack spacing={0.85}>
+                        {classGroups.map((group) => (
+                          <Box
+                            key={group.key}
+                            sx={{
+                              display: "grid",
+                              gridTemplateColumns: { xs: "1fr", md: "150px 1fr" },
+                              gap: 1,
+                              alignItems: "start",
+                              p: 1,
+                              border: "1px solid #edf0f7",
+                              borderRadius: 1.5,
+                              bgcolor: "#fafbff",
+                            }}
+                          >
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                              <Chip label={group.label} size="small" color="primary" />
+                              {group.stream && (
+                                <Chip label={group.stream} size="small" color="secondary" />
+                              )}
+                            </Stack>
 
-                      const streamDiff = safeString(a.stream).localeCompare(safeString(b.stream));
-                      if (streamDiff !== 0) return streamDiff;
-
-                      const sectionDiff = safeString(a.section).localeCompare(
-                        safeString(b.section)
-                      );
-                      if (sectionDiff !== 0) return sectionDiff;
-
-                      return getAssignmentSubjectName(a).localeCompare(
-                        getAssignmentSubjectName(b)
-                      );
-                    })
-                    .map((assignment, index) => (
-                      <TableRow
-                        key={assignment.id}
-                        hover
-                        sx={{ "&:hover": { bgcolor: "#f5f7ff" } }}
-                      >
-                        <TableCell>{index + 1}</TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={600}>
-                            {assignment.teacherName}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={getAssignmentFullClassName(assignment)}
-                            size="small"
-                            color="primary"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {safeString(assignment.stream) ? (
-                            <Chip
-                              label={assignment.stream}
-                              size="small"
-                              color="secondary"
-                            />
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Box>
-                            <Typography variant="body2">
-                              {assignment.subjectName || assignment.subject}
-                            </Typography>
-                            {safeString(assignment.subjectNumber) && (
-                              <Typography variant="caption" color="text.secondary">
-                                No. {assignment.subjectNumber}
-                              </Typography>
-                            )}
+                            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                              {group.assignments.map((assignment) => (
+                                <Box
+                                  key={assignment.id}
+                                  sx={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 0.5,
+                                    maxWidth: { xs: "100%", sm: 360 },
+                                    pl: 1,
+                                    border: "1px solid #e3e7f3",
+                                    borderRadius: 1.5,
+                                    bgcolor: "white",
+                                  }}
+                                >
+                                  <Box sx={{ minWidth: 0 }}>
+                                    <Typography variant="caption" fontWeight={700} noWrap>
+                                      {assignment.subjectName || assignment.subject}
+                                    </Typography>
+                                    {safeString(assignment.subjectNumber) && (
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{ ml: 0.5 }}
+                                      >
+                                        No. {assignment.subjectNumber}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                  <Tooltip title="Remove">
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleDelete(assignment.id)}
+                                      sx={{ p: 0.5 }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              ))}
+                            </Stack>
                           </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Tooltip title="Remove">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDelete(assignment.id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-              </Paper>
-            </ResponsiveTableWrapper>
+                        ))}
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
+                );
+              })}
+            </Stack>
           )}
         </Box>
       ) : (
