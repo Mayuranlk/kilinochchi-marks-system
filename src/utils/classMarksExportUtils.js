@@ -987,6 +987,7 @@ function makeJuniorEmisNpSheetRows(reportData) {
     "Religion",
     "FirstLang",
     "Maths",
+    "Geom",
     "English",
     "Science",
     "History",
@@ -994,11 +995,10 @@ function makeJuniorEmisNpSheetRows(reportData) {
     "CitiEduGove",
     "HealthPhyEdu",
     "PTS",
-    "ICT",
-    "Geom",
+    "SecondLang",
     "AestheticTheory",
     "AestheticPractical",
-    "SecondLang",
+    "ICT",
   ];
 
   const bodyRows = reportData.rows.map((row) => {
@@ -1017,6 +1017,7 @@ function makeJuniorEmisNpSheetRows(reportData) {
       getMarkCellValue(row, religionColumn),
       getMarkCellValue(row, "TAMIL"),
       mathsMark,
+      mathsMark,
       getMarkCellValue(row, "ENGLISH"),
       getMarkCellValue(row, "SCIENCE"),
       getMarkCellValue(row, "HISTORY"),
@@ -1024,11 +1025,10 @@ function makeJuniorEmisNpSheetRows(reportData) {
       getMarkCellValue(row, "CIVICS"),
       getMarkCellValue(row, "HEALTH"),
       getMarkCellValue(row, "PTS"),
-      getMarkCellValue(row, "ICT"),
-      mathsMark,
-      aestheticMark,
-      aestheticMark,
       getSecondLanguageMark(row),
+      aestheticMark,
+      aestheticMark,
+      getMarkCellValue(row, "ICT"),
     ];
   });
 
