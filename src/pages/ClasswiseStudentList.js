@@ -24,7 +24,12 @@ import {
 import DownloadIcon from "@mui/icons-material/Download";
 import PrintIcon from "@mui/icons-material/Print";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { saveAs } from "file-saver";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -160,6 +165,16 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getStatusPdfFillColor(status) {
+  if (status === "Completed") return [200, 230, 201];
+  if (status === "Partial") return [255, 249, 196];
+  return [255, 205, 210];
+}
+
+function makeUploadStatusFileName(year) {
+  return `student_upload_status_${year}.pdf`;
 }
 
 export default function ClasswiseStudentList() {
@@ -437,6 +452,120 @@ export default function ClasswiseStudentList() {
     XLSX.writeFile(workbook, `student_upload_status_${selectedYear}.xlsx`);
   }
 
+  function createUploadStatusPdf() {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
+    doc.setFontSize(11);
+    doc.text("Student Details Upload Status Report", 148.5, 19, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(`Year: ${selectedYear}`, 10, 28);
+    doc.text(`Classes: ${uploadStatusRows.length}`, 82, 28);
+    doc.text(`Completed: ${completedClassCount}`, 154, 28);
+    doc.text(`Partial: ${partialClassCount}`, 210, 28);
+    doc.text(`Not Uploaded: ${missingClassCount}`, 252, 28);
+
+    autoTable(doc, {
+      startY: 34,
+      head: [[
+        "No",
+        "Class",
+        "Class Teacher",
+        "Active Students",
+        "EMIS ID Available",
+        "EMIS ID Missing",
+        "Status",
+        "Instruction",
+      ]],
+      body: uploadStatusRows.map((row, index) => [
+        index + 1,
+        row.className,
+        row.classTeacherName || "Not Provided",
+        row.studentCount,
+        row.emisAvailableCount,
+        row.emisMissingCount,
+        row.status,
+        row.status === "Completed" ? "" : "Ask class teacher to complete student details and EMIS IDs",
+      ]),
+      theme: "grid",
+      styles: {
+        fontSize: 7.4,
+        cellPadding: 1.2,
+        valign: "middle",
+        lineWidth: 0.12,
+        lineColor: [60, 60, 60],
+        textColor: 20,
+      },
+      headStyles: {
+        fillColor: [235, 239, 245],
+        textColor: 20,
+        fontStyle: "bold",
+        halign: "center",
+      },
+      columnStyles: {
+        0: { cellWidth: 9, halign: "center" },
+        1: { cellWidth: 38, fontStyle: "bold" },
+        2: { cellWidth: 42 },
+        3: { cellWidth: 22, halign: "right" },
+        4: { cellWidth: 25, halign: "right" },
+        5: { cellWidth: 22, halign: "right" },
+        6: { cellWidth: 22, fontStyle: "bold" },
+        7: { cellWidth: 88 },
+      },
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        const row = uploadStatusRows[data.row.index];
+        if (!row) return;
+        data.cell.styles.fillColor = getStatusPdfFillColor(row.status);
+      },
+      margin: { left: 8, right: 8 },
+    });
+
+    const finalY = doc.lastAutoTable?.finalY || 185;
+    const signatureY = Math.min(finalY + 18, 194);
+    doc.setFontSize(8.5);
+    doc.text("Prepared By", 28, signatureY);
+    doc.text("Sectional Head", 138, signatureY);
+    doc.text("Principal", 252, signatureY);
+    doc.setFontSize(7.5);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 289, 203, { align: "right" });
+
+    return doc;
+  }
+
+  function downloadUploadStatusPdf() {
+    const doc = createUploadStatusPdf();
+    doc.save(makeUploadStatusFileName(selectedYear));
+  }
+
+  async function shareUploadStatusPdf() {
+    try {
+      const doc = createUploadStatusPdf();
+      const blob = doc.output("blob");
+      const file = new File([blob], makeUploadStatusFileName(selectedYear), {
+        type: "application/pdf",
+      });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+        await navigator.share({
+          title: "Student Details Upload Status Report",
+          text: `Student details upload status report - ${selectedYear}`,
+          files: [file],
+        });
+        return;
+      }
+
+      saveAs(blob, makeUploadStatusFileName(selectedYear));
+      setError("This browser cannot attach the PDF directly to WhatsApp. The PDF was downloaded; attach it in WhatsApp manually.");
+    } catch (err) {
+      setError(err.message || "Failed to share upload status PDF.");
+    }
+  }
+
   function printList() {
     if (!printRef.current) return;
     if (reportMode === REPORT_MODES.classList && !selectedClassroom) return;
@@ -603,6 +732,28 @@ export default function ClasswiseStudentList() {
               >
                 Export Excel
               </Button>
+              {reportMode === REPORT_MODES.uploadStatus && (
+                <>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={<PictureAsPdfIcon />}
+                    onClick={downloadUploadStatusPdf}
+                    disabled={uploadStatusRows.length === 0}
+                  >
+                    PDF
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<WhatsAppIcon />}
+                    onClick={shareUploadStatusPdf}
+                    disabled={uploadStatusRows.length === 0}
+                  >
+                    WhatsApp
+                  </Button>
+                </>
+              )}
             </Stack>
           </CardContent>
         </Card>
