@@ -35,6 +35,10 @@ const PURPOSE_OPTIONS = [
   "Parents Meeting Signature",
   "Custom Purpose",
 ];
+const REPORT_MODES = {
+  classList: "classList",
+  uploadStatus: "uploadStatus",
+};
 
 function text(value) {
   return String(value || "").trim();
@@ -84,6 +88,16 @@ function getClassYear(classroom = {}) {
   return Number(classroom.year || classroom.academicYear || CURRENT_YEAR);
 }
 
+function getClassTeacherName(classroom = {}) {
+  return text(
+    classroom.classTeacherName ||
+      classroom.teacherName ||
+      classroom.classTeacher ||
+      classroom.assignedTeacherName ||
+      ""
+  );
+}
+
 function sortStudents(list = []) {
   return [...list].sort((a, b) => {
     const admissionA = getAdmissionNo(a);
@@ -124,6 +138,7 @@ export default function ClasswiseStudentList() {
   const [classrooms, setClassrooms] = useState([]);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedClassId, setSelectedClassId] = useState("");
+  const [reportMode, setReportMode] = useState(REPORT_MODES.classList);
   const [purpose, setPurpose] = useState(PURPOSE_OPTIONS[0]);
   const [customPurpose, setCustomPurpose] = useState("");
 
@@ -174,6 +189,38 @@ export default function ClasswiseStudentList() {
       })
     );
   }, [students, selectedClassroom]);
+
+  const classStudentCounts = useMemo(() => {
+    const counts = new Map();
+
+    students.forEach((student) => {
+      if (normalizeStatus(student.status) !== "active") return;
+      const key = `${parseGrade(student.grade)}__${normalizeSection(student.section || student.className)}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    return counts;
+  }, [students]);
+
+  const uploadStatusRows = useMemo(() => {
+    return filteredClassrooms.map((classroom) => {
+      const key = `${parseGrade(classroom.grade)}__${normalizeSection(classroom.section || classroom.className)}`;
+      const studentCount = classStudentCounts.get(key) || 0;
+
+      return {
+        id: classroom.id,
+        className: getClassDisplayName(classroom),
+        grade: parseGrade(classroom.grade),
+        section: normalizeSection(classroom.section || classroom.className),
+        classTeacherName: getClassTeacherName(classroom),
+        studentCount,
+        uploaded: studentCount > 0,
+      };
+    });
+  }, [filteredClassrooms, classStudentCounts]);
+
+  const uploadedClassCount = uploadStatusRows.filter((row) => row.uploaded).length;
+  const missingClassCount = uploadStatusRows.length - uploadedClassCount;
 
   useEffect(() => {
     loadData();
@@ -245,6 +292,11 @@ export default function ClasswiseStudentList() {
   }
 
   function exportExcel() {
+    if (reportMode === REPORT_MODES.uploadStatus) {
+      exportUploadStatusExcel();
+      return;
+    }
+
     if (!selectedClassroom) return;
 
     const headingRows = [
@@ -284,16 +336,53 @@ export default function ClasswiseStudentList() {
     XLSX.writeFile(workbook, fileName);
   }
 
+  function exportUploadStatusExcel() {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["Kilinochchi Central College"],
+      ["Student Details Upload Status Report"],
+      [`Year: ${selectedYear}`],
+      [],
+      ["No", "Class", "Class Teacher", "Active Students", "Status", "Instruction"],
+      ...uploadStatusRows.map((row, index) => [
+        index + 1,
+        row.className,
+        row.classTeacherName || "-",
+        row.studentCount,
+        row.uploaded ? "Uploaded" : "Not Uploaded",
+        row.uploaded ? "" : "Ask class teacher to upload student details",
+      ]),
+    ]);
+
+    worksheet["!cols"] = [
+      { wch: 6 },
+      { wch: 14 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 40 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Upload Status");
+    XLSX.writeFile(workbook, `student_upload_status_${selectedYear}.xlsx`);
+  }
+
   function printList() {
-    if (!selectedClassroom || !printRef.current) return;
+    if (!printRef.current) return;
+    if (reportMode === REPORT_MODES.classList && !selectedClassroom) return;
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
+    const title =
+      reportMode === REPORT_MODES.uploadStatus
+        ? "Student Details Upload Status Report"
+        : selectedPurpose || "Classwise Student List";
+
     printWindow.document.write(`
       <html>
         <head>
-          <title>${escapeHtml(selectedPurpose || "Classwise Student List")}</title>
+          <title>${escapeHtml(title)}</title>
           <style>
             body { font-family: Arial, sans-serif; color: #000; padding: 18px; }
             h1 { font-size: 18px; text-align: center; margin: 0 0 4px; }
@@ -302,7 +391,6 @@ export default function ClasswiseStudentList() {
             table { width: 100%; border-collapse: collapse; font-size: 11px; }
             th, td { border: 1px solid #333; padding: 7px 6px; }
             th { background: #f2f2f2; }
-            td:nth-child(4) { text-align: left; }
             .signature { height: 28px; }
             .footer { display: flex; justify-content: space-between; margin-top: 32px; font-size: 12px; }
             @page { size: A4 portrait; margin: 12mm; }
@@ -326,7 +414,21 @@ export default function ClasswiseStudentList() {
         <Card sx={{ borderRadius: 2 }}>
           <CardContent>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={2.5}>
+              <Grid item xs={12} md={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Report</InputLabel>
+                  <Select
+                    value={reportMode}
+                    label="Report"
+                    onChange={(event) => setReportMode(event.target.value)}
+                  >
+                    <MenuItem value={REPORT_MODES.classList}>Class List</MenuItem>
+                    <MenuItem value={REPORT_MODES.uploadStatus}>Upload Status</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={2}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select
@@ -346,13 +448,14 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid item xs={12} md={2.5}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
                   <Select
                     value={selectedClassId}
                     label="Class"
                     onChange={(event) => setSelectedClassId(event.target.value)}
+                    disabled={reportMode === REPORT_MODES.uploadStatus}
                   >
                     {filteredClassrooms.map((classroom) => (
                       <MenuItem key={classroom.id} value={classroom.id}>
@@ -363,13 +466,14 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3.5}>
+              <Grid item xs={12} md={2.5}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Purpose</InputLabel>
                   <Select
                     value={purpose}
                     label="Purpose"
                     onChange={(event) => setPurpose(event.target.value)}
+                    disabled={reportMode === REPORT_MODES.uploadStatus}
                   >
                     {PURPOSE_OPTIONS.map((item) => (
                       <MenuItem key={item} value={item}>
@@ -387,7 +491,7 @@ export default function ClasswiseStudentList() {
                   label="Custom Purpose"
                   value={customPurpose}
                   onChange={(event) => setCustomPurpose(event.target.value)}
-                  disabled={purpose !== "Custom Purpose"}
+                  disabled={reportMode === REPORT_MODES.uploadStatus || purpose !== "Custom Purpose"}
                 />
               </Grid>
             </Grid>
@@ -405,16 +509,24 @@ export default function ClasswiseStudentList() {
                 variant="contained"
                 startIcon={<PrintIcon />}
                 onClick={printList}
-                disabled={!selectedClassroom || classStudents.length === 0}
+                disabled={
+                  reportMode === REPORT_MODES.uploadStatus
+                    ? uploadStatusRows.length === 0
+                    : !selectedClassroom || classStudents.length === 0
+                }
               >
-                Print List
+                {reportMode === REPORT_MODES.uploadStatus ? "Print Report" : "Print List"}
               </Button>
               <Button
                 variant="contained"
                 color="success"
                 startIcon={<DownloadIcon />}
                 onClick={exportExcel}
-                disabled={!selectedClassroom || classStudents.length === 0}
+                disabled={
+                  reportMode === REPORT_MODES.uploadStatus
+                    ? uploadStatusRows.length === 0
+                    : !selectedClassroom || classStudents.length === 0
+                }
               >
                 Export Excel
               </Button>
@@ -430,7 +542,76 @@ export default function ClasswiseStudentList() {
 
         {!!error && <Alert severity="error">{error}</Alert>}
 
-        {!loading && selectedClassroom && (
+        {!loading && reportMode === REPORT_MODES.uploadStatus && (
+          <>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Classes" value={uploadStatusRows.length} />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Uploaded" value={uploadedClassCount} color="success" />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <StatCard title="Not Uploaded" value={missingClassCount} color="warning" />
+              </Grid>
+            </Grid>
+
+            <Card sx={{ borderRadius: 2 }}>
+              <CardContent>
+                <Box ref={printRef}>
+                  <Typography variant="h6" align="center" fontWeight={800}>
+                    Kilinochchi Central College
+                  </Typography>
+                  <Typography variant="subtitle1" align="center" sx={{ mb: 1 }}>
+                    Student Details Upload Status Report
+                  </Typography>
+                  <Stack direction="row" justifyContent="space-between" sx={{ mb: 1.5 }}>
+                    <Typography variant="body2">Year: {selectedYear}</Typography>
+                    <Typography variant="body2">Classes: {uploadStatusRows.length}</Typography>
+                    <Typography variant="body2">Not Uploaded: {missingClassCount}</Typography>
+                  </Stack>
+
+                  <ResponsiveTableWrapper>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell align="center">No</TableCell>
+                          <TableCell>Class</TableCell>
+                          <TableCell>Class Teacher</TableCell>
+                          <TableCell align="right">Active Students</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Instruction</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {uploadStatusRows.map((row, index) => (
+                          <TableRow key={row.id} hover>
+                            <TableCell align="center">{index + 1}</TableCell>
+                            <TableCell>{row.className}</TableCell>
+                            <TableCell>{row.classTeacherName || "-"}</TableCell>
+                            <TableCell align="right">{row.studentCount}</TableCell>
+                            <TableCell>{row.uploaded ? "Uploaded" : "Not Uploaded"}</TableCell>
+                            <TableCell>
+                              {row.uploaded ? "" : "Ask class teacher to upload student details"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+
+                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 4 }}>
+                    <Typography variant="body2">Prepared By</Typography>
+                    <Typography variant="body2">Sectional Head</Typography>
+                    <Typography variant="body2">Principal</Typography>
+                  </Stack>
+                </Box>
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {!loading && reportMode === REPORT_MODES.classList && selectedClassroom && (
           <>
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
@@ -503,8 +684,12 @@ export default function ClasswiseStudentList() {
           </>
         )}
 
-        {!loading && selectedClassroom && classStudents.length === 0 && (
+        {!loading && reportMode === REPORT_MODES.classList && selectedClassroom && classStudents.length === 0 && (
           <Alert severity="info">No active students found for the selected class.</Alert>
+        )}
+
+        {!loading && reportMode === REPORT_MODES.uploadStatus && uploadStatusRows.length === 0 && (
+          <Alert severity="info">No classrooms found for the selected year.</Alert>
         )}
       </Stack>
     </PageContainer>
