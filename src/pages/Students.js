@@ -5,6 +5,8 @@ import {
   updateDoc,
   doc,
   getDocs,
+  writeBatch,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
@@ -321,49 +323,34 @@ const getEmisStudentIdFromRow = (row = {}) =>
       ""
   );
 
-const EMIS_ID_FIX_HEADERS = [
-  "Admission No",
-  "StFullName",
+const getIdentityFixAdmissionNoFromRow = (row = {}) =>
+  normalizeText(
+    row["Correct Admission No"] ||
+      row["New Admission No"] ||
+      row["Admission No"] ||
+      row.admissionNo ||
+      row.AdmissionNo ||
+      ""
+  );
+
+const getIdentityFixCurrentAdmissionNoFromRow = (row = {}) =>
+  normalizeText(
+    row["Current Admission No"] ||
+      row["Old Admission No"] ||
+      row["Existing Admission No"] ||
+      row.currentAdmissionNo ||
+      row.oldAdmissionNo ||
+      ""
+  );
+
+const IDENTITY_FIX_HEADERS = [
+  "Current Admission No",
+  "Correct Admission No",
   "StudentID",
+  "StFullName",
   "Grade",
   "GradeDivision",
-  "yearofstudy",
-  "ExamTerm",
-  "Religion",
-  "FirstLang",
-  "Maths",
-  "English",
-  "Science",
-  "History",
-  "FirstGroup",
-  "SecondGro",
-  "ThirdGroup",
-  "Science Practical",
-  "Geometry",
 ];
-
-const buildEmisExportRow = (student = {}) => {
-  const grade = Number(student.grade);
-  return {
-    StFullName: getStudentName(student),
-    StudentID: getEmisStudentId(student),
-    Grade: grade || "",
-    GradeDivision: normalizeSectionValue(student.section || student.className || ""),
-    yearofstudy: String(new Date().getFullYear()),
-    ExamTerm: "",
-    Religion: "",
-    FirstLang: "",
-    Maths: "",
-    English: "",
-    Science: "",
-    History: "",
-    FirstGroup: "",
-    SecondGro: "",
-    ThirdGroup: "",
-    "Science Practical": "",
-    Geometry: "",
-  };
-};
 
 const downloadWorksheet = (rows, sheetName, fileName) => {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -384,33 +371,17 @@ const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
   XLSX.writeFile(wb, fileName);
 };
 
-const buildEmisIdFixWorksheetRows = (students = []) => {
-  const bodyRows = students.map((student) => {
-    const row = buildEmisExportRow(student);
+const buildIdentityFixWorksheetRows = (students = []) => {
+  const bodyRows = students.map((student) => [
+    normalizeText(student.admissionNo),
+    "",
+    getEmisStudentId(student),
+    getStudentName(student),
+    Number(student.grade) || "",
+    normalizeSectionValue(student.section || student.className || ""),
+  ]);
 
-    return [
-      normalizeText(student.admissionNo),
-      row.StFullName,
-      row.StudentID,
-      row.Grade,
-      row.GradeDivision,
-      row.yearofstudy,
-      row.ExamTerm,
-      row.Religion,
-      row.FirstLang,
-      row.Maths,
-      row.English,
-      row.Science,
-      row.History,
-      row.FirstGroup,
-      row.SecondGro,
-      row.ThirdGroup,
-      row["Science Practical"],
-      row.Geometry,
-    ];
-  });
-
-  return [EMIS_ID_FIX_HEADERS, ...bodyRows];
+  return [IDENTITY_FIX_HEADERS, ...bodyRows];
 };
 
 const downloadJuniorTemplate = () => {
@@ -512,6 +483,14 @@ const getGradeBandLabel = (grade) => {
   if (g >= 10 && g <= 11) return "Grades 10-11";
   if (g >= 12 && g <= 13) return "Grades 12-13 A/L";
   return "Unknown grade band";
+};
+
+const commitBatchOperations = async (operations = [], batchSize = 450) => {
+  for (let i = 0; i < operations.length; i += batchSize) {
+    const batch = writeBatch(db);
+    operations.slice(i, i + batchSize).forEach((operation) => operation(batch));
+    await batch.commit();
+  }
 };
 
 export default function Students() {
@@ -905,6 +884,29 @@ export default function Students() {
         return normalizeLower(getEmisStudentId(student)) === normalizedStudentId;
       }) || null
     );
+  };
+
+  const findStudentForIdentityFix = ({ admissionNo, emisStudentId, currentAdmissionNo = "" }) => {
+    const targetAdmissionNo = normalizeLower(admissionNo);
+    const targetStudentId = normalizeLower(emisStudentId);
+    const currentAdmission = normalizeLower(currentAdmissionNo);
+    const matches = new Map();
+
+    students.forEach((student) => {
+      const studentAdmissionNo = normalizeLower(student.admissionNo);
+      const studentEmisId = normalizeLower(getEmisStudentId(student));
+      const isMatch =
+        (currentAdmission && studentAdmissionNo === currentAdmission) ||
+        (targetAdmissionNo && studentAdmissionNo === targetAdmissionNo) ||
+        (targetStudentId && studentAdmissionNo === targetStudentId) ||
+        (targetStudentId && studentEmisId === targetStudentId);
+
+      if (isMatch) matches.set(student.id, student);
+    });
+
+    const candidates = Array.from(matches.values());
+    if (candidates.length !== 1) return { student: null, candidates };
+    return { student: candidates[0], candidates };
   };
 
   const validateEmisStudentIdUniqueness = (emisStudentId = form.emisStudentId, excludeId = editId) => {
@@ -1378,7 +1380,7 @@ export default function Students() {
     }
   };
 
-  const handleEmisStudentIdUpload = async (e) => {
+  const handleStudentIdentityFixUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -1404,13 +1406,12 @@ export default function Students() {
 
       rows.forEach((row, idx) => {
         const rowNumber = idx + 2;
-        const admissionNo = normalizeText(
-          row["Admission No"] || row.admissionNo || row.AdmissionNo || ""
-        );
+        const currentAdmissionNo = getIdentityFixCurrentAdmissionNoFromRow(row);
+        const admissionNo = getIdentityFixAdmissionNoFromRow(row);
         const emisStudentId = getEmisStudentIdFromRow(row);
 
         if (!admissionNo) {
-          errors.push(`Row ${rowNumber}: Admission number is required to update StudentID.`);
+          errors.push(`Row ${rowNumber}: Correct Admission No is required.`);
           return;
         }
 
@@ -1433,9 +1434,29 @@ export default function Students() {
         }
         seenStudentIds.add(normalizedStudentId);
 
-        const student = findStudentByAdmissionNo(admissionNo);
+        const { student, candidates } = findStudentForIdentityFix({
+          admissionNo,
+          emisStudentId,
+          currentAdmissionNo,
+        });
+
+        if (!student && candidates.length > 1) {
+          errors.push(
+            `Row ${rowNumber}: More than one student matched. Fill Current Admission No to identify the correct record.`
+          );
+          return;
+        }
+
         if (!student) {
-          errors.push(`Row ${rowNumber}: No student found for Admission No ${admissionNo}.`);
+          errors.push(
+            `Row ${rowNumber}: No student found. Existing record must match Current Admission No, Correct Admission No, or StudentID.`
+          );
+          return;
+        }
+
+        const duplicateAdmissionStudent = findStudentByAdmissionNo(admissionNo, student.id);
+        if (duplicateAdmissionStudent) {
+          errors.push(`Row ${rowNumber}: Admission No ${admissionNo} is already used by another student.`);
           return;
         }
 
@@ -1445,35 +1466,100 @@ export default function Students() {
           return;
         }
 
-        updates.push({ studentId: student.id, emisStudentId, rowNumber });
+        updates.push({
+          studentId: student.id,
+          studentName: getStudentName(student),
+          admissionNo,
+          emisStudentId,
+          rowNumber,
+        });
       });
 
       let updatedCount = 0;
-      for (let i = 0; i < updates.length; i += 1) {
-        const item = updates[i];
+      let enrollmentPatchCount = 0;
+      let markPatchCount = 0;
+
+      if (updates.length > 0) {
+        const [enrollmentSnap, markSnap] = await Promise.all([
+          getDocs(collection(db, "studentSubjectEnrollments")),
+          getDocs(collection(db, "marks")),
+        ]);
+
+        const updateByStudentId = new Map(updates.map((item) => [item.studentId, item]));
+        const operations = [];
+
+        updates.forEach((item) => {
+          operations.push((batch) =>
+            batch.update(doc(db, "students", item.studentId), {
+              admissionNo: item.admissionNo,
+              emisStudentId: item.emisStudentId,
+              updatedAt: new Date().toISOString(),
+            })
+          );
+        });
+
+        enrollmentSnap.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          const item = updateByStudentId.get(normalizeText(data.studentId));
+          if (!item) return;
+
+          enrollmentPatchCount += 1;
+          operations.push((batch) =>
+            batch.set(
+              docSnap.ref,
+              {
+                admissionNo: item.admissionNo,
+                studentName: item.studentName || data.studentName || "",
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            )
+          );
+        });
+
+        markSnap.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          const item = updateByStudentId.get(normalizeText(data.studentId));
+          if (!item) return;
+
+          markPatchCount += 1;
+          operations.push((batch) =>
+            batch.set(
+              docSnap.ref,
+              {
+                admissionNo: item.admissionNo,
+                studentName: item.studentName || data.studentName || "",
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            )
+          );
+        });
+
         try {
-          await updateDoc(doc(db, "students", item.studentId), {
-            emisStudentId: item.emisStudentId,
-            updatedAt: new Date().toISOString(),
-          });
-          updatedCount += 1;
+          await commitBatchOperations(operations);
+          updatedCount = updates.length;
         } catch (err) {
-          errors.push(`Row ${item.rowNumber}: ${err.message}`);
+          errors.push(`Bulk identity update failed while saving: ${err.message}`);
         }
       }
 
       setEmisSyncResults({
         updatedCount,
+        enrollmentPatchCount,
+        markPatchCount,
         failCount: errors.length,
         errors,
       });
 
       if (updatedCount > 0) {
-        setSuccess(`Updated EMIS StudentID for ${updatedCount} student${updatedCount === 1 ? "" : "s"}.`);
+        setSuccess(
+          `Fixed identity for ${updatedCount} student${updatedCount === 1 ? "" : "s"}. Patched ${enrollmentPatchCount} enrollment record${enrollmentPatchCount === 1 ? "" : "s"} and ${markPatchCount} mark record${markPatchCount === 1 ? "" : "s"} without changing mark values.`
+        );
         await fetchData();
       }
     } catch (err) {
-      setError("EMIS StudentID update failed: " + err.message);
+      setError("Student identity fix failed: " + err.message);
     } finally {
       setEmisSyncing(false);
       e.target.value = "";
@@ -1486,17 +1572,17 @@ export default function Students() {
       return;
     }
 
-    const worksheetRows = buildEmisIdFixWorksheetRows(filtered);
+    const worksheetRows = buildIdentityFixWorksheetRows(filtered);
 
     downloadAoAWorksheet(
       worksheetRows,
-      "EMIS StudentID Fix",
-      `students_emis_id_fix_${Date.now()}.xlsx`,
-      [16, 30, 18, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
+      "Student Identity Fix",
+      `students_identity_fix_${Date.now()}.xlsx`,
+      [18, 18, 18, 32, 10, 14]
     );
 
     setSuccess(
-      "StudentID fix export downloaded in EMIS column order. Fill the StudentID column and upload the same file with Update EMIS IDs."
+      "Student identity fix export downloaded. Keep Current Admission No, fill Correct Admission No and StudentID, then upload it with Fix Student IDs."
     );
   };
 
@@ -1595,7 +1681,7 @@ export default function Students() {
               accept=".xlsx,.xls"
               ref={emisIdFileInputRef}
               style={{ display: "none" }}
-              onChange={handleEmisStudentIdUpload}
+              onChange={handleStudentIdentityFixUpload}
             />
 
             <Tooltip title="Download Grade 6-9 Template">
@@ -1646,7 +1732,7 @@ export default function Students() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Update EMIS Student IDs using Admission No + StudentID columns">
+            <Tooltip title="Fix Admission No and StudentID using an Excel sheet">
               <Button
                 variant="outlined"
                 size="small"
@@ -1655,11 +1741,11 @@ export default function Students() {
                 disabled={bulkUploading || emisSyncing}
                 sx={{ borderColor: "#ef6c00", color: "#ef6c00" }}
               >
-                {isMobile ? "" : "Update EMIS IDs"}
+                {isMobile ? "" : "Fix Student IDs"}
               </Button>
             </Tooltip>
 
-            <Tooltip title="Export an EMIS-format sheet with Admission No so you can fill StudentID and upload it back">
+            <Tooltip title="Export a repair sheet for correcting Admission No and StudentID in bulk">
               <Button
                 variant="outlined"
                 size="small"
@@ -1667,7 +1753,7 @@ export default function Students() {
                 onClick={handleEmisIdFixExport}
                 sx={{ borderColor: "#0288d1", color: "#0288d1" }}
               >
-                {isMobile ? "" : "ID Fix Export"}
+                {isMobile ? "" : "Identity Fix Export"}
               </Button>
             </Tooltip>
 
@@ -1675,8 +1761,8 @@ export default function Students() {
         </Box>
 
         <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
-          Tip: use ID Fix Export to fill missing EMIS StudentID values, import them with Update EMIS IDs,
-          then use the Grade 10-11 marks report export to download the final EMIS sheet.
+          Tip: use Identity Fix Export when Admission No and StudentID were mixed up. The upload updates student
+          identity fields and copied admission metadata in enrollments/marks without changing marks.
         </Typography>
 
         {bulkUploading && (
@@ -1691,7 +1777,7 @@ export default function Students() {
         {emisSyncing && (
           <Box mt={1.5}>
             <Typography variant="caption" color="text.secondary">
-              Updating EMIS Student IDs...
+              Fixing student identity fields...
             </Typography>
             <LinearProgress sx={{ mt: 0.5, borderRadius: 2 }} />
           </Box>
@@ -1728,8 +1814,10 @@ export default function Students() {
             sx={{ mt: 1.5, borderRadius: 2 }}
             onClose={() => setEmisSyncResults(null)}
           >
-            Updated EMIS StudentID for {emisSyncResults.updatedCount} student
+            Fixed identity for {emisSyncResults.updatedCount} student
             {emisSyncResults.updatedCount === 1 ? "" : "s"}
+            {emisSyncResults.updatedCount > 0 &&
+              `, patched ${emisSyncResults.enrollmentPatchCount || 0} enrollment record${emisSyncResults.enrollmentPatchCount === 1 ? "" : "s"} and ${emisSyncResults.markPatchCount || 0} mark record${emisSyncResults.markPatchCount === 1 ? "" : "s"}`}
             {emisSyncResults.failCount > 0 && `, ${emisSyncResults.failCount} failed`}
             {emisSyncResults.errors.length > 0 && (
               <Box mt={0.5}>
