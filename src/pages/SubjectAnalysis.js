@@ -69,12 +69,21 @@ const RANGE_BANDS = [
   { key: "90-100", min: 90, max: 100 },
 ];
 
+const SUMMARY_RANGE_BANDS = [
+  { key: "0-34", min: 0, max: 34 },
+  { key: "35-49", min: 35, max: 49 },
+  { key: "50-64", min: 50, max: 64 },
+  { key: "65-74", min: 65, max: 74 },
+  { key: "75 and above", min: 75, max: 100 },
+];
+
 const LOW_MARK_BANDS = RANGE_BANDS.filter((band) => band.max <= 34);
 
 const TAB_CONFIG = [
   { value: "grade", label: "Grade Subject Analysis" },
   { value: "class", label: "Class Subject Analysis" },
   { value: "range", label: "Subject Mark Range" },
+  { value: "summaryRange", label: "Summary Mark Range" },
   { value: "absent", label: "Absent Students" },
   { value: "threeCThreeS", label: "Below 3C 3S List" },
   { value: "lowMarks", label: "Low Mark Students" },
@@ -398,6 +407,12 @@ function getRangeKey(mark) {
   return RANGE_BANDS.find((band) => number >= band.min && number <= band.max)?.key || "";
 }
 
+function getSummaryRangeKey(mark) {
+  const number = Number(mark);
+  if (!Number.isFinite(number)) return "";
+  return SUMMARY_RANGE_BANDS.find((band) => number >= band.min && number <= band.max)?.key || "";
+}
+
 function formatNumber(value, decimals = 2) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
@@ -616,6 +631,101 @@ function createRangeStatsPdf({ title, context, rows }) {
     },
     columnStyles: {
       0: { cellWidth: 52, halign: "left", fontStyle: "bold" },
+      1: { cellWidth: 16 },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
+function createSummaryRangeStatsPdf({ title, context, rows }) {
+  const isSingleSubject = rows.length === 1;
+  const doc = new jsPDF({
+    orientation: isSingleSubject ? "portrait" : "landscape",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+  drawPdfHeader(doc, {
+    title,
+    context,
+    pageLabel: isSingleSubject ? "A4 Portrait" : "A4 Landscape",
+  });
+
+  if (isSingleSubject) {
+    const row = rows[0];
+    const body = SUMMARY_RANGE_BANDS.map((band, index) => [
+      index + 1,
+      band.key,
+      row.summaryRangeCounts[band.key] || 0,
+    ]);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`${row.subjectName}`, 10, 32);
+
+    autoTable(doc, {
+      startY: 36,
+      head: [["No", "Marks Range", "No. of Students"]],
+      body,
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        cellPadding: 1.8,
+        valign: "middle",
+        halign: "center",
+        lineWidth: 0.14,
+        lineColor: [40, 40, 40],
+        textColor: 20,
+      },
+      headStyles: {
+        fillColor: [235, 239, 245],
+        textColor: 20,
+        fontStyle: "bold",
+        lineWidth: 0.16,
+        lineColor: [30, 30, 30],
+      },
+      columnStyles: {
+        0: { cellWidth: 18, halign: "center" },
+        1: { cellWidth: 48, fontStyle: "bold", halign: "center" },
+        2: { cellWidth: 42, halign: "center" },
+      },
+      margin: { left: 51, right: 51 },
+    });
+
+    addPdfFooter(doc);
+    return doc;
+  }
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["Subject", "Appeared", ...SUMMARY_RANGE_BANDS.map((band) => band.key)]],
+    body: rows.map((row) => [
+      row.subjectName,
+      row.appeared,
+      ...SUMMARY_RANGE_BANDS.map((band) => row.summaryRangeCounts[band.key] || 0),
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7.4,
+      cellPadding: 1,
+      valign: "middle",
+      halign: "center",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      0: { cellWidth: 58, halign: "left", fontStyle: "bold" },
       1: { cellWidth: 16 },
     },
     margin: { left: 8, right: 8 },
@@ -923,6 +1033,7 @@ function createEmptyStats(label, extra = {}) {
     lowest: null,
     gradeCounts: GRADE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
     rangeCounts: RANGE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
+    summaryRangeCounts: SUMMARY_RANGE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
   };
 }
 
@@ -939,11 +1050,13 @@ function addToStats(stats, record) {
   const mark = Number(record.mark);
   const symbol = getGradeSymbol(mark);
   const range = getRangeKey(mark);
+  const summaryRange = getSummaryRangeKey(mark);
 
   stats.appeared += 1;
   stats.marksTotal += mark;
   stats.gradeCounts[symbol] += 1;
   if (range) stats.rangeCounts[range] += 1;
+  if (summaryRange) stats.summaryRangeCounts[summaryRange] += 1;
   stats.highest = stats.highest === null ? mark : Math.max(stats.highest, mark);
   stats.lowest = stats.lowest === null ? mark : Math.min(stats.lowest, mark);
 }
@@ -1861,6 +1974,22 @@ export default function SubjectAnalysis() {
               />
             )}
 
+            {tab === "summaryRange" && (
+              <SummaryRangeStatsTable
+                title={`Grade ${selectedGrade} ${selectedSubjectName ? `- ${selectedSubjectName}` : "- Summary Mark Range"}`}
+                reportId="summary-mark-range"
+                activePrint={printTarget === "summary-mark-range"}
+                context={shareContext}
+                onPrint={() =>
+                  handlePrint(
+                    "summary-mark-range",
+                    rangeRows.length === 1 ? "A4 portrait" : "A4 landscape"
+                  )
+                }
+                rows={rangeRows}
+              />
+            )}
+
             {tab === "threeCThreeS" && (
               <ThreeCThreeSReport
                 title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Below 3C 3S List`}
@@ -2334,6 +2463,89 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                     <TableCell align="right">{row.appeared}</TableCell>
                     {RANGE_BANDS.map((band) => (
                       <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ResponsiveTableWrapper>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SummaryRangeStatsTable({ title, rows, reportId, activePrint, context, onPrint }) {
+  if (!rows.length) {
+    return <EmptyState title="No summary range data" description="Select a grade and subject with entered marks." />;
+  }
+
+  const createPdf = () => createSummaryRangeStatsPdf({ title, context, rows });
+  const singleSubjectRow = rows.length === 1 ? rows[0] : null;
+  const compactRangeRows = singleSubjectRow
+    ? SUMMARY_RANGE_BANDS.map((band, index) => ({
+        no: index + 1,
+        range: band.key,
+        count: singleSubjectRow.summaryRangeCounts[band.key] || 0,
+      }))
+    : [];
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={createPdf}
+        />
+        <ReportHeader title={title} context={context} />
+        {singleSubjectRow ? (
+          <Box>
+            <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+              <Chip label={`Subject: ${singleSubjectRow.subjectName}`} variant="outlined" />
+            </Stack>
+            <ResponsiveTableWrapper minWidth={360} sx={borderedReportTableSx}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell align="center" sx={{ fontWeight: 800 }}>No</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Marks Range</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>No. of Students</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {compactRangeRows.map((row) => (
+                    <TableRow key={row.range} hover>
+                      <TableCell align="center">{row.no}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{row.range}</TableCell>
+                      <TableCell align="right">{row.count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ResponsiveTableWrapper>
+          </Box>
+        ) : (
+          <ResponsiveTableWrapper minWidth={760} sx={borderedReportTableSx}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
+                  {SUMMARY_RANGE_BANDS.map((band) => (
+                    <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.subjectKey} hover>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
+                    <TableCell align="right">{row.appeared}</TableCell>
+                    {SUMMARY_RANGE_BANDS.map((band) => (
+                      <TableCell key={band.key} align="right">{row.summaryRangeCounts[band.key]}</TableCell>
                     ))}
                   </TableRow>
                 ))}
