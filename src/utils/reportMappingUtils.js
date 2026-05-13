@@ -20,11 +20,17 @@ export function getStudentDisplayName(student = {}) {
 }
 
 export function getStudentIndexNo(student = {}) {
-  return student.indexNo || student.admissionNo || "";
+  return student.admissionNo || student.admissionNumber || student.indexNo || "";
 }
 
 export function getStudentDisplayId(student = {}) {
-  return student.studentId || student.id || "";
+  return (
+    student.emisStudentId ||
+    student.emisId ||
+    student.externalStudentId ||
+    student.studentId ||
+    ""
+  );
 }
 
 export function extractMarkValue(markDoc = {}) {

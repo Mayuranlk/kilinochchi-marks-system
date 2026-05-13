@@ -2105,7 +2105,7 @@ export default function Students() {
                         {getStudentName(s)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {s.admissionNo || "No Adm#"} | EMIS: {getEmisStudentId(s) || "-"} | Grade {s.grade}-
+                        Admission: {s.admissionNo || "-"} | StudentID: {getEmisStudentId(s) || "-"} | Grade {s.grade}-
                         {s.section || s.className}
                       </Typography>
                     </Box>
@@ -2177,7 +2177,7 @@ export default function Students() {
                 {[
                   "#",
                   "Student",
-                  "Adm / EMIS",
+                  "Admission No / StudentID",
                   "Grade/Sec",
                   "Status",
                   "Religion / Stream",
@@ -2226,7 +2226,7 @@ export default function Students() {
                       {s.admissionNo || "-"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      EMIS: {getEmisStudentId(s) || "-"}
+                      StudentID: {getEmisStudentId(s) || "-"}
                     </Typography>
                   </TableCell>
                   <TableCell>
