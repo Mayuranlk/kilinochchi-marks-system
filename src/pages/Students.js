@@ -313,6 +313,28 @@ const dedupeTextArray = (items = []) =>
 const getEmisStudentId = (student = {}) =>
   normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
 
+const isFiveDigitAdmissionNo = (value) => /^\d{5}$/.test(normalizeText(value));
+const isLongEmisStudentId = (value) => /^\d{10,}$/.test(normalizeText(value));
+
+const normalizeStudentIdentityFields = ({ admissionNo = "", emisStudentId = "" } = {}) => {
+  const cleanAdmissionNo = normalizeText(admissionNo);
+  const cleanEmisStudentId = normalizeText(emisStudentId);
+
+  if (isLongEmisStudentId(cleanAdmissionNo) && isFiveDigitAdmissionNo(cleanEmisStudentId)) {
+    return {
+      admissionNo: cleanEmisStudentId,
+      emisStudentId: cleanAdmissionNo,
+      swapped: true,
+    };
+  }
+
+  return {
+    admissionNo: cleanAdmissionNo,
+    emisStudentId: cleanEmisStudentId,
+    swapped: false,
+  };
+};
+
 const getEmisStudentIdFromRow = (row = {}) =>
   normalizeText(
     row["EMIS Student ID"] ||
@@ -372,14 +394,21 @@ const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
 };
 
 const buildIdentityFixWorksheetRows = (students = []) => {
-  const bodyRows = students.map((student) => [
-    normalizeText(student.admissionNo),
-    "",
-    getEmisStudentId(student),
-    getStudentName(student),
-    Number(student.grade) || "",
-    normalizeSectionValue(student.section || student.className || ""),
-  ]);
+  const bodyRows = students.map((student) => {
+    const identity = normalizeStudentIdentityFields({
+      admissionNo: student.admissionNo,
+      emisStudentId: getEmisStudentId(student),
+    });
+
+    return [
+      normalizeText(student.admissionNo),
+      identity.swapped ? identity.admissionNo : "",
+      identity.emisStudentId,
+      getStudentName(student),
+      Number(student.grade) || "",
+      normalizeSectionValue(student.section || student.className || ""),
+    ];
+  });
 
   return [IDENTITY_FIX_HEADERS, ...bodyRows];
 };
@@ -387,7 +416,7 @@ const buildIdentityFixWorksheetRows = (students = []) => {
 const downloadJuniorTemplate = () => {
   const template = [
     {
-      "Admission No": "ADM001",
+      "Admission No": "13122",
       StudentID: "1010200001001",
       Name: "Junior Student",
       Grade: 8,
@@ -408,7 +437,7 @@ const downloadJuniorTemplate = () => {
 const downloadOLTemplate = () => {
   const template = [
     {
-      "Admission No": "ADM010",
+      "Admission No": "13123",
       StudentID: "1010200001010",
       Name: "OL Student",
       Grade: 11,
@@ -431,7 +460,7 @@ const downloadOLTemplate = () => {
 const downloadALTemplate = () => {
   const template = [
     {
-      "Admission No": "ADM100",
+      "Admission No": "13124",
       StudentID: "1010200001100",
       Name: "AL Physical Science Student",
       Grade: 12,
@@ -452,7 +481,7 @@ const downloadALTemplate = () => {
       Medium: "English",
     },
     {
-      "Admission No": "ADM101",
+      "Admission No": "13125",
       StudentID: "1010200001101",
       Name: "AL Arts Student",
       Grade: 12,
@@ -814,12 +843,16 @@ export default function Students() {
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
     const alMeta = buildALMetadata(grade, cleaned.stream, section);
+    const identity = normalizeStudentIdentityFields({
+      admissionNo: cleaned.admissionNo,
+      emisStudentId: cleaned.emisStudentId,
+    });
 
     return {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
-      admissionNo: normalizeText(cleaned.admissionNo),
-      emisStudentId: normalizeText(cleaned.emisStudentId),
+      admissionNo: identity.admissionNo,
+      emisStudentId: identity.emisStudentId,
       grade,
       section,
       className: section,
@@ -850,13 +883,17 @@ export default function Students() {
     };
   };
 
-  const validateAdmissionNoUniqueness = () => {
-    const admissionNo = normalizeLower(form.admissionNo);
+  const validateAdmissionNoUniqueness = (value = form.admissionNo) => {
+    const admissionNo = normalizeLower(value);
     if (!admissionNo) return "";
 
     const duplicate = students.find((s) => {
       if (editId && s.id === editId) return false;
-      return normalizeLower(s.admissionNo) === admissionNo;
+      const identity = normalizeStudentIdentityFields({
+        admissionNo: s.admissionNo,
+        emisStudentId: getEmisStudentId(s),
+      });
+      return normalizeLower(identity.admissionNo) === admissionNo;
     });
 
     return duplicate ? "Admission number already exists." : "";
@@ -869,7 +906,11 @@ export default function Students() {
     return (
       students.find((student) => {
         if (excludeId && student.id === excludeId) return false;
-        return normalizeLower(student.admissionNo) === normalizedAdmissionNo;
+        const identity = normalizeStudentIdentityFields({
+          admissionNo: student.admissionNo,
+          emisStudentId: getEmisStudentId(student),
+        });
+        return normalizeLower(identity.admissionNo) === normalizedAdmissionNo;
       }) || null
     );
   };
@@ -881,7 +922,11 @@ export default function Students() {
     return (
       students.find((student) => {
         if (excludeId && student.id === excludeId) return false;
-        return normalizeLower(getEmisStudentId(student)) === normalizedStudentId;
+        const identity = normalizeStudentIdentityFields({
+          admissionNo: student.admissionNo,
+          emisStudentId: getEmisStudentId(student),
+        });
+        return normalizeLower(identity.emisStudentId) === normalizedStudentId;
       }) || null
     );
   };
@@ -935,10 +980,23 @@ export default function Students() {
       }
     }
 
-    const duplicateAdmission = validateAdmissionNoUniqueness();
+    const normalizedIdentity = normalizeStudentIdentityFields({
+      admissionNo: form.admissionNo,
+      emisStudentId: form.emisStudentId,
+    });
+
+    if (normalizeText(normalizedIdentity.admissionNo) && !isFiveDigitAdmissionNo(normalizedIdentity.admissionNo)) {
+      return "Admission number should be the 5-digit school admission number.";
+    }
+
+    if (normalizeText(normalizedIdentity.emisStudentId) && !isLongEmisStudentId(normalizedIdentity.emisStudentId)) {
+      return "EMIS StudentID should be the long EMIS number.";
+    }
+
+    const duplicateAdmission = validateAdmissionNoUniqueness(normalizedIdentity.admissionNo);
     if (duplicateAdmission) return duplicateAdmission;
 
-    const duplicateEmisStudentId = validateEmisStudentIdUniqueness();
+    const duplicateEmisStudentId = validateEmisStudentIdUniqueness(normalizedIdentity.emisStudentId);
     if (duplicateEmisStudentId) return duplicateEmisStudentId;
 
     if (shouldShowReligion(grade) && !normalizeText(form.religion)) {
@@ -1068,12 +1126,16 @@ export default function Students() {
       Array.isArray(s.alSubjectChoices) && s.alSubjectChoices.length > 0
         ? s.alSubjectChoices
         : deriveALChoiceNamesFromNumbers(choiceNumbers);
+    const identity = normalizeStudentIdentityFields({
+      admissionNo: s.admissionNo || "",
+      emisStudentId: getEmisStudentId(s),
+    });
 
     setForm(
       cleanFormByGrade({
       name: s.name || s.fullName || "",
-      admissionNo: s.admissionNo || "",
-      emisStudentId: getEmisStudentId(s),
+      admissionNo: identity.admissionNo,
+      emisStudentId: identity.emisStudentId,
       grade: s.grade || "",
       section: s.section || s.className || "",
       gender: s.gender || "",
@@ -1130,10 +1192,15 @@ export default function Students() {
     const al2 = normalizeText(row["AL Subject 2"] || row["A/L Subject 2"] || row["AL2"]);
     const al3 = normalizeText(row["AL Subject 3"] || row["A/L Subject 3"] || row["AL3"]);
 
+    const identity = normalizeStudentIdentityFields({
+      admissionNo: row["Admission No"] || row.admissionNo || row.AdmissionNo,
+      emisStudentId: getEmisStudentIdFromRow(row),
+    });
+
     const raw = {
       name: normalizeText(row["Name"] || row.name),
-      admissionNo: normalizeText(row["Admission No"] || row.admissionNo || row.AdmissionNo),
-      emisStudentId: getEmisStudentIdFromRow(row),
+      admissionNo: identity.admissionNo,
+      emisStudentId: identity.emisStudentId,
       grade: normalizeGradeValue(row["Grade"] || row.grade),
       section: normalizeSectionValue(row["Section"] || row.section),
       gender: normalizeText(row["Gender"] || row.gender),
@@ -1160,19 +1227,24 @@ export default function Students() {
 
     if (!student.name) return `Row ${rowNumber} (${band}): Student name is required.`;
     if (!student.admissionNo) return `Row ${rowNumber} (${band}): Admission number is required.`;
+    if (!isFiveDigitAdmissionNo(student.admissionNo)) {
+      return `Row ${rowNumber} (${band}): Admission number should be the 5-digit school admission number.`;
+    }
 
     if (seenAdmissionNos.has(normalizeLower(student.admissionNo))) {
       return `Row ${rowNumber} (${band}): Duplicate admission number found within the upload file.`;
     }
 
-    const existingStudent = students.find(
-      (s) => normalizeLower(s.admissionNo) === normalizeLower(student.admissionNo)
-    );
+    const existingStudent = findStudentByAdmissionNo(student.admissionNo);
     if (existingStudent) {
       return `Row ${rowNumber} (${band}): Admission number already exists in the system.`;
     }
 
     if (student.emisStudentId) {
+      if (!isLongEmisStudentId(student.emisStudentId)) {
+        return `Row ${rowNumber} (${band}): EMIS StudentID should be the long EMIS number.`;
+      }
+
       if (seenEmisStudentIds.has(normalizeLower(student.emisStudentId))) {
         return `Row ${rowNumber} (${band}): Duplicate EMIS StudentID found within the upload file.`;
       }
@@ -1263,12 +1335,16 @@ export default function Students() {
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
     const alMeta = buildALMetadata(grade, cleaned.stream, section);
+    const identity = normalizeStudentIdentityFields({
+      admissionNo: cleaned.admissionNo,
+      emisStudentId: cleaned.emisStudentId,
+    });
 
     return {
       name: normalizeText(cleaned.name),
       fullName: normalizeText(cleaned.name),
-      admissionNo: normalizeText(cleaned.admissionNo),
-      emisStudentId: normalizeText(cleaned.emisStudentId),
+      admissionNo: identity.admissionNo,
+      emisStudentId: identity.emisStudentId,
       grade,
       section,
       className: section,
@@ -1407,16 +1483,30 @@ export default function Students() {
       rows.forEach((row, idx) => {
         const rowNumber = idx + 2;
         const currentAdmissionNo = getIdentityFixCurrentAdmissionNoFromRow(row);
-        const admissionNo = getIdentityFixAdmissionNoFromRow(row);
-        const emisStudentId = getEmisStudentIdFromRow(row);
+        const identity = normalizeStudentIdentityFields({
+          admissionNo: getIdentityFixAdmissionNoFromRow(row),
+          emisStudentId: getEmisStudentIdFromRow(row),
+        });
+        const admissionNo = identity.admissionNo;
+        const emisStudentId = identity.emisStudentId;
 
         if (!admissionNo) {
           errors.push(`Row ${rowNumber}: Correct Admission No is required.`);
           return;
         }
 
+        if (!isFiveDigitAdmissionNo(admissionNo)) {
+          errors.push(`Row ${rowNumber}: Correct Admission No should be the 5-digit school admission number.`);
+          return;
+        }
+
         if (!emisStudentId) {
           errors.push(`Row ${rowNumber}: StudentID is required.`);
+          return;
+        }
+
+        if (!isLongEmisStudentId(emisStudentId)) {
+          errors.push(`Row ${rowNumber}: StudentID should be the long EMIS number.`);
           return;
         }
 
@@ -2270,6 +2360,7 @@ export default function Students() {
                         label="Admission No."
                         value={form.admissionNo}
                         onChange={(e) => setForm({ ...form, admissionNo: e.target.value })}
+                        helperText="Use the 5-digit school admission number."
                       />
                     </Grid>
 
@@ -2279,7 +2370,7 @@ export default function Students() {
                         label="EMIS StudentID"
                         value={form.emisStudentId}
                         onChange={(e) => setForm({ ...form, emisStudentId: e.target.value })}
-                        helperText="Optional now, but required for EMIS export."
+                        helperText="Use the long EMIS StudentID. Optional now, but required for EMIS export."
                       />
                     </Grid>
 

@@ -29,6 +29,14 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function isFiveDigitAdmissionNo(value) {
+  return /^\d{5}$/.test(normalizeText(value));
+}
+
+function isLongEmisStudentId(value) {
+  return /^\d{10,}$/.test(normalizeText(value));
+}
+
 function formatNumber(value, decimals = 2) {
   if (value === null || value === undefined || value === "") return "";
   const num = Number(value);
@@ -927,7 +935,14 @@ function getEmisTermValue(termName = "") {
 }
 
 function getEmisStudentId(student = {}) {
-  return normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
+  const explicit = normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
+  const admissionNo = normalizeText(student.admissionNo || student.admissionNumber || "");
+
+  if (isFiveDigitAdmissionNo(explicit) && isLongEmisStudentId(admissionNo)) {
+    return admissionNo;
+  }
+
+  return explicit;
 }
 
 function getMarkCellValue(row, columnKey) {
