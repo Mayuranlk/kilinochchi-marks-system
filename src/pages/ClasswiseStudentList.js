@@ -28,6 +28,7 @@ import * as XLSX from "xlsx";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { isALGrade } from "../constants";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -81,6 +82,16 @@ function getTelephoneNumber(student = {}) {
 }
 
 function getClassDisplayName(classroom = {}) {
+  if (isALGrade(classroom.grade)) {
+    return (
+      text(classroom.fullClassName) ||
+      text(classroom.alClassName) ||
+      text(classroom.displayClassName) ||
+      text(classroom.className) ||
+      `${classroom.grade}${classroom.section}`
+    );
+  }
+
   return text(classroom.className || classroom.fullClassName) || `${classroom.grade}${classroom.section}`;
 }
 
@@ -96,6 +107,28 @@ function getClassTeacherName(classroom = {}) {
       classroom.assignedTeacherName ||
       ""
   );
+}
+
+function getEmisStudentId(student = {}) {
+  return text(student.emisStudentId || student.emisId || student.externalStudentId || "");
+}
+
+function hasEmisStudentId(student = {}) {
+  return Boolean(getEmisStudentId(student));
+}
+
+function getClassMatchKeyFromClassroom(classroom = {}) {
+  const grade = parseGrade(classroom.grade);
+  const section = normalizeSection(classroom.section || classroom.className);
+  const stream = text(classroom.stream);
+  return isALGrade(grade) ? `${grade}__${section}__${stream}` : `${grade}__${section}`;
+}
+
+function getClassMatchKeyFromStudent(student = {}) {
+  const grade = parseGrade(student.grade);
+  const section = normalizeSection(student.section || student.className);
+  const stream = text(student.stream);
+  return isALGrade(grade) ? `${grade}__${section}__${stream}` : `${grade}__${section}`;
 }
 
 function sortStudents(list = []) {
@@ -179,13 +212,15 @@ export default function ClasswiseStudentList() {
 
     const grade = parseGrade(selectedClassroom.grade);
     const section = normalizeSection(selectedClassroom.section || selectedClassroom.className);
+    const stream = text(selectedClassroom.stream);
 
     return sortStudents(
       students.filter((student) => {
         const sameGrade = parseGrade(student.grade) === grade;
         const sameSection = normalizeSection(student.section || student.className) === section;
+        const sameStream = !isALGrade(grade) || text(student.stream) === stream;
         const isActive = normalizeStatus(student.status) === "active";
-        return sameGrade && sameSection && isActive;
+        return sameGrade && sameSection && sameStream && isActive;
       })
     );
   }, [students, selectedClassroom]);
@@ -195,8 +230,11 @@ export default function ClasswiseStudentList() {
 
     students.forEach((student) => {
       if (normalizeStatus(student.status) !== "active") return;
-      const key = `${parseGrade(student.grade)}__${normalizeSection(student.section || student.className)}`;
-      counts.set(key, (counts.get(key) || 0) + 1);
+      const key = getClassMatchKeyFromStudent(student);
+      const current = counts.get(key) || { total: 0, emisAvailable: 0 };
+      current.total += 1;
+      if (hasEmisStudentId(student)) current.emisAvailable += 1;
+      counts.set(key, current);
     });
 
     return counts;
@@ -204,22 +242,35 @@ export default function ClasswiseStudentList() {
 
   const uploadStatusRows = useMemo(() => {
     return filteredClassrooms.map((classroom) => {
-      const key = `${parseGrade(classroom.grade)}__${normalizeSection(classroom.section || classroom.className)}`;
-      const studentCount = classStudentCounts.get(key) || 0;
+      const key = getClassMatchKeyFromClassroom(classroom);
+      const counts = classStudentCounts.get(key) || { total: 0, emisAvailable: 0 };
+      const studentCount = counts.total;
+      const emisAvailableCount = counts.emisAvailable;
+      const classTeacherName = getClassTeacherName(classroom);
+      const isComplete = studentCount > 0 && emisAvailableCount === studentCount && Boolean(classTeacherName);
+      const isPartial = studentCount > 0 && !isComplete;
 
       return {
         id: classroom.id,
         className: getClassDisplayName(classroom),
         grade: parseGrade(classroom.grade),
         section: normalizeSection(classroom.section || classroom.className),
-        classTeacherName: getClassTeacherName(classroom),
+        stream: text(classroom.stream),
+        classTeacherName,
         studentCount,
+        emisAvailableCount,
+        emisMissingCount: Math.max(studentCount - emisAvailableCount, 0),
+        classTeacherAvailable: Boolean(classTeacherName),
+        status: isComplete ? "Completed" : isPartial ? "Partial" : "Not Uploaded",
+        statusColor: isComplete ? "#c8e6c9" : isPartial ? "#fff9c4" : "#ffcdd2",
         uploaded: studentCount > 0,
       };
     });
   }, [filteredClassrooms, classStudentCounts]);
 
   const uploadedClassCount = uploadStatusRows.filter((row) => row.uploaded).length;
+  const completedClassCount = uploadStatusRows.filter((row) => row.status === "Completed").length;
+  const partialClassCount = uploadStatusRows.filter((row) => row.status === "Partial").length;
   const missingClassCount = uploadStatusRows.length - uploadedClassCount;
 
   useEffect(() => {
@@ -342,21 +393,40 @@ export default function ClasswiseStudentList() {
       ["Student Details Upload Status Report"],
       [`Year: ${selectedYear}`],
       [],
-      ["No", "Class", "Class Teacher", "Active Students", "Status", "Instruction"],
+      ["No", "Class", "Class Teacher", "Active Students", "EMIS ID Available", "EMIS ID Missing", "Status", "Instruction"],
       ...uploadStatusRows.map((row, index) => [
         index + 1,
         row.className,
-        row.classTeacherName || "-",
+        row.classTeacherName || "Not Provided",
         row.studentCount,
-        row.uploaded ? "Uploaded" : "Not Uploaded",
-        row.uploaded ? "" : "Ask class teacher to upload student details",
+        row.emisAvailableCount,
+        row.emisMissingCount,
+        row.status,
+        row.status === "Completed" ? "" : "Ask class teacher to complete student details and EMIS IDs",
       ]),
     ]);
+
+    uploadStatusRows.forEach((row, index) => {
+      const excelRow = index + 6;
+      const fillColor =
+        row.status === "Completed" ? "C8E6C9" : row.status === "Partial" ? "FFF9C4" : "FFCDD2";
+
+      ["A", "B", "C", "D", "E", "F", "G", "H"].forEach((column) => {
+        const cell = worksheet[`${column}${excelRow}`];
+        if (!cell) return;
+        cell.s = {
+          ...(cell.s || {}),
+          fill: { fgColor: { rgb: fillColor } },
+        };
+      });
+    });
 
     worksheet["!cols"] = [
       { wch: 6 },
       { wch: 14 },
       { wch: 28 },
+      { wch: 16 },
+      { wch: 16 },
       { wch: 16 },
       { wch: 16 },
       { wch: 40 },
@@ -391,6 +461,9 @@ export default function ClasswiseStudentList() {
             table { width: 100%; border-collapse: collapse; font-size: 11px; }
             th, td { border: 1px solid #333; padding: 7px 6px; }
             th { background: #f2f2f2; }
+            .status-completed td { background: #c8e6c9; }
+            .status-partial td { background: #fff9c4; }
+            .status-empty td { background: #ffcdd2; }
             .signature { height: 28px; }
             .footer { display: flex; justify-content: space-between; margin-top: 32px; font-size: 12px; }
             @page { size: A4 portrait; margin: 12mm; }
@@ -549,10 +622,10 @@ export default function ClasswiseStudentList() {
                 <StatCard title="Classes" value={uploadStatusRows.length} />
               </Grid>
               <Grid item xs={12} md={4}>
-                <StatCard title="Uploaded" value={uploadedClassCount} color="success" />
+                <StatCard title="Completed" value={completedClassCount} color="success" />
               </Grid>
               <Grid item xs={12} md={4}>
-                <StatCard title="Not Uploaded" value={missingClassCount} color="warning" />
+                <StatCard title="Partial / Empty" value={`${partialClassCount} / ${missingClassCount}`} color="warning" />
               </Grid>
             </Grid>
 
@@ -568,7 +641,7 @@ export default function ClasswiseStudentList() {
                   <Stack direction="row" justifyContent="space-between" sx={{ mb: 1.5 }}>
                     <Typography variant="body2">Year: {selectedYear}</Typography>
                     <Typography variant="body2">Classes: {uploadStatusRows.length}</Typography>
-                    <Typography variant="body2">Not Uploaded: {missingClassCount}</Typography>
+                    <Typography variant="body2">Completed: {completedClassCount}</Typography>
                   </Stack>
 
                   <ResponsiveTableWrapper>
@@ -579,20 +652,35 @@ export default function ClasswiseStudentList() {
                           <TableCell>Class</TableCell>
                           <TableCell>Class Teacher</TableCell>
                           <TableCell align="right">Active Students</TableCell>
+                          <TableCell align="right">EMIS ID Available</TableCell>
+                          <TableCell align="right">EMIS ID Missing</TableCell>
                           <TableCell>Status</TableCell>
                           <TableCell>Instruction</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {uploadStatusRows.map((row, index) => (
-                          <TableRow key={row.id} hover>
+                          <TableRow
+                            key={row.id}
+                            hover
+                            className={
+                              row.status === "Completed"
+                                ? "status-completed"
+                                : row.status === "Partial"
+                                ? "status-partial"
+                                : "status-empty"
+                            }
+                            sx={{ backgroundColor: row.statusColor }}
+                          >
                             <TableCell align="center">{index + 1}</TableCell>
                             <TableCell>{row.className}</TableCell>
-                            <TableCell>{row.classTeacherName || "-"}</TableCell>
+                            <TableCell>{row.classTeacherName || "Not Provided"}</TableCell>
                             <TableCell align="right">{row.studentCount}</TableCell>
-                            <TableCell>{row.uploaded ? "Uploaded" : "Not Uploaded"}</TableCell>
+                            <TableCell align="right">{row.emisAvailableCount}</TableCell>
+                            <TableCell align="right">{row.emisMissingCount}</TableCell>
+                            <TableCell>{row.status}</TableCell>
                             <TableCell>
-                              {row.uploaded ? "" : "Ask class teacher to upload student details"}
+                              {row.status === "Completed" ? "" : "Ask class teacher to complete student details and EMIS IDs"}
                             </TableCell>
                           </TableRow>
                         ))}
