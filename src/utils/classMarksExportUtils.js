@@ -236,7 +236,7 @@ function isGradeTenToEleven(reportData) {
 }
 
 export function isClassMarksEmisExportSupported(reportData) {
-  return isGradeTenToEleven(reportData);
+  return isGradeSixToNine(reportData) || isGradeTenToEleven(reportData);
 }
 
 function getScheduleColumnWidths(reportData) {
@@ -949,16 +949,93 @@ function getFirstLanguageMark(row) {
   return "";
 }
 
+function getSecondLanguageMark(row) {
+  return getMarkCellValue(row, "SINHALA");
+}
+
 function getChoiceMark(row, schema, subjectName) {
   const columnKey = resolveColumnKeyFromSubjectName(schema, subjectName);
   return getMarkCellValue(row, columnKey);
 }
 
-function makeEmisNpSheetRows(reportData) {
-  if (!isClassMarksEmisExportSupported(reportData)) {
-    throw new Error("Northern Province EMIS export is only available for Grades 10 and 11.");
+function getJuniorAestheticMark(row, student = {}, schema) {
+  const selectedAestheticMark = getChoiceMark(
+    row,
+    schema,
+    student.aestheticChoice || student.aesthetic
+  );
+
+  if (selectedAestheticMark !== "") return selectedAestheticMark;
+
+  const aestheticKeys = ["MUSIC", "DRAMA", "ART", "DANCE"];
+  for (const key of aestheticKeys) {
+    const value = getMarkCellValue(row, key);
+    if (value !== "") return value;
   }
 
+  return "";
+}
+
+function makeJuniorEmisNpSheetRows(reportData) {
+  const headers = [
+    "StFullName",
+    "StudentID",
+    "Grade",
+    "GradeDivision",
+    "yearofstudy",
+    "ExamTerm",
+    "Religion",
+    "FirstLang",
+    "SecondLang",
+    "Maths",
+    "English",
+    "Science",
+    "History",
+    "Geography",
+    "CitiEduGove",
+    "HealthPhyEdu",
+    "PTS",
+    "AestheticTheory",
+    "AestheticPractical",
+    "ICT",
+    "Geom",
+  ];
+
+  const bodyRows = reportData.rows.map((row) => {
+    const student = row.student || {};
+    const religionColumn = resolveReligionColumnFromStudent(student);
+    const mathsMark = getMarkCellValue(row, "MATHS");
+    const aestheticMark = getJuniorAestheticMark(row, student, reportData.schema);
+
+    return [
+      safeText(row.studentName),
+      getEmisStudentId(student),
+      Number(student.grade || reportData.grade || 0) || "",
+      normalizeText(student.section || reportData.section || student.className || ""),
+      safeText(reportData.year),
+      getEmisTermValue(reportData.termName),
+      getMarkCellValue(row, religionColumn),
+      getMarkCellValue(row, "TAMIL"),
+      getSecondLanguageMark(row),
+      mathsMark,
+      getMarkCellValue(row, "ENGLISH"),
+      getMarkCellValue(row, "SCIENCE"),
+      getMarkCellValue(row, "HISTORY"),
+      getMarkCellValue(row, "GEOGRAPHY"),
+      getMarkCellValue(row, "CIVICS"),
+      getMarkCellValue(row, "HEALTH"),
+      getMarkCellValue(row, "PTS"),
+      aestheticMark,
+      aestheticMark,
+      getMarkCellValue(row, "ICT"),
+      mathsMark,
+    ];
+  });
+
+  return [headers, ...bodyRows];
+}
+
+function makeOlEmisNpSheetRows(reportData) {
   const headers = [
     "StFullName",
     "StudentID",
@@ -1009,6 +1086,18 @@ function makeEmisNpSheetRows(reportData) {
   return [headers, ...bodyRows];
 }
 
+function makeEmisNpSheetRows(reportData) {
+  if (isGradeSixToNine(reportData)) {
+    return makeJuniorEmisNpSheetRows(reportData);
+  }
+
+  if (isGradeTenToEleven(reportData)) {
+    return makeOlEmisNpSheetRows(reportData);
+  }
+
+  throw new Error("Northern Province EMIS export is only available for Grades 6 to 11.");
+}
+
 export function exportClassMarksExcel(reportData) {
   const workbook = XLSX.utils.book_new();
   const flatColumns = flattenSchemaColumns(reportData.schema);
@@ -1047,8 +1136,10 @@ export function exportClassMarksEmisExcel(reportData) {
 
   setExcelCols(
     emisSheet,
-    17,
-    [28, 16, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
+    isGradeSixToNine(reportData) ? 21 : 17,
+    isGradeSixToNine(reportData)
+      ? [28, 16, 10, 14, 14, 10, 12, 12, 12, 10, 10, 10, 10, 12, 10, 10, 10, 16, 18, 10, 10]
+      : [28, 16, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
   );
 
   XLSX.utils.book_append_sheet(workbook, emisSheet, "EMIS NP");
