@@ -932,7 +932,7 @@ function getEmisStudentId(student = {}) {
 
 function getMarkCellValue(row, columnKey) {
   if (!columnKey) return "";
-  if (row.absencesByColumn?.[columnKey]) return "AB";
+  if (row.absencesByColumn?.[columnKey]) return 999;
 
   const value = row.marksByColumn?.[columnKey];
   return value === null || value === undefined ? "" : value;
@@ -986,7 +986,6 @@ function makeJuniorEmisNpSheetRows(reportData) {
     "ExamTerm",
     "Religion",
     "FirstLang",
-    "SecondLang",
     "Maths",
     "English",
     "Science",
@@ -995,10 +994,11 @@ function makeJuniorEmisNpSheetRows(reportData) {
     "CitiEduGove",
     "HealthPhyEdu",
     "PTS",
-    "AestheticTheory",
-    "AestheticPractical",
     "ICT",
     "Geom",
+    "AestheticTheory",
+    "AestheticPractical",
+    "SecondLang",
   ];
 
   const bodyRows = reportData.rows.map((row) => {
@@ -1016,7 +1016,6 @@ function makeJuniorEmisNpSheetRows(reportData) {
       getEmisTermValue(reportData.termName),
       getMarkCellValue(row, religionColumn),
       getMarkCellValue(row, "TAMIL"),
-      getSecondLanguageMark(row),
       mathsMark,
       getMarkCellValue(row, "ENGLISH"),
       getMarkCellValue(row, "SCIENCE"),
@@ -1025,10 +1024,11 @@ function makeJuniorEmisNpSheetRows(reportData) {
       getMarkCellValue(row, "CIVICS"),
       getMarkCellValue(row, "HEALTH"),
       getMarkCellValue(row, "PTS"),
-      aestheticMark,
-      aestheticMark,
       getMarkCellValue(row, "ICT"),
       mathsMark,
+      aestheticMark,
+      aestheticMark,
+      getSecondLanguageMark(row),
     ];
   });
 
@@ -1138,7 +1138,7 @@ export function exportClassMarksEmisExcel(reportData) {
     emisSheet,
     isGradeSixToNine(reportData) ? 21 : 17,
     isGradeSixToNine(reportData)
-      ? [28, 16, 10, 14, 14, 10, 12, 12, 12, 10, 10, 10, 10, 12, 10, 10, 10, 16, 18, 10, 10]
+      ? [28, 16, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 10, 10, 10, 10, 10, 16, 18, 12]
       : [28, 16, 10, 14, 14, 10, 12, 12, 10, 10, 10, 10, 12, 12, 12, 14, 12]
   );
 
