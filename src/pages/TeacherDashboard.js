@@ -655,7 +655,10 @@ export default function TeacherDashboard() {
         marks,
         classrooms,
         grade: assignedClassroom.grade,
-        className: assignedClassroom.className,
+        className:
+          assignedClassroom.alClassName ||
+          assignedClassroom.fullClassName ||
+          assignedClassroom.className,
         section: assignedClassroom.section,
         termName,
         year,

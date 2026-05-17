@@ -32,7 +32,7 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
-import { SCHOOL_NAME, SCHOOL_SUBTITLE } from "../constants";
+import { SCHOOL_NAME, SCHOOL_SUBTITLE, buildALClassName, isALGrade } from "../constants";
 import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
 import {
   exportClassMarksPdf,
@@ -94,6 +94,17 @@ function getStudentSection(student) {
 }
 
 function getStudentClassName(student) {
+  if (student?.alClassName || student?.fullClassName) {
+    return text(student.alClassName || student.fullClassName);
+  }
+
+  const grade = getStudentGrade(student);
+  const stream = text(student?.stream);
+  const section = getStudentSection(student);
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
   return buildFullClassName(getStudentGrade(student), getStudentSection(student));
 }
 
@@ -102,6 +113,15 @@ function isStudentActive(student) {
 }
 
 function getEnrollmentClassName(enrollment) {
+  const explicit = text(enrollment?.alClassName || enrollment?.fullClassName);
+  if (explicit) return explicit;
+
+  const stream = text(enrollment?.stream);
+  const section = normalizeSection(enrollment?.section || enrollment?.className || "");
+  if (isALGrade(enrollment?.grade) && stream && section) {
+    return buildALClassName(enrollment.grade, stream, section);
+  }
+
   const rawClassName = text(enrollment?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
   return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
@@ -157,6 +177,15 @@ function markCountsAsEntered(mark) {
 }
 
 function getMarkClassName(mark) {
+  const explicit = text(mark?.alClassName || mark?.fullClassName);
+  if (explicit) return explicit;
+
+  const stream = text(mark?.stream);
+  const section = normalizeSection(mark?.section || mark?.className || "");
+  if (isALGrade(mark?.grade) && stream && section) {
+    return buildALClassName(mark.grade, stream, section);
+  }
+
   const rawClassName = text(mark?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
   return buildFullClassName(mark?.grade, mark?.section || rawClassName);
@@ -171,7 +200,7 @@ function normalizeClassroom(classroom) {
     grade,
     section,
     className:
-      text(classroom?.className || classroom?.fullClassName) ||
+      text(classroom?.alClassName || classroom?.fullClassName || classroom?.className) ||
       buildFullClassName(grade, section),
   };
 }

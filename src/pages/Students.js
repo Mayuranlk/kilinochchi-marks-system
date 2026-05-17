@@ -121,6 +121,30 @@ const normalizeSectionValue = (value) => {
   return match ? match[0] : raw;
 };
 
+const buildClassFilterValue = (grade, section, stream = "") => {
+  const g = normalizeGradeValue(grade);
+  const s = normalizeSectionValue(section);
+  const st = normalizeText(stream);
+
+  if (!g || !s) return "";
+  return isALGrade(g) && st ? `${g}__${st}__${s}` : `${g}__${s}`;
+};
+
+const buildClassFilterLabel = (grade, section, stream = "") => {
+  const g = normalizeGradeValue(grade);
+  const s = normalizeSectionValue(section);
+  const st = normalizeText(stream);
+
+  if (isALGrade(g) && st && s) {
+    return `${st} ${s}`;
+  }
+
+  return s;
+};
+
+const getStudentClassFilterValue = (student) =>
+  buildClassFilterValue(student.grade, student.section || student.className, student.stream);
+
 const sortStudentsClientSide = (list) => {
   return [...list].sort((a, b) => {
     const gradeA = Number(a.grade) || 0;
@@ -576,37 +600,84 @@ export default function Students() {
   }, [classrooms]);
 
   const sectionOptionsForFilter = useMemo(() => {
-    if (filterGrade) {
-      return [
-        ...new Set(
-          classrooms
-            .filter((c) => normalizeGradeValue(c.grade) === Number(filterGrade))
-            .map((c) => normalizeSectionValue(c.section || c.className))
-            .filter(Boolean)
-        ),
-      ].sort();
-    }
+    const options = classrooms
+      .filter((c) => !filterGrade || normalizeGradeValue(c.grade) === Number(filterGrade))
+      .map((c) => {
+        const grade = normalizeGradeValue(c.grade);
+        const section = normalizeSectionValue(c.section || c.className);
+        const stream = normalizeText(c.stream);
+        const value = buildClassFilterValue(grade, section, stream);
 
-    return [
-      ...new Set(
-        classrooms
-          .map((c) => normalizeSectionValue(c.section || c.className))
-          .filter(Boolean)
-      ),
-    ].sort();
+        return value
+          ? {
+              value,
+              label: buildClassFilterLabel(grade, section, stream),
+              grade,
+              section,
+              stream,
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    const uniqueOptions = Array.from(
+      new Map(options.map((option) => [option.value, option])).values()
+    );
+
+    return uniqueOptions.sort((a, b) => {
+      const gradeDiff = Number(a.grade || 0) - Number(b.grade || 0);
+      if (!filterGrade && gradeDiff !== 0) return gradeDiff;
+
+      const streamDiff = normalizeText(a.stream).localeCompare(normalizeText(b.stream));
+      if (streamDiff !== 0) return streamDiff;
+
+      return normalizeSectionValue(a.section).localeCompare(normalizeSectionValue(b.section));
+    });
   }, [classrooms, filterGrade]);
 
   const sectionOptionsForForm = useMemo(() => {
     if (!form.grade) return [];
+
+    const grade = Number(form.grade);
+    const formStream = normalizeText(form.stream);
+
     return [
       ...new Set(
         classrooms
-          .filter((c) => normalizeGradeValue(c.grade) === Number(form.grade))
+          .filter((c) => {
+            if (normalizeGradeValue(c.grade) !== grade) return false;
+            if (isALGrade(grade) && formStream) {
+              return normalizeText(c.stream) === formStream;
+            }
+            return true;
+          })
           .map((c) => normalizeSectionValue(c.section || c.className))
           .filter(Boolean)
       ),
     ].sort();
-  }, [classrooms, form.grade]);
+  }, [classrooms, form.grade, form.stream]);
+
+  /*
+   * Legacy fallback: students imported before A/L streams were modeled may only
+   * have Grade + Section. New A/L classroom filters carry Stream + Section.
+   */
+  const studentMatchesClassFilter = (student, classFilter) => {
+    if (!classFilter) return true;
+    const [gradePart, middlePart, sectionPart] = String(classFilter).split("__");
+    const studentGrade = normalizeGradeValue(student.grade);
+    const studentSection = normalizeSectionValue(student.section || student.className);
+    const studentStream = normalizeText(student.stream);
+
+    if (sectionPart) {
+      return (
+        studentGrade === Number(gradePart) &&
+        normalizeLower(studentStream) === normalizeLower(middlePart) &&
+        studentSection === sectionPart
+      );
+    }
+
+    return getStudentClassFilterValue(student) === classFilter;
+  };
 
   const activeSubjects = useMemo(() => subjects.filter(isActiveSubject), [subjects]);
 
@@ -1050,8 +1121,7 @@ export default function Students() {
       normalizeText(s.alClassName).toLowerCase().includes(q);
 
     const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
-    const matchSection =
-      !filterSection || normalizeSectionValue(s.section || s.className) === filterSection;
+    const matchSection = studentMatchesClassFilter(s, filterSection);
     const matchStatus = !filterStatus || s.status === filterStatus;
 
     return matchSearch && matchGrade && matchSection && matchStatus;
@@ -1966,9 +2036,9 @@ export default function Students() {
               onChange={(e) => setFilterSection(e.target.value)}
             >
               <MenuItem value="">All Sections</MenuItem>
-              {sectionOptionsForFilter.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
+              {sectionOptionsForFilter.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
                 </MenuItem>
               ))}
             </Select>

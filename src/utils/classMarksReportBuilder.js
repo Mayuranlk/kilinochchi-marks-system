@@ -26,7 +26,7 @@ export function filterActiveEnrollments(enrollments = []) {
 
 export function filterMarksForTermYearClass(marks = [], { className, termName, year }) {
   return marks.filter((item) => {
-    const markClassName = item.className || "";
+    const markClassName = item.alClassName || item.fullClassName || item.className || "";
     const markTerm = item.termName || item.term || "";
     const markYear = Number(item.academicYear || item.year || 0);
 
@@ -38,9 +38,36 @@ export function filterMarksForTermYearClass(marks = [], { className, termName, y
   });
 }
 
-export function filterStudentsForClass(students = [], grade, section) {
+const normalizeSection = (value) => String(value || "").trim().toUpperCase();
+const getComparableClassName = (item = {}) => {
+  const explicit = String(item.alClassName || item.fullClassName || "").trim();
+  if (explicit) return explicit;
+
+  const grade = Number(item.grade || 0);
+  const stream = String(item.stream || "").trim();
+  const section = normalizeSection(item.section || item.className);
+
+  if ((grade === 12 || grade === 13) && stream && section) {
+    return `${grade} ${stream} ${section}`;
+  }
+
+  return String(item.className || "").trim();
+};
+
+export function filterStudentsForClass(students = [], grade, section, className = "") {
+  const targetClassName = String(className || "").trim();
+  const targetSection = normalizeSection(section);
+
   return students.filter((student) => {
-    return Number(student.grade) === Number(grade) && String(student.section || "") === String(section);
+    if (Number(student.grade) !== Number(grade)) return false;
+
+    if (targetClassName) {
+      const studentClassName = getComparableClassName(student);
+      if (studentClassName && studentClassName === targetClassName) return true;
+      if (targetClassName.includes(" ")) return false;
+    }
+
+    return normalizeSection(student.section || student.className) === targetSection;
   });
 }
 
@@ -164,11 +191,11 @@ export function buildClassMarksReportData({
   }
 
   const schemaColumnMap = buildSchemaColumnMap(schema);
-  const classStudents = filterStudentsForClass(students, grade, section);
+  const classStudents = filterStudentsForClass(students, grade, section, className);
   const activeEnrollments = filterActiveEnrollments(enrollments).filter((item) => {
     return (
       Number(item.grade) === Number(grade) &&
-      String(item.className || "") === String(className) &&
+      String(item.alClassName || item.fullClassName || item.className || "") === String(className) &&
       String(item.section || "") === String(section) &&
       Number(item.academicYear || 0) === Number(year)
     );
@@ -183,7 +210,7 @@ export function buildClassMarksReportData({
   const classroom =
     classrooms.find(
       (item) =>
-        String(item.className || "") === String(className) &&
+        String(item.alClassName || item.fullClassName || item.className || "") === String(className) &&
         Number(item.grade) === Number(grade) &&
         String(item.section || "") === String(section) &&
         Number(item.year || item.academicYear || 0) === Number(year)

@@ -13,10 +13,37 @@ const safeString = (value) => String(value ?? "").trim();
 
 const normalizeGrade = (grade) => safeString(grade);
 const normalizeSection = (section) => safeString(section).toUpperCase();
+const normalizeStream = (stream) => safeString(stream);
+const isALGrade = (grade) => {
+  const parsed = Number(normalizeGrade(grade));
+  return parsed === 12 || parsed === 13;
+};
 const buildFullClassName = (grade, section) =>
   `${normalizeGrade(grade)}${normalizeSection(section)}`;
+const buildALClassName = (grade, stream, section) =>
+  `${normalizeGrade(grade)} ${normalizeStream(stream)} ${normalizeSection(section)}`;
 
-const matchesStudentToClass = (student, grade, section) => {
+const matchesStream = (row, stream) => {
+  const normalizedStream = normalizeStream(stream);
+  if (!normalizedStream) return true;
+  return normalizeStream(row.stream).toLowerCase() === normalizedStream.toLowerCase();
+};
+
+const matchesALClassName = (row, grade, section, stream) => {
+  const normalizedStream = normalizeStream(stream);
+  if (!isALGrade(grade) || !normalizedStream) return false;
+
+  const alClass = buildALClassName(grade, normalizedStream, section).toUpperCase();
+  const candidates = [
+    row.alClassName,
+    row.fullClassName,
+    row.className,
+  ].map((value) => normalizeSection(value));
+
+  return candidates.includes(alClass);
+};
+
+const matchesStudentToClass = (student, grade, section, stream = "") => {
   const normalizedGrade = normalizeGrade(grade);
   const normalizedSection = normalizeSection(section);
   const fullClass = buildFullClassName(grade, section);
@@ -25,14 +52,24 @@ const matchesStudentToClass = (student, grade, section) => {
   const studentSection = normalizeSection(student.section);
   const studentClassName = normalizeSection(student.className);
 
-  return (
+  const classMatch =
     (studentGrade === normalizedGrade && studentSection === normalizedSection) ||
     (studentGrade === normalizedGrade && studentClassName === normalizedSection) ||
-    studentClassName === fullClass
-  );
+    studentClassName === fullClass ||
+    matchesALClassName(student, grade, section, stream);
+
+  if (!classMatch) return false;
+  return matchesStream(student, stream);
 };
 
-const matchesEnrollmentToClass = (enrollment, grade, section, academicYear = "") => {
+const matchesEnrollmentToClass = (
+  enrollment,
+  grade,
+  section,
+  academicYear = "",
+  stream = "",
+  studentIdSet = new Set()
+) => {
   const normalizedGrade = normalizeGrade(grade);
   const normalizedSection = normalizeSection(section);
   const fullClass = buildFullClassName(grade, section);
@@ -43,11 +80,15 @@ const matchesEnrollmentToClass = (enrollment, grade, section, academicYear = "")
   const enrollmentClassName = normalizeSection(enrollment.className);
   const enrollmentYear = safeString(enrollment.academicYear);
 
+  const byStudentId =
+    enrollment.studentId && studentIdSet.has(String(enrollment.studentId));
+
   const classMatch =
     (enrollmentGrade === normalizedGrade && enrollmentSection === normalizedSection) ||
-    enrollmentClassName === fullClass;
+    enrollmentClassName === fullClass ||
+    matchesALClassName(enrollment, grade, section, stream);
 
-  if (!classMatch) return false;
+  if (!(byStudentId || (classMatch && matchesStream(enrollment, stream)))) return false;
   if (!normalizedYear) return true;
 
   return enrollmentYear === normalizedYear;
@@ -58,6 +99,7 @@ const matchesMarkToClass = (
   grade,
   section,
   academicYear = "",
+  stream = "",
   studentIdSet = new Set()
 ) => {
   const normalizedGrade = normalizeGrade(grade);
@@ -74,9 +116,11 @@ const matchesMarkToClass = (
     markDoc.studentId && studentIdSet.has(String(markDoc.studentId));
 
   const byClassFields =
-    (markGrade === normalizedGrade && markSection === normalizedSection) ||
+    ((markGrade === normalizedGrade && markSection === normalizedSection) ||
     markClassName === fullClass ||
-    (markGrade === normalizedGrade && markClassName === normalizedSection);
+    (markGrade === normalizedGrade && markClassName === normalizedSection) ||
+    matchesALClassName(markDoc, grade, section, stream)) &&
+    matchesStream(markDoc, stream);
 
   if (!(byStudentId || byClassFields)) return false;
   if (!normalizedYear) return true;
@@ -84,7 +128,7 @@ const matchesMarkToClass = (
   return !markYear || markYear === normalizedYear;
 };
 
-const matchesTeacherAssignmentToClass = (assignment, grade, section, academicYear = "") => {
+const matchesTeacherAssignmentToClass = (assignment, grade, section, academicYear = "", stream = "") => {
   const fullClass = buildFullClassName(grade, section);
   const normalizedGrade = normalizeGrade(grade);
   const normalizedSection = normalizeSection(section);
@@ -97,15 +141,17 @@ const matchesTeacherAssignmentToClass = (assignment, grade, section, academicYea
 
   const classMatch =
     (assignmentGrade === normalizedGrade && assignmentSection === normalizedSection) ||
-    assignmentClassName === fullClass;
+    assignmentClassName === fullClass ||
+    matchesALClassName(assignment, grade, section, stream);
 
   if (!classMatch) return false;
+  if (!matchesStream(assignment, stream)) return false;
   if (!normalizedYear) return true;
 
   return !assignmentYear || assignmentYear === normalizedYear;
 };
 
-const matchesClassroomToClass = (classroom, grade, section, academicYear = "") => {
+const matchesClassroomToClass = (classroom, grade, section, academicYear = "", stream = "") => {
   const fullClass = buildFullClassName(grade, section);
   const normalizedGrade = normalizeGrade(grade);
   const normalizedSection = normalizeSection(section);
@@ -118,9 +164,11 @@ const matchesClassroomToClass = (classroom, grade, section, academicYear = "") =
 
   const classMatch =
     (roomGrade === normalizedGrade && roomSection === normalizedSection) ||
-    roomClassName === fullClass;
+    roomClassName === fullClass ||
+    matchesALClassName(classroom, grade, section, stream);
 
   if (!classMatch) return false;
+  if (!matchesStream(classroom, stream)) return false;
   if (!normalizedYear) return true;
 
   return !roomYear || roomYear === normalizedYear;
@@ -155,11 +203,11 @@ async function getAllDocs(collectionName) {
   }));
 }
 
-async function getStudentsForClass({ grade, section, academicYear = "" }) {
+async function getStudentsForClass({ grade, section, academicYear = "", stream = "" }) {
   const students = await getAllDocs("students");
 
   return students.filter((student) => {
-    const classMatch = matchesStudentToClass(student, grade, section);
+    const classMatch = matchesStudentToClass(student, grade, section, stream);
     if (!classMatch) return false;
 
     if (!academicYear) return true;
@@ -169,42 +217,50 @@ async function getStudentsForClass({ grade, section, academicYear = "" }) {
   });
 }
 
-async function getEnrollmentsForClass({ grade, section, academicYear = "" }) {
+async function getEnrollmentsForClass({
+  grade,
+  section,
+  academicYear = "",
+  stream = "",
+  studentIds = [],
+}) {
   const enrollments = await getAllDocs("studentSubjectEnrollments");
+  const studentIdSet = new Set(studentIds.map((id) => String(id)));
 
   return enrollments.filter((enrollment) =>
-    matchesEnrollmentToClass(enrollment, grade, section, academicYear)
+    matchesEnrollmentToClass(enrollment, grade, section, academicYear, stream, studentIdSet)
   );
 }
 
-async function getMarksForClass({ grade, section, academicYear = "", studentIds = [] }) {
+async function getMarksForClass({ grade, section, academicYear = "", stream = "", studentIds = [] }) {
   const studentIdSet = new Set(studentIds.map((id) => String(id)));
   const marks = await getAllDocs("marks");
 
   return marks.filter((markDoc) =>
-    matchesMarkToClass(markDoc, grade, section, academicYear, studentIdSet)
+    matchesMarkToClass(markDoc, grade, section, academicYear, stream, studentIdSet)
   );
 }
 
-async function getTeacherAssignmentsForClass({ grade, section, academicYear = "" }) {
+async function getTeacherAssignmentsForClass({ grade, section, academicYear = "", stream = "" }) {
   const assignments = await getAllDocs("teacherAssignments");
 
   return assignments.filter((assignment) =>
-    matchesTeacherAssignmentToClass(assignment, grade, section, academicYear)
+    matchesTeacherAssignmentToClass(assignment, grade, section, academicYear, stream)
   );
 }
 
-async function getClassroomsForClass({ grade, section, academicYear = "" }) {
+async function getClassroomsForClass({ grade, section, academicYear = "", stream = "" }) {
   const classrooms = await getAllDocs("classrooms");
 
   return classrooms.filter((room) =>
-    matchesClassroomToClass(room, grade, section, academicYear)
+    matchesClassroomToClass(room, grade, section, academicYear, stream)
   );
 }
 
 export async function previewClassData({
   grade,
   section,
+  stream = "",
   academicYear = "",
   includeTeacherAssignments = true,
   includeClassrooms = true,
@@ -213,24 +269,25 @@ export async function previewClassData({
     throw new Error("Grade and section are required.");
   }
 
-  const students = await getStudentsForClass({ grade, section, academicYear });
+  const students = await getStudentsForClass({ grade, section, stream, academicYear });
   const studentIds = students.map((student) => student.id);
 
   const [enrollments, marks, teacherAssignments, classrooms] = await Promise.all([
-    getEnrollmentsForClass({ grade, section, academicYear }),
-    getMarksForClass({ grade, section, academicYear, studentIds }),
+    getEnrollmentsForClass({ grade, section, stream, academicYear, studentIds }),
+    getMarksForClass({ grade, section, stream, academicYear, studentIds }),
     includeTeacherAssignments
-      ? getTeacherAssignmentsForClass({ grade, section, academicYear })
+      ? getTeacherAssignmentsForClass({ grade, section, stream, academicYear })
       : Promise.resolve([]),
     includeClassrooms
-      ? getClassroomsForClass({ grade, section, academicYear })
+      ? getClassroomsForClass({ grade, section, stream, academicYear })
       : Promise.resolve([]),
   ]);
 
   return {
-    className: buildFullClassName(grade, section),
+    className: stream ? buildALClassName(grade, stream, section) : buildFullClassName(grade, section),
     grade: normalizeGrade(grade),
     section: normalizeSection(section),
+    stream: normalizeStream(stream),
     academicYear: safeString(academicYear),
     studentCount: students.length,
     enrollmentCount: enrollments.length,
@@ -314,6 +371,7 @@ export async function deleteStudentsAndRelated({
 export async function resetClassData({
   grade,
   section,
+  stream = "",
   academicYear = "",
   removeTeacherAssignments = false,
   removeClassroomMapping = false,
@@ -322,6 +380,7 @@ export async function resetClassData({
   const preview = await previewClassData({
     grade,
     section,
+    stream,
     academicYear,
     includeTeacherAssignments: removeTeacherAssignments,
     includeClassrooms: removeClassroomMapping,
@@ -348,6 +407,7 @@ export async function resetClassData({
     performedBy: safeString(performedBy),
     grade: preview.grade,
     section: preview.section,
+    stream: preview.stream,
     className: preview.className,
     academicYear: preview.academicYear,
     deletedStudents,
@@ -368,8 +428,8 @@ export async function resetClassData({
   };
 }
 
-export async function getStudentsByClassForSelection({ grade, section, academicYear = "" }) {
-  const students = await getStudentsForClass({ grade, section, academicYear });
+export async function getStudentsByClassForSelection({ grade, section, academicYear = "", stream = "" }) {
+  const students = await getStudentsForClass({ grade, section, stream, academicYear });
 
   return students
     .map((student) => ({
@@ -379,6 +439,8 @@ export async function getStudentsByClassForSelection({ grade, section, academicY
       indexNo: student.indexNo || student.admissionNo || student.admissionNumber || "",
       grade: student.grade || "",
       section: student.section || student.className || "",
+      stream: student.stream || "",
+      alClassName: student.alClassName || student.fullClassName || "",
       className: student.className || "",
     }))
     .sort((a, b) => a.fullName.localeCompare(b.fullName));

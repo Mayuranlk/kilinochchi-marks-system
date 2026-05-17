@@ -426,7 +426,10 @@ export default function ClassMarksReports() {
         marks,
         classrooms,
         grade: selectedClassroom.grade,
-        className: selectedClassroom.className,
+        className:
+          selectedClassroom.alClassName ||
+          selectedClassroom.fullClassName ||
+          selectedClassroom.className,
         section: selectedClassroom.section,
         termName: selectedTerm,
         year: selectedYear,

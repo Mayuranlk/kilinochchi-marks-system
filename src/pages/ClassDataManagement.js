@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -30,18 +31,47 @@ import SchoolIcon from "@mui/icons-material/School";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 
+import { db } from "../firebase";
 import {
   deleteStudentsAndRelated,
   getStudentsByClassForSelection,
   previewClassData,
   resetClassData,
 } from "../services/classDataService";
+import { buildALClassName, isALGrade, normalizeText } from "../constants";
 
 // Optional:
 // import { useAuth } from "../contexts/AuthContext";
 
 const gradeOptions = ["6", "7", "8", "9", "10", "11", "12", "13"];
-const sectionOptions = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const fallbackSectionOptions = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+const normalizeSection = (value) => String(value || "").trim().toUpperCase();
+const normalizeGrade = (value) => {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const classOptionValue = (room) => {
+  const grade = normalizeGrade(room.grade);
+  const section = normalizeSection(room.section || room.className);
+  const stream = normalizeText(room.stream);
+
+  if (!grade || !section) return "";
+  return isALGrade(grade) && stream ? `${grade}__${stream}__${section}` : `${grade}__${section}`;
+};
+
+const classOptionLabel = (room) => {
+  const grade = normalizeGrade(room.grade);
+  const section = normalizeSection(room.section || room.className);
+  const stream = normalizeText(room.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return section;
+};
 
 export default function ClassDataManagement() {
   // Optional current user integration:
@@ -50,6 +80,8 @@ export default function ClassDataManagement() {
   const [academicYear, setAcademicYear] = useState(String(new Date().getFullYear()));
   const [grade, setGrade] = useState("");
   const [section, setSection] = useState("");
+  const [stream, setStream] = useState("");
+  const [classrooms, setClassrooms] = useState([]);
 
   const [removeTeacherAssignments, setRemoveTeacherAssignments] = useState(false);
   const [removeClassroomMapping, setRemoveClassroomMapping] = useState(false);
@@ -68,8 +100,51 @@ export default function ClassDataManagement() {
 
   const fullClassName = useMemo(() => {
     if (!grade || !section) return "";
-    return `${grade}${String(section).toUpperCase()}`;
-  }, [grade, section]);
+    return stream ? buildALClassName(grade, stream, section) : `${grade}${String(section).toUpperCase()}`;
+  }, [grade, section, stream]);
+
+  const classOptions = useMemo(() => {
+    const rows = classrooms
+      .filter((room) => !grade || normalizeGrade(room.grade) === Number(grade))
+      .filter((room) => !academicYear || String(room.academicYear || room.year || "") === String(academicYear))
+      .map((room) => ({
+        value: classOptionValue(room),
+        label: classOptionLabel(room),
+        grade: normalizeGrade(room.grade),
+        section: normalizeSection(room.section || room.className),
+        stream: normalizeText(room.stream),
+      }))
+      .filter((option) => option.value);
+
+    const unique = Array.from(new Map(rows.map((option) => [option.value, option])).values());
+    return unique.sort((a, b) => {
+      const streamDiff = a.stream.localeCompare(b.stream);
+      if (streamDiff !== 0) return streamDiff;
+      return a.section.localeCompare(b.section);
+    });
+  }, [academicYear, classrooms, grade]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadClassrooms() {
+      try {
+        const snap = await getDocs(collection(db, "classrooms"));
+        if (mounted) {
+          setClassrooms(snap.docs.map((item) => ({ id: item.id, ...item.data() })));
+        }
+      } catch (err) {
+        console.error("Failed to load classrooms:", err);
+        if (mounted) setError("Failed to load classroom options.");
+      }
+    }
+
+    loadClassrooms();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const expectedConfirmText = useMemo(() => {
     if (!fullClassName) return "";
@@ -101,6 +176,7 @@ export default function ClassDataManagement() {
         previewClassData({
           grade,
           section,
+          stream,
           academicYear,
           includeTeacherAssignments: true,
           includeClassrooms: true,
@@ -108,6 +184,7 @@ export default function ClassDataManagement() {
         getStudentsByClassForSelection({
           grade,
           section,
+          stream,
           academicYear,
         }),
       ]);
@@ -198,6 +275,7 @@ export default function ClassDataManagement() {
       const result = await resetClassData({
         grade,
         section,
+        stream,
         academicYear,
         removeTeacherAssignments,
         removeClassroomMapping,
@@ -258,7 +336,11 @@ export default function ClassDataManagement() {
                     <Select
                       value={grade}
                       label="Grade"
-                      onChange={(e) => setGrade(e.target.value)}
+                      onChange={(e) => {
+                        setGrade(e.target.value);
+                        setSection("");
+                        setStream("");
+                      }}
                     >
                       {gradeOptions.map((item) => (
                         <MenuItem key={item} value={item}>
@@ -273,13 +355,29 @@ export default function ClassDataManagement() {
                   <FormControl fullWidth>
                     <InputLabel>Section</InputLabel>
                     <Select
-                      value={section}
+                      value={stream ? `${grade}__${stream}__${section}` : section ? `${grade}__${section}` : ""}
                       label="Section"
-                      onChange={(e) => setSection(e.target.value)}
+                      onChange={(e) => {
+                        const [selectedGrade, selectedStreamOrSection, selectedSection] = String(e.target.value).split("__");
+                        if (selectedSection) {
+                          setGrade(selectedGrade);
+                          setStream(selectedStreamOrSection);
+                          setSection(selectedSection);
+                        } else {
+                          setStream("");
+                          setSection(selectedStreamOrSection || "");
+                        }
+                      }}
                     >
-                      {sectionOptions.map((item) => (
-                        <MenuItem key={item} value={item}>
-                          {item}
+                      {(classOptions.length
+                        ? classOptions
+                        : fallbackSectionOptions.map((item) => ({
+                            value: grade ? `${grade}__${item}` : item,
+                            label: item,
+                          }))
+                      ).map((item) => (
+                        <MenuItem key={item.value} value={item.value}>
+                          {item.label}
                         </MenuItem>
                       ))}
                     </Select>
@@ -489,7 +587,12 @@ export default function ClassDataManagement() {
                               primary={student.fullName}
                               secondary={`Index: ${student.indexNo || "-"} | Grade: ${
                                 student.grade || "-"
-                              } | Section: ${student.section || "-"}`}
+                              } | Class: ${
+                                student.alClassName ||
+                                (student.stream
+                                  ? buildALClassName(student.grade, student.stream, student.section)
+                                  : student.section || "-")
+                              }`}
                             />
                           </ListItem>
                         ))}

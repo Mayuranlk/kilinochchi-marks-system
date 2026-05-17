@@ -162,9 +162,18 @@ function getStudentSection(student) {
   return normalizeSection(student?.section || student?.className);
 }
 
+function getStudentStream(student) {
+  return String(student?.stream || "").trim();
+}
+
 function getStudentFullClass(student) {
   const grade = parseGrade(student?.grade);
   const section = getStudentSection(student);
+  const stream = getStudentStream(student);
+
+  if (grade >= 12 && stream && section) {
+    return student?.alClassName || student?.fullClassName || `${grade} ${stream} ${section}`;
+  }
 
   if (grade && section) return `${grade}${section}`;
   if (section) return section;
@@ -650,6 +659,8 @@ function enrollmentPayload(student, subject, academicYear) {
     grade: gradeNumber || null,
     section,
     className: fullClass,
+    fullClassName: fullClass,
+    alClassName: gradeNumber >= 12 ? fullClass : "",
 
     academicYear: normalizeAcademicYear(academicYear),
 
@@ -661,7 +672,7 @@ function enrollmentPayload(student, subject, academicYear) {
     religionKey: subject?.religion || "",
     basketGroup: subject?.basketGroup || getNormalizedBasketBucket(subject) || "",
     basketLabel: subject?.basketLabel || getNormalizedBasketBucket(subject) || "",
-    stream: subject?.stream || "",
+    stream: getStudentStream(student) || subject?.stream || "",
     medium: student?.medium || "",
 
     generatedBy: "system",
