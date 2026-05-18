@@ -26,6 +26,11 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import DescriptionIcon from "@mui/icons-material/Description";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import {
+  buildALDisplayClassName,
+  buildALClassName,
+  isALGrade,
+} from "../constants";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */
@@ -69,6 +74,10 @@ function buildFullClassName(grade, section) {
   return g && s ? `${g}${s}` : "";
 }
 
+function pickValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
 function getStudentName(student) {
   return normalizeText(student?.name || student?.fullName || "Unnamed Student");
 }
@@ -83,10 +92,37 @@ function getStudentIndexNo(student) {
   );
 }
 
-function getEnrollmentClassName(enrollment) {
+function getEnrollmentGrade(enrollment, student = {}) {
+  return parseGrade(pickValue(enrollment?.grade, student?.grade, enrollment?.className));
+}
+
+function getEnrollmentSection(enrollment, student = {}) {
+  return normalizeSection(
+    pickValue(enrollment?.section, student?.section, student?.className, enrollment?.className, "")
+  );
+}
+
+function getEnrollmentStream(enrollment, student = {}) {
+  return normalizeText(pickValue(enrollment?.stream, student?.stream, ""));
+}
+
+function getEnrollmentClassName(enrollment, student = {}) {
+  const grade = getEnrollmentGrade(enrollment, student);
+  const section = getEnrollmentSection(enrollment, student);
+  const stream = getEnrollmentStream(enrollment, student);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
+  const explicitALClassName = normalizeText(
+    pickValue(enrollment?.fullClassName, enrollment?.alClassName, "")
+  );
+  if (explicitALClassName) return explicitALClassName;
+
   const rawClassName = normalizeText(enrollment?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
-  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
+  return buildFullClassName(grade, section || rawClassName);
 }
 
 function getEnrollmentSubjectId(enrollment) {
@@ -275,17 +311,19 @@ export default function TeacherMarkSheets() {
 
   const classOptions = useMemo(() => {
     const classes = filteredEnrollmentsByYear
-      .map((e) => getEnrollmentClassName(e))
+      .map((e) => getEnrollmentClassName(e, studentMap.get(normalizeText(e.studentId))))
       .filter(Boolean);
 
     return [...new Set(classes)].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
     );
-  }, [filteredEnrollmentsByYear]);
+  }, [filteredEnrollmentsByYear, studentMap]);
 
   const subjectOptions = useMemo(() => {
     const rows = filteredEnrollmentsByYear.filter((e) => {
-      const sameClass = !selectedClass || getEnrollmentClassName(e) === selectedClass;
+      const student = studentMap.get(normalizeText(e.studentId));
+      const sameClass =
+        !selectedClass || getEnrollmentClassName(e, student) === selectedClass;
       return sameClass;
     });
 
@@ -309,7 +347,14 @@ export default function TeacherMarkSheets() {
     return Array.from(map.values()).sort((a, b) =>
       a.subjectName.localeCompare(b.subjectName, undefined, { sensitivity: "base" })
     );
-  }, [filteredEnrollmentsByYear, selectedClass]);
+  }, [filteredEnrollmentsByYear, selectedClass, studentMap]);
+
+  useEffect(() => {
+    if (selectedClass && !classOptions.includes(selectedClass)) {
+      setSelectedClass("");
+      setSelectedSubject("__ALL__");
+    }
+  }, [classOptions, selectedClass]);
 
   useEffect(() => {
     if (
@@ -322,8 +367,9 @@ export default function TeacherMarkSheets() {
 
   const sheetData = useMemo(() => {
     const rows = filteredEnrollmentsByYear.filter((enrollment) => {
+      const student = studentMap.get(normalizeText(enrollment.studentId));
       const sameClass =
-        !selectedClass || getEnrollmentClassName(enrollment) === selectedClass;
+        !selectedClass || getEnrollmentClassName(enrollment, student) === selectedClass;
 
       const subjectKey =
         getEnrollmentSubjectId(enrollment) || getEnrollmentSubjectName(enrollment);
@@ -340,7 +386,7 @@ export default function TeacherMarkSheets() {
       const student = studentMap.get(normalizeText(enrollment.studentId));
       if (!student) return;
 
-      const className = getEnrollmentClassName(enrollment);
+      const className = getEnrollmentClassName(enrollment, student);
       const subjectId = getEnrollmentSubjectId(enrollment);
       const subjectName = getEnrollmentSubjectName(enrollment);
       const key = `${className}__${subjectId || subjectName}`;
