@@ -391,6 +391,12 @@ export const AL_SUBJECTS = {
     subjectName: "Drama and Theatre (Tamil)",
     shortName: "Drama and Theatre (Tamil)",
   },
+  ART: {
+    subjectNumber: "52",
+    subjectCode: "AL_52",
+    subjectName: "Art",
+    shortName: "Art",
+  },
   ENGINEERING_TECHNOLOGY: {
     subjectNumber: "65",
     subjectCode: "AL_65",
@@ -485,6 +491,7 @@ export const AL_STREAM_RULES = {
         AL_SUBJECTS.HOME_ECONOMICS,
         AL_SUBJECTS.COMMUNICATION_MEDIA_STUDIES,
         AL_SUBJECTS.CHRISTIAN_CIVILIZATION,
+        AL_SUBJECTS.ART,
         AL_SUBJECTS.DANCING_BHARATHA,
         AL_SUBJECTS.CARNATIC_MUSIC,
         AL_SUBJECTS.DRAMA_TAMIL,
@@ -782,6 +789,29 @@ export const convertALChoiceNumbersToSubjects = (choiceNumbers = []) => {
   );
 };
 
+const resolveALChoiceSlots = (choiceNumbers = [], choiceNames = []) => {
+  const maxLength = Math.max(choiceNumbers.length, choiceNames.length);
+  const slots = [];
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const number = normalizeText(choiceNumbers[index]);
+    const name = normalizeText(choiceNames[index]);
+    if (!number && !name) continue;
+
+    const subject = number
+      ? getALSubjectByNumber(number)
+      : getALSubjectByName(name);
+
+    slots.push({
+      number,
+      name,
+      subject,
+    });
+  }
+
+  return slots;
+};
+
 export const getALChosenOptionalSubjects = (student) => {
   const byNumbers = convertALChoiceNumbersToSubjects(
     student?.alSubjectChoiceNumbers || []
@@ -812,18 +842,47 @@ export const validateALChoices = ({
     return { valid: false, reason: "Invalid A/L stream." };
   }
 
-  const chosenSubjects = uniqueBySubjectNumber([
-    ...convertALChoiceNumbersToSubjects(choiceNumbers),
-    ...convertALChoiceNamesToSubjects(choiceNames),
-  ]);
+  const choiceSlots = resolveALChoiceSlots(choiceNumbers, choiceNames);
+  const unresolvedChoices = choiceSlots.filter((slot) => !slot.subject);
 
+  if (unresolvedChoices.length) {
+    return {
+      valid: false,
+      reason: "One or more selected subjects are not valid A/L main subjects.",
+    };
+  }
+
+  const chosenSubjects = choiceSlots.map((slot) => slot.subject);
   const chosenNumbers = chosenSubjects.map((s) => s.subjectNumber);
   const uniqueChosenNumbers = new Set(chosenNumbers);
 
   if (uniqueChosenNumbers.size !== chosenNumbers.length) {
     return {
       valid: false,
-      reason: "Duplicate A/L subject choices are not allowed.",
+      reason: "Same A/L subject cannot be selected more than once in Main 1, Main 2, and Main 3.",
+    };
+  }
+
+  const allMainNumbers = new Set(AL_ALL_SUBJECTS.map((s) => s.subjectNumber));
+  const allAreALMainSubjects = chosenSubjects.every((s) =>
+    allMainNumbers.has(s.subjectNumber)
+  );
+
+  if (!allAreALMainSubjects) {
+    return {
+      valid: false,
+      reason: "One or more selected subjects are not valid A/L main subjects.",
+    };
+  }
+
+  if (chosenSubjects.length === 3) {
+    return {
+      valid: true,
+      reason: "",
+      compulsorySubjects: [],
+      optionalSubjects: [],
+      mainSubjects: chosenSubjects,
+      generalSubjects: getALGeneralSubjects(parsedGrade),
     };
   }
 

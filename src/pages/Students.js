@@ -326,13 +326,14 @@ const buildALMetadata = (grade, stream, section) => {
 };
 
 const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
-  convertALChoiceNamesToSubjects(choiceNames).map((subject) => subject.subjectNumber);
+  (choiceNames || [])
+    .map((name) => convertALChoiceNamesToSubjects([name])[0]?.subjectNumber || "")
+    .filter(Boolean);
 
 const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
-  convertALChoiceNumbersToSubjects(choiceNumbers).map((subject) => subject.subjectName);
-
-const dedupeTextArray = (items = []) =>
-  [...new Set((items || []).map(normalizeText).filter(Boolean))];
+  (choiceNumbers || [])
+    .map((number) => convertALChoiceNumbersToSubjects([number])[0]?.subjectName || "")
+    .filter(Boolean);
 
 const getEmisStudentId = (student = {}) =>
   normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
@@ -881,12 +882,16 @@ export default function Students() {
     };
 
     if (shouldShowALFields(grade)) {
-      const choiceNumbers = dedupeTextArray(data.alSubjectChoiceNumbers || []);
-      const choiceNames = dedupeTextArray(
+      const choiceNumbers = (data.alSubjectChoiceNumbers || [])
+        .map(normalizeText)
+        .filter(Boolean);
+      const choiceNames = (
         choiceNumbers.length > 0
           ? deriveALChoiceNamesFromNumbers(choiceNumbers)
           : data.alSubjectChoices || []
-      );
+      )
+        .map(normalizeText)
+        .filter(Boolean);
 
       const alMeta = buildALMetadata(grade, cleaned.stream, data.section);
 
