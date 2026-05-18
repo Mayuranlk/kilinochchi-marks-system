@@ -106,6 +106,7 @@ const TAB_CONFIG = [
   { value: "alThreeA", label: "A/L 3A List" },
   { value: "alThreeF", label: "A/L 3F List" },
   { value: "alTwoPassOneFail", label: "A/L 2 Pass 1 Fail" },
+  { value: "alResultSheets", label: "A/L Result Sheets" },
   { value: "lowMarks", label: "Low Mark Students" },
   { value: "sheet", label: "A3 Grading Sheet" },
 ];
@@ -886,6 +887,126 @@ function createALQualificationPdf({ title, context, rows }) {
   });
 
   addPdfFooter(doc);
+  return doc;
+}
+
+function getALResultSubjectRows(row, subjects) {
+  return subjects
+    .map((subject) => {
+      const result = row.results[subject.subjectKey] || {};
+      const mark = result.absent ? "AB" : result.mark;
+      const symbol = result.absent ? "AB" : result.symbol;
+
+      return [
+        subject.shortLabel || subject.subjectName,
+        mark === null || mark === undefined || mark === "" ? "" : String(mark),
+        symbol || "",
+      ];
+    })
+    .filter(([, mark, symbol]) => mark || symbol);
+}
+
+function addALResultSheetPage(doc, { context, row, subjects }) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const centerX = pageWidth / 2;
+  const status = getALStudentStatus(row, subjects);
+  const attendanceText = Number.isFinite(Number(status.attendancePercentage))
+    ? `${formatNumber(status.attendancePercentage)}%`
+    : "-";
+  const eligibleText =
+    status.achieved3SOrAbove && status.attendanceQualified ? "Qualified" : "Not Qualified";
+
+  doc.setTextColor(32, 44, 58);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Kilinochchi Central College", centerX, 28, { align: "center" });
+
+  doc.setFontSize(17);
+  doc.text("G.C.E A/L Examination", centerX, 42, { align: "center" });
+
+  const detailRows = [
+    ["Examination", "G.C.E A/L Examination"],
+    ["Year", String(context.year || "")],
+    ["Term", String(context.term || "")],
+    ["Name", String(row.studentName || "").toUpperCase()],
+    ["Index Number", String(row.indexNo || row.studentId || "")],
+    ["Class", String(row.className || context.className || "")],
+    ["Attendance", attendanceText],
+    ["Admission Status", eligibleText],
+  ];
+
+  doc.setDrawColor(190, 198, 208);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(36, 52, pageWidth - 72, 52, 1.4, 1.4);
+
+  doc.setFontSize(9.5);
+  let detailY = 61;
+  detailRows.forEach(([label, value]) => {
+    doc.setFont("helvetica", "normal");
+    doc.text(label, centerX - 16, detailY, { align: "right" });
+    doc.setFont("helvetica", label === "Name" || label === "Admission Status" ? "bold" : "normal");
+    doc.text(value, centerX + 6, detailY, { maxWidth: 78 });
+    detailY += 5.8;
+  });
+
+  autoTable(doc, {
+    startY: 116,
+    head: [["Subject", "Marks", "Result"]],
+    body: getALResultSubjectRows(row, subjects),
+    theme: "grid",
+    margin: { left: 26, right: 26 },
+    tableWidth: pageWidth - 52,
+    styles: {
+      font: "helvetica",
+      fontSize: 10.5,
+      cellPadding: { top: 3, right: 3.2, bottom: 3, left: 3.2 },
+      lineWidth: 0.14,
+      lineColor: [145, 150, 158],
+      textColor: [32, 44, 58],
+      valign: "middle",
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [226, 229, 233],
+      textColor: [32, 44, 58],
+      fontStyle: "bold",
+      halign: "center",
+      fontSize: 10.5,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 249, 251],
+    },
+    columnStyles: {
+      0: { halign: "left", cellWidth: 104, fontStyle: "bold" },
+      1: { halign: "center", cellWidth: 28, fontStyle: "bold" },
+      2: { halign: "center", cellWidth: 26, fontStyle: "bold" },
+    },
+  });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.6);
+  doc.text(
+    "A/L grade ranges: A 75-100, B 65-74, C 50-64, S 35-49, F 0-34. Admission attendance requirement: 80%.",
+    centerX,
+    265,
+    { align: "center", maxWidth: pageWidth - 34 }
+  );
+  doc.text("Generated for internal academic use only.", centerX, 275, { align: "center" });
+}
+
+function createALResultSheetsPdf({ context, rows, subjects }) {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+
+  rows.forEach((row, index) => {
+    if (index > 0) doc.addPage("a4", "portrait");
+    addALResultSheetPage(doc, { context, row, subjects });
+  });
+
   return doc;
 }
 
@@ -2298,6 +2419,18 @@ export default function SubjectAnalysis() {
               />
             )}
 
+            {tab === "alResultSheets" && (
+              <ALResultSheetsReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - A/L Result Sheets`}
+                reportId="al-result-sheets"
+                activePrint={printTarget === "al-result-sheets"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-result-sheets", "A4 portrait")}
+                rows={sheetRows}
+                subjects={sheetSubjects}
+              />
+            )}
+
             {tab === "lowMarks" && (
               <LowMarkStudentsReport
                 title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
@@ -2979,6 +3112,85 @@ function ALQualificationReport({
                   <TableCell>{row.failedSubjects || "-"}</TableCell>
                 </TableRow>
               ))}
+            </TableBody>
+          </Table>
+        </ResponsiveTableWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ALResultSheetsReport({
+  title,
+  rows,
+  subjects,
+  reportId,
+  activePrint,
+  context,
+  onPrint,
+}) {
+  if (!rows.length || !subjects.length) {
+    return (
+      <EmptyState
+        title="No A/L result sheet data"
+        description="Select a Grade 12 or 13 scope with entered marks."
+      />
+    );
+  }
+
+  const createPdf = () => createALResultSheetsPdf({ context, rows, subjects });
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={createPdf}
+          extra="Individual A/L result sheets include subject marks, A/L result symbols, attendance percentage, and admission status."
+        />
+        <ReportHeader title={title} context={context} />
+        <Alert severity="info" className="analysis-no-print" sx={{ mb: 2 }}>
+          This exports one A4 portrait page per student. Attendance status uses the 80%
+          A/L admission rule.
+        </Alert>
+        <ResponsiveTableWrapper minWidth={900} sx={borderedReportTableSx}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Admission No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Class</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Results</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 800 }}>Attendance %</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Admission Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row, index) => {
+                const status = getALStudentStatus(row, subjects);
+                const qualified = status.achieved3SOrAbove && status.attendanceQualified;
+                return (
+                  <TableRow key={`${row.studentId}-${index}`} hover>
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>{row.indexNo || row.studentId}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                    <TableCell align="center">{row.className}</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
+                    <TableCell align="right">
+                      {Number.isFinite(Number(status.attendancePercentage))
+                        ? `${formatNumber(status.attendancePercentage)}%`
+                        : "-"}
+                    </TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800 }}>
+                      {qualified ? "Qualified" : "Not Qualified"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </ResponsiveTableWrapper>
