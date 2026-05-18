@@ -113,6 +113,8 @@ const getSubjectCode = (subject) =>
 const getSubjectNumber = (subject) =>
   safeString(subject.subjectNumber);
 
+const getSubjectCategory = (subject) => lower(subject.category);
+
 const isActiveSubject = (subject) => lower(subject.status || "active") === "active";
 
 const isTeacherActive = (teacher) => lower(teacher.status || "active") === "active";
@@ -152,10 +154,19 @@ const subjectMatchesStream = (subject, stream) => {
   const additionalStreams = Array.isArray(subject.streams)
     ? subject.streams.map(safeString).filter(Boolean)
     : [];
+  const streamOptions = Array.isArray(subject.streamOptions)
+    ? subject.streamOptions.map(safeString).filter(Boolean)
+    : [];
 
-  const allStreams = [...new Set([primaryStream, ...additionalStreams].filter(Boolean))];
+  const allStreams = [
+    ...new Set([primaryStream, ...additionalStreams, ...streamOptions].filter(Boolean)),
+  ];
 
-  if (!allStreams.length) return true;
+  if (!allStreams.length) {
+    if (subject.appliesToAllStreams === true) return true;
+    return !["al", "al_main", "al_general"].includes(getSubjectCategory(subject));
+  }
+
   return allStreams.includes(cleanStream);
 };
 
