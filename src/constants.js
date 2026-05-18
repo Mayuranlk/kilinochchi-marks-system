@@ -715,6 +715,62 @@ export const getALSubjectByNumber = (subjectNumber) =>
 export const getALSubjectByName = (subjectName) =>
   AL_SUBJECTS_BY_NAME[normalizeLower(subjectName)] || null;
 
+const normalizeALCatalogSubject = (subject = {}) => {
+  const subjectNumber = normalizeText(subject.subjectNumber);
+  const subjectName = normalizeText(
+    subject.subjectName || subject.name || subject.shortName
+  );
+
+  if (!subjectNumber && !subjectName) return null;
+
+  const subjectCode = normalizeText(
+    subject.subjectCode || subject.code || (subjectNumber ? `AL_${subjectNumber}` : "")
+  );
+
+  return {
+    ...subject,
+    subjectNumber,
+    subjectCode,
+    subjectName,
+    shortName: normalizeText(subject.shortName || subjectName),
+  };
+};
+
+const getALMainCatalog = (subjects = []) =>
+  uniqueBySubjectNumber([
+    ...AL_ALL_SUBJECTS,
+    ...(Array.isArray(subjects) ? subjects : [])
+      .map(normalizeALCatalogSubject)
+      .filter(Boolean),
+  ]);
+
+const getALGeneralCatalog = (subjects = []) =>
+  uniqueBySubjectNumber([
+    ...(Array.isArray(subjects) ? subjects : [])
+      .map(normalizeALCatalogSubject)
+      .filter(Boolean),
+  ]);
+
+const getALSubjectFromCatalogByNumber = (subjectNumber, subjects = []) => {
+  const normalizedNumber = normalizeText(subjectNumber);
+  return (
+    getALMainCatalog(subjects).find(
+      (subject) => normalizeText(subject.subjectNumber) === normalizedNumber
+    ) ||
+    getALSubjectByNumber(normalizedNumber)
+  );
+};
+
+const getALSubjectFromCatalogByName = (subjectName, subjects = []) => {
+  const normalizedName = normalizeLower(subjectName);
+  return (
+    getALMainCatalog(subjects).find(
+      (subject) => normalizeLower(subject.subjectName) === normalizedName
+    ) ||
+    getALSubjectByName(subjectName)
+  );
+};
+
 export const getALRuleForStream = (stream) =>
   AL_STREAM_RULES[normalizeText(stream)] || null;
 
@@ -789,7 +845,11 @@ export const convertALChoiceNumbersToSubjects = (choiceNumbers = []) => {
   );
 };
 
-const resolveALChoiceSlots = (choiceNumbers = [], choiceNames = []) => {
+const resolveALChoiceSlots = (
+  choiceNumbers = [],
+  choiceNames = [],
+  mainSubjectCatalog = []
+) => {
   const maxLength = Math.max(choiceNumbers.length, choiceNames.length);
   const slots = [];
 
@@ -799,8 +859,8 @@ const resolveALChoiceSlots = (choiceNumbers = [], choiceNames = []) => {
     if (!number && !name) continue;
 
     const subject = number
-      ? getALSubjectByNumber(number)
-      : getALSubjectByName(name);
+      ? getALSubjectFromCatalogByNumber(number, mainSubjectCatalog)
+      : getALSubjectFromCatalogByName(name, mainSubjectCatalog);
 
     slots.push({
       number,
@@ -826,10 +886,14 @@ export const validateALChoices = ({
   stream,
   choiceNumbers = [],
   choiceNames = [],
+  mainSubjectCatalog = [],
+  generalSubjectCatalog = [],
 }) => {
   const parsedGrade = parseGrade(grade);
   const normalizedStream = normalizeText(stream);
   const rule = getALRuleForStream(normalizedStream);
+  const alMainSubjects = getALMainCatalog(mainSubjectCatalog);
+  const dynamicGeneralSubjects = getALGeneralCatalog(generalSubjectCatalog);
 
   if (!isALGrade(parsedGrade)) {
     return {
@@ -842,7 +906,11 @@ export const validateALChoices = ({
     return { valid: false, reason: "Invalid A/L stream." };
   }
 
-  const choiceSlots = resolveALChoiceSlots(choiceNumbers, choiceNames);
+  const choiceSlots = resolveALChoiceSlots(
+    choiceNumbers,
+    choiceNames,
+    alMainSubjects
+  );
   const unresolvedChoices = choiceSlots.filter((slot) => !slot.subject);
 
   if (unresolvedChoices.length) {
@@ -863,7 +931,7 @@ export const validateALChoices = ({
     };
   }
 
-  const allMainNumbers = new Set(AL_ALL_SUBJECTS.map((s) => s.subjectNumber));
+  const allMainNumbers = new Set(alMainSubjects.map((s) => s.subjectNumber));
   const allAreALMainSubjects = chosenSubjects.every((s) =>
     allMainNumbers.has(s.subjectNumber)
   );
@@ -882,7 +950,9 @@ export const validateALChoices = ({
       compulsorySubjects: [],
       optionalSubjects: [],
       mainSubjects: chosenSubjects,
-      generalSubjects: getALGeneralSubjects(parsedGrade),
+      generalSubjects: dynamicGeneralSubjects.length
+        ? dynamicGeneralSubjects
+        : getALGeneralSubjects(parsedGrade),
     };
   }
 
@@ -890,9 +960,12 @@ export const validateALChoices = ({
     rule.compulsory.map((s) => s.subjectNumber)
   );
 
-  const optionalNumbers = new Set(
-    rule.optionalGroups.flat().map((s) => s.subjectNumber)
-  );
+  const optionalNumbers = new Set([
+    ...rule.optionalGroups.flat().map((s) => s.subjectNumber),
+    ...alMainSubjects
+      .filter((subject) => !compulsoryNumbers.has(subject.subjectNumber))
+      .map((subject) => subject.subjectNumber),
+  ]);
 
   const allowedNumbers = new Set([
     ...compulsoryNumbers,
@@ -934,7 +1007,9 @@ export const validateALChoices = ({
       compulsorySubjects: [...rule.compulsory],
       optionalSubjects: selectedOptional,
       mainSubjects: [...rule.compulsory, ...selectedOptional],
-      generalSubjects: getALGeneralSubjects(parsedGrade),
+      generalSubjects: dynamicGeneralSubjects.length
+        ? dynamicGeneralSubjects
+        : getALGeneralSubjects(parsedGrade),
     };
   }
 
@@ -948,7 +1023,9 @@ export const validateALChoices = ({
       compulsorySubjects: [...rule.compulsory],
       optionalSubjects: selectedOptional,
       mainSubjects: [...rule.compulsory, ...selectedOptional],
-      generalSubjects: getALGeneralSubjects(parsedGrade),
+      generalSubjects: dynamicGeneralSubjects.length
+        ? dynamicGeneralSubjects
+        : getALGeneralSubjects(parsedGrade),
     };
   }
 

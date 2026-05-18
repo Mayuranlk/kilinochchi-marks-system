@@ -75,10 +75,8 @@ import {
   AL_STREAM_OPTIONS,
   AL_STREAM_CODES,
   BASKET_OPTIONS,
-  getALOptionalSubjectsForStream,
+  getALCompulsorySubjectsForStream,
   validateALChoices,
-  convertALChoiceNumbersToSubjects,
-  convertALChoiceNamesToSubjects,
 } from "../constants";
 import { regenerateSingleStudent } from "../services/enrollmentGenerator";
 
@@ -200,6 +198,8 @@ const sectionCardSx = {
 const subjectDisplayName = (subject) =>
   normalizeText(subject.name || subject.subjectName || subject.shortName);
 
+const subjectNumber = (subject) => normalizeText(subject.subjectNumber);
+const subjectName = (subject) => normalizeText(subject.subjectName || subject.name);
 const subjectCategory = (subject) => normalizeLower(subject.category);
 const subjectReligion = (subject) => normalizeText(subject.religion);
 const subjectBasketGroup = (subject) => {
@@ -212,6 +212,34 @@ const subjectBasketGroup = (subject) => {
 
 const isActiveSubject = (subject) =>
   normalizeLower(subject.status || "active") === "active";
+
+const isALMainSubject = (subject) =>
+  ["al", "al_main"].includes(subjectCategory(subject));
+
+const isALGeneralSubject = (subject) => subjectCategory(subject) === "al_general";
+
+const normalizeSubjectForALChoice = (subject) => ({
+  ...subject,
+  subjectNumber: subjectNumber(subject),
+  subjectCode: normalizeText(subject.subjectCode || subject.code),
+  subjectName: subjectName(subject),
+  shortName: normalizeText(subject.shortName || subjectName(subject)),
+});
+
+const subjectMatchesStream = (subject, stream) => {
+  const cleanStream = normalizeText(stream);
+  if (!cleanStream) return true;
+
+  const streams = [
+    subject.stream,
+    ...(Array.isArray(subject.streams) ? subject.streams : []),
+    ...(Array.isArray(subject.streamOptions) ? subject.streamOptions : []),
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return streams.length === 0 || streams.includes(cleanStream);
+};
 
 const BASKET_CHOICE_ALIASES = {
   A: {
@@ -324,16 +352,6 @@ const buildALMetadata = (grade, stream, section) => {
     alClassName: buildALClassName(grade, cleanStream, cleanSection),
   };
 };
-
-const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
-  (choiceNames || [])
-    .map((name) => convertALChoiceNamesToSubjects([name])[0]?.subjectNumber || "")
-    .filter(Boolean);
-
-const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
-  (choiceNumbers || [])
-    .map((number) => convertALChoiceNumbersToSubjects([number])[0]?.subjectName || "")
-    .filter(Boolean);
 
 const getEmisStudentId = (student = {}) =>
   normalizeText(student.emisStudentId || student.emisId || student.externalStudentId || "");
@@ -682,6 +700,54 @@ export default function Students() {
 
   const activeSubjects = useMemo(() => subjects.filter(isActiveSubject), [subjects]);
 
+  const alMainSubjectCatalog = useMemo(() => {
+    return activeSubjects
+      .filter(isALMainSubject)
+      .map(normalizeSubjectForALChoice)
+      .filter((subject) => subject.subjectNumber && subject.subjectName);
+  }, [activeSubjects]);
+
+  const alGeneralSubjectCatalog = useMemo(() => {
+    return activeSubjects
+      .filter(isALGeneralSubject)
+      .map(normalizeSubjectForALChoice)
+      .filter((subject) => subject.subjectNumber && subject.subjectName);
+  }, [activeSubjects]);
+
+  const getALGeneralSubjectCatalogForGrade = (grade) =>
+    alGeneralSubjectCatalog.filter((subject) =>
+      subjectSupportsGrade(subject, Number(grade))
+    );
+
+  const alMainSubjectByNumber = useMemo(
+    () =>
+      new Map(
+        alMainSubjectCatalog.map((subject) => [subject.subjectNumber, subject])
+      ),
+    [alMainSubjectCatalog]
+  );
+
+  const alMainSubjectByName = useMemo(
+    () =>
+      new Map(
+        alMainSubjectCatalog.map((subject) => [
+          normalizeLoose(subject.subjectName),
+          subject,
+        ])
+      ),
+    [alMainSubjectCatalog]
+  );
+
+  const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
+    (choiceNumbers || [])
+      .map((number) => alMainSubjectByNumber.get(normalizeText(number))?.subjectName || "")
+      .filter(Boolean);
+
+  const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
+    (choiceNames || [])
+      .map((name) => alMainSubjectByName.get(normalizeLoose(name))?.subjectNumber || "")
+      .filter(Boolean);
+
   const aestheticOptions = useMemo(() => {
     const grade = Number(form.grade);
     if (!shouldShowAesthetic(grade)) return [];
@@ -752,8 +818,21 @@ export default function Students() {
   const alOptionalChoiceOptions = useMemo(() => {
     const grade = Number(form.grade);
     if (!shouldShowALFields(grade) || !normalizeText(form.stream)) return [];
-    return getALOptionalSubjectsForStream(form.stream);
-  }, [form.grade, form.stream]);
+    const compulsoryNumbers = new Set(
+      getALCompulsorySubjectsForStream(form.stream).map((subject) =>
+        normalizeText(subject.subjectNumber)
+      )
+    );
+
+    return alMainSubjectCatalog
+      .filter((subject) => subjectSupportsGrade(subject, grade))
+      .filter((subject) => subjectMatchesStream(subject, form.stream))
+      .filter((subject) => !compulsoryNumbers.has(subject.subjectNumber))
+      .sort((a, b) => subjectNumber(a).localeCompare(subjectNumber(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }));
+  }, [alMainSubjectCatalog, form.grade, form.stream]);
 
   const enrollmentWarnings = useMemo(() => {
     const grade = Number(form.grade);
@@ -1104,6 +1183,8 @@ export default function Students() {
         stream: cleaned.stream,
         choiceNumbers: cleaned.alSubjectChoiceNumbers,
         choiceNames: cleaned.alSubjectChoices,
+        mainSubjectCatalog: alOptionalChoiceOptions,
+        generalSubjectCatalog: getALGeneralSubjectCatalogForGrade(grade),
       });
 
       if (!result.valid) return result.reason || "Invalid A/L subject choices.";
@@ -1346,6 +1427,10 @@ export default function Students() {
         stream: student.stream,
         choiceNumbers: student.alSubjectChoiceNumbers || [],
         choiceNames: student.alSubjectChoices || [],
+        mainSubjectCatalog: alMainSubjectCatalog.filter((subject) =>
+          subjectMatchesStream(subject, student.stream)
+        ),
+        generalSubjectCatalog: getALGeneralSubjectCatalogForGrade(grade),
       });
 
       if (!validation.valid) {
@@ -1767,8 +1852,10 @@ export default function Students() {
       stream: cleaned.stream,
       choiceNumbers: cleaned.alSubjectChoiceNumbers,
       choiceNames: cleaned.alSubjectChoices,
+      mainSubjectCatalog: alOptionalChoiceOptions,
+      generalSubjectCatalog: getALGeneralSubjectCatalogForGrade(grade),
     });
-  }, [form]);
+  }, [alGeneralSubjectCatalog, alOptionalChoiceOptions, form]);
 
   const basketMenuOptions = useMemo(
     () => ({
@@ -2833,8 +2920,11 @@ export default function Students() {
                                         ? e.target.value.split(",")
                                         : e.target.value;
 
-                                    const selectedSubjects =
-                                      convertALChoiceNumbersToSubjects(selectedNumbers);
+                                    const selectedSubjects = selectedNumbers
+                                      .map((number) =>
+                                        alMainSubjectByNumber.get(normalizeText(number))
+                                      )
+                                      .filter(Boolean);
 
                                     setForm({
                                       ...form,
