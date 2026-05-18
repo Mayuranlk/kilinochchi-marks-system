@@ -3156,46 +3156,154 @@ function ALResultSheetsReport({
           This exports one A4 portrait page per student. Attendance status uses the 80%
           A/L admission rule.
         </Alert>
-        <ResponsiveTableWrapper minWidth={900} sx={borderedReportTableSx}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Admission No</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>Class</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>Results</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 800 }}>Attendance %</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>Admission Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row, index) => {
-                const status = getALStudentStatus(row, subjects);
-                const qualified = status.achieved3SOrAbove && status.attendanceQualified;
-                return (
-                  <TableRow key={`${row.studentId}-${index}`} hover>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell>{row.indexNo || row.studentId}</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
-                    <TableCell align="center">{row.className}</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
-                    <TableCell align="right">
-                      {Number.isFinite(Number(status.attendancePercentage))
-                        ? `${formatNumber(status.attendancePercentage)}%`
-                        : "-"}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 800 }}>
-                      {qualified ? "Qualified" : "Not Qualified"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </ResponsiveTableWrapper>
+        <Stack spacing={3} alignItems="center">
+          {rows.map((row, index) => (
+            <ALResultSheetPreview
+              key={`${row.studentId}-${index}`}
+              row={row}
+              subjects={subjects}
+              context={context}
+            />
+          ))}
+        </Stack>
       </CardContent>
     </Card>
+  );
+}
+
+function ALResultSheetPreview({ row, subjects, context }) {
+  const status = getALStudentStatus(row, subjects);
+  const attendanceText = Number.isFinite(Number(status.attendancePercentage))
+    ? `${formatNumber(status.attendancePercentage)}%`
+    : "-";
+  const qualified = status.achieved3SOrAbove && status.attendanceQualified;
+  const subjectRows = getALResultSubjectRows(row, subjects);
+
+  return (
+    <Box
+      className="al-result-sheet-page"
+      sx={{
+        width: "210mm",
+        minHeight: "297mm",
+        maxWidth: "100%",
+        bgcolor: "#fff",
+        color: "#111827",
+        border: "1px solid #d1d5db",
+        boxShadow: "0 8px 22px rgba(15,23,42,0.12)",
+        p: "18mm 16mm",
+        boxSizing: "border-box",
+        fontFamily: "Arial, sans-serif",
+        pageBreakAfter: "always",
+        "@media print": {
+          width: "210mm",
+          minHeight: "297mm",
+          maxWidth: "none",
+          border: "none",
+          boxShadow: "none",
+          p: "18mm 16mm",
+          margin: 0,
+        },
+      }}
+    >
+      <Box sx={{ textAlign: "center", mb: 4 }}>
+        <Box
+          component="img"
+          src={`${process.env.PUBLIC_URL || ""}/kcc-logo.png`}
+          alt=""
+          sx={{ width: 42, height: 42, objectFit: "contain", mb: 1 }}
+        />
+        <Typography sx={{ fontWeight: 700, fontSize: 16 }}>
+          Kilinochchi Central College
+        </Typography>
+        <Typography sx={{ fontWeight: 800, fontSize: 26, mt: 1.5, letterSpacing: 0 }}>
+          G.C.E A/L Examination
+        </Typography>
+      </Box>
+
+      <Box
+        sx={{
+          width: "72%",
+          mx: "auto",
+          border: "1px solid #9ca3af",
+          borderRadius: 1,
+          px: 6,
+          py: 2.5,
+          mb: 5,
+          display: "grid",
+          gridTemplateColumns: "1fr 1.25fr",
+          rowGap: 1,
+          columnGap: 3,
+          fontSize: 14,
+        }}
+      >
+        {[
+          ["Examination", "G.C.E A/L Examination"],
+          ["Year", context.year || ""],
+          ["Term", context.term || ""],
+          ["Name", String(row.studentName || "").toUpperCase()],
+          ["Index Number", row.indexNo || row.studentId || ""],
+          ["Class", row.className || context.className || ""],
+          ["Attendance", attendanceText],
+          ["Admission Status", qualified ? "Qualified" : "Not Qualified"],
+        ].map(([label, value]) => (
+          <React.Fragment key={label}>
+            <Box sx={{ textAlign: "right" }}>{label}</Box>
+            <Box sx={{ fontWeight: label === "Name" || label === "Admission Status" ? 800 : 400 }}>
+              {value}
+            </Box>
+          </React.Fragment>
+        ))}
+      </Box>
+
+      <Box
+        component="table"
+        sx={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: 15,
+          "& th": {
+            bgcolor: "#d1d5db",
+            fontWeight: 800,
+            textAlign: "center",
+            border: "1px solid #6b7280",
+            py: 1.2,
+          },
+          "& td": {
+            border: "1px solid #6b7280",
+            py: 1.4,
+            px: 1.5,
+          },
+          "& tbody tr:nth-of-type(odd)": {
+            bgcolor: "#eef0f2",
+          },
+          "@media print": {
+            fontSize: 14,
+          },
+        }}
+      >
+        <thead>
+          <tr>
+            <th style={{ width: "62%" }}>Subject</th>
+            <th style={{ width: "18%" }}>Marks</th>
+            <th style={{ width: "20%" }}>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {subjectRows.map(([subjectName, mark, symbol]) => (
+            <tr key={`${row.studentId}-${subjectName}`}>
+              <td style={{ fontWeight: 800, textTransform: "uppercase" }}>{subjectName}</td>
+              <td style={{ textAlign: "center", fontWeight: 700 }}>{mark}</td>
+              <td style={{ textAlign: "center", fontWeight: 800 }}>{symbol}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Box>
+
+      <Typography sx={{ mt: 3, textAlign: "center", fontSize: 12 }}>
+        A/L grade ranges: A 75-100, B 65-74, C 50-64, S 35-49, F 0-34.
+        Attendance requirement for A/L admission: 80%.
+      </Typography>
+    </Box>
   );
 }
 
