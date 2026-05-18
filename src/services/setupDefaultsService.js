@@ -457,6 +457,91 @@ export async function createDefaultSubjects(profile) {
   return { created, skipped, totalDefaults: defaults.length };
 }
 
+function buildSubjectLookupKeys(subject) {
+  const category = normalizeLower(subject.category);
+  const code = normalizeLower(subject.code || subject.subjectCode);
+  const name = normalizeLower(subject.name || subject.subjectName);
+  const subjectNumber = normalizeLower(subject.subjectNumber);
+  const keys = [];
+
+  if (code) keys.push(`${category}__code__${code}`);
+  if (name) keys.push(`${category}__name__${name}`);
+  if (category === "al" && subjectNumber) {
+    keys.push(`${category}__number__${subjectNumber}`);
+  }
+
+  return keys;
+}
+
+function buildOfficialSubjectPayload(subject, profile, timestamp, isNew) {
+  const codeValue = normalizeText(subject.code || subject.subjectCode);
+  const nameValue = normalizeText(subject.name || subject.subjectName);
+  const payload = {
+    ...subject,
+    code: codeValue,
+    name: nameValue,
+    subjectCode: codeValue,
+    subjectName: nameValue,
+    shortName: subject.shortName || nameValue,
+    status: "active",
+    updatedAt: timestamp,
+    updatedById: profile?.uid || "",
+    updatedByName: profile?.name || profile?.displayName || profile?.email || "",
+  };
+
+  if (isNew) {
+    payload.createdAt = timestamp;
+    payload.createdById = profile?.uid || "";
+    payload.createdByName =
+      profile?.name || profile?.displayName || profile?.email || "";
+  }
+
+  return payload;
+}
+
+export async function restoreOfficialSubjects(profile) {
+  const existingSnap = await getDocs(collection(db, SUBJECTS_COLLECTION));
+  const existing = existingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const existingByKey = new Map();
+
+  existing.forEach((subject) => {
+    buildSubjectLookupKeys(subject).forEach((key) => {
+      if (!existingByKey.has(key)) existingByKey.set(key, subject);
+    });
+  });
+
+  const defaults = getDefaultSubjects();
+  const timestamp = nowIso();
+  let created = 0;
+  let restored = 0;
+
+  for (const subject of defaults) {
+    const matchingExisting = buildSubjectLookupKeys(subject)
+      .map((key) => existingByKey.get(key))
+      .find(Boolean);
+
+    if (matchingExisting) {
+      await setDoc(
+        doc(db, SUBJECTS_COLLECTION, matchingExisting.id),
+        buildOfficialSubjectPayload(subject, profile, timestamp, false),
+        { merge: true }
+      );
+      restored += 1;
+      continue;
+    }
+
+    const ref = doc(db, SUBJECTS_COLLECTION, makeSubjectId(subject));
+    await setDoc(
+      ref,
+      buildOfficialSubjectPayload(subject, profile, timestamp, true),
+      { merge: false }
+    );
+    created += 1;
+  }
+
+  return { created, restored, totalDefaults: defaults.length };
+}
+
 export async function fixStudentData(profile) {
   const snap = await getDocs(collection(db, STUDENTS_COLLECTION));
   const students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));

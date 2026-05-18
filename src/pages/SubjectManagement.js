@@ -42,6 +42,7 @@ import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore"
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { MobileListRow, ResponsiveTableWrapper } from "../components/ui";
+import { restoreOfficialSubjects } from "../services/setupDefaultsService";
 
 const SUBJECT_COLLECTION = "subjects";
 
@@ -558,6 +559,7 @@ export default function SubjectManagement() {
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restoringOfficial, setRestoringOfficial] = useState(false);
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -807,6 +809,29 @@ export default function SubjectManagement() {
     }
   }
 
+  async function handleRestoreOfficialSubjects() {
+    if (!isAdmin) {
+      setError("Only admin can restore official subjects.");
+      return;
+    }
+
+    setSuccess("");
+    setError("");
+    setRestoringOfficial(true);
+
+    try {
+      const result = await restoreOfficialSubjects(profile);
+      setSuccess(
+        `Official subjects restored. Created: ${result.created}, refreshed/reactivated: ${result.restored}.`
+      );
+      await loadSubjects();
+    } catch (err) {
+      setError("Failed to restore official subjects: " + err.message);
+    } finally {
+      setRestoringOfficial(false);
+    }
+  }
+
   const dialogTitle = editingId ? "Edit Subject" : "Create Subject";
   const normalizedFormCategory = normalizeCategoryForForm(form.category);
   const isReligion = normalizedFormCategory === "religion";
@@ -840,6 +865,17 @@ export default function SubjectManagement() {
         </Box>
 
         <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={
+              restoringOfficial ? <CircularProgress size={18} /> : <AutoAwesomeIcon />
+            }
+            onClick={handleRestoreOfficialSubjects}
+            disabled={!isAdmin || restoringOfficial}
+          >
+            Restore Official Subjects
+          </Button>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadSubjects}>
             Refresh
           </Button>
