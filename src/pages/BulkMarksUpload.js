@@ -28,9 +28,22 @@ import SchoolIcon from "@mui/icons-material/School";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import PreviewIcon from "@mui/icons-material/Preview";
-import { collection, getDocs } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
 import * as XLSX from "xlsx";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
+import {
+  AL_SUBJECTS_BY_NAME,
+  AL_SUBJECTS_BY_NUMBER,
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+} from "../constants";
 import {
   MobileListRow,
   PageContainer,
@@ -52,12 +65,18 @@ const TEMPLATE_HEADERS = [
   "academicYear",
 ];
 
+const MAX_BATCH_WRITES = 450;
+
 function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
 function normalizeLower(value) {
   return normalizeText(value).toLowerCase();
+}
+
+function normalizeLoose(value) {
+  return normalizeLower(value).replace(/[^a-z0-9]/g, "");
 }
 
 function parseGrade(value) {
@@ -77,6 +96,10 @@ function buildFullClassName(grade, section) {
   return g && s ? `${g}${s}` : "";
 }
 
+function pickValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
 function getStudentName(student) {
   return normalizeText(student?.name || student?.fullName || "Unnamed Student");
 }
@@ -92,22 +115,38 @@ function getStudentIndexNo(student) {
   );
 }
 
-function getEnrollmentGrade(enrollment) {
-  return parseGrade(enrollment?.grade || enrollment?.className);
+function getEnrollmentGrade(enrollment, student = {}) {
+  return parseGrade(pickValue(enrollment?.grade, student?.grade, enrollment?.className));
 }
 
-function getEnrollmentSection(enrollment) {
-  return normalizeSection(enrollment?.section || enrollment?.className || "");
+function getEnrollmentSection(enrollment, student = {}) {
+  return normalizeSection(
+    pickValue(enrollment?.section, student?.section, student?.className, enrollment?.className, "")
+  );
 }
 
-function getEnrollmentClassName(enrollment) {
+function getEnrollmentStream(enrollment, student = {}) {
+  return normalizeText(pickValue(enrollment?.stream, student?.stream, ""));
+}
+
+function getEnrollmentClassName(enrollment, student = {}) {
+  const grade = getEnrollmentGrade(enrollment, student);
+  const section = getEnrollmentSection(enrollment, student);
+  const stream = getEnrollmentStream(enrollment, student);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
+  const explicitALClassName = normalizeText(
+    pickValue(enrollment?.fullClassName, enrollment?.alClassName, "")
+  );
+  if (explicitALClassName) return explicitALClassName;
+
   const rawClass = normalizeText(enrollment?.className || "");
   if (/^\d+[A-Z]+$/i.test(rawClass)) return rawClass.toUpperCase();
 
-  return buildFullClassName(
-    getEnrollmentGrade(enrollment),
-    getEnrollmentSection(enrollment)
-  );
+  return buildFullClassName(grade, section || rawClass);
 }
 
 function getEnrollmentSubjectName(enrollment) {
@@ -116,6 +155,10 @@ function getEnrollmentSubjectName(enrollment) {
 
 function getEnrollmentSubjectId(enrollment) {
   return normalizeText(enrollment?.subjectId || "");
+}
+
+function getEnrollmentSubjectNumber(enrollment) {
+  return normalizeText(enrollment?.subjectNumber || "");
 }
 
 function getEnrollmentAcademicYear(enrollment) {
@@ -317,6 +360,121 @@ function parseMarksValue(value) {
   return { valid: true, value: num };
 }
 
+function parseTeacherSheetMarkValue(value) {
+  const raw = normalizeText(value);
+  if (!raw) return { valid: true, marks: null, absent: null };
+  if (["ab", "absent", "a"].includes(normalizeLower(raw))) {
+    return { valid: true, marks: null, absent: true };
+  }
+
+  const parsed = parseMarksValue(value);
+  if (!parsed.valid) return { valid: false, marks: null, absent: null };
+  return { valid: true, marks: parsed.value, absent: false };
+}
+
+function parsePercentageValue(value) {
+  const raw = normalizeText(value);
+  if (!raw) return { valid: true, value: null };
+
+  const parsed = Number(raw.replace("%", ""));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    return { valid: false, value: null };
+  }
+
+  return { valid: true, value: parsed };
+}
+
+function normalizeSubjectNumber(value) {
+  return normalizeText(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function resolveALSubject(value) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const byNumber = AL_SUBJECTS_BY_NUMBER[normalizeSubjectNumber(raw)];
+  if (byNumber) return byNumber;
+
+  const byName = AL_SUBJECTS_BY_NAME[normalizeLower(raw)];
+  if (byName) return byName;
+
+  return null;
+}
+
+function getTeacherSheetColumnIndex(headers, aliases) {
+  const normalizedAliases = aliases.map(normalizeLoose);
+  return headers.findIndex((header) => normalizedAliases.includes(normalizeLoose(header)));
+}
+
+function getTeacherSheetSubjectPairs(headers) {
+  const pairs = [];
+
+  headers.forEach((header, index) => {
+    const loose = normalizeLoose(header);
+    const isSubjectColumn =
+      loose.includes("subject") && !loose.includes("stream") && !loose.includes("code");
+    if (!isSubjectColumn) return;
+
+    const marksIndex = headers.findIndex(
+      (candidate, candidateIndex) =>
+        candidateIndex > index && normalizeLoose(candidate) === "marks"
+    );
+
+    if (marksIndex > index) {
+      pairs.push({ subjectIndex: index, marksIndex });
+    }
+  });
+
+  return pairs;
+}
+
+function isTeacherMarksSheet(headers = []) {
+  const looseHeaders = headers.map(normalizeLoose);
+  return (
+    looseHeaders.includes("studentid") &&
+    looseHeaders.some((header) => ["alclassname", "alclass"].includes(header)) &&
+    getTeacherSheetSubjectPairs(headers).length > 0
+  );
+}
+
+function getStudentLookupKeys(student = {}) {
+  return [
+    student.id,
+    student.studentId,
+    student.emisStudentId,
+    student.emisId,
+    student.externalStudentId,
+    student.indexNo,
+    student.indexNumber,
+    student.admissionNo,
+    student.admissionNumber,
+    student.admNo,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function buildStudentLookup(students = []) {
+  const lookup = new Map();
+  students.forEach((student) => {
+    getStudentLookupKeys(student).forEach((key) => {
+      if (!lookup.has(key)) lookup.set(key, student);
+    });
+  });
+  return lookup;
+}
+
+function subjectsMatch(left = {}, right = {}) {
+  return (
+    (normalizeText(left.subjectId) &&
+      normalizeText(left.subjectId) === normalizeText(right.subjectId)) ||
+    (normalizeSubjectNumber(left.subjectNumber) &&
+      normalizeSubjectNumber(left.subjectNumber) === normalizeSubjectNumber(right.subjectNumber)) ||
+    (normalizeLower(left.subjectName) &&
+      normalizeLower(left.subjectName) === normalizeLower(right.subjectName))
+  );
+}
+
 function buildEnrollmentKey({
   studentId,
   subjectId,
@@ -454,12 +612,175 @@ function validateUploadedRows({
   };
 }
 
+function validateTeacherMarksSheetRows({
+  rows,
+  studentsByUploadId,
+  selectedEnrollments,
+  selectedClass,
+  selectedTerm,
+  selectedYear,
+}) {
+  const validRows = [];
+  const invalidRows = [];
+  const seenKeys = new Set();
+  const headers = rows[0] || [];
+  const dataRows = rows.slice(1);
+  const subjectPairs = getTeacherSheetSubjectPairs(headers);
+
+  const studentIdIndex = getTeacherSheetColumnIndex(headers, ["StudentID", "Student ID"]);
+  const admissionNoIndex = getTeacherSheetColumnIndex(headers, ["Admission No", "AdmissionNo"]);
+  const nameIndex = getTeacherSheetColumnIndex(headers, ["Name", "Student Name"]);
+  const gradeIndex = getTeacherSheetColumnIndex(headers, ["Grade"]);
+  const sectionIndex = getTeacherSheetColumnIndex(headers, ["Section"]);
+  const streamIndex = getTeacherSheetColumnIndex(headers, ["Stream"]);
+  const attendanceIndex = getTeacherSheetColumnIndex(headers, [
+    "Attendance",
+    "Attendance %",
+    "Attendance Percent",
+    "Attendance Percentage",
+  ]);
+  const alClassNameIndex = getTeacherSheetColumnIndex(headers, [
+    "A/L Class Name",
+    "AL Class Name",
+    "A/L Class",
+  ]);
+
+  const enrollmentsByStudentId = selectedEnrollments.reduce((map, enrollment) => {
+    const studentId = normalizeText(enrollment.studentId);
+    if (!studentId) return map;
+    if (!map.has(studentId)) map.set(studentId, []);
+    map.get(studentId).push(enrollment);
+    return map;
+  }, new Map());
+
+  dataRows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const hasAnyValue = row.some((cell) => normalizeText(cell));
+    if (!hasAnyValue) return;
+
+    const uploadedStudentId = normalizeText(row[studentIdIndex]);
+    const student = studentsByUploadId.get(uploadedStudentId) || null;
+    const studentId = normalizeText(student?.id || uploadedStudentId);
+    const studentName = normalizeText(
+      pickValue(student?.name, student?.fullName, row[nameIndex], "Unnamed Student")
+    );
+    const indexNo = normalizeText(
+      pickValue(student?.indexNo, student?.indexNumber, row[admissionNoIndex], "")
+    );
+    const admissionNo = normalizeText(
+      pickValue(student?.admissionNo, student?.admissionNumber, row[admissionNoIndex], "")
+    );
+    const grade = parseGrade(pickValue(row[gradeIndex], student?.grade, ""));
+    const section = normalizeSection(pickValue(row[sectionIndex], student?.section, ""));
+    const stream = normalizeText(pickValue(row[streamIndex], student?.stream, ""));
+    const attendanceResult = parsePercentageValue(attendanceIndex >= 0 ? row[attendanceIndex] : "");
+    const sheetClassName = normalizeText(row[alClassNameIndex]);
+
+    subjectPairs.forEach(({ subjectIndex, marksIndex }) => {
+      const rawSubject = normalizeText(row[subjectIndex]);
+      const rawMarks = row[marksIndex];
+      const hasMarks = normalizeText(rawMarks) !== "";
+
+      if (!rawSubject && !hasMarks) return;
+      if (!hasMarks) return;
+
+      const reasons = [];
+      if (!uploadedStudentId) reasons.push("Missing StudentID");
+      if (uploadedStudentId && !student) reasons.push("StudentID does not exist");
+
+      if (sheetClassName && normalizeLower(sheetClassName) !== normalizeLower(selectedClass)) {
+        reasons.push("A/L Class Name does not match selected class");
+      }
+
+      const subject = resolveALSubject(rawSubject);
+      if (!subject) {
+        reasons.push(`Unknown A/L subject: ${rawSubject || "(blank)"}`);
+      }
+
+      const marksResult = parseTeacherSheetMarkValue(rawMarks);
+      if (!marksResult.valid) {
+        reasons.push("Marks must be numeric, AB, or empty");
+      }
+      if (!attendanceResult.valid) {
+        reasons.push("Attendance percentage must be between 0 and 100");
+      }
+
+      const matchingEnrollment =
+        subject && student
+          ? (enrollmentsByStudentId.get(student.id) || []).find((enrollment) =>
+              subjectsMatch(
+                {
+                  subjectId: getEnrollmentSubjectId(enrollment),
+                  subjectName: getEnrollmentSubjectName(enrollment),
+                  subjectNumber: getEnrollmentSubjectNumber(enrollment),
+                },
+                {
+                  subjectName: subject.subjectName,
+                  subjectNumber: subject.subjectNumber,
+                  subjectId: subject.subjectCode,
+                }
+              )
+            )
+          : null;
+
+      if (student && subject && !matchingEnrollment) {
+        reasons.push("student is not enrolled in this subject for the selected class/year");
+      }
+
+      const dedupeKey = `${studentId}__${subject?.subjectNumber || rawSubject}`;
+      if (seenKeys.has(dedupeKey)) {
+        reasons.push("duplicate student/subject mark in uploaded file");
+      }
+
+      const rowData = {
+        rowNumber,
+        studentId,
+        uploadedStudentId,
+        indexNo,
+        admissionNo,
+        studentName,
+        marks: marksResult.marks,
+        absent: marksResult.absent,
+        subjectId: normalizeText(matchingEnrollment?.subjectId || subject?.subjectCode || ""),
+        subjectName: normalizeText(matchingEnrollment?.subjectName || subject?.subjectName || rawSubject),
+        subjectNumber: normalizeText(matchingEnrollment?.subjectNumber || subject?.subjectNumber || ""),
+        className: selectedClass,
+        fullClassName: selectedClass,
+        alClassName: selectedClass,
+        grade: grade || parseGrade(matchingEnrollment?.grade),
+        section: section || getEnrollmentSection(matchingEnrollment),
+        stream: stream || getEnrollmentStream(matchingEnrollment),
+        attendancePercentage: attendanceResult.value,
+        term: selectedTerm,
+        academicYear: String(selectedYear),
+        sourceFormat: "teacherSheet",
+      };
+
+      if (!reasons.length) {
+        seenKeys.add(dedupeKey);
+        validRows.push(rowData);
+      } else {
+        invalidRows.push({
+          ...rowData,
+          marks: rawMarks,
+          subjectName: subject?.subjectName || rawSubject,
+          reasons,
+        });
+      }
+    });
+  });
+
+  return { validRows, invalidRows };
+}
+
 export default function BulkMarksUpload() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [allStudents, setAllStudents] = useState([]);
   const [allEnrollments, setAllEnrollments] = useState([]);
@@ -475,6 +796,7 @@ export default function BulkMarksUpload() {
   const [invalidRows, setInvalidRows] = useState([]);
   const [rawUploadedRows, setRawUploadedRows] = useState([]);
   const [showInvalidOnly, setShowInvalidOnly] = useState(false);
+  const [uploadedFormat, setUploadedFormat] = useState("");
 
   useEffect(() => {
     loadBaseData();
@@ -525,6 +847,10 @@ export default function BulkMarksUpload() {
     return new Map(allStudents.map((student) => [normalizeText(student.id), student]));
   }, [allStudents]);
 
+  const studentsByUploadId = useMemo(() => {
+    return buildStudentLookup(allStudents);
+  }, [allStudents]);
+
   const availableYears = useMemo(() => {
     const yearsFromTerms = allTerms.map((term) => Number(term.year));
     const yearsFromEnrollments = allEnrollments.map((enrollment) =>
@@ -563,8 +889,12 @@ export default function BulkMarksUpload() {
         getEnrollmentAcademicYear(enrollment) === String(selectedYear)
     );
 
-    return uniqueSorted(filtered.map((enrollment) => getEnrollmentClassName(enrollment)));
-  }, [allEnrollments, selectedYear]);
+    return uniqueSorted(
+      filtered.map((enrollment) =>
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId)))
+      )
+    );
+  }, [allEnrollments, selectedYear, studentsById]);
 
   const availableSubjects = useMemo(() => {
     const filtered = allEnrollments.filter((enrollment) => {
@@ -574,13 +904,15 @@ export default function BulkMarksUpload() {
         getEnrollmentAcademicYear(enrollment) === String(selectedYear);
 
       const sameClass =
-        !selectedClass || getEnrollmentClassName(enrollment) === selectedClass;
+        !selectedClass ||
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId))) ===
+          selectedClass;
 
       return sameYear && sameClass;
     });
 
     return uniqueSorted(filtered.map((enrollment) => getEnrollmentSubjectName(enrollment)));
-  }, [allEnrollments, selectedYear, selectedClass]);
+  }, [allEnrollments, selectedYear, selectedClass, studentsById]);
 
   const selectedEnrollments = useMemo(() => {
     return allEnrollments.filter((enrollment) => {
@@ -590,14 +922,16 @@ export default function BulkMarksUpload() {
         getEnrollmentAcademicYear(enrollment) === String(selectedYear);
 
       const sameClass =
-        !selectedClass || getEnrollmentClassName(enrollment) === selectedClass;
+        !selectedClass ||
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId))) ===
+          selectedClass;
 
       const sameSubject =
         !selectedSubject || getEnrollmentSubjectName(enrollment) === selectedSubject;
 
       return sameYear && sameClass && sameSubject;
     });
-  }, [allEnrollments, selectedYear, selectedClass, selectedSubject]);
+  }, [allEnrollments, selectedYear, selectedClass, selectedSubject, studentsById]);
 
   const selectedSubjectId = useMemo(() => {
     const found = selectedEnrollments.find((enrollment) => getEnrollmentSubjectId(enrollment));
@@ -613,14 +947,17 @@ export default function BulkMarksUpload() {
           studentId: enrollment.studentId,
           subjectId: getEnrollmentSubjectId(enrollment),
           subjectName: getEnrollmentSubjectName(enrollment),
-          className: getEnrollmentClassName(enrollment),
+          className: getEnrollmentClassName(
+            enrollment,
+            studentsById.get(normalizeText(enrollment.studentId))
+          ),
           academicYear: getEnrollmentAcademicYear(enrollment),
         })
       );
     });
 
     return keys;
-  }, [selectedEnrollments]);
+  }, [selectedEnrollments, studentsById]);
 
   const previewRows = useMemo(() => {
     if (!selectedClass || !selectedSubject || !selectedTerm || !selectedYear) return [];
@@ -670,6 +1007,8 @@ export default function BulkMarksUpload() {
     setValidRows([]);
     setInvalidRows([]);
     setRawUploadedRows([]);
+    setUploadedFormat("");
+    setSuccess("");
   }, [selectedClass, selectedSubject, selectedTerm, selectedYear]);
 
   async function handleDownloadTemplate() {
@@ -714,8 +1053,8 @@ export default function BulkMarksUpload() {
 
     if (!file) return;
 
-    if (!selectedClass || !selectedSubject || !selectedTerm || !selectedYear) {
-      setError("Select academic year, class, subject, and term before uploading.");
+    if (!selectedClass || !selectedTerm || !selectedYear) {
+      setError("Select academic year, class, and term before uploading.");
       return;
     }
 
@@ -725,6 +1064,8 @@ export default function BulkMarksUpload() {
     setValidRows([]);
     setInvalidRows([]);
     setRawUploadedRows([]);
+    setUploadedFormat("");
+    setSuccess("");
 
     try {
       const buffer = await file.arrayBuffer();
@@ -734,6 +1075,34 @@ export default function BulkMarksUpload() {
 
       if (!worksheet) {
         throw new Error("No worksheet found in uploaded file.");
+      }
+
+      const sheetRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: "",
+        raw: false,
+      });
+      const headers = sheetRows[0] || [];
+
+      if (isTeacherMarksSheet(headers)) {
+        const result = validateTeacherMarksSheetRows({
+          rows: sheetRows,
+          studentsByUploadId,
+          selectedEnrollments,
+          selectedClass,
+          selectedTerm,
+          selectedYear,
+        });
+
+        setUploadedFormat("teacherSheet");
+        setRawUploadedRows(sheetRows.slice(1).filter((row) => row.some((cell) => normalizeText(cell))));
+        setValidRows(result.validRows);
+        setInvalidRows(result.invalidRows);
+        return;
+      }
+
+      if (!selectedSubject) {
+        throw new Error("Select a subject before uploading the standard template.");
       }
 
       const rows = XLSX.utils.sheet_to_json(worksheet, {
@@ -751,6 +1120,7 @@ export default function BulkMarksUpload() {
       }
 
       setRawUploadedRows(rows);
+      setUploadedFormat("standardTemplate");
 
       const result = validateUploadedRows({
         rows,
@@ -770,6 +1140,122 @@ export default function BulkMarksUpload() {
       setError(err.message || "Failed to read and validate uploaded Excel file.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleSaveValidRows() {
+    if (!validRows.length) {
+      setError("No valid rows to save.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const marksSnap = await getDocs(collection(db, "marks"));
+      const existingMarks = marksSnap.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+      const currentUser = auth.currentUser;
+      const teacherName = currentUser?.displayName || currentUser?.email || "Bulk Upload";
+
+      for (let i = 0; i < validRows.length; i += MAX_BATCH_WRITES) {
+        const batch = writeBatch(db);
+        const chunk = validRows.slice(i, i + MAX_BATCH_WRITES);
+
+        chunk.forEach((row) => {
+          const existing = existingMarks.find((markDoc) => {
+            const sameStudent = normalizeText(markDoc.studentId) === normalizeText(row.studentId);
+            const sameClass =
+              normalizeLower(
+                markDoc.alClassName || markDoc.fullClassName || markDoc.className
+              ) === normalizeLower(row.fullClassName || row.className);
+            const sameTerm =
+              normalizeLower(markDoc.termName || markDoc.term) === normalizeLower(row.term);
+            const sameYear =
+              String(markDoc.academicYear || markDoc.year || "") ===
+              String(row.academicYear);
+            const sameAssessment = !normalizeText(markDoc.practiceExamId || markDoc.assessmentId);
+            const sameSubject = subjectsMatch(
+              {
+                subjectId: markDoc.subjectId,
+                subjectName: markDoc.subjectName || markDoc.subject,
+                subjectNumber: markDoc.subjectNumber,
+              },
+              {
+                subjectId: row.subjectId,
+                subjectName: row.subjectName,
+                subjectNumber: row.subjectNumber,
+              }
+            );
+
+            return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameAssessment;
+          });
+
+          const markValue = row.absent ? null : row.marks;
+          const payload = {
+            studentId: row.studentId,
+            studentName: row.studentName,
+            admissionNo: row.admissionNo || "",
+            indexNo: row.indexNo || "",
+            className: row.className || "",
+            fullClassName: row.fullClassName || row.className || "",
+            alClassName: row.alClassName || "",
+            grade: row.grade || "",
+            section: row.section || "",
+            stream: row.stream || "",
+            attendancePercentage: row.attendancePercentage ?? null,
+            subjectId: row.subjectId || "",
+            subjectName: row.subjectName,
+            subject: row.subjectName,
+            subjectNumber: row.subjectNumber || "",
+            term: row.term,
+            termName: row.term,
+            academicYear: row.academicYear,
+            year: row.academicYear,
+            assessmentType: "term",
+            assessmentId: "",
+            assessmentName: "",
+            practiceExamId: "",
+            practiceExamName: "",
+            mark: markValue,
+            marks: markValue,
+            score: markValue,
+            absent: Boolean(row.absent),
+            isAbsent: Boolean(row.absent),
+            teacherId: currentUser?.uid || "",
+            teacherName,
+            uploadSource: uploadedFormat || "bulkUpload",
+            updatedAt: serverTimestamp(),
+          };
+
+          if (existing?.id) {
+            batch.set(doc(db, "marks", existing.id), payload, { merge: true });
+          } else {
+            batch.set(doc(collection(db, "marks")), {
+              ...payload,
+              createdAt: serverTimestamp(),
+            });
+          }
+        });
+
+        await batch.commit();
+      }
+
+      setSuccess(`Saved ${validRows.length} mark row${validRows.length === 1 ? "" : "s"} successfully.`);
+      setValidRows([]);
+      setInvalidRows([]);
+      setRawUploadedRows([]);
+      setUploadedFileName("");
+      setUploadedFormat("");
+    } catch (err) {
+      console.error("Bulk save error:", err);
+      setError(err.message || "Failed to save uploaded marks.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -803,6 +1289,12 @@ export default function BulkMarksUpload() {
         {error && (
           <Alert severity="error" onClose={() => setError("")}>
             {error}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" onClose={() => setSuccess("")}>
+            {success}
           </Alert>
         )}
 
@@ -955,15 +1447,15 @@ export default function BulkMarksUpload() {
                   disabled={
                     loading ||
                     uploading ||
+                    saving ||
                     !selectedClass ||
-                    !selectedSubject ||
                     !selectedTerm ||
                     !selectedYear
                   }
                   sx={{ borderRadius: 2, fontWeight: 700 }}
                   fullWidth={isMobile}
                 >
-                  {uploading ? "Reading File..." : "Upload Completed Excel"}
+                  {uploading ? "Reading File..." : "Upload Completed Excel / Teacher Sheet"}
                   <input
                     hidden
                     type="file"
@@ -985,17 +1477,19 @@ export default function BulkMarksUpload() {
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip label={`Year: ${selectedYear || "-"}`} />
               <Chip label={`Class: ${selectedClass || "-"}`} />
-              <Chip label={`Subject: ${selectedSubject || "-"}`} />
+              <Chip label={`Subject: ${selectedSubject || "Auto from teacher sheet"}`} />
               <Chip label={`Term: ${selectedTerm || "-"}`} />
               <Chip color="primary" label={`Template Rows: ${previewRows.length}`} />
             </Stack>
 
             <Typography variant="body2" color="text.secondary">
-              Template columns:{" "}
+              Standard template columns:{" "}
               <strong>
                 studentId, indexNo, studentName, marks, absent, subjectId, subjectName,
                 className, term, academicYear
               </strong>
+              . Teacher A/L sheets are also supported when they include StudentID,
+              A/L Class Name, subject columns, and Marks columns.
             </Typography>
           </Stack>
         </Paper>
@@ -1009,6 +1503,7 @@ export default function BulkMarksUpload() {
 
               <Box display="flex" flexWrap="wrap" gap={1}>
                 <Chip label={`File: ${uploadedFileName}`} />
+                <Chip label={`Format: ${uploadedFormat === "teacherSheet" ? "Teacher A/L sheet" : "Standard template"}`} />
                 <Chip label={`Rows Read: ${rawUploadedRows.length}`} />
                 <Chip
                   color="success"
@@ -1023,8 +1518,19 @@ export default function BulkMarksUpload() {
               </Box>
 
               <Typography variant="body2" color="text.secondary">
-                Only valid rows will be allowed for the next save step.
+                Only valid rows will be saved. Teacher sheets can contain multiple subjects
+                in one file.
               </Typography>
+
+              <Button
+                variant="contained"
+                startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <CheckCircleIcon />}
+                onClick={handleSaveValidRows}
+                disabled={saving || uploading || validRows.length === 0}
+                sx={{ bgcolor: "#1a237e", borderRadius: 2, fontWeight: 700, width: "fit-content" }}
+              >
+                {saving ? "Saving..." : `Save ${validRows.length} Valid Row${validRows.length === 1 ? "" : "s"}`}
+              </Button>
             </Stack>
           </Paper>
         ) : null}

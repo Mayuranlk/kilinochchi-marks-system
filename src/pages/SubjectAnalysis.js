@@ -38,6 +38,12 @@ import { saveAs } from "file-saver";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+} from "../constants";
+import { AL_GRADE_BANDS, OL_GRADE_BANDS } from "../utils/gradeUtils";
+import {
   EmptyState,
   PageContainer,
   ResponsiveTableWrapper,
@@ -47,13 +53,22 @@ import {
 const CURRENT_YEAR = new Date().getFullYear();
 const ALL = "__ALL__";
 
-const GRADE_BANDS = [
-  { key: "A", description: "Distinction", min: 75, max: 100 },
-  { key: "B", description: "Very Good Pass", min: 65, max: 74 },
-  { key: "C", description: "Credit Pass", min: 50, max: 64 },
-  { key: "S", description: "Ordinary Pass", min: 35, max: 49 },
-  { key: "W", description: "Weak", min: 0, max: 34 },
-];
+const GRADE_BANDS = OL_GRADE_BANDS.map((band) => ({
+  key: band.label,
+  description: band.desc,
+  min: band.min,
+  max: band.max,
+}));
+
+const AL_ANALYSIS_BANDS = AL_GRADE_BANDS.map((band) => ({
+  key: band.label,
+  description: band.desc,
+  min: band.min,
+  max: band.max,
+}));
+
+const ALL_GRADE_SYMBOLS = ["A", "B", "C", "S", "W", "F"];
+const AL_ATTENDANCE_THRESHOLD = 80;
 
 const RANGE_BANDS = [
   { key: "0-9", min: 0, max: 9 },
@@ -86,6 +101,11 @@ const TAB_CONFIG = [
   { value: "summaryRange", label: "Summary Mark Range" },
   { value: "absent", label: "Absent Students" },
   { value: "threeCThreeS", label: "Below 3C 3S List" },
+  { value: "alThreeS80", label: "A/L 3S + 80%" },
+  { value: "alThreeSBelow80", label: "A/L 3S Below 80%" },
+  { value: "alThreeA", label: "A/L 3A List" },
+  { value: "alThreeF", label: "A/L 3F List" },
+  { value: "alTwoPassOneFail", label: "A/L 2 Pass 1 Fail" },
   { value: "lowMarks", label: "Low Mark Students" },
   { value: "sheet", label: "A3 Grading Sheet" },
 ];
@@ -363,15 +383,31 @@ function getA3CanonicalSubjectKey(subject = {}) {
 }
 
 function getEnrollmentClassName(enrollment = {}) {
+  const grade = parseGrade(enrollment.grade || enrollment.className);
+  const section = normalizeSection(enrollment.section || enrollment.className);
+  const stream = clean(enrollment.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
   const explicit = clean(enrollment.fullClassName || enrollment.alClassName || enrollment.className);
   if (/^\d+[A-Z]+$/i.test(explicit)) return explicit.toUpperCase();
-  return buildClassName(enrollment.grade, enrollment.section || explicit);
+  return buildClassName(grade, section || explicit);
 }
 
 function getMarkClassName(mark = {}) {
+  const grade = parseGrade(mark.grade || mark.className);
+  const section = normalizeSection(mark.section || mark.className);
+  const stream = clean(mark.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
   const explicit = clean(mark.fullClassName || mark.alClassName || mark.className);
   if (/^\d+[A-Z]+$/i.test(explicit)) return explicit.toUpperCase();
-  return buildClassName(mark.grade, mark.section || explicit);
+  return buildClassName(grade, section || explicit);
 }
 
 function getAcademicYear(row = {}) {
@@ -389,16 +425,37 @@ function getMarkValue(mark = {}) {
   return Number.isFinite(number) ? number : null;
 }
 
+function getAttendancePercentage(mark = {}) {
+  const raw =
+    mark.attendancePercentage ??
+    mark.attendancePercent ??
+    mark.attendanceRate ??
+    mark.attendance ??
+    "";
+
+  if (raw === "" || raw === null || raw === undefined) return null;
+  const numeric = Number(String(raw).replace("%", "").trim());
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function isAbsent(mark = {}) {
   const value = mark.absent ?? mark.isAbsent ?? mark.attendance;
   if (typeof value === "boolean") return value;
   return ["absent", "ab", "true", "yes", "1"].includes(normalize(value));
 }
 
-function getGradeSymbol(mark) {
+function getGradeBandsForGrade(grade) {
+  return isALGrade(grade) ? AL_ANALYSIS_BANDS : GRADE_BANDS;
+}
+
+function getFailSymbolForGrade(grade) {
+  return isALGrade(grade) ? "F" : "W";
+}
+
+function getGradeSymbol(mark, grade) {
   const number = Number(mark);
   if (!Number.isFinite(number)) return "";
-  return GRADE_BANDS.find((band) => number >= band.min && number <= band.max)?.key || "W";
+  return getGradeBandsForGrade(grade).find((band) => number >= band.min && number <= band.max)?.key || getFailSymbolForGrade(grade);
 }
 
 function getRangeKey(mark) {
@@ -473,6 +530,7 @@ function addPdfFooter(doc) {
 }
 
 function createSubjectStatsPdf({ title, context, rows }) {
+  const gradeBands = getGradeBandsForGrade(context.grade);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
 
@@ -486,7 +544,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
       "Average",
       "Highest",
       "Pass %",
-      ...GRADE_BANDS.map((band) => band.key),
+      ...gradeBands.map((band) => band.key),
     ]],
     body: rows.map((row) => [
       row.subjectName,
@@ -496,7 +554,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
       formatNumber(row.average),
       formatNumber(row.highest, 0),
       `${formatNumber(row.passPercentage)}%`,
-      ...GRADE_BANDS.map((band) => row.gradeCounts[band.key] || 0),
+      ...gradeBands.map((band) => row.gradeCounts[band.key] || 0),
     ]),
     theme: "grid",
     styles: {
@@ -783,6 +841,54 @@ function createThreeCThreeSPdf({ title, context, rows }) {
   return doc;
 }
 
+function createALQualificationPdf({ title, context, rows }) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["No", "Admission No", "Name", "Class", "Results", "Attendance %", "Failed Subject(s)"]],
+    body: rows.map((row, index) => [
+      index + 1,
+      row.indexNo || row.studentId,
+      row.studentName,
+      row.className,
+      row.resultCode || "-",
+      Number.isFinite(Number(row.attendancePercentage)) ? `${formatNumber(row.attendancePercentage)}%` : "-",
+      row.failedSubjects || "-",
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 8.2,
+      cellPadding: 1.25,
+      valign: "middle",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center" },
+      1: { cellWidth: 25 },
+      2: { cellWidth: 78, fontStyle: "bold" },
+      3: { cellWidth: 25, halign: "center" },
+      4: { cellWidth: 30, halign: "center", fontStyle: "bold" },
+      5: { cellWidth: 28, halign: "right" },
+      6: { cellWidth: 75 },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
 function createLowMarkStudentsPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
@@ -1031,7 +1137,7 @@ function createEmptyStats(label, extra = {}) {
     marksTotal: 0,
     highest: null,
     lowest: null,
-    gradeCounts: GRADE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
+    gradeCounts: ALL_GRADE_SYMBOLS.reduce((acc, symbol) => ({ ...acc, [symbol]: 0 }), {}),
     rangeCounts: RANGE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
     summaryRangeCounts: SUMMARY_RANGE_BANDS.reduce((acc, band) => ({ ...acc, [band.key]: 0 }), {}),
   };
@@ -1048,7 +1154,7 @@ function addToStats(stats, record) {
   if (!Number.isFinite(Number(record.mark))) return;
 
   const mark = Number(record.mark);
-  const symbol = getGradeSymbol(mark);
+  const symbol = getGradeSymbol(mark, record.grade);
   const range = getRangeKey(mark);
   const summaryRange = getSummaryRangeKey(mark);
 
@@ -1110,6 +1216,7 @@ function buildRecords({ enrollments, studentsById, marks, termName, year, assess
       const section = normalizeSection(enrollment.section || student.section || enrollment.className);
       const className = getEnrollmentClassName(enrollment) || buildClassName(grade, section);
       const mark = markDoc ? getMarkValue(markDoc) : null;
+      const attendancePercentage = markDoc ? getAttendancePercentage(markDoc) : null;
 
       return {
         enrollmentId: enrollment.id,
@@ -1124,6 +1231,7 @@ function buildRecords({ enrollments, studentsById, marks, termName, year, assess
         subjectKey: getSubjectKey(enrollment),
         mark,
         absent: markDoc ? isAbsent(markDoc) : false,
+        attendancePercentage,
       };
     })
     .filter((record) => record.grade && record.className && record.subjectName);
@@ -1208,6 +1316,51 @@ function getGrade11PassStatus(student, subjects) {
   };
 }
 
+function getStudentAttendancePercentage(results = {}) {
+  const values = Object.values(results)
+    .map((result) => Number(result.attendancePercentage))
+    .filter(Number.isFinite);
+
+  if (!values.length) return null;
+  return Math.max(...values);
+}
+
+function getALStudentStatus(student, subjects) {
+  const subjectResults = subjects.map((subject) => ({
+    subjectName: subject.shortLabel || subject.subjectName,
+    ...(student.results[subject.subjectKey] || {}),
+  }));
+  const validResults = subjectResults.filter((result) => ["A", "B", "C", "S", "F"].includes(result.symbol));
+  const counts = validResults.reduce(
+    (acc, result) => {
+      acc[result.symbol] += 1;
+      return acc;
+    },
+    { A: 0, B: 0, C: 0, S: 0, F: 0 }
+  );
+  const passOrAboveCount = validResults.filter((result) => isPassOrAbove(result.symbol)).length;
+  const failedSubjects = validResults
+    .filter((result) => result.symbol === "F")
+    .map((result) => result.subjectName)
+    .filter(Boolean);
+  const attendancePercentage = student.attendancePercentage;
+  const attendanceQualified =
+    Number.isFinite(Number(attendancePercentage)) &&
+    Number(attendancePercentage) >= AL_ATTENDANCE_THRESHOLD;
+
+  return {
+    counts,
+    passOrAboveCount,
+    failedSubjects,
+    achieved3SOrAbove: passOrAboveCount >= 3,
+    achieved3A: counts.A >= 3,
+    achieved3F: counts.F >= 3,
+    twoPassOneFail: passOrAboveCount >= 2 && counts.F === 1,
+    attendancePercentage,
+    attendanceQualified,
+  };
+}
+
 function buildSheetRows(records, subjects) {
   const studentMap = new Map();
   const subjectLookup = new Map();
@@ -1228,6 +1381,8 @@ function buildSheetRows(records, subjects) {
         indexNo: record.indexNo,
         studentName: record.studentName,
         className: record.className,
+        grade: record.grade,
+        attendancePercentage: record.attendancePercentage,
         results: {},
       });
     }
@@ -1236,7 +1391,8 @@ function buildSheetRows(records, subjects) {
     const nextResult = {
       mark: record.mark,
       absent: record.absent,
-      symbol: record.absent ? "AB" : getGradeSymbol(record.mark),
+      symbol: record.absent ? "AB" : getGradeSymbol(record.mark, record.grade),
+      attendancePercentage: record.attendancePercentage,
     };
 
     if (
@@ -1255,6 +1411,7 @@ function buildSheetRows(records, subjects) {
         ...student,
         resultCode: getStudentResultCode(subjectResults),
         grade11Pass: getGrade11PassStatus(student, subjects),
+        attendancePercentage: getStudentAttendancePercentage(student.results),
       };
     })
     .sort((a, b) => {
@@ -1329,6 +1486,29 @@ function buildThreeCThreeSRows(rows, subjects) {
     });
 }
 
+function buildALQualificationRows(rows, subjects, predicate) {
+  return rows
+    .map((row) => {
+      const status = getALStudentStatus(row, subjects);
+      return {
+        ...row,
+        grade: parseGrade(row.className) || row.grade,
+        division: getDivisionFromClassName(row.className),
+        alStatus: status,
+        attendancePercentage: status.attendancePercentage,
+        failedSubjects: status.failedSubjects.join(", "),
+      };
+    })
+    .filter((row) => predicate(row.alStatus))
+    .sort((a, b) => {
+      const classDiff = a.className.localeCompare(b.className, undefined, { numeric: true });
+      if (classDiff !== 0) return classDiff;
+      const indexDiff = clean(a.indexNo).localeCompare(clean(b.indexNo), undefined, { numeric: true });
+      if (indexDiff !== 0) return indexDiff;
+      return a.studentName.localeCompare(b.studentName);
+    });
+}
+
 function getLowMarkBand(mark) {
   const number = Number(mark);
   if (!Number.isFinite(number)) return null;
@@ -1352,7 +1532,7 @@ function buildLowMarkStudentRows(records, selectedSubjectKey) {
         className: record.className,
         subjectName: record.subjectName,
         mark: record.mark,
-        symbol: getGradeSymbol(record.mark),
+        symbol: getGradeSymbol(record.mark, record.grade),
         rangeKey: band.key,
         rangeOrder: LOW_MARK_BANDS.findIndex((item) => item.key === band.key),
       };
@@ -1730,6 +1910,41 @@ export default function SubjectAnalysis() {
     [sheetRows, sheetSubjects]
   );
 
+  const alThreeSAttendanceQualifiedRows = useMemo(
+    () =>
+      buildALQualificationRows(
+        sheetRows,
+        sheetSubjects,
+        (status) => status.achieved3SOrAbove && status.attendanceQualified
+      ),
+    [sheetRows, sheetSubjects]
+  );
+
+  const alThreeSAttendanceBelowRows = useMemo(
+    () =>
+      buildALQualificationRows(
+        sheetRows,
+        sheetSubjects,
+        (status) => status.achieved3SOrAbove && !status.attendanceQualified
+      ),
+    [sheetRows, sheetSubjects]
+  );
+
+  const alThreeARows = useMemo(
+    () => buildALQualificationRows(sheetRows, sheetSubjects, (status) => status.achieved3A),
+    [sheetRows, sheetSubjects]
+  );
+
+  const alThreeFRows = useMemo(
+    () => buildALQualificationRows(sheetRows, sheetSubjects, (status) => status.achieved3F),
+    [sheetRows, sheetSubjects]
+  );
+
+  const alTwoPassOneFailRows = useMemo(
+    () => buildALQualificationRows(sheetRows, sheetSubjects, (status) => status.twoPassOneFail),
+    [sheetRows, sheetSubjects]
+  );
+
   const lowMarkStudentRows = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
     return buildLowMarkStudentRows(sourceRecords, selectedSubject);
@@ -1777,6 +1992,23 @@ export default function SubjectAnalysis() {
     className: selectedClass,
     subjectName: selectedSubjectName,
   }), [selectedYear, selectedTerm, selectedAssessmentName, selectedGrade, selectedClass, selectedSubjectName]);
+
+  const visibleTabs = useMemo(
+    () =>
+      TAB_CONFIG.filter((item) => {
+        const isALTab = item.value.startsWith("al");
+        if (isALTab) return isALGrade(selectedGrade);
+        if (item.value === "threeCThreeS" || item.value === "sheet") return !isALGrade(selectedGrade);
+        return true;
+      }),
+    [selectedGrade]
+  );
+
+  useEffect(() => {
+    if (!visibleTabs.some((item) => item.value === tab)) {
+      setTab("grade");
+    }
+  }, [tab, visibleTabs]);
 
   const handlePrint = (target, size = "A4 landscape") => {
     setPrintTarget(target);
@@ -1906,7 +2138,7 @@ export default function SubjectAnalysis() {
           scrollButtons="auto"
           sx={{ borderBottom: 1, borderColor: "divider" }}
         >
-          {TAB_CONFIG.map((item) => (
+          {visibleTabs.map((item) => (
             <Tab key={item.value} value={item.value} label={item.label} />
           ))}
         </Tabs>
@@ -1998,6 +2230,71 @@ export default function SubjectAnalysis() {
                 context={shareContext}
                 onPrint={() => handlePrint("below-3c-3s-list", "A4 landscape")}
                 rows={threeCThreeSRows}
+              />
+            )}
+
+            {tab === "alThreeS80" && (
+              <ALQualificationReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above with 80% Attendance`}
+                reportId="al-3s-80-list"
+                activePrint={printTarget === "al-3s-80-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-3s-80-list", "A4 landscape")}
+                rows={alThreeSAttendanceQualifiedRows}
+                emptyTitle="No eligible 3S students"
+                emptyDescription="No A/L students in this scope have 3S or above with 80% attendance."
+              />
+            )}
+
+            {tab === "alThreeSBelow80" && (
+              <ALQualificationReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above Below 80% Attendance`}
+                reportId="al-3s-below-80-list"
+                activePrint={printTarget === "al-3s-below-80-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-3s-below-80-list", "A4 landscape")}
+                rows={alThreeSAttendanceBelowRows}
+                emptyTitle="No below-attendance 3S students"
+                emptyDescription="No A/L students in this scope have 3S or above with attendance below 80% or missing attendance."
+              />
+            )}
+
+            {tab === "alThreeA" && (
+              <ALQualificationReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3A Students List`}
+                reportId="al-3a-list"
+                activePrint={printTarget === "al-3a-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-3a-list", "A4 landscape")}
+                rows={alThreeARows}
+                emptyTitle="No 3A students"
+                emptyDescription="No A/L students in this scope have 3 A results."
+              />
+            )}
+
+            {tab === "alThreeF" && (
+              <ALQualificationReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3F Students List`}
+                reportId="al-3f-list"
+                activePrint={printTarget === "al-3f-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-3f-list", "A4 landscape")}
+                rows={alThreeFRows}
+                emptyTitle="No 3F students"
+                emptyDescription="No A/L students in this scope have 3 F results."
+              />
+            )}
+
+            {tab === "alTwoPassOneFail" && (
+              <ALQualificationReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Two Passes and One Fail`}
+                reportId="al-two-pass-one-fail-list"
+                activePrint={printTarget === "al-two-pass-one-fail-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("al-two-pass-one-fail-list", "A4 landscape")}
+                rows={alTwoPassOneFailRows}
+                emptyTitle="No two-pass one-fail students"
+                emptyDescription="No A/L students in this scope have two S-or-above results and one F."
               />
             )}
 
@@ -2326,6 +2623,7 @@ function SubjectStatsTable({
   }
 
   const createPdf = () => createSubjectStatsPdf({ title, context, rows });
+  const gradeBands = getGradeBandsForGrade(context.grade);
 
   return (
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
@@ -2349,7 +2647,7 @@ function SubjectStatsTable({
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Average</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Highest</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Pass %</TableCell>
-                {GRADE_BANDS.map((band) => (
+                {gradeBands.map((band) => (
                   <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
                 ))}
               </TableRow>
@@ -2364,7 +2662,7 @@ function SubjectStatsTable({
                   <TableCell align="right">{formatNumber(row.average)}</TableCell>
                   <TableCell align="right">{formatNumber(row.highest, 0)}</TableCell>
                   <TableCell align="right">{formatNumber(row.passPercentage)}%</TableCell>
-                  {GRADE_BANDS.map((band) => (
+                  {gradeBands.map((band) => (
                     <TableCell key={band.key} align="right">{row.gradeCounts[band.key]}</TableCell>
                   ))}
                 </TableRow>
@@ -2616,6 +2914,69 @@ function ThreeCThreeSReport({ title, rows, reportId, activePrint, context, onPri
                       "-"
                     )}
                   </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ResponsiveTableWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ALQualificationReport({
+  title,
+  rows,
+  reportId,
+  activePrint,
+  context,
+  onPrint,
+  emptyTitle,
+  emptyDescription,
+}) {
+  if (!rows.length) {
+    return <EmptyState title={emptyTitle} description={emptyDescription} />;
+  }
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <ReportActions
+          title={title}
+          context={context}
+          rowsCount={rows.length}
+          onPrint={onPrint}
+          createPdf={() => createALQualificationPdf({ title, context, rows })}
+          extra="A/L grades use A:75-100, B:65-74, C:50-64, S:35-49, F:0-34. Attendance qualification is 80% and above."
+        />
+        <ReportHeader title={title} context={context} />
+        <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Admission No</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Class</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>Results</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 800 }}>Attendance %</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Failed Subject(s)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row, index) => (
+                <TableRow key={`${row.studentId}-${index}`} hover>
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell>{row.indexNo || row.studentId}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell align="center">{row.className}</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
+                  <TableCell align="right">
+                    {Number.isFinite(Number(row.attendancePercentage))
+                      ? `${formatNumber(row.attendancePercentage)}%`
+                      : "-"}
+                  </TableCell>
+                  <TableCell>{row.failedSubjects || "-"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
