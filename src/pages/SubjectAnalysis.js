@@ -69,6 +69,7 @@ const AL_ANALYSIS_BANDS = AL_GRADE_BANDS.map((band) => ({
 
 const ALL_GRADE_SYMBOLS = ["A", "B", "C", "S", "W", "F"];
 const AL_ATTENDANCE_THRESHOLD = 80;
+const KCC_LOGO_URL = `${process.env.PUBLIC_URL || ""}/kcc-logo.png`;
 
 const RANGE_BANDS = [
   { key: "0-9", min: 0, max: 9 },
@@ -520,6 +521,28 @@ function getGradeSymbol(mark, grade) {
   return getGradeBandsForGrade(grade).find((band) => number >= band.min && number <= band.max)?.key || getFailSymbolForGrade(grade);
 }
 
+function getLogoDataUrl(src = KCC_LOGO_URL) {
+  return new Promise((resolve) => {
+    if (!src) {
+      resolve("");
+      return;
+    }
+
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    image.onerror = () => resolve("");
+    image.src = src;
+  });
+}
+
 function getRangeKey(mark) {
   const number = Number(mark);
   if (!Number.isFinite(number)) return "";
@@ -967,7 +990,7 @@ function getALResultSubjectRows(row, subjects) {
     .filter(([, mark, symbol]) => mark || symbol);
 }
 
-function addALResultSheetPage(doc, { context, row, subjects }) {
+function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" }) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const centerX = pageWidth / 2;
   const status = getALStudentStatus(row, subjects);
@@ -977,13 +1000,17 @@ function addALResultSheetPage(doc, { context, row, subjects }) {
   const eligibleText =
     status.achieved3SOrAbove && status.attendanceQualified ? "Qualified" : "Not Qualified";
 
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", centerX - 10, 8, 20, 20);
+  }
+
   doc.setTextColor(32, 44, 58);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Kilinochchi Central College", centerX, 28, { align: "center" });
+  doc.text("Kilinochchi Central College", centerX, 34, { align: "center" });
 
   doc.setFontSize(17);
-  doc.text("G.C.E A/L Examination", centerX, 42, { align: "center" });
+  doc.text("G.C.E A/L Examination", centerX, 48, { align: "center" });
 
   const detailRows = [
     ["Examination", "G.C.E A/L Examination"],
@@ -998,10 +1025,10 @@ function addALResultSheetPage(doc, { context, row, subjects }) {
 
   doc.setDrawColor(190, 198, 208);
   doc.setLineWidth(0.25);
-  doc.roundedRect(36, 52, pageWidth - 72, 52, 1.4, 1.4);
+  doc.roundedRect(36, 58, pageWidth - 72, 52, 1.4, 1.4);
 
   doc.setFontSize(9.5);
-  let detailY = 61;
+  let detailY = 67;
   detailRows.forEach(([label, value]) => {
     doc.setFont("helvetica", "normal");
     doc.text(label, centerX - 16, detailY, { align: "right" });
@@ -1011,7 +1038,7 @@ function addALResultSheetPage(doc, { context, row, subjects }) {
   });
 
   autoTable(doc, {
-    startY: 116,
+    startY: 122,
     head: [["Subject", "Marks", "Result"]],
     body: getALResultSubjectRows(row, subjects),
     theme: "grid",
@@ -1055,17 +1082,18 @@ function addALResultSheetPage(doc, { context, row, subjects }) {
   doc.text("Generated for internal academic use only.", centerX, 275, { align: "center" });
 }
 
-function createALResultSheetsPdf({ context, rows, subjects }) {
+async function createALResultSheetsPdf({ context, rows, subjects }) {
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
     format: "a4",
     compress: true,
   });
+  const logoDataUrl = await getLogoDataUrl();
 
   rows.forEach((row, index) => {
     if (index > 0) doc.addPage("a4", "portrait");
-    addALResultSheetPage(doc, { context, row, subjects });
+    addALResultSheetPage(doc, { context, row, subjects, logoDataUrl });
   });
 
   return doc;
@@ -1573,7 +1601,11 @@ function buildSheetRows(records, subjects) {
     const nextResult = {
       mark: record.mark,
       absent: record.absent,
-      symbol: record.absent ? "AB" : getGradeSymbol(record.mark, record.grade),
+      symbol: record.absent
+        ? "AB"
+        : Number.isFinite(Number(record.mark))
+          ? getGradeSymbol(record.mark, record.grade)
+          : "",
       attendancePercentage: record.attendancePercentage,
     };
 
@@ -2571,7 +2603,7 @@ function buildShareText({ title, context, rowsCount, extra = "" }) {
 }
 
 async function makePdfFile({ title, context, createPdf }) {
-  const doc = createPdf();
+  const doc = await createPdf();
   const blob = doc.output("blob");
   const fileName = makeReportFileName(title, context);
   return {
