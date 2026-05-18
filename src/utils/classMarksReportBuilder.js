@@ -130,11 +130,66 @@ function makeALColumnKey(subject = {}) {
   return `AL_${base.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toUpperCase()}`;
 }
 
+function normalizeALSubjectNumber(value) {
+  return normalizeText(value).toUpperCase().replace(/^AL_/, "");
+}
+
+function getALSubjectNumberFromColumn(column = {}) {
+  return normalizeALSubjectNumber(column.subjectNumber || column.key || "");
+}
+
+function isALGeneralColumn(column = {}) {
+  const number = getALSubjectNumberFromColumn(column);
+  const label = normalizeLower(column.label);
+  return (
+    ["12", "13", "GIT"].includes(number) ||
+    label === "common general test" ||
+    label === "general english" ||
+    label === "general information technology" ||
+    label === "git"
+  );
+}
+
+function getALDisplayLabel(subject = {}) {
+  const number = normalizeALSubjectNumber(subject.subjectNumber || subject.subjectId);
+  const name = normalizeText(subject.subjectName || subject.subject);
+
+  if (number === "13" || normalizeLower(name) === "english") return "General English";
+  if (number === "12") return "Common General Test";
+  if (number === "GIT") return "General Information Technology";
+
+  return name;
+}
+
+function getALColumnSortRank(column = {}) {
+  const label = normalizeLower(column.label);
+  const number = getALSubjectNumberFromColumn(column);
+
+  if (label === "tamil" || number === "72") return 1;
+  if (label === "geography" || number === "22") return 2;
+  if (label.includes("history") || number.startsWith("25")) return 3;
+  if (isALGeneralColumn(column)) return 900;
+  return 100;
+}
+
+function sortALColumns(left, right) {
+  const rankDiff = getALColumnSortRank(left) - getALColumnSortRank(right);
+  if (rankDiff !== 0) return rankDiff;
+
+  const numberCompare = getALSubjectNumberFromColumn(left).localeCompare(
+    getALSubjectNumberFromColumn(right),
+    undefined,
+    { numeric: true, sensitivity: "base" }
+  );
+  if (numberCompare !== 0) return numberCompare;
+  return left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+}
+
 function buildALReportSchema(activeEnrollments = []) {
   const map = new Map();
 
   activeEnrollments.forEach((enrollment) => {
-    const subjectName = normalizeText(enrollment.subjectName || enrollment.subject);
+    const subjectName = getALDisplayLabel(enrollment);
     if (!subjectName) return;
 
     const subjectNumber = normalizeText(enrollment.subjectNumber);
@@ -145,20 +200,13 @@ function buildALReportSchema(activeEnrollments = []) {
       map.set(key, {
         key,
         label: subjectName,
-        aliases: [subjectName, subjectNumber, subjectId].filter(Boolean),
+        aliases: [subjectName, enrollment.subjectName, enrollment.subject, subjectNumber, subjectId].filter(Boolean),
         subjectNumber,
       });
     }
   });
 
-  const columns = Array.from(map.values()).sort((a, b) => {
-    const numberCompare = a.subjectNumber.localeCompare(b.subjectNumber, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-    if (numberCompare !== 0) return numberCompare;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-  });
+  const columns = Array.from(map.values()).sort(sortALColumns);
 
   return {
     id: "AL_STREAM",
@@ -358,6 +406,13 @@ export function buildClassMarksReportData({
     return acc;
   }, {});
 
+  const heldColumnKeys = new Set();
+  classMarks.forEach((markDoc) => {
+    const subjectName = markDoc.subjectName || markDoc.subject || "";
+    const columnKey = resolveColumnKeyFromSubjectName(schema, subjectName);
+    if (columnKey && schemaColumnMap[columnKey]) heldColumnKeys.add(columnKey);
+  });
+
   const rows = classStudents.map((student, index) => {
     const studentEnrollments = enrollmentsByStudent[student.id] || [];
     const studentMarks = marksByStudent[student.id] || [];
@@ -401,10 +456,14 @@ export function buildClassMarksReportData({
       marks: studentMarks,
     });
 
+    const reportEligibleColumnKeys = isALGrade(grade)
+      ? eligibleColumnKeys.filter((key) => heldColumnKeys.has(key))
+      : eligibleColumnKeys;
+
     const { total, average, subjectCount } = calculateStudentTotalAndAverage(
       marksByColumn,
       schema,
-      eligibleColumnKeys
+      reportEligibleColumnKeys
     );
 
     return {
@@ -415,6 +474,7 @@ export function buildClassMarksReportData({
       student,
       enrollments: studentEnrollments,
       eligibleColumnKeys,
+      reportEligibleColumnKeys,
       marksByColumn,
       absencesByColumn,
       total,

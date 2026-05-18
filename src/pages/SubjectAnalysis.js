@@ -358,7 +358,68 @@ function getA3SubjectOrder(subject = {}) {
   return getSubjectGroupOrder(subject.groupKey || getSubjectGroupKey(subject)) * 100;
 }
 
+function normalizeALSubjectNumber(value) {
+  return clean(value).toUpperCase().replace(/^AL_/, "");
+}
+
+function getALSubjectNumber(subject = {}) {
+  return normalizeALSubjectNumber(subject.subjectNumber || subject.subjectCode || subject.subjectId || subject.subjectKey);
+}
+
+function isALGeneralSubject(subject = {}) {
+  const number = getALSubjectNumber(subject);
+  const name = normalize(subject.subjectName || getSubjectName(subject));
+  return (
+    ["12", "13", "GIT"].includes(number) ||
+    name === "common general test" ||
+    name === "general english" ||
+    name === "general information technology" ||
+    name === "git"
+  );
+}
+
+function getALSubjectDisplayName(subject = {}) {
+  const number = getALSubjectNumber(subject);
+  const name = getSubjectName(subject);
+
+  if (number === "13" || normalize(name) === "english") return "General English";
+  if (number === "12") return "Common General Test";
+  if (number === "GIT") return "General Information Technology";
+  return name;
+}
+
+function getALSubjectOrder(subject = {}) {
+  const name = normalize(getALSubjectDisplayName(subject));
+  const number = getALSubjectNumber(subject);
+
+  if (name === "tamil" || number === "72") return 1;
+  if (name === "geography" || number === "22") return 2;
+  if (name.includes("history") || number.startsWith("25")) return 3;
+  if (isALGeneralSubject(subject)) return 900;
+  return 100;
+}
+
+function sortALSubjects(a, b) {
+  const orderDiff = getALSubjectOrder(a) - getALSubjectOrder(b);
+  if (orderDiff !== 0) return orderDiff;
+
+  const numberDiff = getALSubjectNumber(a).localeCompare(getALSubjectNumber(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (numberDiff !== 0) return numberDiff;
+
+  return getALSubjectDisplayName(a).localeCompare(getALSubjectDisplayName(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function getA3SubjectLabel(subject = {}) {
+  if (isALGeneralSubject(subject) || subject.groupKey === "al") {
+    return getALSubjectDisplayName(subject);
+  }
+
   const subjectName = subject.subjectName || getSubjectName(subject);
   const configured = getA3SubjectConfig(subjectName);
   if (configured?.shortLabel) return configured.shortLabel;
@@ -1850,12 +1911,19 @@ export default function SubjectAnalysis() {
 
         enrolledMap.set(record.subjectKey, {
           subjectKey: record.subjectKey,
-          subjectName: record.subjectName,
+          subjectName: getALSubjectDisplayName({
+            ...subjectMeta,
+            subjectName: record.subjectName,
+            subjectKey: record.subjectKey,
+          }),
+          subjectNumber: subjectMeta.subjectNumber,
+          subjectCode: subjectMeta.code || subjectMeta.subjectCode,
           groupKey,
           groupLabel: getSubjectGroupLabel(groupKey),
           shortLabel: getA3SubjectLabel({
             ...subjectMeta,
             subjectName: record.subjectName,
+            subjectKey: record.subjectKey,
           }),
         });
       });
@@ -1868,7 +1936,9 @@ export default function SubjectAnalysis() {
         const existing = enrolledMap.get(subjectKey);
         const subjectPayload = {
           subjectKey,
-          subjectName: getSubjectName(subject),
+          subjectName: isALGrade(selectedGrade) ? getALSubjectDisplayName(subject) : getSubjectName(subject),
+          subjectNumber: subject.subjectNumber,
+          subjectCode: subject.code || subject.subjectCode,
           groupKey,
           groupLabel: getSubjectGroupLabel(groupKey),
           shortLabel: getA3SubjectLabel(subject),
@@ -1887,11 +1957,14 @@ export default function SubjectAnalysis() {
         }
       });
 
-    return Array.from(enrolledMap.values()).sort((a, b) =>
-      getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
-      getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
-      a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
-    );
+    return Array.from(enrolledMap.values()).sort((a, b) => {
+      if (isALGrade(selectedGrade)) return sortALSubjects(a, b);
+      return (
+        getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
+        getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
+        a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
+      );
+    });
   }, [records, subjects, selectedGrade]);
 
   const gradeRecords = useMemo(
@@ -2014,12 +2087,15 @@ export default function SubjectAnalysis() {
         });
       });
 
-    return Array.from(canonicalMap.values()).sort((a, b) =>
-      getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
-      getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
-      a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
-    );
-  }, [gradeSubjectOptions, gradeRecords, classRecords, selectedClass]);
+    return Array.from(canonicalMap.values()).sort((a, b) => {
+      if (isALGrade(selectedGrade)) return sortALSubjects(a, b);
+      return (
+        getSubjectGroupOrder(a.groupKey) - getSubjectGroupOrder(b.groupKey) ||
+        getA3SubjectOrder(a) - getA3SubjectOrder(b) ||
+        a.subjectName.localeCompare(b.subjectName, undefined, { numeric: true })
+      );
+    });
+  }, [gradeSubjectOptions, gradeRecords, classRecords, selectedClass, selectedGrade]);
 
   const sheetRows = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
@@ -3210,7 +3286,7 @@ function ALResultSheetPreview({ row, subjects, context }) {
           component="img"
           src={`${process.env.PUBLIC_URL || ""}/kcc-logo.png`}
           alt=""
-          sx={{ width: 42, height: 42, objectFit: "contain", mb: 1 }}
+          sx={{ width: 64, height: 64, objectFit: "contain", mb: 1 }}
         />
         <Typography sx={{ fontWeight: 700, fontSize: 16 }}>
           Kilinochchi Central College
