@@ -35,6 +35,34 @@ import {
 
 const CURRENT_YEAR = new Date().getFullYear();
 
+function getClassroomDisplayName(classroom = {}) {
+  if (Number(classroom.grade) === 12 || Number(classroom.grade) === 13) {
+    return (
+      classroom.displayClassName ||
+      classroom.fullClassName ||
+      classroom.alClassName ||
+      classroom.className ||
+      `${classroom.grade}${classroom.section || ""}`
+    );
+  }
+
+  return classroom.className || classroom.fullClassName || `${classroom.grade}${classroom.section || ""}`;
+}
+
+function getClassroomReportName(classroom = {}) {
+  if (Number(classroom.grade) === 12 || Number(classroom.grade) === 13) {
+    return (
+      classroom.fullClassName ||
+      classroom.alClassName ||
+      classroom.displayClassName ||
+      classroom.className ||
+      `${classroom.grade}${classroom.section || ""}`
+    );
+  }
+
+  return classroom.className || classroom.fullClassName || `${classroom.grade}${classroom.section || ""}`;
+}
+
 function formatNumber(value) {
   if (value === null || value === undefined || value === "") return "";
   return Number.isInteger(value) ? String(value) : Number(value).toFixed(2);
@@ -426,11 +454,9 @@ export default function ClassMarksReports() {
         marks,
         classrooms,
         grade: selectedClassroom.grade,
-        className:
-          selectedClassroom.alClassName ||
-          selectedClassroom.fullClassName ||
-          selectedClassroom.className,
+        className: getClassroomReportName(selectedClassroom),
         section: selectedClassroom.section,
+        stream: selectedClassroom.stream || "",
         termName: selectedTerm,
         year: selectedYear,
       });
@@ -450,13 +476,17 @@ export default function ClassMarksReports() {
         return (
           year === Number(selectedYear) &&
           (!isSectionalHead || assignedGradeSet.has(grade)) &&
-          ((grade >= 6 && grade <= 9) || (grade >= 10 && grade <= 11))
+          grade >= 6 &&
+          grade <= 13
         );
       })
       .sort((a, b) => {
         const gradeDiff = Number(a.grade) - Number(b.grade);
         if (gradeDiff !== 0) return gradeDiff;
-        return String(a.className).localeCompare(String(b.className));
+        return getClassroomDisplayName(a).localeCompare(getClassroomDisplayName(b), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
       });
   }, [classrooms, selectedYear, isSectionalHead, assignedGrades]);
 
@@ -531,13 +561,17 @@ export default function ClassMarksReports() {
           return (
             Number(item.year || item.academicYear) === Number(CURRENT_YEAR) &&
             (!isSectionalHead || assignedGradeSet.has(grade)) &&
-            ((grade >= 6 && grade <= 9) || (grade >= 10 && grade <= 11))
+            grade >= 6 &&
+            grade <= 13
           );
         })
         .sort((a, b) => {
           const gradeDiff = Number(a.grade) - Number(b.grade);
           if (gradeDiff !== 0) return gradeDiff;
-          return String(a.className).localeCompare(String(b.className));
+          return getClassroomDisplayName(a).localeCompare(getClassroomDisplayName(b), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
         });
 
       if (defaultClassrooms.length > 0) {
@@ -568,8 +602,9 @@ export default function ClassMarksReports() {
               marks,
               classrooms,
               grade: classroom.grade,
-              className: classroom.className,
+              className: getClassroomReportName(classroom),
               section: classroom.section,
+              stream: classroom.stream || "",
               termName: selectedTerm,
               year: selectedYear,
             });
@@ -634,7 +669,7 @@ export default function ClassMarksReports() {
             Class Marks Reports
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Phase 1: Grades 6–9 and 10–11 schedule + analysis
+            Grades 6-13 schedule + analysis, including A/L stream-wise reports
           </Typography>
         </Box>
 
@@ -671,7 +706,7 @@ export default function ClassMarksReports() {
                   >
                     {filteredClassrooms.map((item) => (
                       <MenuItem key={item.id} value={item.id}>
-                        {item.className}
+                        {getClassroomDisplayName(item)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -703,7 +738,7 @@ export default function ClassMarksReports() {
             >
               {selectedClassroom && (
                 <Alert severity="info" sx={{ flex: 1, minWidth: 260 }}>
-                  Grade {selectedClassroom.grade} | Class {selectedClassroom.className} | Term {selectedTerm}
+                  Grade {selectedClassroom.grade} | Class {getClassroomDisplayName(selectedClassroom)} | Term {selectedTerm}
                 </Alert>
               )}
 

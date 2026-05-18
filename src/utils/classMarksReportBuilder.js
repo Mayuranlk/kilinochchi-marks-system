@@ -19,6 +19,27 @@ import {
   calculateAnalysis,
   calculateStudentTotalAndAverage,
 } from "./reportAnalysisUtils";
+import {
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+} from "../constants";
+
+const normalizeText = (value) => String(value || "").trim();
+const normalizeLower = (value) => normalizeText(value).toLowerCase();
+const parseGradeValue = (value) => {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+const normalizeSectionValue = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+};
+
+function pickValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
 
 export function filterActiveEnrollments(enrollments = []) {
   return enrollments.filter((item) => (item.status || "").toLowerCase() !== "inactive");
@@ -54,12 +75,114 @@ const getComparableClassName = (item = {}) => {
   return String(item.className || "").trim();
 };
 
-export function filterStudentsForClass(students = [], grade, section, className = "") {
+function getALClassIdentity(row = {}, fallback = {}) {
+  const grade = parseGradeValue(pickValue(row.grade, fallback.grade, ""));
+  const section = normalizeSectionValue(pickValue(row.section, fallback.section, row.className, fallback.className, ""));
+  const stream = normalizeText(pickValue(row.stream, fallback.stream, ""));
+
+  if (!isALGrade(grade) || !stream || !section) return "";
+  return buildALClassName(grade, stream, section);
+}
+
+function getALClassDisplayIdentity(row = {}, fallback = {}) {
+  const grade = parseGradeValue(pickValue(row.grade, fallback.grade, ""));
+  const section = normalizeSectionValue(pickValue(row.section, fallback.section, row.className, fallback.className, ""));
+  const stream = normalizeText(pickValue(row.stream, fallback.stream, ""));
+
+  if (!isALGrade(grade) || !stream || !section) return "";
+  return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+}
+
+function matchesReportClass(row = {}, { grade, section, className = "", stream = "" }) {
+  const targetGrade = Number(grade);
+  const rowGrade = parseGradeValue(row.grade || row.className);
+  const targetSection = normalizeSectionValue(section || className);
+  const rowSection = normalizeSectionValue(row.section || row.className);
+  const targetStream = normalizeLower(stream);
+  const rowStream = normalizeLower(row.stream);
+  const targetIdentity = normalizeLower(className);
+  const rowIdentities = [
+    row.alClassName,
+    row.fullClassName,
+    getALClassIdentity(row),
+    getALClassDisplayIdentity(row),
+    row.className,
+  ]
+    .map(normalizeLower)
+    .filter(Boolean);
+
+  if (isALGrade(targetGrade)) {
+    if (targetIdentity && rowIdentities.includes(targetIdentity)) return true;
+    if (rowGrade !== targetGrade || rowSection !== targetSection) return false;
+    if (targetStream) return rowStream === targetStream;
+    return true;
+  }
+
+  if (targetIdentity && rowIdentities.includes(targetIdentity)) return true;
+  return rowGrade === targetGrade && rowSection === targetSection;
+}
+
+function makeALColumnKey(subject = {}) {
+  const subjectNumber = normalizeText(subject.subjectNumber);
+  const subjectId = normalizeText(subject.subjectId);
+  const subjectName = normalizeText(subject.subjectName || subject.subject);
+  const base = subjectNumber || subjectId || subjectName;
+  return `AL_${base.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toUpperCase()}`;
+}
+
+function buildALReportSchema(activeEnrollments = []) {
+  const map = new Map();
+
+  activeEnrollments.forEach((enrollment) => {
+    const subjectName = normalizeText(enrollment.subjectName || enrollment.subject);
+    if (!subjectName) return;
+
+    const subjectNumber = normalizeText(enrollment.subjectNumber);
+    const subjectId = normalizeText(enrollment.subjectId);
+    const key = makeALColumnKey({ subjectNumber, subjectId, subjectName });
+
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label: subjectName,
+        aliases: [subjectName, subjectNumber, subjectId].filter(Boolean),
+        subjectNumber,
+      });
+    }
+  });
+
+  const columns = Array.from(map.values()).sort((a, b) => {
+    const numberCompare = a.subjectNumber.localeCompare(b.subjectNumber, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (numberCompare !== 0) return numberCompare;
+    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+  });
+
+  return {
+    id: "AL_STREAM",
+    title: "Grades 12 to 13 A/L",
+    groups: [
+      {
+        key: "al",
+        label: "A/L Subjects",
+        columns,
+      },
+    ],
+  };
+}
+
+export function filterStudentsForClass(students = [], grade, section, className = "", stream = "") {
   const targetClassName = String(className || "").trim();
   const targetSection = normalizeSection(section);
 
   return students.filter((student) => {
     if (Number(student.grade) !== Number(grade)) return false;
+
+    if (isALGrade(grade)) {
+      return matchesReportClass(student, { grade, section, className: targetClassName, stream });
+    }
 
     if (targetClassName) {
       const studentClassName = getComparableClassName(student);
@@ -182,37 +305,44 @@ export function buildClassMarksReportData({
   grade,
   className,
   section,
+  stream = "",
   termName,
   year,
 }) {
-  const schema = getReportSchemaByGrade(grade);
-  if (!schema) {
+  const reportContext = { grade, section, className, stream };
+  let classStudents = filterStudentsForClass(students, grade, section, className, stream);
+  const activeEnrollments = filterActiveEnrollments(enrollments).filter((item) => {
+    return (
+      matchesReportClass(item, reportContext) &&
+      Number(item.academicYear || item.year || 0) === Number(year)
+    );
+  });
+
+  if (isALGrade(grade)) {
+    const enrolledStudentIds = new Set(activeEnrollments.map((item) => normalizeText(item.studentId)).filter(Boolean));
+    classStudents = students.filter((student) => enrolledStudentIds.has(normalizeText(student.id)));
+  }
+
+  const schema = getReportSchemaByGrade(grade) || (isALGrade(grade) ? buildALReportSchema(activeEnrollments) : null);
+  if (!schema || !schema.groups?.some((group) => group.columns?.length)) {
     throw new Error(`Unsupported grade for report schema: ${grade}`);
   }
 
   const schemaColumnMap = buildSchemaColumnMap(schema);
-  const classStudents = filterStudentsForClass(students, grade, section, className);
-  const activeEnrollments = filterActiveEnrollments(enrollments).filter((item) => {
+  const classMarks = marks.filter((item) => {
+    const markTerm = item.termName || item.term || "";
+    const markYear = Number(item.academicYear || item.year || 0);
     return (
-      Number(item.grade) === Number(grade) &&
-      String(item.alClassName || item.fullClassName || item.className || "") === String(className) &&
-      String(item.section || "") === String(section) &&
-      Number(item.academicYear || 0) === Number(year)
+      matchesReportClass(item, reportContext) &&
+      markTerm === termName &&
+      markYear === Number(year)
     );
-  });
-
-  const classMarks = filterMarksForTermYearClass(marks, {
-    className,
-    termName,
-    year,
   });
 
   const classroom =
     classrooms.find(
       (item) =>
-        String(item.alClassName || item.fullClassName || item.className || "") === String(className) &&
-        Number(item.grade) === Number(grade) &&
-        String(item.section || "") === String(section) &&
+        matchesReportClass(item, reportContext) &&
         Number(item.year || item.academicYear || 0) === Number(year)
     ) || null;
 
