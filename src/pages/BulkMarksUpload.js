@@ -401,6 +401,35 @@ function resolveALSubject(value) {
   return null;
 }
 
+function getSubjectIdentityFromEnrollment(enrollment = {}) {
+  return {
+    subjectId: getEnrollmentSubjectId(enrollment),
+    subjectName: getEnrollmentSubjectName(enrollment),
+    subjectNumber: getEnrollmentSubjectNumber(enrollment),
+  };
+}
+
+function resolveSubjectFromEnrollments(value, enrollments = []) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const rawNumber = normalizeSubjectNumber(raw);
+  const rawLower = normalizeLower(raw);
+  const rawSubjectId = rawNumber.startsWith("AL_") ? rawNumber : `AL_${rawNumber}`;
+
+  const match = enrollments.find((enrollment) => {
+    const subject = getSubjectIdentityFromEnrollment(enrollment);
+    return (
+      normalizeSubjectNumber(subject.subjectNumber) === rawNumber ||
+      normalizeSubjectNumber(subject.subjectId) === rawNumber ||
+      normalizeSubjectNumber(subject.subjectId) === rawSubjectId ||
+      normalizeLower(subject.subjectName) === rawLower
+    );
+  });
+
+  return match ? getSubjectIdentityFromEnrollment(match) : null;
+}
+
 function getTeacherSheetColumnIndex(headers, aliases) {
   const normalizedAliases = aliases.map(normalizeLoose);
   return headers.findIndex((header) => normalizedAliases.includes(normalizeLoose(header)));
@@ -692,7 +721,12 @@ function validateTeacherMarksSheetRows({
         reasons.push("A/L Class Name does not match selected class");
       }
 
-      const subject = resolveALSubject(rawSubject);
+      const enrolledSubject = resolveSubjectFromEnrollments(
+        rawSubject,
+        student ? enrollmentsByStudentId.get(student.id) || [] : selectedEnrollments
+      );
+      const catalogSubject = resolveALSubject(rawSubject);
+      const subject = enrolledSubject || catalogSubject;
       if (!subject) {
         reasons.push(`Unknown A/L subject: ${rawSubject || "(blank)"}`);
       }
@@ -709,15 +743,11 @@ function validateTeacherMarksSheetRows({
         subject && student
           ? (enrollmentsByStudentId.get(student.id) || []).find((enrollment) =>
               subjectsMatch(
-                {
-                  subjectId: getEnrollmentSubjectId(enrollment),
-                  subjectName: getEnrollmentSubjectName(enrollment),
-                  subjectNumber: getEnrollmentSubjectNumber(enrollment),
-                },
+                getSubjectIdentityFromEnrollment(enrollment),
                 {
                   subjectName: subject.subjectName,
                   subjectNumber: subject.subjectNumber,
-                  subjectId: subject.subjectCode,
+                  subjectId: subject.subjectId || subject.subjectCode,
                 }
               )
             )
@@ -741,7 +771,7 @@ function validateTeacherMarksSheetRows({
         studentName,
         marks: marksResult.marks,
         absent: marksResult.absent,
-        subjectId: normalizeText(matchingEnrollment?.subjectId || subject?.subjectCode || ""),
+        subjectId: normalizeText(matchingEnrollment?.subjectId || subject?.subjectId || subject?.subjectCode || ""),
         subjectName: normalizeText(matchingEnrollment?.subjectName || subject?.subjectName || rawSubject),
         subjectNumber: normalizeText(matchingEnrollment?.subjectNumber || subject?.subjectNumber || ""),
         className: selectedClass,
