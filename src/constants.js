@@ -319,6 +319,12 @@ export const AL_SUBJECTS = {
     subjectName: "Geography",
     shortName: "Geography",
   },
+  POLITICAL_SCIENCE: {
+    subjectNumber: "23",
+    subjectCode: "AL_23",
+    subjectName: "Political Science",
+    shortName: "Political Science",
+  },
   HISTORY_25A: {
     subjectNumber: "25A",
     subjectCode: "AL_25A",
@@ -392,8 +398,8 @@ export const AL_SUBJECTS = {
     shortName: "Drama and Theatre (Tamil)",
   },
   ART: {
-    subjectNumber: "52",
-    subjectCode: "AL_52",
+    subjectNumber: "51",
+    subjectCode: "AL_51",
     subjectName: "Art",
     shortName: "Art",
   },
@@ -486,6 +492,7 @@ export const AL_STREAM_RULES = {
     optionalGroups: [
       [
         AL_SUBJECTS.GEOGRAPHY,
+        AL_SUBJECTS.POLITICAL_SCIENCE,
         ...AL_ARTS_HISTORY_OPTIONS,
         AL_SUBJECTS.HINDU_CIVILIZATION,
         AL_SUBJECTS.HOME_ECONOMICS,
