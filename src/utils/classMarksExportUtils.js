@@ -251,6 +251,7 @@ function getScheduleColumnWidths(reportData) {
   const flatColumns = flattenSchemaColumns(reportData.schema);
   const is69 = isGradeSixToNine(reportData);
   const is1011 = isGradeTenToEleven(reportData);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
   const widths = [is1011 ? 6 : 8, is1011 ? 16 : 20, is1011 ? 13 : 16, is1011 ? 28 : 32];
 
   flatColumns.forEach((column) => {
@@ -277,7 +278,11 @@ function getScheduleColumnWidths(reportData) {
     widths.push(width);
   });
 
-  widths.push(is1011 ? 8.5 : 10, is1011 ? 10 : 12, is1011 ? 7.5 : 9);
+  widths.push(is1011 ? 8.5 : 10, is1011 ? 10 : 12);
+  if (showOverallTotal) {
+    widths.push(10, 12);
+  }
+  widths.push(is1011 ? 7.5 : 9);
 
   return widths;
 }
@@ -293,9 +298,9 @@ function fitColumnWidthsToPage(widths, maxWidth) {
   return widths.map((width) => Number((width * scale).toFixed(2)));
 }
 
-function buildGroupedHeaderRows(schema) {
-  const groups = schema.groups || [];
-  const flatColumns = flattenSchemaColumns(schema);
+function buildGroupedHeaderRows(reportData) {
+  const groups = reportData.schema.groups || [];
+  const flatColumns = flattenSchemaColumns(reportData.schema);
 
   const topRow = [
     { content: "No", rowSpan: 2 },
@@ -311,8 +316,12 @@ function buildGroupedHeaderRows(schema) {
     });
   });
 
-  topRow.push({ content: "Total", rowSpan: 2 });
-  topRow.push({ content: "Average", rowSpan: 2 });
+  topRow.push({ content: reportData.hasSeparateOverallTotal ? "Main Total" : "Total", rowSpan: 2 });
+  topRow.push({ content: reportData.hasSeparateOverallTotal ? "Main Avg" : "Average", rowSpan: 2 });
+  if (reportData.hasSeparateOverallTotal) {
+    topRow.push({ content: "Overall Total", rowSpan: 2 });
+    topRow.push({ content: "Overall Avg", rowSpan: 2 });
+  }
   topRow.push({ content: "Rank", rowSpan: 2 });
 
   const secondRow = flatColumns.map((column) => ({
@@ -337,6 +346,9 @@ function buildScheduleBody(reportData) {
     }),
     formatNumber(row.total, 0),
     formatNumber(row.average, 2),
+    ...(reportData.hasSeparateOverallTotal
+      ? [formatNumber(row.overallTotal, 0), formatNumber(row.overallAverage, 2)]
+      : []),
     safeText(row.rank),
   ]);
 }
@@ -564,7 +576,7 @@ function buildPdfDoc(reportData) {
 
   autoTable(doc, {
     startY: scheduleSettings.startY,
-    head: buildGroupedHeaderRows(reportData.schema),
+    head: buildGroupedHeaderRows(reportData),
     body: buildScheduleBody(reportData),
     theme: "grid",
     tableWidth: scheduleSettings.tableWidth,
@@ -633,6 +645,13 @@ function buildPdfDoc(reportData) {
     scheduleSettings.marginLeft,
     scheduleNoteY
   );
+  if (reportData.hasSeparateOverallTotal) {
+    doc.text(
+      "A/L rank uses main 3 subjects. Overall total includes held general subjects.",
+      scheduleSettings.marginLeft,
+      scheduleNoteY + 4
+    );
+  }
 
   drawFooter(doc, reportData, { showOverallExclusionNote: true });
 
@@ -811,6 +830,7 @@ export async function exportGradeElevenOlResultSheetsZip(reportData) {
 
 function makeScheduleSheetRows(reportData) {
   const flatColumns = flattenSchemaColumns(reportData.schema);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
   const headers = [
     "No",
@@ -818,8 +838,9 @@ function makeScheduleSheetRows(reportData) {
     "Index No",
     "Students Name",
     ...flatColumns.map((column) => column.label),
-    "Total",
-    "Average",
+    showOverallTotal ? "Main Total" : "Total",
+    showOverallTotal ? "Main Average" : "Average",
+    ...(showOverallTotal ? ["Overall Total", "Overall Average"] : []),
     "Rank",
   ];
 
@@ -833,6 +854,7 @@ function makeScheduleSheetRows(reportData) {
     ),
     row.total,
     row.average,
+    ...(showOverallTotal ? [row.overallTotal, row.overallAverage] : []),
     row.rank,
   ]);
 
@@ -1116,12 +1138,23 @@ function makeEmisNpSheetRows(reportData) {
 export function exportClassMarksExcel(reportData) {
   const workbook = XLSX.utils.book_new();
   const flatColumns = flattenSchemaColumns(reportData.schema);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
   const scheduleSheet = XLSX.utils.aoa_to_sheet(makeScheduleSheetRows(reportData));
   setExcelCols(
     scheduleSheet,
-    4 + flatColumns.length + 3,
-    [6, 16, 16, 28, ...flatColumns.map(() => 12), 10, 10, 8]
+    4 + flatColumns.length + (showOverallTotal ? 5 : 3),
+    [
+      6,
+      16,
+      16,
+      28,
+      ...flatColumns.map(() => 12),
+      10,
+      10,
+      ...(showOverallTotal ? [12, 12] : []),
+      8,
+    ]
   );
 
   const analysisSheet = XLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));
@@ -1194,12 +1227,23 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
     if (includeExcel) {
       const workbook = XLSX.utils.book_new();
       const flatColumns = flattenSchemaColumns(reportData.schema);
+      const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
       const scheduleSheet = XLSX.utils.aoa_to_sheet(makeScheduleSheetRows(reportData));
       setExcelCols(
         scheduleSheet,
-        4 + flatColumns.length + 3,
-        [6, 16, 16, 28, ...flatColumns.map(() => 12), 10, 10, 8]
+        4 + flatColumns.length + (showOverallTotal ? 5 : 3),
+        [
+          6,
+          16,
+          16,
+          28,
+          ...flatColumns.map(() => 12),
+          10,
+          10,
+          ...(showOverallTotal ? [12, 12] : []),
+          8,
+        ]
       );
 
       const analysisSheet = XLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));

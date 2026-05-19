@@ -86,6 +86,7 @@ function createPreviewCellStyle({ compact = false, header = false, align = "cent
 function SchedulePreview({ reportData }) {
   const { schema, rows, className, year, termName } = reportData;
   const flatColumns = flattenSchemaColumns(schema);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
   const overallExclusionNote = getOverallExclusionNote(schema);
   const previewLayout = useMemo(
     () => getClassMarksSchedulePreviewLayout(reportData),
@@ -145,8 +146,18 @@ function SchedulePreview({ reportData }) {
                   </th>
                 ))}
 
-                <th style={headCellStyle} rowSpan={2}>Total</th>
-                <th style={headCellStyle} rowSpan={2}>Average</th>
+                <th style={headCellStyle} rowSpan={2}>
+                  {showOverallTotal ? "Main Total" : "Total"}
+                </th>
+                <th style={headCellStyle} rowSpan={2}>
+                  {showOverallTotal ? "Main Avg" : "Average"}
+                </th>
+                {showOverallTotal && (
+                  <>
+                    <th style={headCellStyle} rowSpan={2}>Overall Total</th>
+                    <th style={headCellStyle} rowSpan={2}>Overall Avg</th>
+                  </>
+                )}
                 <th style={headCellStyle} rowSpan={2}>Rank</th>
               </tr>
               <tr>
@@ -190,6 +201,12 @@ function SchedulePreview({ reportData }) {
 
                   <td style={bodyCellStyle}>{formatNumber(row.total)}</td>
                   <td style={bodyCellStyle}>{formatNumber(row.average)}</td>
+                  {showOverallTotal && (
+                    <>
+                      <td style={bodyCellStyle}>{formatNumber(row.overallTotal)}</td>
+                      <td style={bodyCellStyle}>{formatNumber(row.overallAverage)}</td>
+                    </>
+                  )}
                   <td style={bodyCellStyle}>{row.rank}</td>
                 </tr>
               ))}
@@ -199,6 +216,11 @@ function SchedulePreview({ reportData }) {
         <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
           Highest marks in each subject are highlighted in yellow.
         </Typography>
+        {showOverallTotal && (
+          <Typography variant="caption" sx={{ display: "block", mt: 0.75, fontWeight: 700 }}>
+            A/L rank uses main 3 subjects. Overall total includes held general subjects.
+          </Typography>
+        )}
 
         {overallExclusionNote && (
           <Typography

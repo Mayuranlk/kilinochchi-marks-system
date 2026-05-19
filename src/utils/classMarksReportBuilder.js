@@ -185,6 +185,18 @@ function sortALColumns(left, right) {
   return left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
 }
 
+function isALMainColumn(column = {}) {
+  return !isALGeneralColumn(column);
+}
+
+function calculateTotalAndAverageForKeys(marksByColumn, schema, keys = []) {
+  if (Array.isArray(keys) && keys.length === 0) {
+    return { total: 0, average: 0, subjectCount: 0 };
+  }
+
+  return calculateStudentTotalAndAverage(marksByColumn, schema, keys);
+}
+
 function buildALReportSchema(activeEnrollments = []) {
   const map = new Map();
 
@@ -456,17 +468,65 @@ export function buildClassMarksReportData({
       marks: studentMarks,
     });
 
-    const reportEligibleColumnKeys = isALGrade(grade)
+    const heldEligibleColumnKeys = isALGrade(grade)
       ? eligibleColumnKeys.filter((key) => heldColumnKeys.has(key))
       : eligibleColumnKeys;
 
-    const { total, average, subjectCount } = calculateStudentTotalAndAverage(
+    const mainEligibleColumnKeys = isALGrade(grade)
+      ? heldEligibleColumnKeys.filter((key) => isALMainColumn(schemaColumnMap[key]))
+      : heldEligibleColumnKeys;
+
+    const mainResult = isALGrade(grade)
+      ? calculateTotalAndAverageForKeys(marksByColumn, schema, mainEligibleColumnKeys)
+      : calculateStudentTotalAndAverage(
       marksByColumn,
       schema,
-      reportEligibleColumnKeys
+      mainEligibleColumnKeys
     );
+    const overallResult = isALGrade(grade)
+      ? calculateTotalAndAverageForKeys(marksByColumn, schema, heldEligibleColumnKeys)
+      : mainResult;
 
-    return {
+    const total = mainResult.total;
+    const average = mainResult.average;
+    const subjectCount = mainResult.subjectCount;
+
+    const overallTotal = overallResult.total;
+    const overallAverage = overallResult.average;
+    const overallSubjectCount = overallResult.subjectCount;
+
+    const hasSeparateOverallTotal =
+      isALGrade(grade) &&
+      overallSubjectCount > subjectCount;
+
+    const rankBasis = isALGrade(grade) ? "main_3_subjects" : "overall";
+
+    const reportEligibleColumnKeys = isALGrade(grade)
+      ? mainEligibleColumnKeys
+      : heldEligibleColumnKeys;
+
+    const overallEligibleColumnKeys = isALGrade(grade)
+      ? heldEligibleColumnKeys
+      : reportEligibleColumnKeys;
+
+    const mainSubjectColumnKeys = isALGrade(grade)
+      ? mainEligibleColumnKeys
+      : reportEligibleColumnKeys;
+
+    const generalSubjectColumnKeys = isALGrade(grade)
+      ? heldEligibleColumnKeys.filter((key) => !mainEligibleColumnKeys.includes(key))
+      : [];
+
+    const rankNote = isALGrade(grade)
+      ? "Rank is calculated from A/L main subjects only."
+      : "";
+
+    const overallNote =
+      isALGrade(grade) && hasSeparateOverallTotal
+        ? "Overall total includes held A/L main and general subjects."
+        : "";
+
+    const nextRow = {
       rowNo: index + 1,
       studentId: getStudentDisplayId(student),
       studentIndexNo: getStudentIndexNo(student),
@@ -475,13 +535,25 @@ export function buildClassMarksReportData({
       enrollments: studentEnrollments,
       eligibleColumnKeys,
       reportEligibleColumnKeys,
+      overallEligibleColumnKeys,
+      mainSubjectColumnKeys,
+      generalSubjectColumnKeys,
       marksByColumn,
       absencesByColumn,
       total,
       average: Number(average.toFixed(2)),
       subjectCount,
+      overallTotal,
+      overallAverage: Number(overallAverage.toFixed(2)),
+      overallSubjectCount,
+      hasSeparateOverallTotal,
+      rankBasis,
+      rankNote,
+      overallNote,
       rank: null,
     };
+
+    return nextRow;
   });
 
   const rankedRows = assignRanks(rows).map((row, index) => ({
@@ -489,6 +561,7 @@ export function buildClassMarksReportData({
     rowNo: index + 1,
   }));
 
+  const hasSeparateOverallTotal = rankedRows.some((row) => row.hasSeparateOverallTotal);
   const analysis = calculateAnalysis(rankedRows, schema);
   const { highestMarksByColumn, highestStudentsByColumn } = getHighestMarksData(
     schema,
@@ -518,5 +591,7 @@ export function buildClassMarksReportData({
     subjectStats,
     groupStats,
     optimiStudents,
+    hasSeparateOverallTotal,
+    rankBasis: isALGrade(grade) ? "main_3_subjects" : "overall",
   };
 }
