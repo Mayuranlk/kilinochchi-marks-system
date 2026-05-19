@@ -1536,10 +1536,12 @@ function getStudentAttendancePercentage(results = {}) {
 }
 
 function getALStudentStatus(student, subjects) {
-  const subjectResults = subjects.map((subject) => ({
-    subjectName: subject.shortLabel || subject.subjectName,
-    ...(student.results[subject.subjectKey] || {}),
-  }));
+  const subjectResults = subjects
+    .filter((subject) => !isALGeneralSubject(subject))
+    .map((subject) => ({
+      subjectName: subject.shortLabel || subject.subjectName,
+      ...(student.results[subject.subjectKey] || {}),
+    }));
   const validResults = subjectResults.filter((result) => ["A", "B", "C", "S", "F"].includes(result.symbol));
   const counts = validResults.reduce(
     (acc, result) => {
@@ -1562,6 +1564,7 @@ function getALStudentStatus(student, subjects) {
     counts,
     passOrAboveCount,
     failedSubjects,
+    resultCode: getStudentResultCode(validResults),
     achieved3SOrAbove: passOrAboveCount >= 3,
     achieved3A: counts.A >= 3,
     achieved3F: counts.F >= 3,
@@ -1709,6 +1712,7 @@ function buildALQualificationRows(rows, subjects, predicate) {
         grade: parseGrade(row.className) || row.grade,
         division: getDivisionFromClassName(row.className),
         alStatus: status,
+        resultCode: status.resultCode,
         attendancePercentage: status.attendancePercentage,
         failedSubjects: status.failedSubjects.join(", "),
       };

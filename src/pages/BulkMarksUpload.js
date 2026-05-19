@@ -28,6 +28,7 @@ import SchoolIcon from "@mui/icons-material/School";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import PreviewIcon from "@mui/icons-material/Preview";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import {
   collection,
   doc,
@@ -809,6 +810,7 @@ export default function BulkMarksUpload() {
   const [downloading, setDownloading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingMarks, setDeletingMarks] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -966,6 +968,11 @@ export default function BulkMarksUpload() {
   const selectedSubjectId = useMemo(() => {
     const found = selectedEnrollments.find((enrollment) => getEnrollmentSubjectId(enrollment));
     return found ? getEnrollmentSubjectId(found) : "";
+  }, [selectedEnrollments]);
+
+  const selectedSubjectNumber = useMemo(() => {
+    const found = selectedEnrollments.find((enrollment) => getEnrollmentSubjectNumber(enrollment));
+    return found ? getEnrollmentSubjectNumber(found) : "";
   }, [selectedEnrollments]);
 
   const validEnrollmentKeys = useMemo(() => {
@@ -1289,6 +1296,72 @@ export default function BulkMarksUpload() {
     }
   }
 
+  async function handleDeleteSelectedSubjectMarks() {
+    if (!selectedClass || !selectedSubject || !selectedTerm || !selectedYear) {
+      setError("Select year, class, subject, and term before deleting marks.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete all saved marks for ${selectedSubject} in ${selectedClass}, ${selectedTerm}, ${selectedYear}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingMarks(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const marksSnap = await getDocs(collection(db, "marks"));
+      const matchingDocs = marksSnap.docs.filter((docSnap) => {
+        const markDoc = docSnap.data();
+        const markClass = markDoc.alClassName || markDoc.fullClassName || markDoc.className || "";
+        const markTerm = markDoc.termName || markDoc.term || "";
+        const markYear = String(markDoc.academicYear || markDoc.year || "");
+        const sameClass = normalizeLower(markClass) === normalizeLower(selectedClass);
+        const sameTerm = normalizeLower(markTerm) === normalizeLower(selectedTerm);
+        const sameYear = markYear === String(selectedYear);
+        const sameAssessment = !normalizeText(markDoc.practiceExamId || markDoc.assessmentId);
+        const sameSubject = subjectsMatch(
+          {
+            subjectId: markDoc.subjectId,
+            subjectName: markDoc.subjectName || markDoc.subject,
+            subjectNumber: markDoc.subjectNumber,
+          },
+          {
+            subjectId: selectedSubjectId,
+            subjectName: selectedSubject,
+            subjectNumber: selectedSubjectNumber,
+          }
+        );
+
+        return sameClass && sameTerm && sameYear && sameAssessment && sameSubject;
+      });
+
+      for (let i = 0; i < matchingDocs.length; i += MAX_BATCH_WRITES) {
+        const batch = writeBatch(db);
+        matchingDocs.slice(i, i + MAX_BATCH_WRITES).forEach((docSnap) => {
+          batch.delete(doc(db, "marks", docSnap.id));
+        });
+        await batch.commit();
+      }
+
+      setSuccess(
+        `Deleted ${matchingDocs.length} saved mark row${matchingDocs.length === 1 ? "" : "s"} for ${selectedSubject}. You can re-upload now.`
+      );
+      setValidRows([]);
+      setInvalidRows([]);
+      setRawUploadedRows([]);
+      setUploadedFileName("");
+      setUploadedFormat("");
+    } catch (err) {
+      console.error("Bulk delete marks error:", err);
+      setError(err.message || "Failed to delete selected marks.");
+    } finally {
+      setDeletingMarks(false);
+    }
+  }
+
   const canDownload =
     selectedClass &&
     selectedSubject &&
@@ -1296,6 +1369,16 @@ export default function BulkMarksUpload() {
     selectedYear &&
     previewRows.length > 0 &&
     !downloading;
+
+  const canDeleteSelectedMarks =
+    selectedClass &&
+    selectedSubject &&
+    selectedTerm &&
+    selectedYear &&
+    !loading &&
+    !uploading &&
+    !saving &&
+    !deletingMarks;
 
   const quickStats = [
     { title: "Template Rows", value: previewRows.length, color: "primary", status: "active" },
@@ -1492,6 +1575,22 @@ export default function BulkMarksUpload() {
                     accept=".xlsx,.xls"
                     onChange={handleFileUpload}
                   />
+                </Button>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={
+                    deletingMarks ? <CircularProgress size={18} color="inherit" /> : <DeleteOutlineIcon />
+                  }
+                  onClick={handleDeleteSelectedSubjectMarks}
+                  disabled={!canDeleteSelectedMarks}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                  fullWidth={isMobile}
+                >
+                  {deletingMarks ? "Deleting..." : "Delete Selected Subject Marks"}
                 </Button>
               </Grid>
             </Grid>
