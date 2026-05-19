@@ -979,15 +979,15 @@ function getALResultSubjectRows(row, subjects) {
     .map((subject) => {
       const result = row.results[subject.subjectKey] || {};
       const mark = result.absent ? "AB" : result.mark;
-      const symbol = result.absent ? "AB" : result.symbol;
+      const hasMark = Number.isFinite(Number(mark));
+      const symbol = result.absent ? "AB" : hasMark ? result.symbol : "Not Entered";
 
       return [
         subject.shortLabel || subject.subjectName,
-        mark === null || mark === undefined || mark === "" ? "" : String(mark),
+        result.absent || hasMark ? String(mark) : "",
         symbol || "",
       ];
-    })
-    .filter(([, mark, symbol]) => mark || symbol);
+    });
 }
 
 function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" }) {
@@ -1019,13 +1019,14 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
     ["Name", String(row.studentName || "").toUpperCase()],
     ["Index Number", String(row.indexNo || row.studentId || "")],
     ["Class", String(row.className || context.className || "")],
+    ["Rank", row.rank ? String(row.rank) : "-"],
     ["Attendance", attendanceText],
     ["Admission Status", eligibleText],
   ];
 
   doc.setDrawColor(190, 198, 208);
   doc.setLineWidth(0.25);
-  doc.roundedRect(36, 58, pageWidth - 72, 52, 1.4, 1.4);
+  doc.roundedRect(36, 58, pageWidth - 72, 58, 1.4, 1.4);
 
   doc.setFontSize(9.5);
   let detailY = 67;
@@ -1038,7 +1039,7 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
   });
 
   autoTable(doc, {
-    startY: 122,
+    startY: 128,
     head: [["Subject", "Marks", "Result"]],
     body: getALResultSubjectRows(row, subjects),
     theme: "grid",
@@ -1065,9 +1066,9 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
       fillColor: [248, 249, 251],
     },
     columnStyles: {
-      0: { halign: "left", cellWidth: 104, fontStyle: "bold" },
+      0: { halign: "left", cellWidth: 96, fontStyle: "bold" },
       1: { halign: "center", cellWidth: 28, fontStyle: "bold" },
-      2: { halign: "center", cellWidth: 26, fontStyle: "bold" },
+      2: { halign: "center", cellWidth: 34, fontStyle: "bold" },
     },
   });
 
@@ -1572,6 +1573,48 @@ function getALStudentStatus(student, subjects) {
     attendancePercentage,
     attendanceQualified,
   };
+}
+
+function getALMainTotalForRank(student, subjects) {
+  const mainSubjects = subjects.filter((subject) => !isALGeneralSubject(subject));
+  const marks = mainSubjects
+    .map((subject) => student.results[subject.subjectKey]?.mark)
+    .filter((mark) => Number.isFinite(Number(mark)))
+    .map(Number);
+
+  return {
+    rankTotal: marks.reduce((sum, mark) => sum + mark, 0),
+    rankSubjectCount: marks.length,
+  };
+}
+
+function addALMainSubjectRanks(rows, subjects) {
+  const rowsWithTotals = rows.map((row) => ({
+    ...row,
+    ...getALMainTotalForRank(row, subjects),
+  }));
+
+  const ranked = rowsWithTotals
+    .filter((row) => row.rankSubjectCount > 0)
+    .sort((a, b) => {
+      if (b.rankTotal !== a.rankTotal) return b.rankTotal - a.rankTotal;
+      return a.studentName.localeCompare(b.studentName);
+    });
+
+  let currentRank = 1;
+  const rankByStudentId = new Map();
+
+  ranked.forEach((row, index) => {
+    if (index > 0 && ranked[index - 1].rankTotal !== row.rankTotal) {
+      currentRank = index + 1;
+    }
+    rankByStudentId.set(row.studentId, currentRank);
+  });
+
+  return rowsWithTotals.map((row) => ({
+    ...row,
+    rank: rankByStudentId.get(row.studentId) || "",
+  }));
 }
 
 function buildSheetRows(records, subjects) {
@@ -2135,8 +2178,9 @@ export default function SubjectAnalysis() {
 
   const sheetRows = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
-    return buildSheetRows(sourceRecords, sheetSubjects);
-  }, [gradeRecords, classRecords, selectedClass, sheetSubjects]);
+    const rows = buildSheetRows(sourceRecords, sheetSubjects);
+    return isALGrade(selectedGrade) ? addALMainSubjectRanks(rows, sheetSubjects) : rows;
+  }, [gradeRecords, classRecords, selectedClass, selectedGrade, sheetSubjects]);
 
   const threeCThreeSRows = useMemo(
     () => buildThreeCThreeSRows(sheetRows, sheetSubjects),
@@ -3355,6 +3399,7 @@ function ALResultSheetPreview({ row, subjects, context }) {
           ["Name", String(row.studentName || "").toUpperCase()],
           ["Index Number", row.indexNo || row.studentId || ""],
           ["Class", row.className || context.className || ""],
+          ["Rank", row.rank || "-"],
           ["Attendance", attendanceText],
           ["Admission Status", qualified ? "Qualified" : "Not Qualified"],
         ].map(([label, value]) => (
