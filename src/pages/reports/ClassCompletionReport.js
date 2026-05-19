@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   Alert,
   Box,
@@ -26,6 +28,7 @@ import {
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 
 import { db } from "../../firebase";
@@ -210,6 +213,151 @@ function exportRows(rows, { year, termName }) {
   saveAs(blob, `class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.xlsx`);
 }
 
+function buildCompletionPdfFileName({ year, termName }) {
+  return `class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.pdf`;
+}
+
+function getStatusPdfFillColor(status) {
+  if (status === "done") return [232, 245, 233];
+  if (status === "partial") return [255, 248, 225];
+  return [255, 235, 238];
+}
+
+function createCompletionPdf(rows, { year, termName, summary }) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
+  doc.setFontSize(11);
+  doc.text("Class Completion Report", 148.5, 19, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(`Year: ${year}`, 10, 28);
+  doc.text(`Term: ${termName}`, 55, 28);
+  doc.text(`Classes: ${summary.total}`, 112, 28);
+  doc.text(`Green: ${summary.done}`, 160, 28);
+  doc.text(`Yellow: ${summary.partial}`, 205, 28);
+  doc.text(`Red: ${summary.missing}`, 252, 28);
+
+  autoTable(doc, {
+    startY: 34,
+    head: [[
+      "Status",
+      "Class",
+      "Uploaded",
+      "With Marks",
+      "Mark Records",
+      "No Marks",
+      "Missing Adm No",
+      "Missing Student ID",
+      "Action Needed",
+    ]],
+    body: rows.map((row) => [
+      getStatusLabel(row.status),
+      row.className,
+      row.studentCount,
+      row.markedStudentCount,
+      row.marksCount,
+      row.missingMarksCount,
+      row.missingAdmissionCount,
+      row.missingStudentIdCount,
+      row.notes || "Fully done",
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7.2,
+      cellPadding: 1.2,
+      valign: "middle",
+      lineWidth: 0.1,
+      lineColor: [80, 80, 80],
+      textColor: 20,
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      halign: "center",
+    },
+    columnStyles: {
+      0: { cellWidth: 32, fontStyle: "bold" },
+      1: { cellWidth: 22, fontStyle: "bold" },
+      2: { cellWidth: 18, halign: "right" },
+      3: { cellWidth: 20, halign: "right" },
+      4: { cellWidth: 21, halign: "right" },
+      5: { cellWidth: 18, halign: "right" },
+      6: { cellWidth: 24, halign: "right" },
+      7: { cellWidth: 25, halign: "right" },
+      8: { cellWidth: 99 },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      const row = rows[data.row.index];
+      if (!row) return;
+      data.cell.styles.fillColor = getStatusPdfFillColor(row.status);
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  const finalY = doc.lastAutoTable?.finalY || 185;
+  const signatureY = Math.min(finalY + 18, 194);
+  doc.setFontSize(8.5);
+  doc.text("Prepared By", 28, signatureY);
+  doc.text("Sectional Head", 138, signatureY);
+  doc.text("Principal", 252, signatureY);
+  doc.setFontSize(7.5);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 289, 203, { align: "right" });
+
+  return doc;
+}
+
+function downloadCompletionPdf(rows, context) {
+  const doc = createCompletionPdf(rows, context);
+  doc.save(buildCompletionPdfFileName(context));
+}
+
+async function shareCompletionPdf(rows, context) {
+  const doc = createCompletionPdf(rows, context);
+  const blob = doc.output("blob");
+  const fileName = buildCompletionPdfFileName(context);
+  const file = new File([blob], fileName, { type: "application/pdf" });
+  const text = [
+    "Kilinochchi Central College",
+    "Class Completion Report",
+    `Term: ${context.termName} | Year: ${context.year}`,
+    `Classes: ${context.summary.total}`,
+    `Green: ${context.summary.done} | Yellow: ${context.summary.partial} | Red: ${context.summary.missing}`,
+  ].join("\n");
+
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({
+        title: "Kilinochchi Central College - Class Completion Report",
+        text,
+        files: [file],
+      });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    console.warn("Class completion PDF share fallback triggered:", err);
+  }
+
+  saveAs(blob, fileName);
+  window.open(
+    `https://wa.me/?text=${encodeURIComponent(
+      `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
+    )}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+  window.alert(
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
+  );
+}
+
 function SummaryTile({ label, value, color }) {
   const theme = useTheme();
   const palette = theme.palette[color] || theme.palette.primary;
@@ -344,6 +492,25 @@ export default function ClassCompletionReport() {
     [rows]
   );
 
+  const pdfContext = useMemo(
+    () => ({
+      year: selectedYear,
+      termName: selectedTerm,
+      summary,
+    }),
+    [selectedTerm, selectedYear, summary]
+  );
+
+  async function handleSharePdf() {
+    try {
+      setError("");
+      await shareCompletionPdf(filteredRows, pdfContext);
+    } catch (err) {
+      console.error("Class completion PDF share failed:", err);
+      setError(err.message || "Failed to share class completion PDF.");
+    }
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack spacing={3}>
@@ -430,6 +597,25 @@ export default function ClassCompletionReport() {
                     fullWidth
                   >
                     Excel
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<DownloadRoundedIcon />}
+                    onClick={() => downloadCompletionPdf(filteredRows, pdfContext)}
+                    disabled={loading || filteredRows.length === 0}
+                    fullWidth
+                  >
+                    PDF
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="success"
+                    startIcon={<ShareRoundedIcon />}
+                    onClick={handleSharePdf}
+                    disabled={loading || filteredRows.length === 0}
+                    fullWidth
+                  >
+                    Share
                   </Button>
                 </Stack>
               </Grid>

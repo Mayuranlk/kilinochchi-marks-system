@@ -18,11 +18,14 @@ import {
   Typography,
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
+import { saveAs } from "file-saver";
+import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import { db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
 import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
 import {
+  createClassMarksPdfFile,
   exportAllClassesReportsZip,
   exportClassMarksExcel,
   exportClassMarksEmisExcel,
@@ -445,6 +448,42 @@ function AnalysisPreview({ reportData }) {
   );
 }
 
+async function shareClassMarksPdf(reportData) {
+  const { blob, fileName, file } = createClassMarksPdfFile(reportData);
+  const text = [
+    "Kilinochchi Central College",
+    "Class Marks Report",
+    `Class: ${reportData.className}`,
+    `Term: ${reportData.termName} | Year: ${reportData.year}`,
+  ].join("\n");
+
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({
+        title: "Kilinochchi Central College - Class Marks Report",
+        text,
+        files: [file],
+      });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    console.warn("Class marks PDF share fallback triggered:", err);
+  }
+
+  saveAs(blob, fileName);
+  window.open(
+    `https://wa.me/?text=${encodeURIComponent(
+      `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
+    )}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+  window.alert(
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
+  );
+}
+
 export default function ClassMarksReports() {
   const { isSectionalHead, assignedGrades } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -683,6 +722,18 @@ export default function ClassMarksReports() {
     }
   }
 
+  async function handleSharePdf() {
+    if (!reportData) return;
+
+    try {
+      setError("");
+      await shareClassMarksPdf(reportData);
+    } catch (err) {
+      console.error("Class marks PDF share failed:", err);
+      setError(err.message || "Failed to share class marks PDF.");
+    }
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack spacing={3}>
@@ -776,6 +827,16 @@ export default function ClassMarksReports() {
                 disabled={!reportData || loading || bulkLoading}
               >
                 Download PDF
+              </Button>
+
+              <Button
+                variant="outlined"
+                color="success"
+                startIcon={<ShareRoundedIcon />}
+                onClick={handleSharePdf}
+                disabled={!reportData || loading || bulkLoading}
+              >
+                Share PDF
               </Button>
 
               <Button

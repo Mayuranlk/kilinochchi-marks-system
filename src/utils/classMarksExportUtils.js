@@ -772,11 +772,26 @@ function buildPdfDoc(reportData) {
 }
 
 export function exportClassMarksPdf(reportData) {
+  const { doc, fileName } = createClassMarksPdfDoc(reportData);
+  doc.save(fileName);
+}
+
+export function createClassMarksPdfDoc(reportData) {
   const doc = buildPdfDoc(reportData);
   const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.pdf`;
-  doc.save(fileName);
+  return { doc, fileName };
+}
+
+export function createClassMarksPdfFile(reportData) {
+  const { doc, fileName } = createClassMarksPdfDoc(reportData);
+  const blob = doc.output("blob");
+  return {
+    blob,
+    fileName,
+    file: new File([blob], fileName, { type: "application/pdf" }),
+  };
 }
 
 export async function printGradeElevenOlResultSheets(reportData) {
