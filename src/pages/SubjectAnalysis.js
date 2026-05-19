@@ -2679,16 +2679,25 @@ async function handleWhatsAppShare({ title, context, rowsCount, extra, createPdf
   const { blob, fileName, file } = await makePdfFile({ title, context, createPdf });
   const text = buildShareText({ title, context, rowsCount, extra });
 
-  if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-    await navigator.share({
-      title: `Kilinochchi Central College - ${title}`,
-      text,
-      files: [file],
-    });
-    return;
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({
+        title: `Kilinochchi Central College - ${title}`,
+        text,
+        files: [file],
+      });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    console.warn("WhatsApp/share PDF fallback triggered:", err);
   }
 
   saveAs(blob, fileName);
+  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(
+    `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
+  )}`;
+  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   window.alert(
     "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
   );
