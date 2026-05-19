@@ -332,10 +332,10 @@ export default function Dashboard() {
       icon: <MenuBookRoundedIcon />,
     },
     {
-      title: "Enrollments",
-      description: "Generate or rebuild student subject enrollments safely.",
-      buttonText: "Open Enrollments",
-      onClick: () => navigate("/student-subject-enrollments"),
+      title: "Completion Report",
+      description: "Check class upload, marks entry, Admission No, and Student ID completion.",
+      buttonText: "Open Report",
+      onClick: () => navigate("/class-completion-report"),
       icon: <AutoFixHighRoundedIcon />,
     },
   ];

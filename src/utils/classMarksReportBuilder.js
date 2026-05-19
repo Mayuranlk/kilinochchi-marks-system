@@ -93,7 +93,7 @@ function getALClassDisplayIdentity(row = {}, fallback = {}) {
   return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
 }
 
-function matchesReportClass(row = {}, { grade, section, className = "", stream = "" }) {
+export function matchesReportClass(row = {}, { grade, section, className = "", stream = "" }) {
   const targetGrade = Number(grade);
   const rowGrade = parseGradeValue(row.grade || row.className);
   const targetSection = normalizeSectionValue(section || className);

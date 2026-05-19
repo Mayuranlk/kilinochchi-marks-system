@@ -132,6 +132,7 @@ export default function Layout() {
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
+        { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "NEW" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "NEW" },
       ],
     },
@@ -170,6 +171,11 @@ export default function Layout() {
         label: "Class Reports",
         icon: <AssessmentRoundedIcon />,
         path: "/sectional-head/class-marks-reports",
+      },
+      {
+        label: "Class Completion",
+        icon: <FactCheckRoundedIcon />,
+        path: "/sectional-head/class-completion-report",
       },
       {
         label: "Subject Analysis",

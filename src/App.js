@@ -37,6 +37,7 @@ const TeacherMarkSheets = lazy(() => import("./pages/TeacherMarkSheets"));
 const ReportCard = lazy(() => import("./pages/ReportCard"));
 const ClassReport = lazy(() => import("./pages/ClassReport"));
 const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports"));
+const ClassCompletionReport = lazy(() => import("./pages/reports/ClassCompletionReport"));
 const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
@@ -346,6 +347,16 @@ export default function App() {
                 }
               />
               <Route
+                path="class-completion-report"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <ClassCompletionReport />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
                 path="subject-analysis"
                 element={
                   <AdminRoute>
@@ -414,6 +425,16 @@ export default function App() {
                   <SectionalHeadRoute>
                     <LazyRoute>
                       <ClassMarksReports />
+                    </LazyRoute>
+                  </SectionalHeadRoute>
+                }
+              />
+              <Route
+                path="class-completion-report"
+                element={
+                  <SectionalHeadRoute>
+                    <LazyRoute>
+                      <ClassCompletionReport />
                     </LazyRoute>
                   </SectionalHeadRoute>
                 }
