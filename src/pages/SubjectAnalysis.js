@@ -40,6 +40,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   buildALClassName,
   buildALDisplayClassName,
+  buildALSubjectPayloadFromStudent,
   isALGrade,
 } from "../constants";
 import { AL_GRADE_BANDS, OL_GRADE_BANDS } from "../utils/gradeUtils";
@@ -281,6 +282,10 @@ function getSubjectId(row = {}) {
   return clean(row.subjectId || row.id || "");
 }
 
+function getSubjectNumber(row = {}) {
+  return clean(row.subjectNumber || row.number || "");
+}
+
 function getSubjectKey(row = {}) {
   return getSubjectId(row) || `name:${normalize(getSubjectName(row))}`;
 }
@@ -416,6 +421,48 @@ function sortALSubjects(a, b) {
   });
 }
 
+function normalizeSubjectNumber(value) {
+  return clean(value).toUpperCase().replace(/^AL_/, "");
+}
+
+function subjectsReferToSameALSubject(left = {}, right = {}) {
+  const leftNumber = normalizeSubjectNumber(left.subjectNumber || left.number);
+  const rightNumber = normalizeSubjectNumber(right.subjectNumber || right.number);
+  if (leftNumber && rightNumber && leftNumber === rightNumber) return true;
+
+  const leftId = normalize(left.subjectId || left.subjectCode || left.code || left.id);
+  const rightId = normalize(right.subjectId || right.subjectCode || right.code || right.id);
+  if (leftId && rightId && leftId === rightId) return true;
+
+  const leftName = normalize(left.subjectName || left.name || left.shortName);
+  const rightName = normalize(right.subjectName || right.name || right.shortName);
+  return Boolean(leftName && rightName && leftName === rightName);
+}
+
+function getStudentAllowedALSubjects(student = {}) {
+  const payload = buildALSubjectPayloadFromStudent(student);
+  return payload.valid ? payload.allSubjects : [];
+}
+
+function getAllowedSubjectsForALRow(row = {}, subjects = []) {
+  return Array.isArray(row.allowedALSubjects) && row.allowedALSubjects.length
+    ? row.allowedALSubjects
+    : subjects;
+}
+
+function getStoredALResultForSubject(row = {}, subjects = [], subject = {}) {
+  const matchingSheetSubject = subjects.find((item) =>
+    subjectsReferToSameALSubject(item, subject)
+  );
+  const storedResults = Object.values(row.results || {});
+
+  return (
+    (matchingSheetSubject && row.results?.[matchingSheetSubject.subjectKey]) ||
+    storedResults.find((item) => subjectsReferToSameALSubject(item, subject)) ||
+    {}
+  );
+}
+
 function getA3SubjectLabel(subject = {}) {
   if (isALGeneralSubject(subject) || subject.groupKey === "al") {
     return getALSubjectDisplayName(subject);
@@ -519,6 +566,10 @@ function getGradeSymbol(mark, grade) {
   const number = Number(mark);
   if (!Number.isFinite(number)) return "";
   return getGradeBandsForGrade(grade).find((band) => number >= band.min && number <= band.max)?.key || getFailSymbolForGrade(grade);
+}
+
+function hasEnteredMark(mark) {
+  return mark !== null && mark !== undefined && mark !== "" && Number.isFinite(Number(mark));
 }
 
 function getLogoDataUrl(src = KCC_LOGO_URL) {
@@ -975,19 +1026,27 @@ function createALQualificationPdf({ title, context, rows }) {
 }
 
 function getALResultSubjectRows(row, subjects) {
-  return subjects
+  const allowedSubjects = getAllowedSubjectsForALRow(row, subjects);
+
+  return allowedSubjects
     .map((subject) => {
-      const result = row.results[subject.subjectKey] || {};
+      const result = getStoredALResultForSubject(row, subjects, subject);
       const mark = result.absent ? "AB" : result.mark;
-      const hasMark = Number.isFinite(Number(mark));
+      const hasMark = hasEnteredMark(mark);
       const symbol = result.absent ? "AB" : hasMark ? result.symbol : "Not Entered";
 
       return [
-        subject.shortLabel || subject.subjectName,
+        getALSubjectDisplayName(subject),
         result.absent || hasMark ? String(mark) : "",
         symbol || "",
       ];
-    });
+    })
+    .sort((a, b) =>
+      sortALSubjects(
+        { subjectName: a[0] },
+        { subjectName: b[0] }
+      )
+    );
 }
 
 function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" }) {
@@ -1362,7 +1421,7 @@ function addToStats(stats, record) {
     return;
   }
 
-  if (!Number.isFinite(Number(record.mark))) return;
+  if (!hasEnteredMark(record.mark)) return;
 
   const mark = Number(record.mark);
   const symbol = getGradeSymbol(mark, record.grade);
@@ -1428,6 +1487,7 @@ function buildRecords({ enrollments, studentsById, marks, termName, year, assess
       const className = getEnrollmentClassName(enrollment) || buildClassName(grade, section);
       const mark = markDoc ? getMarkValue(markDoc) : null;
       const attendancePercentage = markDoc ? getAttendancePercentage(markDoc) : null;
+      const allowedALSubjects = isALGrade(grade) ? getStudentAllowedALSubjects(student) : [];
 
       return {
         enrollmentId: enrollment.id,
@@ -1438,8 +1498,10 @@ function buildRecords({ enrollments, studentsById, marks, termName, year, assess
         section,
         className,
         subjectId: getSubjectId(enrollment),
+        subjectNumber: getSubjectNumber(enrollment),
         subjectName: getSubjectName(enrollment),
         subjectKey: getSubjectKey(enrollment),
+        allowedALSubjects,
         mark,
         absent: markDoc ? isAbsent(markDoc) : false,
         attendancePercentage,
@@ -1473,10 +1535,10 @@ function getStudentResultCode(subjectResults) {
       if (result.symbol) acc[result.symbol] += 1;
       return acc;
     },
-    { A: 0, B: 0, C: 0, S: 0, W: 0 }
+    { A: 0, B: 0, C: 0, S: 0, W: 0, F: 0 }
   );
 
-  return ["A", "B", "C", "S", "W"]
+  return ["A", "B", "C", "S", "W", "F"]
     .filter((symbol) => counts[symbol] > 0)
     .map((symbol) => `${counts[symbol]}${symbol}`)
     .join(" ");
@@ -1537,11 +1599,11 @@ function getStudentAttendancePercentage(results = {}) {
 }
 
 function getALStudentStatus(student, subjects) {
-  const subjectResults = subjects
+  const subjectResults = getAllowedSubjectsForALRow(student, subjects)
     .filter((subject) => !isALGeneralSubject(subject))
     .map((subject) => ({
       subjectName: subject.shortLabel || subject.subjectName,
-      ...(student.results[subject.subjectKey] || {}),
+      ...getStoredALResultForSubject(student, subjects, subject),
     }));
   const validResults = subjectResults.filter((result) => ["A", "B", "C", "S", "F"].includes(result.symbol));
   const counts = validResults.reduce(
@@ -1576,10 +1638,12 @@ function getALStudentStatus(student, subjects) {
 }
 
 function getALMainTotalForRank(student, subjects) {
-  const mainSubjects = subjects.filter((subject) => !isALGeneralSubject(subject));
+  const mainSubjects = getAllowedSubjectsForALRow(student, subjects).filter(
+    (subject) => !isALGeneralSubject(subject)
+  );
   const marks = mainSubjects
-    .map((subject) => student.results[subject.subjectKey]?.mark)
-    .filter((mark) => Number.isFinite(Number(mark)))
+    .map((subject) => getStoredALResultForSubject(student, subjects, subject).mark)
+    .filter(hasEnteredMark)
     .map(Number);
 
   return {
@@ -1639,6 +1703,7 @@ function buildSheetRows(records, subjects) {
         className: record.className,
         grade: record.grade,
         attendancePercentage: record.attendancePercentage,
+        allowedALSubjects: record.allowedALSubjects || [],
         results: {},
       });
     }
@@ -1647,9 +1712,12 @@ function buildSheetRows(records, subjects) {
     const nextResult = {
       mark: record.mark,
       absent: record.absent,
+      subjectId: sheetSubject.subjectId || record.subjectId,
+      subjectNumber: sheetSubject.subjectNumber || record.subjectNumber,
+      subjectName: sheetSubject.subjectName || record.subjectName,
       symbol: record.absent
         ? "AB"
-        : Number.isFinite(Number(record.mark))
+        : hasEnteredMark(record.mark)
           ? getGradeSymbol(record.mark, record.grade)
           : "",
       attendancePercentage: record.attendancePercentage,
@@ -1657,7 +1725,7 @@ function buildSheetRows(records, subjects) {
 
     if (
       !currentResult ||
-      (!Number.isFinite(Number(currentResult.mark)) && Number.isFinite(Number(nextResult.mark))) ||
+      (!hasEnteredMark(currentResult.mark) && hasEnteredMark(nextResult.mark)) ||
       (currentResult.absent && !nextResult.absent)
     ) {
       studentMap.get(record.studentId).results[sheetSubject.subjectKey] = nextResult;
@@ -1995,8 +2063,8 @@ export default function SubjectAnalysis() {
             subjectName: record.subjectName,
             subjectKey: record.subjectKey,
           }),
-          subjectNumber: subjectMeta.subjectNumber,
-          subjectCode: subjectMeta.code || subjectMeta.subjectCode,
+          subjectNumber: subjectMeta.subjectNumber || record.subjectNumber,
+          subjectCode: subjectMeta.code || subjectMeta.subjectCode || record.subjectId,
           groupKey,
           groupLabel: getSubjectGroupLabel(groupKey),
           shortLabel: getA3SubjectLabel({
