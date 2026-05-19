@@ -92,6 +92,38 @@ function getStudentName(student = {}) {
   return normalizeText(student.fullName || student.name || "Unnamed Student");
 }
 
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function isActiveStatus(value) {
+  return normalizeLower(value || "active") === "active";
+}
+
+function getEnrollmentSubjectKey(row = {}) {
+  const subjectId = normalizeLower(row.subjectId);
+  const subjectNumber = normalizeLower(row.subjectNumber);
+  const subjectName = normalizeLower(row.subjectName || row.subject);
+
+  if (subjectId) return `id:${subjectId}`;
+  if (subjectNumber) return `no:${subjectNumber}`;
+  return subjectName ? `name:${subjectName}` : "";
+}
+
+function subjectsMatch(left = {}, right = {}) {
+  const leftId = normalizeLower(left.subjectId);
+  const rightId = normalizeLower(right.subjectId);
+  const leftNumber = normalizeLower(left.subjectNumber);
+  const rightNumber = normalizeLower(right.subjectNumber);
+  const leftName = normalizeLower(left.subjectName || left.subject);
+  const rightName = normalizeLower(right.subjectName || right.subject);
+
+  if (leftId && rightId) return leftId === rightId;
+  if (leftNumber && rightNumber) return leftNumber === rightNumber;
+  if (leftName && rightName) return leftName === rightName;
+  return false;
+}
+
 function getStatusColor(status) {
   if (status === "done") return "success";
   if (status === "partial") return "warning";
@@ -112,7 +144,65 @@ function buildMissingNames(students = [], predicate) {
     .join(", ");
 }
 
-function buildClassCompletionRows({ classrooms, students, marks, year, termName }) {
+function buildClassSubjectCompletion({ classEnrollments, classMarks }) {
+  const subjectMap = new Map();
+
+  classEnrollments.forEach((enrollment) => {
+    const studentId = normalizeText(enrollment.studentId);
+    const subjectKey = getEnrollmentSubjectKey(enrollment);
+    if (!studentId || !subjectKey) return;
+
+    if (!subjectMap.has(subjectKey)) {
+      subjectMap.set(subjectKey, {
+        subjectKey,
+        subjectName: normalizeText(enrollment.subjectName || enrollment.subject || "Unnamed Subject"),
+        subjectId: normalizeText(enrollment.subjectId),
+        subjectNumber: normalizeText(enrollment.subjectNumber),
+        enrolledStudentIds: new Set(),
+      });
+    }
+
+    subjectMap.get(subjectKey).enrolledStudentIds.add(studentId);
+  });
+
+  return Array.from(subjectMap.values())
+    .map((subject) => {
+      const enteredStudentIds = new Set();
+
+      classMarks.forEach((mark) => {
+        const studentId = normalizeText(mark.studentId);
+        if (!studentId || !subject.enrolledStudentIds.has(studentId)) return;
+        if (!subjectsMatch(mark, subject)) return;
+        enteredStudentIds.add(studentId);
+      });
+
+      const enrolledCount = subject.enrolledStudentIds.size;
+      const enteredCount = enteredStudentIds.size;
+      const missingCount = Math.max(0, enrolledCount - enteredCount);
+      const status =
+        enrolledCount === 0
+          ? "skipped"
+          : enteredCount === enrolledCount
+          ? "done"
+          : enteredCount > 0
+          ? "partial"
+          : "missing";
+
+      return {
+        ...subject,
+        enrolledCount,
+        enteredCount,
+        missingCount,
+        status,
+      };
+    })
+    .filter((subject) => subject.enrolledCount > 0)
+    .sort((a, b) => a.subjectName.localeCompare(b.subjectName, undefined, { sensitivity: "base" }));
+}
+
+function buildClassCompletionRows({ classrooms, students, enrollments, marks, year, termName }) {
+  const studentsById = new Map(students.map((student) => [normalizeText(student.id), student]));
+
   return classrooms.map((classroom) => {
     const grade = Number(classroom.grade);
     const className = getClassroomReportName(classroom);
@@ -121,6 +211,14 @@ function buildClassCompletionRows({ classrooms, students, marks, year, termName 
     const reportContext = { grade, section, className, stream };
 
     const classStudents = filterStudentsForClass(students, grade, section, className, stream);
+    const classEnrollments = enrollments.filter((enrollment) => {
+      const enrollmentYear = Number(enrollment.academicYear || enrollment.year || 0);
+      return (
+        isActiveStatus(enrollment.status) &&
+        matchesReportClass(enrollment, reportContext) &&
+        enrollmentYear === Number(year)
+      );
+    });
     const classMarks = marks.filter((mark) => {
       const markTerm = mark.termName || mark.term || "";
       const markYear = Number(mark.academicYear || mark.year || 0);
@@ -134,24 +232,35 @@ function buildClassCompletionRows({ classrooms, students, marks, year, termName 
     const markedStudentIds = new Set(
       classMarks.map((mark) => normalizeText(mark.studentId)).filter(Boolean)
     );
-
-    const missingAdmissionStudents = classStudents.filter((student) => !getAdmissionNo(student));
-    const missingStudentIdStudents = classStudents.filter((student) => !getStudentSystemId(student));
-    const missingMarksStudents = classStudents.filter(
-      (student) => !markedStudentIds.has(normalizeText(student.id))
+    const enrolledStudentIds = new Set(
+      classEnrollments.map((enrollment) => normalizeText(enrollment.studentId)).filter(Boolean)
     );
+    const enrolledStudents = Array.from(enrolledStudentIds)
+      .map((studentId) => studentsById.get(studentId))
+      .filter(Boolean);
+    const identityStudents = enrolledStudents.length ? enrolledStudents : classStudents;
+    const subjectSummaries = buildClassSubjectCompletion({ classEnrollments, classMarks });
+    const expectedMarkCount = subjectSummaries.reduce((sum, subject) => sum + subject.enrolledCount, 0);
+    const enteredMarkCount = subjectSummaries.reduce((sum, subject) => sum + subject.enteredCount, 0);
+    const missingMarkCount = Math.max(0, expectedMarkCount - enteredMarkCount);
+    const completedSubjectCount = subjectSummaries.filter((subject) => subject.status === "done").length;
+    const partialSubjectCount = subjectSummaries.filter((subject) => subject.status === "partial").length;
+    const pendingSubjectCount = subjectSummaries.filter((subject) => subject.status === "missing").length;
 
-    const hasStudents = classStudents.length > 0;
-    const allStudentsHaveMarks = hasStudents && missingMarksStudents.length === 0;
+    const missingAdmissionStudents = identityStudents.filter((student) => !getAdmissionNo(student));
+    const missingStudentIdStudents = identityStudents.filter((student) => !getStudentSystemId(student));
+    const hasStudents = identityStudents.length > 0;
+    const hasExpectedMarks = expectedMarkCount > 0;
+    const allExpectedMarksEntered = hasExpectedMarks && missingMarkCount === 0;
     const identitiesComplete =
       hasStudents &&
       missingAdmissionStudents.length === 0 &&
       missingStudentIdStudents.length === 0;
 
     let status = "missing";
-    if (hasStudents && allStudentsHaveMarks && identitiesComplete) {
+    if (hasStudents && hasExpectedMarks && allExpectedMarksEntered && identitiesComplete) {
       status = "done";
-    } else if (hasStudents) {
+    } else if (hasStudents || hasExpectedMarks || enteredMarkCount > 0) {
       status = "partial";
     }
 
@@ -159,29 +268,39 @@ function buildClassCompletionRows({ classrooms, students, marks, year, termName 
       id: classroom.id,
       grade,
       className: getClassroomDisplayName(classroom),
-      studentCount: classStudents.length,
+      studentCount: identityStudents.length,
       markedStudentCount: markedStudentIds.size,
       marksCount: classMarks.length,
-      missingMarksCount: missingMarksStudents.length,
+      expectedMarkCount,
+      enteredMarkCount,
+      missingMarksCount: missingMarkCount,
+      subjectCount: subjectSummaries.length,
+      completedSubjectCount,
+      partialSubjectCount,
+      pendingSubjectCount,
       missingAdmissionCount: missingAdmissionStudents.length,
       missingStudentIdCount: missingStudentIdStudents.length,
       status,
       notes: [
         !hasStudents ? "No students uploaded" : "",
-        hasStudents && !allStudentsHaveMarks ? `${missingMarksStudents.length} students without marks` : "",
+        hasStudents && !hasExpectedMarks ? "No subject enrollments for this class" : "",
+        hasExpectedMarks && !allExpectedMarksEntered ? `${missingMarkCount} subject marks missing` : "",
+        pendingSubjectCount ? `${pendingSubjectCount} subjects not started` : "",
+        partialSubjectCount ? `${partialSubjectCount} subjects partially entered` : "",
         missingAdmissionStudents.length ? `${missingAdmissionStudents.length} missing Admission No` : "",
         missingStudentIdStudents.length ? `${missingStudentIdStudents.length} missing Student ID` : "",
       ]
         .filter(Boolean)
         .join("; "),
       missingMarksNames: buildMissingNames(
-        classStudents,
+        identityStudents,
         (student) => !markedStudentIds.has(normalizeText(student.id))
       ),
       missingIdentityNames: buildMissingNames(
-        classStudents,
+        identityStudents,
         (student) => !getAdmissionNo(student) || !getStudentSystemId(student)
       ),
+      subjectSummaries,
     };
   });
 }
@@ -193,9 +312,15 @@ function exportRows(rows, { year, termName }) {
       Grade: row.grade,
       Class: row.className,
       "Uploaded Students": row.studentCount,
-      "Students With Marks": row.markedStudentCount,
+      "Students With Any Marks": row.markedStudentCount,
+      "Subjects": row.subjectCount,
+      "Subjects Completed": row.completedSubjectCount,
+      "Subjects Partial": row.partialSubjectCount,
+      "Subjects Pending": row.pendingSubjectCount,
+      "Expected Subject Marks": row.expectedMarkCount,
+      "Entered Subject Marks": row.enteredMarkCount,
       "Mark Records": row.marksCount,
-      "Students Without Marks": row.missingMarksCount,
+      "Missing Subject Marks": row.missingMarksCount,
       "Missing Admission No": row.missingAdmissionCount,
       "Missing Student ID": row.missingStudentIdCount,
       Notes: row.notes || "Fully done",
@@ -247,9 +372,14 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       "Status",
       "Class",
       "Uploaded",
-      "With Marks",
+      "Subjects",
+      "Done",
+      "Partial",
+      "Pending",
+      "Expected",
+      "Entered",
       "Mark Records",
-      "No Marks",
+      "Missing Marks",
       "Missing Adm No",
       "Missing Student ID",
       "Action Needed",
@@ -258,7 +388,12 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       getStatusLabel(row.status),
       row.className,
       row.studentCount,
-      row.markedStudentCount,
+      row.subjectCount,
+      row.completedSubjectCount,
+      row.partialSubjectCount,
+      row.pendingSubjectCount,
+      row.expectedMarkCount,
+      row.enteredMarkCount,
       row.marksCount,
       row.missingMarksCount,
       row.missingAdmissionCount,
@@ -282,15 +417,20 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       halign: "center",
     },
     columnStyles: {
-      0: { cellWidth: 32, fontStyle: "bold" },
-      1: { cellWidth: 22, fontStyle: "bold" },
-      2: { cellWidth: 18, halign: "right" },
-      3: { cellWidth: 20, halign: "right" },
-      4: { cellWidth: 21, halign: "right" },
-      5: { cellWidth: 18, halign: "right" },
-      6: { cellWidth: 24, halign: "right" },
-      7: { cellWidth: 25, halign: "right" },
-      8: { cellWidth: 99 },
+      0: { cellWidth: 30, fontStyle: "bold" },
+      1: { cellWidth: 18, fontStyle: "bold" },
+      2: { cellWidth: 16, halign: "right" },
+      3: { cellWidth: 15, halign: "right" },
+      4: { cellWidth: 14, halign: "right" },
+      5: { cellWidth: 15, halign: "right" },
+      6: { cellWidth: 16, halign: "right" },
+      7: { cellWidth: 16, halign: "right" },
+      8: { cellWidth: 16, halign: "right" },
+      9: { cellWidth: 18, halign: "right" },
+      10: { cellWidth: 19, halign: "right" },
+      11: { cellWidth: 19, halign: "right" },
+      12: { cellWidth: 22, halign: "right" },
+      13: { cellWidth: 55 },
     },
     didParseCell: (data) => {
       if (data.section !== "body") return;
@@ -391,10 +531,12 @@ export default function ClassCompletionReport() {
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [terms, setTerms] = useState([]);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedTerm, setSelectedTerm] = useState(DEFAULT_TERM);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedDetailClassId, setSelectedDetailClassId] = useState("");
 
   useEffect(() => {
     loadData();
@@ -406,19 +548,22 @@ export default function ClassCompletionReport() {
       setLoading(true);
       setError("");
 
-      const [studentsSnap, marksSnap, classroomsSnap, termsSnap] = await Promise.all([
+      const [studentsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap] = await Promise.all([
         getDocs(collection(db, "students")),
+        getDocs(collection(db, "studentSubjectEnrollments")),
         getDocs(collection(db, "marks")),
         getDocs(collection(db, "classrooms")),
         getDocs(collection(db, "academicTerms")),
       ]);
 
       const studentsData = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const enrollmentsData = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const marksData = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const classroomsData = classroomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const termsData = termsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
       setStudents(studentsData);
+      setEnrollments(enrollmentsData);
       setMarks(marksData);
       setClassrooms(classroomsData);
       setTerms(termsData);
@@ -470,12 +615,19 @@ export default function ClassCompletionReport() {
       buildClassCompletionRows({
         classrooms: reportClassrooms,
         students,
+        enrollments,
         marks,
         year: selectedYear,
         termName: selectedTerm,
       }),
-    [marks, reportClassrooms, selectedTerm, selectedYear, students]
+    [enrollments, marks, reportClassrooms, selectedTerm, selectedYear, students]
   );
+
+  useEffect(() => {
+    if (rows.length && !rows.some((row) => row.id === selectedDetailClassId)) {
+      setSelectedDetailClassId(rows[0].id);
+    }
+  }, [rows, selectedDetailClassId]);
 
   const filteredRows = useMemo(() => {
     if (statusFilter === "all") return rows;
@@ -490,6 +642,11 @@ export default function ClassCompletionReport() {
       total: rows.length,
     }),
     [rows]
+  );
+
+  const detailRow = useMemo(
+    () => rows.find((row) => row.id === selectedDetailClassId) || rows[0] || null,
+    [rows, selectedDetailClassId]
   );
 
   const pdfContext = useMemo(
@@ -646,6 +803,84 @@ export default function ClassCompletionReport() {
 
             <Card sx={{ borderRadius: 3 }}>
               <CardContent>
+                <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
+                  <Grid item xs={12} md={7}>
+                    <Typography variant="h6" fontWeight={800}>
+                      Class Subject Completion
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Select a class to see each enrolled subject as completed, partial, or pending. Subjects with no enrolled students are skipped.
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={5}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Class</InputLabel>
+                      <Select
+                        value={detailRow?.id || ""}
+                        label="Class"
+                        onChange={(event) => setSelectedDetailClassId(event.target.value)}
+                      >
+                        {rows.map((row) => (
+                          <MenuItem key={row.id} value={row.id}>
+                            {row.className} - {getStatusLabel(row.status)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+
+                {detailRow?.subjectSummaries?.length ? (
+                  <ResponsiveTableWrapper minWidth={760}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Subject</TableCell>
+                          <TableCell align="right">Enrolled Students</TableCell>
+                          <TableCell align="right">Marks Entered</TableCell>
+                          <TableCell align="right">Missing</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {detailRow.subjectSummaries.map((subject) => (
+                          <TableRow key={subject.subjectKey} hover>
+                            <TableCell>
+                              <Chip
+                                label={getStatusLabel(subject.status)}
+                                color={getStatusColor(subject.status)}
+                                size="small"
+                                sx={{ fontWeight: 800 }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                                {subject.subjectName}
+                              </Typography>
+                              {subject.subjectNumber || subject.subjectId ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  {[subject.subjectNumber, subject.subjectId].filter(Boolean).join(" | ")}
+                                </Typography>
+                              ) : null}
+                            </TableCell>
+                            <TableCell align="right">{subject.enrolledCount}</TableCell>
+                            <TableCell align="right">{subject.enteredCount}</TableCell>
+                            <TableCell align="right">{subject.missingCount}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+                ) : (
+                  <Alert severity="warning">
+                    No enrolled subjects found for {detailRow?.className || "this class"}.
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card sx={{ borderRadius: 3 }}>
+              <CardContent>
                 <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
                   <AssessmentRoundedIcon color="primary" />
                   <Box>
@@ -653,21 +888,26 @@ export default function ClassCompletionReport() {
                       Class Status
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Green means everything is complete. Yellow means some data is missing. Red means students are not uploaded.
+                      Green means all enrolled subject marks are entered. Yellow means some subject marks or identity details are missing. Red means students or subject enrollments are missing.
                     </Typography>
                   </Box>
                 </Stack>
 
-                <ResponsiveTableWrapper minWidth={1120}>
+                <ResponsiveTableWrapper minWidth={1420}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Status</TableCell>
                         <TableCell>Class</TableCell>
                         <TableCell align="right">Uploaded Students</TableCell>
-                        <TableCell align="right">Students With Marks</TableCell>
+                        <TableCell align="right">Subjects</TableCell>
+                        <TableCell align="right">Done</TableCell>
+                        <TableCell align="right">Partial</TableCell>
+                        <TableCell align="right">Pending</TableCell>
+                        <TableCell align="right">Expected Marks</TableCell>
+                        <TableCell align="right">Entered Marks</TableCell>
                         <TableCell align="right">Mark Records</TableCell>
-                        <TableCell align="right">No Marks</TableCell>
+                        <TableCell align="right">Missing Marks</TableCell>
                         <TableCell align="right">Missing Admission No</TableCell>
                         <TableCell align="right">Missing Student ID</TableCell>
                         <TableCell>Action Needed</TableCell>
@@ -693,7 +933,12 @@ export default function ClassCompletionReport() {
                             </Typography>
                           </TableCell>
                           <TableCell align="right">{row.studentCount}</TableCell>
-                          <TableCell align="right">{row.markedStudentCount}</TableCell>
+                          <TableCell align="right">{row.subjectCount}</TableCell>
+                          <TableCell align="right">{row.completedSubjectCount}</TableCell>
+                          <TableCell align="right">{row.partialSubjectCount}</TableCell>
+                          <TableCell align="right">{row.pendingSubjectCount}</TableCell>
+                          <TableCell align="right">{row.expectedMarkCount}</TableCell>
+                          <TableCell align="right">{row.enteredMarkCount}</TableCell>
                           <TableCell align="right">{row.marksCount}</TableCell>
                           <TableCell align="right">{row.missingMarksCount}</TableCell>
                           <TableCell align="right">{row.missingAdmissionCount}</TableCell>

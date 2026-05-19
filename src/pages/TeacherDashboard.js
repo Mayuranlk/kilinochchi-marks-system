@@ -467,6 +467,8 @@ export default function TeacherDashboard() {
           targetTerm
         );
 
+        if (progressInfo.total === 0) return;
+
         const rowKey = `${normalize(classIdentity)}__${getSubjectIdentity({
           subjectId,
           subjectName,
@@ -562,6 +564,8 @@ export default function TeacherDashboard() {
             },
             targetTerm
           );
+
+          if (progressInfo.total === 0) return;
 
           const isMine =
             normalize(assignment.teacherId) === normalize(user.uid) ||
