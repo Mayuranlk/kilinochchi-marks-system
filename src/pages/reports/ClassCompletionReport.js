@@ -144,6 +144,41 @@ function buildMissingNames(students = [], predicate) {
     .join(", ");
 }
 
+function formatPercent(value) {
+  if (!Number.isFinite(Number(value))) return "0%";
+  return `${Math.round(Number(value))}%`;
+}
+
+function formatPendingSubjects(row = {}) {
+  return (row.subjectSummaries || [])
+    .filter((subject) => subject.status !== "done")
+    .map((subject) => {
+      const missingText = subject.missingCount ? ` (${subject.missingCount} missing)` : "";
+      return `${subject.subjectName}${missingText}`;
+    })
+    .join(", ");
+}
+
+function buildPendingSubjectRows(rows = []) {
+  return rows.flatMap((row) =>
+    (row.subjectSummaries || [])
+      .filter((subject) => subject.status !== "done")
+      .map((subject) => ({
+        classId: row.id,
+        grade: row.grade,
+        className: row.className,
+        subjectKey: subject.subjectKey,
+        subjectName: subject.subjectName,
+        subjectNumber: subject.subjectNumber,
+        subjectId: subject.subjectId,
+        status: subject.status,
+        enrolledCount: subject.enrolledCount,
+        enteredCount: subject.enteredCount,
+        missingCount: subject.missingCount,
+      }))
+  );
+}
+
 function buildClassSubjectCompletion({ classEnrollments, classMarks }) {
   const subjectMap = new Map();
 
@@ -305,7 +340,7 @@ function buildClassCompletionRows({ classrooms, students, enrollments, marks, ye
   });
 }
 
-function exportRows(rows, { year, termName }) {
+function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
   const worksheet = XLSX.utils.json_to_sheet(
     rows.map((row) => ({
       Status: getStatusLabel(row.status),
@@ -324,12 +359,49 @@ function exportRows(rows, { year, termName }) {
       "Missing Admission No": row.missingAdmissionCount,
       "Missing Student ID": row.missingStudentIdCount,
       Notes: row.notes || "Fully done",
+      "Pending Subjects": formatPendingSubjects(row),
       "Students Without Marks Names": row.missingMarksNames,
       "Missing Identity Names": row.missingIdentityNames,
     }))
   );
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Class Completion");
+
+  if (summary) {
+    const summarySheet = XLSX.utils.json_to_sheet([
+      { Metric: "Year", Value: year },
+      { Metric: "Term", Value: termName },
+      { Metric: "Classes", Value: summary.total },
+      { Metric: "Green Classes", Value: summary.done },
+      { Metric: "Yellow Classes", Value: summary.partial },
+      { Metric: "Red Classes", Value: summary.missing },
+      { Metric: "Total Expected Marks", Value: summary.expectedMarks },
+      { Metric: "Total Entered Marks", Value: summary.enteredMarks },
+      { Metric: "Total Missing Marks", Value: summary.missingMarks },
+      { Metric: "Completion Percentage", Value: formatPercent(summary.completionPercent) },
+      { Metric: "Pending Subjects", Value: summary.pendingSubjects },
+      { Metric: "Partial Subjects", Value: summary.partialSubjects },
+    ]);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Whole School Summary");
+  }
+
+  if (pendingSubjectRows?.length) {
+    const pendingSheet = XLSX.utils.json_to_sheet(
+      pendingSubjectRows.map((row) => ({
+        Status: getStatusLabel(row.status),
+        Grade: row.grade,
+        Class: row.className,
+        Subject: row.subjectName,
+        "Subject No": row.subjectNumber,
+        "Subject ID": row.subjectId,
+        "Enrolled Students": row.enrolledCount,
+        "Marks Entered": row.enteredCount,
+        "Missing Marks": row.missingCount,
+      }))
+    );
+    XLSX.utils.book_append_sheet(workbook, pendingSheet, "Pending Subjects");
+  }
+
   const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -365,9 +437,14 @@ function createCompletionPdf(rows, { year, termName, summary }) {
   doc.text(`Green: ${summary.done}`, 160, 28);
   doc.text(`Yellow: ${summary.partial}`, 205, 28);
   doc.text(`Red: ${summary.missing}`, 252, 28);
+  doc.text(
+    `Whole School Completion: ${formatPercent(summary.completionPercent)} | Missing Marks: ${summary.missingMarks}`,
+    10,
+    33
+  );
 
   autoTable(doc, {
-    startY: 34,
+    startY: 39,
     head: [[
       "Status",
       "Class",
@@ -382,6 +459,7 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       "Missing Marks",
       "Missing Adm No",
       "Missing Student ID",
+      "Pending Subjects",
       "Action Needed",
     ]],
     body: rows.map((row) => [
@@ -398,6 +476,7 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       row.missingMarksCount,
       row.missingAdmissionCount,
       row.missingStudentIdCount,
+      formatPendingSubjects(row),
       row.notes || "Fully done",
     ]),
     theme: "grid",
@@ -417,20 +496,21 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       halign: "center",
     },
     columnStyles: {
-      0: { cellWidth: 30, fontStyle: "bold" },
-      1: { cellWidth: 18, fontStyle: "bold" },
-      2: { cellWidth: 16, halign: "right" },
-      3: { cellWidth: 15, halign: "right" },
-      4: { cellWidth: 14, halign: "right" },
-      5: { cellWidth: 15, halign: "right" },
-      6: { cellWidth: 16, halign: "right" },
-      7: { cellWidth: 16, halign: "right" },
-      8: { cellWidth: 16, halign: "right" },
-      9: { cellWidth: 18, halign: "right" },
-      10: { cellWidth: 19, halign: "right" },
-      11: { cellWidth: 19, halign: "right" },
-      12: { cellWidth: 22, halign: "right" },
-      13: { cellWidth: 55 },
+      0: { cellWidth: 24, fontStyle: "bold" },
+      1: { cellWidth: 15, fontStyle: "bold" },
+      2: { cellWidth: 13, halign: "right" },
+      3: { cellWidth: 13, halign: "right" },
+      4: { cellWidth: 12, halign: "right" },
+      5: { cellWidth: 12, halign: "right" },
+      6: { cellWidth: 13, halign: "right" },
+      7: { cellWidth: 14, halign: "right" },
+      8: { cellWidth: 14, halign: "right" },
+      9: { cellWidth: 14, halign: "right" },
+      10: { cellWidth: 16, halign: "right" },
+      11: { cellWidth: 16, halign: "right" },
+      12: { cellWidth: 18, halign: "right" },
+      13: { cellWidth: 34 },
+      14: { cellWidth: 38 },
     },
     didParseCell: (data) => {
       if (data.section !== "body") return;
@@ -440,6 +520,52 @@ function createCompletionPdf(rows, { year, termName, summary }) {
     },
     margin: { left: 8, right: 8 },
   });
+
+  if (Array.isArray(summary.pendingSubjectRows) && summary.pendingSubjectRows.length) {
+    autoTable(doc, {
+      startY: (doc.lastAutoTable?.finalY || 39) + 8,
+      head: [["Class", "Subject", "Status", "Enrolled", "Entered", "Missing"]],
+      body: summary.pendingSubjectRows.slice(0, 60).map((row) => [
+        row.className,
+        row.subjectName,
+        getStatusLabel(row.status),
+        row.enrolledCount,
+        row.enteredCount,
+        row.missingCount,
+      ]),
+      theme: "grid",
+      styles: {
+        fontSize: 7.2,
+        cellPadding: 1.2,
+        valign: "middle",
+        lineWidth: 0.1,
+        lineColor: [80, 80, 80],
+        textColor: 20,
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fillColor: [255, 248, 225],
+        textColor: 20,
+        fontStyle: "bold",
+        halign: "center",
+      },
+      columnStyles: {
+        0: { cellWidth: 18, fontStyle: "bold" },
+        1: { cellWidth: 76 },
+        2: { cellWidth: 30, fontStyle: "bold" },
+        3: { cellWidth: 18, halign: "right" },
+        4: { cellWidth: 18, halign: "right" },
+        5: { cellWidth: 18, halign: "right" },
+      },
+      margin: { left: 8, right: 8 },
+      didDrawPage: (data) => {
+        if (data.pageNumber === 1) return;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text("Pending Subjects", 10, 10);
+      },
+    });
+  }
 
   const finalY = doc.lastAutoTable?.finalY || 185;
   const signatureY = Math.min(finalY + 18, 194);
@@ -634,15 +760,35 @@ export default function ClassCompletionReport() {
     return rows.filter((row) => row.status === statusFilter);
   }, [rows, statusFilter]);
 
-  const summary = useMemo(
-    () => ({
+  const pendingSubjectRows = useMemo(() => buildPendingSubjectRows(rows), [rows]);
+
+  const filteredPendingSubjectRows = useMemo(() => {
+    if (statusFilter === "all") return pendingSubjectRows;
+    if (statusFilter === "done") return [];
+    return pendingSubjectRows.filter((row) => row.status === statusFilter);
+  }, [pendingSubjectRows, statusFilter]);
+
+  const summary = useMemo(() => {
+    const expectedMarks = rows.reduce((sum, row) => sum + row.expectedMarkCount, 0);
+    const enteredMarks = rows.reduce((sum, row) => sum + row.enteredMarkCount, 0);
+    const missingMarks = rows.reduce((sum, row) => sum + row.missingMarksCount, 0);
+    const completionPercent = expectedMarks > 0 ? (enteredMarks / expectedMarks) * 100 : 0;
+
+    return {
       done: rows.filter((row) => row.status === "done").length,
       partial: rows.filter((row) => row.status === "partial").length,
       missing: rows.filter((row) => row.status === "missing").length,
       total: rows.length,
-    }),
-    [rows]
-  );
+      expectedMarks,
+      enteredMarks,
+      missingMarks,
+      completionPercent,
+      completedSubjects: rows.reduce((sum, row) => sum + row.completedSubjectCount, 0),
+      partialSubjects: rows.reduce((sum, row) => sum + row.partialSubjectCount, 0),
+      pendingSubjects: rows.reduce((sum, row) => sum + row.pendingSubjectCount, 0),
+      pendingSubjectRows,
+    };
+  }, [pendingSubjectRows, rows]);
 
   const detailRow = useMemo(
     () => rows.find((row) => row.id === selectedDetailClassId) || rows[0] || null,
@@ -749,7 +895,14 @@ export default function ClassCompletionReport() {
                   <Button
                     variant="contained"
                     startIcon={<DownloadRoundedIcon />}
-                    onClick={() => exportRows(filteredRows, { year: selectedYear, termName: selectedTerm })}
+                    onClick={() =>
+                      exportRows(filteredRows, {
+                        year: selectedYear,
+                        termName: selectedTerm,
+                        summary,
+                        pendingSubjectRows: filteredPendingSubjectRows,
+                      })
+                    }
                     disabled={loading || filteredRows.length === 0}
                     fullWidth
                   >
@@ -800,6 +953,117 @@ export default function ClassCompletionReport() {
                 <SummaryTile label="Red" value={summary.missing} color="error" />
               </Grid>
             </Grid>
+
+            <Card sx={{ borderRadius: 3 }}>
+              <CardContent>
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
+                  <Box>
+                    <Typography variant="h6" fontWeight={800}>
+                      Whole School Completion Summary
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total completion for all visible classes in {selectedYear} - {selectedTerm}.
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={`${formatPercent(summary.completionPercent)} complete`}
+                    color={summary.missingMarks === 0 && summary.expectedMarks > 0 ? "success" : "warning"}
+                    sx={{ alignSelf: { xs: "flex-start", md: "center" }, fontWeight: 900 }}
+                  />
+                </Stack>
+
+                <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                  <Grid item xs={6} md={3}>
+                    <SummaryTile label="Expected Marks" value={summary.expectedMarks} color="primary" />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <SummaryTile label="Entered Marks" value={summary.enteredMarks} color="success" />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <SummaryTile label="Missing Marks" value={summary.missingMarks} color="error" />
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <SummaryTile
+                      label="Pending Subjects"
+                      value={summary.pendingSubjects + summary.partialSubjects}
+                      color="warning"
+                    />
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+
+            <Card sx={{ borderRadius: 3 }}>
+              <CardContent>
+                <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+                  <AssessmentRoundedIcon color="warning" />
+                  <Box>
+                    <Typography variant="h6" fontWeight={800}>
+                      Classwise Pending Subjects
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Every subject that still needs marks, across the whole school view.
+                    </Typography>
+                  </Box>
+                </Stack>
+
+                {filteredPendingSubjectRows.length ? (
+                  <ResponsiveTableWrapper minWidth={860}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Class</TableCell>
+                          <TableCell>Subject</TableCell>
+                          <TableCell align="right">Enrolled Students</TableCell>
+                          <TableCell align="right">Marks Entered</TableCell>
+                          <TableCell align="right">Missing Marks</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredPendingSubjectRows.map((row) => (
+                          <TableRow key={`${row.classId}-${row.subjectKey}`} hover>
+                            <TableCell>
+                              <Chip
+                                label={getStatusLabel(row.status)}
+                                color={getStatusColor(row.status)}
+                                size="small"
+                                sx={{ fontWeight: 800 }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                                {row.className}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Grade {row.grade}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                                {row.subjectName}
+                              </Typography>
+                              {row.subjectNumber || row.subjectId ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  {[row.subjectNumber, row.subjectId].filter(Boolean).join(" | ")}
+                                </Typography>
+                              ) : null}
+                            </TableCell>
+                            <TableCell align="right">{row.enrolledCount}</TableCell>
+                            <TableCell align="right">{row.enteredCount}</TableCell>
+                            <TableCell align="right">{row.missingCount}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+                ) : (
+                  <Alert severity="success">
+                    No pending subjects found for this filter.
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
 
             <Card sx={{ borderRadius: 3 }}>
               <CardContent>
@@ -910,6 +1174,7 @@ export default function ClassCompletionReport() {
                         <TableCell align="right">Missing Marks</TableCell>
                         <TableCell align="right">Missing Admission No</TableCell>
                         <TableCell align="right">Missing Student ID</TableCell>
+                        <TableCell>Pending Subjects</TableCell>
                         <TableCell>Action Needed</TableCell>
                       </TableRow>
                     </TableHead>
@@ -943,6 +1208,11 @@ export default function ClassCompletionReport() {
                           <TableCell align="right">{row.missingMarksCount}</TableCell>
                           <TableCell align="right">{row.missingAdmissionCount}</TableCell>
                           <TableCell align="right">{row.missingStudentIdCount}</TableCell>
+                          <TableCell sx={{ maxWidth: 320 }}>
+                            <Typography variant="body2">
+                              {formatPendingSubjects(row) || "None"}
+                            </Typography>
+                          </TableCell>
                           <TableCell sx={{ maxWidth: 360 }}>
                             <Typography variant="body2">
                               {row.notes || "Fully done"}
