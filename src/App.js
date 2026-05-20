@@ -81,6 +81,18 @@ function AdminRoute({ children }) {
   return children;
 }
 
+function ReportAccessRoute({ children }) {
+  const { user, loading, canAccessAllReports, isSectionalHead, isTeacher } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canAccessAllReports) {
+    return <Navigate to={isSectionalHead ? "/sectional-head" : isTeacher ? "/teacher" : "/"} replace />;
+  }
+
+  return children;
+}
+
 function TeacherRoute({ children }) {
   const { user, loading, isTeacher, isAdmin } = useAuth();
 
@@ -329,51 +341,51 @@ export default function App() {
               <Route
                 path="teacher-mark-sheets"
                 element={
-                  <AdminRoute>
+                  <ReportAccessRoute>
                     <LazyRoute>
                       <TeacherMarkSheets />
                     </LazyRoute>
-                  </AdminRoute>
+                  </ReportAccessRoute>
                 }
               />
               <Route
                 path="class-marks-reports"
                 element={
-                  <AdminRoute>
+                  <ReportAccessRoute>
                     <LazyRoute>
                       <ClassMarksReports />
                     </LazyRoute>
-                  </AdminRoute>
+                  </ReportAccessRoute>
                 }
               />
               <Route
                 path="class-completion-report"
                 element={
-                  <AdminRoute>
+                  <ReportAccessRoute>
                     <LazyRoute>
                       <ClassCompletionReport />
                     </LazyRoute>
-                  </AdminRoute>
+                  </ReportAccessRoute>
                 }
               />
               <Route
                 path="subject-analysis"
                 element={
-                  <AdminRoute>
+                  <ReportAccessRoute>
                     <LazyRoute>
                       <SubjectAnalysis />
                     </LazyRoute>
-                  </AdminRoute>
+                  </ReportAccessRoute>
                 }
               />
               <Route
                 path="report/:studentId"
                 element={
-                  <AdminRoute>
+                  <ReportAccessRoute>
                     <LazyRoute>
                       <ReportCard />
                     </LazyRoute>
-                  </AdminRoute>
+                  </ReportAccessRoute>
                 }
               />
 

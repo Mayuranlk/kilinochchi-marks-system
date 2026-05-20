@@ -82,11 +82,17 @@ export function AuthProvider({ children }) {
 
   const value = useMemo(() => {
     const role = normalizeRole(profile?.role);
+    const hasITTeacherCapability =
+      role === "it_teacher" ||
+      profile?.isITTeacher === true ||
+      profile?.canAccessAllReports === true;
     const hasSectionalHeadCapability =
       role === "sectional_head" || profile?.isSectionalHead === true;
     const hasSubjectTeacherCapability =
-      role === "teacher" || profile?.isSubjectTeacher === true;
+      role === "teacher" || hasITTeacherCapability || profile?.isSubjectTeacher === true;
     const assignedGrades = parseAssignedGrades(profile || {});
+    const isAdmin = role === "admin";
+    const canAccessAllReports = isAdmin || hasITTeacherCapability;
 
     return {
       user,
@@ -96,10 +102,12 @@ export function AuthProvider({ children }) {
       logout,
 
       role,
-      isAdmin: role === "admin",
+      isAdmin,
       isTeacher: hasSubjectTeacherCapability,
       isSubjectTeacher: hasSubjectTeacherCapability,
+      isITTeacher: hasITTeacherCapability,
       isSectionalHead: hasSectionalHeadCapability,
+      canAccessAllReports,
       assignedGrades,
 
       isClassTeacher: profile?.isClassTeacher === true,

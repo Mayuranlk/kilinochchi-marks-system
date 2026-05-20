@@ -206,7 +206,7 @@ function buildPanelPairs(sheetData) {
 /* -------------------------------------------------------------------------- */
 
 export default function TeacherMarkSheets() {
-  const { isAdmin, profile } = useAuth();
+  const { canAccessAllReports, profile } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -748,10 +748,10 @@ export default function TeacherMarkSheets() {
     }, 300);
   }
 
-  if (!isAdmin) {
+  if (!canAccessAllReports) {
     return (
       <Box>
-        <Alert severity="error">Only admin can generate teacher mark sheets.</Alert>
+        <Alert severity="error">Only admin or IT teacher accounts can generate teacher mark sheets.</Alert>
       </Box>
     );
   }

@@ -53,7 +53,16 @@ import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 const DRAWER_WIDTH = 280;
 
 export default function Layout() {
-  const { profile, isAdmin, isTeacher, isClassTeacher, isSectionalHead, assignedGrades, logout } = useAuth();
+  const {
+    profile,
+    isAdmin,
+    isTeacher,
+    isClassTeacher,
+    isSectionalHead,
+    assignedGrades,
+    canAccessAllReports,
+    logout,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -152,6 +161,15 @@ export default function Layout() {
       { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
     ];
 
+    if (canAccessAllReports) {
+      items.push(
+        { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "IT" },
+        { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "IT" },
+        { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "IT" },
+        { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "IT" }
+      );
+    }
+
     if (isClassTeacher) {
       items.push({
         label: "Class Report",
@@ -162,7 +180,7 @@ export default function Layout() {
     }
 
     return items;
-  }, [isClassTeacher]);
+  }, [canAccessAllReports, isClassTeacher]);
 
   const sectionalHeadMenu = useMemo(() => {
     const items = [
@@ -246,14 +264,20 @@ export default function Layout() {
         { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
         { label: "Report", icon: <BarChartRoundedIcon />, path: "/teacher/class-report" },
+        ...(canAccessAllReports
+          ? [{ label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" }]
+          : []),
       ];
     }
 
     return [
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
+      ...(canAccessAllReports
+        ? [{ label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" }]
+        : []),
     ];
-  }, [isAdmin, isClassTeacher, isSectionalHead, isTeacher]);
+  }, [canAccessAllReports, isAdmin, isClassTeacher, isSectionalHead, isTeacher]);
 
   const shouldShowBottomNav = isMobile && !mobileOpen;
 

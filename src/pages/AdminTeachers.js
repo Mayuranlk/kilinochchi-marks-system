@@ -95,7 +95,19 @@ function buildFullClassName(grade, section) {
   return g && s ? `${g}${s}` : "";
 }
 
+function getRoleLabel(role) {
+  switch (normalizeLower(role)) {
+    case "sectional_head":
+      return "Sectional Head";
+    case "it_teacher":
+      return "IT Teacher";
+    default:
+      return "Teacher";
+  }
+}
+
 function normalizeTeacher(docId, data = {}) {
+  const role = normalizeLower(data.role);
   return {
     id: docId,
     name: normalizeText(data.name || data.fullName || data.displayName),
@@ -107,9 +119,11 @@ function normalizeTeacher(docId, data = {}) {
     status: normalizeText(data.status || "active") || "active",
     role: normalizeText(data.role || ""),
     isSubjectTeacher:
-      data.isSubjectTeacher === true || normalizeLower(data.role) === "teacher",
+      data.isSubjectTeacher === true || role === "teacher" || role === "it_teacher",
+    isITTeacher:
+      data.isITTeacher === true || data.canAccessAllReports === true || role === "it_teacher",
     isSectionalHead:
-      data.isSectionalHead === true || normalizeLower(data.role) === "sectional_head",
+      data.isSectionalHead === true || role === "sectional_head",
     assignedGrades: Array.isArray(data.assignedGrades)
       ? data.assignedGrades.map(Number).filter(Boolean)
       : [data.assignedGrade, data.sectionalHeadGrade, ...(data.sectionalHeadGrades || [])]
@@ -222,7 +236,7 @@ export default function AdminTeachers() {
 
       const teacherRows = userSnap.docs
         .map((d) => normalizeTeacher(d.id, d.data()))
-        .filter((user) => ["teacher", "sectional_head"].includes(normalizeLower(user.role)))
+        .filter((user) => ["teacher", "it_teacher", "sectional_head"].includes(normalizeLower(user.role)))
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const classroomRows = classroomSnap.docs
@@ -341,7 +355,10 @@ export default function AdminTeachers() {
         email: normalizeText(form.email).toLowerCase(),
         role: form.role,
         isSectionalHead: form.role === "sectional_head",
-        isSubjectTeacher: form.role === "teacher" || form.isSubjectTeacher === true,
+        isSubjectTeacher:
+          form.role === "teacher" || form.role === "it_teacher" || form.isSubjectTeacher === true,
+        isITTeacher: form.role === "it_teacher",
+        canAccessAllReports: form.role === "it_teacher",
         assignedGrades: form.role === "sectional_head" ? form.assignedGrades.map(Number) : [],
         phone: normalizeText(form.phone),
         signatureNo: normalizeText(form.signatureNo),
@@ -349,7 +366,7 @@ export default function AdminTeachers() {
         createdAt: new Date().toISOString(),
       });
 
-      setSuccess(`${form.role === "sectional_head" ? "Sectional Head" : "Teacher"} ${form.name} added.`);
+      setSuccess(`${getRoleLabel(form.role)} ${form.name} added.`);
       setOpen(false);
       setForm(empty);
       await fetchData();
@@ -384,7 +401,11 @@ export default function AdminTeachers() {
         role: editForm.role || "teacher",
         isSectionalHead: editForm.role === "sectional_head",
         isSubjectTeacher:
-          editForm.role === "teacher" || editForm.isSubjectTeacher === true,
+          editForm.role === "teacher" ||
+          editForm.role === "it_teacher" ||
+          editForm.isSubjectTeacher === true,
+        isITTeacher: editForm.role === "it_teacher",
+        canAccessAllReports: editForm.role === "it_teacher",
         assignedGrades:
           editForm.role === "sectional_head"
             ? (editForm.assignedGrades || []).map(Number)
@@ -564,8 +585,9 @@ export default function AdminTeachers() {
     setSelectedTeacher(teacher);
     setEditForm({
       name: teacher.name,
-      role: teacher.role || "teacher",
-      isSubjectTeacher: teacher.role === "teacher" || teacher.isSubjectTeacher === true,
+      role: teacher.isITTeacher ? "it_teacher" : teacher.role || "teacher",
+      isSubjectTeacher:
+        teacher.role === "teacher" || teacher.role === "it_teacher" || teacher.isSubjectTeacher === true,
       assignedGrades: teacher.assignedGrades || [],
       phone: teacher.phone || "",
       signatureNo: teacher.signatureNo || "",
@@ -1212,13 +1234,17 @@ export default function AdminTeachers() {
                     setForm({
                       ...form,
                       role: e.target.value,
-                      isSubjectTeacher: e.target.value === "teacher" ? true : form.isSubjectTeacher,
+                      isSubjectTeacher:
+                        e.target.value === "teacher" || e.target.value === "it_teacher"
+                          ? true
+                          : form.isSubjectTeacher,
                       assignedGrades:
                         e.target.value === "sectional_head" ? form.assignedGrades : [],
                     })
                   }
                 >
                   <MenuItem value="teacher">Subject Teacher</MenuItem>
+                  <MenuItem value="it_teacher">IT Teacher - Reports & Analysis</MenuItem>
                   <MenuItem value="sectional_head">Sectional Head</MenuItem>
                 </Select>
               </FormControl>
@@ -1343,7 +1369,9 @@ export default function AdminTeachers() {
                       ...editForm,
                       role: e.target.value,
                       isSubjectTeacher:
-                        e.target.value === "teacher" ? true : editForm.isSubjectTeacher,
+                        e.target.value === "teacher" || e.target.value === "it_teacher"
+                          ? true
+                          : editForm.isSubjectTeacher,
                       assignedGrades:
                         e.target.value === "sectional_head"
                           ? editForm.assignedGrades || []
@@ -1352,6 +1380,7 @@ export default function AdminTeachers() {
                   }
                 >
                   <MenuItem value="teacher">Subject Teacher</MenuItem>
+                  <MenuItem value="it_teacher">IT Teacher - Reports & Analysis</MenuItem>
                   <MenuItem value="sectional_head">Sectional Head</MenuItem>
                 </Select>
               </FormControl>
