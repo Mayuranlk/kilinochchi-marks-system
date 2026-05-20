@@ -49,6 +49,19 @@ export const normalizeLower = (value) => normalizeText(value).toLowerCase();
 export const normalizeLoose = (value) =>
   normalizeLower(value).replace(/[^a-z0-9]/g, "");
 
+export const normalizeALSubjectNumber = (value) => {
+  const raw = normalizeText(value).toUpperCase();
+  if (!raw) return "";
+
+  const numericMatch = raw.match(/^0*(\d+)$/);
+  if (!numericMatch) return raw;
+
+  const numberValue = Number(numericMatch[1]);
+  return numberValue > 0 && numberValue < 10
+    ? String(numberValue).padStart(2, "0")
+    : String(numberValue);
+};
+
 export const parseGrade = (value) => {
   const match = String(value ?? "").match(/\d+/);
   return match ? Number(match[0]) : 0;
@@ -531,7 +544,7 @@ export const AL_SUBJECTS_BY_NUMBER = Object.fromEntries(
     AL_SUBJECTS.COMMON_GENERAL_TEST,
     AL_SUBJECTS.GENERAL_ENGLISH,
     AL_SUBJECTS.GENERAL_INFORMATION_TECHNOLOGY,
-  ].map((subject) => [normalizeText(subject.subjectNumber), subject])
+  ].map((subject) => [normalizeALSubjectNumber(subject.subjectNumber), subject])
 );
 
 export const AL_SUBJECTS_BY_CODE = Object.fromEntries(
@@ -717,13 +730,13 @@ export const getBasketChoiceFields = (student) => ({
 });
 
 export const getALSubjectByNumber = (subjectNumber) =>
-  AL_SUBJECTS_BY_NUMBER[normalizeText(subjectNumber)] || null;
+  AL_SUBJECTS_BY_NUMBER[normalizeALSubjectNumber(subjectNumber)] || null;
 
 export const getALSubjectByName = (subjectName) =>
   AL_SUBJECTS_BY_NAME[normalizeLower(subjectName)] || null;
 
 const normalizeALCatalogSubject = (subject = {}) => {
-  const subjectNumber = normalizeText(subject.subjectNumber);
+  const subjectNumber = normalizeALSubjectNumber(subject.subjectNumber);
   const subjectName = normalizeText(
     subject.subjectName || subject.name || subject.shortName
   );
@@ -759,10 +772,10 @@ const getALGeneralCatalog = (subjects = []) =>
   ]);
 
 const getALSubjectFromCatalogByNumber = (subjectNumber, subjects = []) => {
-  const normalizedNumber = normalizeText(subjectNumber);
+  const normalizedNumber = normalizeALSubjectNumber(subjectNumber);
   return (
     getALMainCatalog(subjects).find(
-      (subject) => normalizeText(subject.subjectNumber) === normalizedNumber
+      (subject) => normalizeALSubjectNumber(subject.subjectNumber) === normalizedNumber
     ) ||
     getALSubjectByNumber(normalizedNumber)
   );
@@ -861,7 +874,7 @@ const resolveALChoiceSlots = (
   const slots = [];
 
   for (let index = 0; index < maxLength; index += 1) {
-    const number = normalizeText(choiceNumbers[index]);
+    const number = normalizeALSubjectNumber(choiceNumbers[index]);
     const name = normalizeText(choiceNames[index]);
     if (!number && !name) continue;
 

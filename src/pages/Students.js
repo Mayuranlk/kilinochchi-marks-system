@@ -69,6 +69,7 @@ import {
   normalizeText,
   normalizeLower,
   normalizeLoose,
+  normalizeALSubjectNumber,
   isALGrade,
   buildALClassName,
   buildALDisplayClassName,
@@ -198,7 +199,7 @@ const sectionCardSx = {
 const subjectDisplayName = (subject) =>
   normalizeText(subject.name || subject.subjectName || subject.shortName);
 
-const subjectNumber = (subject) => normalizeText(subject.subjectNumber);
+const subjectNumber = (subject) => normalizeALSubjectNumber(subject.subjectNumber);
 const subjectName = (subject) => normalizeText(subject.subjectName || subject.name);
 const subjectCategory = (subject) => normalizeLower(subject.category);
 const subjectReligion = (subject) => normalizeText(subject.religion);
@@ -740,7 +741,7 @@ export default function Students() {
 
   const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
     (choiceNumbers || [])
-      .map((number) => alMainSubjectByNumber.get(normalizeText(number))?.subjectName || "")
+      .map((number) => alMainSubjectByNumber.get(normalizeALSubjectNumber(number))?.subjectName || "")
       .filter(Boolean);
 
   const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
@@ -962,7 +963,7 @@ export default function Students() {
 
     if (shouldShowALFields(grade)) {
       const choiceNumbers = (data.alSubjectChoiceNumbers || [])
-        .map(normalizeText)
+        .map(normalizeALSubjectNumber)
         .filter(Boolean);
       const choiceNames = (
         choiceNumbers.length > 0
@@ -1340,9 +1341,9 @@ export default function Students() {
   };
 
   const mapExcelRowToStudent = (row) => {
-    const al1Number = normalizeText(row["AL Subject No 1"] || row["A/L Subject No 1"] || row["AL No 1"]);
-    const al2Number = normalizeText(row["AL Subject No 2"] || row["A/L Subject No 2"] || row["AL No 2"]);
-    const al3Number = normalizeText(row["AL Subject No 3"] || row["A/L Subject No 3"] || row["AL No 3"]);
+    const al1Number = normalizeALSubjectNumber(row["AL Subject No 1"] || row["A/L Subject No 1"] || row["AL No 1"]);
+    const al2Number = normalizeALSubjectNumber(row["AL Subject No 2"] || row["A/L Subject No 2"] || row["AL No 2"]);
+    const al3Number = normalizeALSubjectNumber(row["AL Subject No 3"] || row["A/L Subject No 3"] || row["AL No 3"]);
 
     const al1 = normalizeText(row["AL Subject 1"] || row["A/L Subject 1"] || row["AL1"]);
     const al2 = normalizeText(row["AL Subject 2"] || row["A/L Subject 2"] || row["AL2"]);
