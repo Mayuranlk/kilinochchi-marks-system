@@ -49,6 +49,7 @@ import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
+import HowToVoteRoundedIcon from "@mui/icons-material/HowToVoteRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -150,6 +151,17 @@ export default function Layout() {
       items: [
         { label: "Promotion", icon: <UpgradeRoundedIcon />, path: "/promotion" },
         { label: "Export Samples", icon: <DownloadRoundedIcon />, path: "/export-firestore-samples", badge: "DEV" },
+      ],
+    },
+    {
+      section: "Special Events",
+      items: [
+        {
+          label: "Election Count",
+          icon: <HowToVoteRoundedIcon />,
+          path: "/election-count",
+          badge: "LIVE",
+        },
       ],
     },
   ];

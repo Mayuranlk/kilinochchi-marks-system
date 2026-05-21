@@ -43,6 +43,8 @@ const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
 const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
 const SBAForm = lazy(() => import("./pages/SBAForm"));
+const ElectionCount = lazy(() => import("./pages/ElectionCount"));
+const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
 
 function LoadingScreen() {
   return (
@@ -125,6 +127,15 @@ export default function App() {
               element={
                 <LazyRoute>
                   <Login />
+                </LazyRoute>
+              }
+            />
+
+            <Route
+              path="/election-live"
+              element={
+                <LazyRoute>
+                  <ElectionLiveResults />
                 </LazyRoute>
               }
             />
@@ -406,6 +417,26 @@ export default function App() {
                   <AdminRoute>
                     <LazyRoute>
                       <ExportFirestoreSamples />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="election-count"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <ElectionCount />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="student-parliament-election"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <ElectionCount />
                     </LazyRoute>
                   </AdminRoute>
                 }
