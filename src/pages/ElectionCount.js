@@ -196,6 +196,8 @@ function CandidateResultTable({ candidates, dense = false, limit }) {
 export default function ElectionCount() {
   const { profile } = useAuth();
   const inputRef = useRef(null);
+  const manualInputRefs = useRef({});
+  const rejectedInputRef = useRef(null);
   const [state, setState] = useState(() => readLocalElectionState());
   const [entryValue, setEntryValue] = useState("");
   const [manualVoteInputs, setManualVoteInputs] = useState({});
@@ -430,6 +432,26 @@ export default function ElectionCount() {
   const handleRejectedVoteChange = (value) => {
     setHasManualDraft(true);
     setManualRejectedVotes(normalizeVoteInputValue(value));
+  };
+
+  const handleManualVoteKeyDown = (event, candidateNumber) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+
+    const currentIndex = state.candidates.findIndex((candidate) => candidate.number === candidateNumber);
+    const nextCandidate = state.candidates[currentIndex + 1];
+
+    if (nextCandidate) {
+      manualInputRefs.current[nextCandidate.number]?.focus();
+    } else {
+      rejectedInputRef.current?.focus();
+    }
+  };
+
+  const handleRejectedVoteKeyDown = (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    handlePublishManualCounts();
   };
 
   const handleLoadCurrentCounts = () => {
@@ -807,8 +829,16 @@ export default function ElectionCount() {
                               <TableCell sx={{ fontWeight: 700 }}>{candidate.label}</TableCell>
                               <TableCell align="right" sx={{ width: 150 }}>
                                 <TextField
+                                  inputRef={(element) => {
+                                    if (element) {
+                                      manualInputRefs.current[candidate.number] = element;
+                                    } else {
+                                      delete manualInputRefs.current[candidate.number];
+                                    }
+                                  }}
                                   value={manualVoteInputs[candidate.number] ?? ""}
                                   onChange={(event) => handleManualVoteChange(candidate.number, event.target.value)}
+                                  onKeyDown={(event) => handleManualVoteKeyDown(event, candidate.number)}
                                   size="small"
                                   inputProps={{
                                     inputMode: "numeric",
@@ -835,9 +865,11 @@ export default function ElectionCount() {
                         Manual Total
                       </Typography>
                       <TextField
+                        inputRef={rejectedInputRef}
                         label="Rejected Votes"
                         value={manualRejectedVotes}
                         onChange={(event) => handleRejectedVoteChange(event.target.value)}
+                        onKeyDown={handleRejectedVoteKeyDown}
                         error={!manualPreview.rejectedInputValid}
                         helperText={manualPreview.rejectedInputValid ? "Enter rejected ballots here." : "Rejected votes must be 0 or more."}
                         inputProps={{ inputMode: "numeric" }}
