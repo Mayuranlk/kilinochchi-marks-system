@@ -48,12 +48,14 @@ import {
   ELECTION_POWERED_BY,
   ELECTION_TITLE,
   applyVoteEntry,
+  applyManualElectionCounts,
   createInitialElectionState,
   electionToCsv,
   formatCandidateNumber,
   getElectionTotals,
   makeEntry,
   normalizeElectionState,
+  parseManualCountRows,
   parseVoteInput,
   undoLastEntry,
   updateCandidateLabels,
@@ -173,6 +175,8 @@ export default function ElectionCount() {
   const inputRef = useRef(null);
   const [state, setState] = useState(() => readLocalElectionState());
   const [entryValue, setEntryValue] = useState("");
+  const [manualCountText, setManualCountText] = useState("");
+  const [manualRejectedVotes, setManualRejectedVotes] = useState("");
   const [candidateLabels, setCandidateLabels] = useState("");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [tab, setTab] = useState(0);
@@ -181,6 +185,23 @@ export default function ElectionCount() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const totals = useMemo(() => getElectionTotals(state), [state]);
+  const manualPreview = useMemo(() => {
+    const parsed = parseManualCountRows(manualCountText);
+    const rejectedFromText = parsed.rejectedVotes;
+    const rejectedInputText = manualRejectedVotes.trim();
+    const rejectedFromInput = Number(rejectedInputText || 0);
+    const rejectedInputValid = !rejectedInputText || (Number.isInteger(rejectedFromInput) && rejectedFromInput >= 0);
+    const rejectedVotes = rejectedFromText !== null ? rejectedFromText : rejectedInputValid ? rejectedFromInput : 0;
+    const validVotes = Array.from(parsed.counts.values()).reduce((sum, votes) => sum + votes, 0);
+
+    return {
+      ...parsed,
+      rejectedInputValid,
+      rejectedVotes,
+      validVotes,
+      totalVotes: validVotes + rejectedVotes,
+    };
+  }, [manualCountText, manualRejectedVotes]);
   const filteredCandidates = useMemo(() => {
     const query = candidateSearch.trim().toLowerCase();
     if (!query) return totals.rankedCandidates;
@@ -347,6 +368,33 @@ export default function ElectionCount() {
     await persistState(createInitialElectionState());
   };
 
+  const handlePublishManualCounts = async () => {
+    if (manualPreview.errors.length) {
+      setStatus({ severity: "error", message: manualPreview.errors.slice(0, 3).join(" ") });
+      return;
+    }
+    if (!manualCountText.trim()) {
+      setStatus({ severity: "error", message: "Enter manual candidate totals before publishing." });
+      return;
+    }
+    if (!manualPreview.rejectedInputValid) {
+      setStatus({ severity: "error", message: "Rejected votes must be 0 or more." });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Replace the full election count with these manual totals?\n\nValid: ${manualPreview.validVotes}\nRejected: ${manualPreview.rejectedVotes}\nTotal: ${manualPreview.totalVotes}`
+    );
+    if (!confirmed) return;
+
+    const nextState = applyManualElectionCounts(state, manualPreview.counts, manualPreview.rejectedVotes);
+    await persistState(nextState);
+    setStatus({
+      severity: "success",
+      message: "Manual count was saved locally and published online for the live page and reports.",
+    });
+  };
+
   const handleExport = () => {
     downloadText("student-parliament-election-2026-results.csv", electionToCsv(state));
   };
@@ -415,6 +463,7 @@ export default function ElectionCount() {
         </Paper>
 
         {tab === 0 ? (
+          <>
           <Grid container spacing={2}>
             <Grid item xs={12} lg={7}>
               <Card>
@@ -535,6 +584,70 @@ export default function ElectionCount() {
               </Card>
             </Grid>
           </Grid>
+
+          <Card>
+            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+              <Grid container spacing={2.25}>
+                <Grid item xs={12} md={7}>
+                  <Stack spacing={1.5}>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                        Manual Recovery Entry
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Enter final totals from paper/counting sheets, one line per candidate. This replaces the full online count.
+                      </Typography>
+                    </Box>
+                    <TextField
+                      value={manualCountText}
+                      onChange={(event) => setManualCountText(event.target.value)}
+                      multiline
+                      minRows={8}
+                      placeholder={"1, 12\n2, 8\n20, 31\nR, 4"}
+                    />
+                  </Stack>
+                </Grid>
+
+                <Grid item xs={12} md={5}>
+                  <Stack spacing={1.5}>
+                    <Alert severity="info">
+                      Use this when Firebase rejected live updates. After publishing, the live page, CSV, and print report use these manual totals.
+                    </Alert>
+                    <TextField
+                      label="Rejected Votes"
+                      value={manualRejectedVotes}
+                      onChange={(event) => setManualRejectedVotes(event.target.value)}
+                      error={!manualPreview.rejectedInputValid}
+                      helperText={
+                        manualPreview.rejectedInputValid
+                          ? "Optional if you entered R, votes in the manual list."
+                          : "Rejected votes must be 0 or more."
+                      }
+                      inputProps={{ inputMode: "numeric" }}
+                    />
+                    <Grid container spacing={1}>
+                      <Grid item xs={4}>
+                        <StatCard title="Valid" value={manualPreview.validVotes} color="success" />
+                      </Grid>
+                      <Grid item xs={4}>
+                        <StatCard title="Rejected" value={manualPreview.rejectedVotes} color="warning" />
+                      </Grid>
+                      <Grid item xs={4}>
+                        <StatCard title="Total" value={manualPreview.totalVotes} />
+                      </Grid>
+                    </Grid>
+                    {manualPreview.errors.length ? (
+                      <Alert severity="error">{manualPreview.errors.slice(0, 4).join(" ")}</Alert>
+                    ) : null}
+                    <Button variant="contained" startIcon={<SaveRoundedIcon />} onClick={handlePublishManualCounts}>
+                      Publish Manual Count Online
+                    </Button>
+                  </Stack>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+          </>
         ) : null}
 
         {tab === 1 ? (

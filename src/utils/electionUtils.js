@@ -168,6 +168,70 @@ export const updateCandidateLabels = (state, labelText) => {
   };
 };
 
+export const parseManualCountRows = (value) => {
+  const counts = new Map();
+  const errors = [];
+  let rejectedVotes = null;
+
+  String(value || "")
+    .split(/\r?\n/)
+    .forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const parts = trimmed
+        .split(/[,\t:| ]+/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+      if (parts.length < 2) {
+        errors.push(`Line ${index + 1}: enter candidate number and votes.`);
+        return;
+      }
+
+      const [candidatePart, votePart] = parts;
+      const votes = Number(votePart);
+
+      if (!Number.isInteger(votes) || votes < 0) {
+        errors.push(`Line ${index + 1}: votes must be 0 or more.`);
+        return;
+      }
+
+      if (["R", "REJECT", "REJECTED", "INVALID"].includes(candidatePart.toUpperCase())) {
+        rejectedVotes = votes;
+        return;
+      }
+
+      const candidateNumber = Number(candidatePart);
+      if (!Number.isInteger(candidateNumber) || candidateNumber < 1 || candidateNumber > CANDIDATE_COUNT) {
+        errors.push(`Line ${index + 1}: candidate must be 1 to ${CANDIDATE_COUNT}, or R for rejected.`);
+        return;
+      }
+
+      counts.set(candidateNumber, votes);
+    });
+
+  return {
+    counts,
+    errors,
+    rejectedVotes,
+  };
+};
+
+export const applyManualElectionCounts = (state, counts, rejectedVotes = 0) => {
+  const current = normalizeElectionState(state);
+  return {
+    ...current,
+    candidates: current.candidates.map((candidate) => ({
+      ...candidate,
+      votes: Math.max(0, Number(counts.get(candidate.number) || 0)),
+    })),
+    rejectedVotes: Math.max(0, Number(rejectedVotes || 0)),
+    entries: [],
+    updatedAtText: new Date().toISOString(),
+  };
+};
+
 export const electionToCsv = (state) => {
   const totals = getElectionTotals(state);
   const rows = [
