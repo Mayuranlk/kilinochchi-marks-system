@@ -21,6 +21,8 @@ export const createInitialElectionState = () => ({
   organizer: ELECTION_ORGANIZER,
   candidateCount: CANDIDATE_COUNT,
   candidates: createDefaultCandidates(),
+  registeredVoters: 0,
+  votedVoters: 0,
   rejectedVotes: 0,
   entries: [],
   createdAtText: new Date().toISOString(),
@@ -51,6 +53,8 @@ export const normalizeElectionState = (rawState = {}) => {
         votes: Math.max(0, Number(existing?.votes || 0)),
       };
     }),
+    registeredVoters: Math.max(0, Number(rawState.registeredVoters || 0)),
+    votedVoters: Math.max(0, Number(rawState.votedVoters || 0)),
     rejectedVotes: Math.max(0, Number(rawState.rejectedVotes || 0)),
     entries: Array.isArray(rawState.entries) ? rawState.entries.slice(0, 250) : [],
   };
@@ -61,6 +65,9 @@ export const getElectionTotals = (state) => {
   const validVotes = candidates.reduce((sum, candidate) => sum + Number(candidate.votes || 0), 0);
   const rejectedVotes = Number(state?.rejectedVotes || 0);
   const totalVotes = validVotes + rejectedVotes;
+  const registeredVoters = Number(state?.registeredVoters || 0);
+  const votedVoters = Number(state?.votedVoters || 0);
+  const turnoutPercentage = registeredVoters > 0 ? (votedVoters / registeredVoters) * 100 : 0;
   const rankedCandidates = [...candidates].sort((a, b) => {
     const voteDiff = Number(b.votes || 0) - Number(a.votes || 0);
     if (voteDiff !== 0) return voteDiff;
@@ -73,6 +80,9 @@ export const getElectionTotals = (state) => {
     validVotes,
     rejectedVotes,
     totalVotes,
+    registeredVoters,
+    votedVoters,
+    turnoutPercentage,
     rankedCandidates,
     leaders,
     leaderVotes,
@@ -218,7 +228,7 @@ export const parseManualCountRows = (value) => {
   };
 };
 
-export const applyManualElectionCounts = (state, counts, rejectedVotes = 0) => {
+export const applyManualElectionCounts = (state, counts, rejectedVotes = 0, voterStats = {}) => {
   const current = normalizeElectionState(state);
   return {
     ...current,
@@ -227,6 +237,8 @@ export const applyManualElectionCounts = (state, counts, rejectedVotes = 0) => {
       votes: Math.max(0, Number(counts.get(candidate.number) || 0)),
     })),
     rejectedVotes: Math.max(0, Number(rejectedVotes || 0)),
+    registeredVoters: Math.max(0, Number(voterStats.registeredVoters || 0)),
+    votedVoters: Math.max(0, Number(voterStats.votedVoters || 0)),
     entries: [],
     updatedAtText: new Date().toISOString(),
   };
@@ -238,6 +250,10 @@ export const electionToCsv = (state) => {
     ["Election", ELECTION_TITLE],
     ["Organizer", ELECTION_ORGANIZER],
     ["Generated At", new Date().toLocaleString()],
+    [],
+    ["Registered Voters", totals.registeredVoters],
+    ["Voters Who Voted", totals.votedVoters],
+    ["Turnout Percentage", totals.turnoutPercentage.toFixed(2)],
     [],
     ["Total Votes", totals.totalVotes],
     ["Valid Votes", totals.validVotes],

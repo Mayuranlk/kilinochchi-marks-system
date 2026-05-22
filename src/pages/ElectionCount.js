@@ -197,12 +197,16 @@ export default function ElectionCount() {
   const { profile } = useAuth();
   const inputRef = useRef(null);
   const manualInputRefs = useRef({});
+  const registeredVotersInputRef = useRef(null);
+  const votedVotersInputRef = useRef(null);
   const rejectedInputRef = useRef(null);
   const [state, setState] = useState(() => readLocalElectionState());
   const [entryValue, setEntryValue] = useState("");
   const [manualVoteInputs, setManualVoteInputs] = useState({});
   const [hasManualDraft, setHasManualDraft] = useState(false);
   const [manualCountText, setManualCountText] = useState("");
+  const [manualRegisteredVoters, setManualRegisteredVoters] = useState("");
+  const [manualVotedVoters, setManualVotedVoters] = useState("");
   const [manualRejectedVotes, setManualRejectedVotes] = useState("");
   const [candidateLabels, setCandidateLabels] = useState("");
   const [candidateSearch, setCandidateSearch] = useState("");
@@ -237,17 +241,31 @@ export default function ElectionCount() {
     const rejectedFromInput = Number(rejectedInputText || 0);
     const rejectedInputValid = !rejectedInputText || (Number.isInteger(rejectedFromInput) && rejectedFromInput >= 0);
     const rejectedVotes = rejectedInputValid ? rejectedFromInput : 0;
+    const registeredInputText = manualRegisteredVoters.trim();
+    const registeredFromInput = Number(registeredInputText || 0);
+    const registeredInputValid = !registeredInputText || (Number.isInteger(registeredFromInput) && registeredFromInput >= 0);
+    const registeredVoters = registeredInputValid ? registeredFromInput : 0;
+    const votedInputText = manualVotedVoters.trim();
+    const votedFromInput = Number(votedInputText || 0);
+    const votedInputValid = !votedInputText || (Number.isInteger(votedFromInput) && votedFromInput >= 0);
+    const votedVoters = votedInputValid ? votedFromInput : 0;
+    const voterCountValid = !registeredInputValid || !votedInputValid || registeredVoters === 0 || votedVoters <= registeredVoters;
     const validVotes = Array.from(counts.values()).reduce((sum, votes) => sum + votes, 0);
 
     return {
       counts,
       errors,
+      registeredInputValid,
+      votedInputValid,
+      voterCountValid,
+      registeredVoters,
+      votedVoters,
       rejectedInputValid,
       rejectedVotes,
       validVotes,
       totalVotes: validVotes + rejectedVotes,
     };
-  }, [manualRejectedVotes, manualVoteInputs, state.candidates]);
+  }, [manualRegisteredVoters, manualRejectedVotes, manualVoteInputs, manualVotedVoters, state.candidates]);
   const filteredCandidates = useMemo(() => {
     const query = candidateSearch.trim().toLowerCase();
     if (!query) return totals.rankedCandidates;
@@ -298,6 +316,8 @@ export default function ElectionCount() {
   useEffect(() => {
     if (hasManualDraft) return;
     setManualVoteInputs(makeManualVoteInputs(state));
+    setManualRegisteredVoters(String(Number(state.registeredVoters || 0)));
+    setManualVotedVoters(String(Number(state.votedVoters || 0)));
     setManualRejectedVotes(String(Number(state.rejectedVotes || 0)));
   }, [hasManualDraft, state]);
 
@@ -434,6 +454,16 @@ export default function ElectionCount() {
     setManualRejectedVotes(normalizeVoteInputValue(value));
   };
 
+  const handleRegisteredVotersChange = (value) => {
+    setHasManualDraft(true);
+    setManualRegisteredVoters(normalizeVoteInputValue(value));
+  };
+
+  const handleVotedVotersChange = (value) => {
+    setHasManualDraft(true);
+    setManualVotedVoters(normalizeVoteInputValue(value));
+  };
+
   const handleManualVoteKeyDown = (event, candidateNumber) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
@@ -444,8 +474,20 @@ export default function ElectionCount() {
     if (nextCandidate) {
       manualInputRefs.current[nextCandidate.number]?.focus();
     } else {
-      rejectedInputRef.current?.focus();
+      registeredVotersInputRef.current?.focus();
     }
+  };
+
+  const handleRegisteredVotersKeyDown = (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    votedVotersInputRef.current?.focus();
+  };
+
+  const handleVotedVotersKeyDown = (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    rejectedInputRef.current?.focus();
   };
 
   const handleRejectedVoteKeyDown = (event) => {
@@ -456,6 +498,8 @@ export default function ElectionCount() {
 
   const handleLoadCurrentCounts = () => {
     setManualVoteInputs(makeManualVoteInputs(state));
+    setManualRegisteredVoters(String(Number(state.registeredVoters || 0)));
+    setManualVotedVoters(String(Number(state.votedVoters || 0)));
     setManualRejectedVotes(String(Number(state.rejectedVotes || 0)));
     setManualCountText("");
     setHasManualDraft(false);
@@ -496,13 +540,28 @@ export default function ElectionCount() {
       setStatus({ severity: "error", message: "Rejected votes must be 0 or more." });
       return;
     }
+    if (!manualPreview.registeredInputValid) {
+      setStatus({ severity: "error", message: "Registered voters must be 0 or more." });
+      return;
+    }
+    if (!manualPreview.votedInputValid) {
+      setStatus({ severity: "error", message: "Voters who voted must be 0 or more." });
+      return;
+    }
+    if (!manualPreview.voterCountValid) {
+      setStatus({ severity: "error", message: "Voters who voted cannot be more than registered voters." });
+      return;
+    }
 
     const confirmed = window.confirm(
-      `Replace the full election count with these manual totals?\n\nValid: ${manualPreview.validVotes}\nRejected: ${manualPreview.rejectedVotes}\nTotal: ${manualPreview.totalVotes}`
+      `Replace the full election count with these manual totals?\n\nRegistered voters: ${manualPreview.registeredVoters}\nVoters who voted: ${manualPreview.votedVoters}\nValid votes: ${manualPreview.validVotes}\nRejected votes: ${manualPreview.rejectedVotes}\nTotal votes cast: ${manualPreview.totalVotes}`
     );
     if (!confirmed) return;
 
-    const nextState = applyManualElectionCounts(state, manualPreview.counts, manualPreview.rejectedVotes);
+    const nextState = applyManualElectionCounts(state, manualPreview.counts, manualPreview.rejectedVotes, {
+      registeredVoters: manualPreview.registeredVoters,
+      votedVoters: manualPreview.votedVoters,
+    });
     await persistState(nextState);
     setHasManualDraft(false);
     setStatus({
@@ -545,7 +604,7 @@ export default function ElectionCount() {
             .title { text-align: center; flex: 1; }
             h1 { margin: 0; font-size: 22px; letter-spacing: 0; text-transform: uppercase; }
             h2 { margin: 6px 0 0; font-size: 17px; letter-spacing: 0; }
-            .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+            .meta { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
             .stat { border: 1px solid #111827; padding: 9px 10px; text-align: center; }
             .stat-label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; }
             .stat-value { display: block; margin-top: 3px; font-size: 21px; font-weight: 900; }
@@ -571,9 +630,11 @@ export default function ElectionCount() {
               <img class="logo" src="${window.location.origin}/board-prefects-logo.png" alt="">
             </section>
             <section class="meta">
+              <div class="stat"><span class="stat-label">Registered Voters</span><span class="stat-value">${totals.registeredVoters}</span></div>
+              <div class="stat"><span class="stat-label">Voters Who Voted</span><span class="stat-value">${totals.votedVoters}</span></div>
               <div class="stat"><span class="stat-label">Valid Votes</span><span class="stat-value">${totals.validVotes}</span></div>
               <div class="stat"><span class="stat-label">Rejected Votes</span><span class="stat-value">${totals.rejectedVotes}</span></div>
-              <div class="stat"><span class="stat-label">Total Votes</span><span class="stat-value">${totals.totalVotes}</span></div>
+              <div class="stat"><span class="stat-label">Votes Cast</span><span class="stat-value">${totals.totalVotes}</span></div>
             </section>
             <table>
               <thead>
@@ -636,16 +697,22 @@ export default function ElectionCount() {
         </Alert>
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={3}>
-            <StatCard title="Total Counted" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Valid and rejected ballots" />
+          <Grid item xs={12} sm={6} md={2}>
+            <StatCard title="Registered Voters" value={totals.registeredVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <StatCard title="Voters Voted" value={totals.votedVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <StatCard title="Votes Cast" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Valid and rejected votes" />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
             <StatCard title="Valid Votes" value={totals.validVotes} icon={<AddCircleRoundedIcon />} color="success" />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <StatCard title="Rejected Votes" value={totals.rejectedVotes} icon={<WarningAmberRoundedIcon />} color="warning" />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <StatCard
               title={totals.leaders.length > 1 ? "Current Tie" : "Current Leader"}
               value={
@@ -807,7 +874,7 @@ export default function ElectionCount() {
                         Enter Candidate Vote Totals
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Type each candidate's final vote count. Valid votes are calculated from these boxes. Rejected votes are entered separately.
+                        Type each candidate's final vote count. Valid votes are calculated from these boxes. Registered voters, voters who voted, and rejected votes are entered separately.
                       </Typography>
                     </Box>
 
@@ -865,6 +932,32 @@ export default function ElectionCount() {
                         Manual Total
                       </Typography>
                       <TextField
+                        inputRef={registeredVotersInputRef}
+                        label="Registered Voters"
+                        value={manualRegisteredVoters}
+                        onChange={(event) => handleRegisteredVotersChange(event.target.value)}
+                        onKeyDown={handleRegisteredVotersKeyDown}
+                        error={!manualPreview.registeredInputValid}
+                        helperText={manualPreview.registeredInputValid ? "Total students registered to vote." : "Registered voters must be 0 or more."}
+                        inputProps={{ inputMode: "numeric" }}
+                      />
+                      <TextField
+                        inputRef={votedVotersInputRef}
+                        label="Voters Who Voted"
+                        value={manualVotedVoters}
+                        onChange={(event) => handleVotedVotersChange(event.target.value)}
+                        onKeyDown={handleVotedVotersKeyDown}
+                        error={!manualPreview.votedInputValid || !manualPreview.voterCountValid}
+                        helperText={
+                          !manualPreview.votedInputValid
+                            ? "Voters who voted must be 0 or more."
+                            : manualPreview.voterCountValid
+                              ? "Students who actually voted."
+                              : "Cannot be more than registered voters."
+                        }
+                        inputProps={{ inputMode: "numeric" }}
+                      />
+                      <TextField
                         inputRef={rejectedInputRef}
                         label="Rejected Votes"
                         value={manualRejectedVotes}
@@ -875,6 +968,12 @@ export default function ElectionCount() {
                         inputProps={{ inputMode: "numeric" }}
                       />
                       <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <StatCard title="Registered" value={manualPreview.registeredVoters} />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <StatCard title="Voted" value={manualPreview.votedVoters} />
+                        </Grid>
                         <Grid item xs={4}>
                           <StatCard title="Valid" value={manualPreview.validVotes} color="success" />
                         </Grid>
@@ -951,13 +1050,19 @@ export default function ElectionCount() {
               <Box className="election-report-print">
                 <OfficialHeader compact />
                 <Grid container spacing={2} sx={{ mt: 0.5, mb: 2 }}>
-                  <Grid item xs={12} md={4}>
-                    <StatCard title="Total Votes" value={totals.totalVotes} />
+                  <Grid item xs={12} sm={6} md={2}>
+                    <StatCard title="Registered Voters" value={totals.registeredVoters} />
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} sm={6} md={2}>
+                    <StatCard title="Voters Voted" value={totals.votedVoters} />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2}>
+                    <StatCard title="Votes Cast" value={totals.totalVotes} />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2}>
                     <StatCard title="Valid Votes" value={totals.validVotes} color="success" />
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} sm={6} md={2}>
                     <StatCard title="Rejected Votes" value={totals.rejectedVotes} color="warning" />
                   </Grid>
                 </Grid>
@@ -966,6 +1071,9 @@ export default function ElectionCount() {
                   <Typography variant="h6">Official Result Summary</Typography>
                   <Typography variant="body2" color="text.secondary">
                     Generated at {new Date().toLocaleString()} from the live election count document. Public live page: {liveUrl}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Voters and votes are recorded separately because one voter may cast more than one vote.
                   </Typography>
                 </Stack>
 
@@ -999,14 +1107,20 @@ export default function ElectionCount() {
                     Official Notice Board Result Sheet
                   </Typography>
                   <Grid container spacing={2} sx={{ my: 2 }}>
-                    <Grid item xs={12} md={4}>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <StatCard title="Registered Voters" value={totals.registeredVoters} />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
+                      <StatCard title="Voters Voted" value={totals.votedVoters} />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={2}>
                       <StatCard title="Valid Votes" value={totals.validVotes} color="success" />
                     </Grid>
-                    <Grid item xs={12} md={4}>
+                    <Grid item xs={12} sm={6} md={2}>
                       <StatCard title="Rejected Votes" value={totals.rejectedVotes} color="warning" />
                     </Grid>
-                    <Grid item xs={12} md={4}>
-                      <StatCard title="Total Votes" value={totals.totalVotes} />
+                    <Grid item xs={12} sm={6} md={2}>
+                      <StatCard title="Votes Cast" value={totals.totalVotes} />
                     </Grid>
                   </Grid>
                   <CandidateResultTable candidates={totals.rankedCandidates} dense />

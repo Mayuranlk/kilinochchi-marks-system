@@ -156,16 +156,22 @@ export default function ElectionLiveResults() {
           {error ? <Alert severity="warning">{error}</Alert> : null}
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={3}>
-              <StatCard title="Total Counted" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Including rejected votes" />
+            <Grid item xs={12} sm={6} md={2}>
+              <StatCard title="Registered Voters" value={totals.registeredVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={2}>
+              <StatCard title="Voters Voted" value={totals.votedVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <StatCard title="Votes Cast" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Including rejected votes" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
               <StatCard title="Valid Votes" value={totals.validVotes} icon={<LeaderboardRoundedIcon />} color="success" />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={2}>
               <StatCard title="Rejected Votes" value={totals.rejectedVotes} icon={<WarningAmberRoundedIcon />} color="warning" />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} sm={6} md={2}>
               <StatCard
                 title={totals.leaders.length > 1 ? "Current Tie" : "Current Leader"}
                 value={
