@@ -63,6 +63,15 @@ import {
 
 const electionDocRef = doc(db, "elections", ELECTION_ID);
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function readLocalElectionState() {
   try {
     const raw = localStorage.getItem(ELECTION_LOCAL_KEY);
@@ -91,6 +100,20 @@ function downloadText(filename, text) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function makeManualVoteInputs(state) {
+  const normalized = normalizeElectionState(state);
+  return normalized.candidates.reduce((inputs, candidate) => {
+    inputs[candidate.number] = String(Number(candidate.votes || 0));
+    return inputs;
+  }, {});
+}
+
+function normalizeVoteInputValue(value) {
+  const cleaned = String(value || "").replace(/[^\d]/g, "");
+  if (!cleaned) return "";
+  return String(Math.max(0, Number(cleaned)));
 }
 
 function OfficialHeader({ compact = false }) {
@@ -175,6 +198,8 @@ export default function ElectionCount() {
   const inputRef = useRef(null);
   const [state, setState] = useState(() => readLocalElectionState());
   const [entryValue, setEntryValue] = useState("");
+  const [manualVoteInputs, setManualVoteInputs] = useState({});
+  const [hasManualDraft, setHasManualDraft] = useState(false);
   const [manualCountText, setManualCountText] = useState("");
   const [manualRejectedVotes, setManualRejectedVotes] = useState("");
   const [candidateLabels, setCandidateLabels] = useState("");
@@ -186,22 +211,41 @@ export default function ElectionCount() {
 
   const totals = useMemo(() => getElectionTotals(state), [state]);
   const manualPreview = useMemo(() => {
-    const parsed = parseManualCountRows(manualCountText);
-    const rejectedFromText = parsed.rejectedVotes;
+    const counts = new Map();
+    const errors = [];
+
+    state.candidates.forEach((candidate) => {
+      const rawValue = manualVoteInputs[candidate.number] ?? "";
+      if (rawValue === "") {
+        counts.set(candidate.number, 0);
+        return;
+      }
+
+      const votes = Number(rawValue);
+      if (!Number.isInteger(votes) || votes < 0) {
+        errors.push(`Candidate ${formatCandidateNumber(candidate.number)}: votes must be 0 or more.`);
+        counts.set(candidate.number, 0);
+        return;
+      }
+
+      counts.set(candidate.number, votes);
+    });
+
     const rejectedInputText = manualRejectedVotes.trim();
     const rejectedFromInput = Number(rejectedInputText || 0);
     const rejectedInputValid = !rejectedInputText || (Number.isInteger(rejectedFromInput) && rejectedFromInput >= 0);
-    const rejectedVotes = rejectedFromText !== null ? rejectedFromText : rejectedInputValid ? rejectedFromInput : 0;
-    const validVotes = Array.from(parsed.counts.values()).reduce((sum, votes) => sum + votes, 0);
+    const rejectedVotes = rejectedInputValid ? rejectedFromInput : 0;
+    const validVotes = Array.from(counts.values()).reduce((sum, votes) => sum + votes, 0);
 
     return {
-      ...parsed,
+      counts,
+      errors,
       rejectedInputValid,
       rejectedVotes,
       validVotes,
       totalVotes: validVotes + rejectedVotes,
     };
-  }, [manualCountText, manualRejectedVotes]);
+  }, [manualRejectedVotes, manualVoteInputs, state.candidates]);
   const filteredCandidates = useMemo(() => {
     const query = candidateSearch.trim().toLowerCase();
     if (!query) return totals.rankedCandidates;
@@ -248,6 +292,12 @@ export default function ElectionCount() {
   useEffect(() => {
     inputRef.current?.focus();
   }, [tab]);
+
+  useEffect(() => {
+    if (hasManualDraft) return;
+    setManualVoteInputs(makeManualVoteInputs(state));
+    setManualRejectedVotes(String(Number(state.rejectedVotes || 0)));
+  }, [hasManualDraft, state]);
 
   const persistState = async (nextState) => {
     const normalized = normalizeElectionState(nextState);
@@ -366,15 +416,58 @@ export default function ElectionCount() {
     const confirmed = window.confirm("Reset all candidate votes, rejected votes, and recent entries for this election?");
     if (!confirmed) return;
     await persistState(createInitialElectionState());
+    setHasManualDraft(false);
+  };
+
+  const handleManualVoteChange = (candidateNumber, value) => {
+    setHasManualDraft(true);
+    setManualVoteInputs((current) => ({
+      ...current,
+      [candidateNumber]: normalizeVoteInputValue(value),
+    }));
+  };
+
+  const handleRejectedVoteChange = (value) => {
+    setHasManualDraft(true);
+    setManualRejectedVotes(normalizeVoteInputValue(value));
+  };
+
+  const handleLoadCurrentCounts = () => {
+    setManualVoteInputs(makeManualVoteInputs(state));
+    setManualRejectedVotes(String(Number(state.rejectedVotes || 0)));
+    setManualCountText("");
+    setHasManualDraft(false);
+    setStatus({ severity: "info", message: "Manual entry boxes were filled with the current online/local count." });
+  };
+
+  const handleApplyPastedCounts = () => {
+    const parsed = parseManualCountRows(manualCountText);
+    if (parsed.errors.length) {
+      setStatus({ severity: "error", message: parsed.errors.slice(0, 3).join(" ") });
+      return;
+    }
+    if (!manualCountText.trim()) {
+      setStatus({ severity: "error", message: "Paste candidate totals before filling the manual boxes." });
+      return;
+    }
+
+    setManualVoteInputs((current) => {
+      const next = { ...current };
+      parsed.counts.forEach((votes, candidateNumber) => {
+        next[candidateNumber] = String(votes);
+      });
+      return next;
+    });
+    if (parsed.rejectedVotes !== null) {
+      setManualRejectedVotes(String(parsed.rejectedVotes));
+    }
+    setHasManualDraft(true);
+    setStatus({ severity: "success", message: "Pasted result sheet was loaded into the manual vote boxes." });
   };
 
   const handlePublishManualCounts = async () => {
     if (manualPreview.errors.length) {
       setStatus({ severity: "error", message: manualPreview.errors.slice(0, 3).join(" ") });
-      return;
-    }
-    if (!manualCountText.trim()) {
-      setStatus({ severity: "error", message: "Enter manual candidate totals before publishing." });
       return;
     }
     if (!manualPreview.rejectedInputValid) {
@@ -389,10 +482,101 @@ export default function ElectionCount() {
 
     const nextState = applyManualElectionCounts(state, manualPreview.counts, manualPreview.rejectedVotes);
     await persistState(nextState);
+    setHasManualDraft(false);
     setStatus({
       severity: "success",
       message: "Manual count was saved locally and published online for the live page and reports.",
     });
+  };
+
+  const handlePrintNoticeBoard = () => {
+    const rows = totals.rankedCandidates
+      .map(
+        (candidate, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${formatCandidateNumber(candidate.number)}</td>
+            <td>${escapeHtml(candidate.label)}</td>
+            <td>${Number(candidate.votes || 0)}</td>
+          </tr>`
+      )
+      .join("");
+    const generatedAt = new Date().toLocaleString();
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setStatus({ severity: "error", message: "Unable to open print window. Please allow pop-ups for this site." });
+      return;
+    }
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(ELECTION_TITLE)} - Notice Board Results</title>
+          <style>
+            @page { size: A4 portrait; margin: 12mm; }
+            * { box-sizing: border-box; }
+            body { margin: 0; color: #111827; font-family: Arial, Helvetica, sans-serif; }
+            .sheet { width: 100%; }
+            .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 3px solid #111827; padding-bottom: 12px; }
+            .logo { width: 78px; height: 78px; object-fit: contain; }
+            .title { text-align: center; flex: 1; }
+            h1 { margin: 0; font-size: 22px; letter-spacing: 0; text-transform: uppercase; }
+            h2 { margin: 6px 0 0; font-size: 17px; letter-spacing: 0; }
+            .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0; }
+            .stat { border: 1px solid #111827; padding: 9px 10px; text-align: center; }
+            .stat-label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+            .stat-value { display: block; margin-top: 3px; font-size: 21px; font-weight: 900; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #111827; padding: 5px 6px; }
+            th { text-transform: uppercase; font-size: 10px; background: #e5e7eb; }
+            td:nth-child(1), td:nth-child(2), td:nth-child(4) { text-align: center; font-weight: 800; }
+            td:nth-child(4) { font-size: 12px; }
+            .footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 28px; font-size: 11px; text-align: center; }
+            .signature { border-top: 1px solid #111827; padding-top: 6px; }
+            .generated { margin-top: 10px; text-align: right; font-size: 9px; color: #374151; }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">
+            <section class="header">
+              <img class="logo" src="${window.location.origin}/kcc-logo.png" alt="">
+              <div class="title">
+                <h1>${escapeHtml(ELECTION_TITLE)}</h1>
+                <h2>Official Notice Board Result Sheet</h2>
+                <div>${escapeHtml(ELECTION_ORGANIZER)}</div>
+              </div>
+              <img class="logo" src="${window.location.origin}/board-prefects-logo.png" alt="">
+            </section>
+            <section class="meta">
+              <div class="stat"><span class="stat-label">Valid Votes</span><span class="stat-value">${totals.validVotes}</span></div>
+              <div class="stat"><span class="stat-label">Rejected Votes</span><span class="stat-value">${totals.rejectedVotes}</span></div>
+              <div class="stat"><span class="stat-label">Total Votes</span><span class="stat-value">${totals.totalVotes}</span></div>
+            </section>
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Candidate No.</th>
+                  <th>Candidate Name</th>
+                  <th>Votes</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+            <section class="footer">
+              <div class="signature">Prepared By</div>
+              <div class="signature">Election Committee</div>
+              <div class="signature">Principal</div>
+            </section>
+            <div class="generated">Generated: ${escapeHtml(generatedAt)}</div>
+          </main>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 250);
   };
 
   const handleExport = () => {
@@ -456,8 +640,10 @@ export default function ElectionCount() {
         <Paper elevation={0} sx={{ borderRadius: 2 }}>
           <Tabs value={tab} onChange={(event, value) => setTab(value)} variant="scrollable" scrollButtons="auto">
             <Tab label="Count" />
+            <Tab label="Manual Count" />
             <Tab label="Results" />
             <Tab label="Report" />
+            <Tab label="Notice Board" />
             <Tab label="Candidates" />
           </Tabs>
         </Paper>
@@ -585,72 +771,131 @@ export default function ElectionCount() {
             </Grid>
           </Grid>
 
-          <Card>
-            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-              <Grid container spacing={2.25}>
-                <Grid item xs={12} md={7}>
-                  <Stack spacing={1.5}>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                        Manual Recovery Entry
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Enter final totals from paper/counting sheets, one line per candidate. This replaces the full online count.
-                      </Typography>
-                    </Box>
-                    <TextField
-                      value={manualCountText}
-                      onChange={(event) => setManualCountText(event.target.value)}
-                      multiline
-                      minRows={8}
-                      placeholder={"1, 12\n2, 8\n20, 31\nR, 4"}
-                    />
-                  </Stack>
-                </Grid>
-
-                <Grid item xs={12} md={5}>
-                  <Stack spacing={1.5}>
-                    <Alert severity="info">
-                      Use this when Firebase rejected live updates. After publishing, the live page, CSV, and print report use these manual totals.
-                    </Alert>
-                    <TextField
-                      label="Rejected Votes"
-                      value={manualRejectedVotes}
-                      onChange={(event) => setManualRejectedVotes(event.target.value)}
-                      error={!manualPreview.rejectedInputValid}
-                      helperText={
-                        manualPreview.rejectedInputValid
-                          ? "Optional if you entered R, votes in the manual list."
-                          : "Rejected votes must be 0 or more."
-                      }
-                      inputProps={{ inputMode: "numeric" }}
-                    />
-                    <Grid container spacing={1}>
-                      <Grid item xs={4}>
-                        <StatCard title="Valid" value={manualPreview.validVotes} color="success" />
-                      </Grid>
-                      <Grid item xs={4}>
-                        <StatCard title="Rejected" value={manualPreview.rejectedVotes} color="warning" />
-                      </Grid>
-                      <Grid item xs={4}>
-                        <StatCard title="Total" value={manualPreview.totalVotes} />
-                      </Grid>
-                    </Grid>
-                    {manualPreview.errors.length ? (
-                      <Alert severity="error">{manualPreview.errors.slice(0, 4).join(" ")}</Alert>
-                    ) : null}
-                    <Button variant="contained" startIcon={<SaveRoundedIcon />} onClick={handlePublishManualCounts}>
-                      Publish Manual Count Online
-                    </Button>
-                  </Stack>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
           </>
         ) : null}
 
         {tab === 1 ? (
+          <Grid container spacing={2}>
+            <Grid item xs={12} lg={8}>
+              <Card>
+                <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+                  <Stack spacing={1.75}>
+                    <Box>
+                      <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                        Enter Candidate Vote Totals
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Type each candidate's final vote count. Valid votes are calculated from these boxes. Rejected votes are entered separately.
+                      </Typography>
+                    </Box>
+
+                    <TableContainer component={Paper} elevation={0} sx={{ maxHeight: 560 }}>
+                      <Table stickyHeader size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Candidate</TableCell>
+                            <TableCell>Name</TableCell>
+                            <TableCell align="right">Votes</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {state.candidates.map((candidate) => (
+                            <TableRow key={candidate.number}>
+                              <TableCell sx={{ width: 130, fontWeight: 900 }}>
+                                {formatCandidateNumber(candidate.number)}
+                              </TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>{candidate.label}</TableCell>
+                              <TableCell align="right" sx={{ width: 150 }}>
+                                <TextField
+                                  value={manualVoteInputs[candidate.number] ?? ""}
+                                  onChange={(event) => handleManualVoteChange(candidate.number, event.target.value)}
+                                  size="small"
+                                  inputProps={{
+                                    inputMode: "numeric",
+                                    style: { textAlign: "right", fontWeight: 900 },
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} lg={4}>
+              <Stack spacing={2}>
+                <Card>
+                  <CardContent sx={{ p: 2.25 }}>
+                    <Stack spacing={1.5}>
+                      <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                        Manual Total
+                      </Typography>
+                      <TextField
+                        label="Rejected Votes"
+                        value={manualRejectedVotes}
+                        onChange={(event) => handleRejectedVoteChange(event.target.value)}
+                        error={!manualPreview.rejectedInputValid}
+                        helperText={manualPreview.rejectedInputValid ? "Enter rejected ballots here." : "Rejected votes must be 0 or more."}
+                        inputProps={{ inputMode: "numeric" }}
+                      />
+                      <Grid container spacing={1}>
+                        <Grid item xs={4}>
+                          <StatCard title="Valid" value={manualPreview.validVotes} color="success" />
+                        </Grid>
+                        <Grid item xs={4}>
+                          <StatCard title="Rejected" value={manualPreview.rejectedVotes} color="warning" />
+                        </Grid>
+                        <Grid item xs={4}>
+                          <StatCard title="Total" value={manualPreview.totalVotes} />
+                        </Grid>
+                      </Grid>
+                      {manualPreview.errors.length ? (
+                        <Alert severity="error">{manualPreview.errors.slice(0, 4).join(" ")}</Alert>
+                      ) : null}
+                      <Button variant="contained" startIcon={<SaveRoundedIcon />} onClick={handlePublishManualCounts}>
+                        Publish Manual Count Online
+                      </Button>
+                      <Button variant="outlined" startIcon={<RestartAltRoundedIcon />} onClick={handleLoadCurrentCounts}>
+                        Load Current Counts
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent sx={{ p: 2.25 }}>
+                    <Stack spacing={1.5}>
+                      <Box>
+                        <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                          Paste Result Sheet
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Format: candidate number, votes. Add R, votes for rejected ballots if needed.
+                        </Typography>
+                      </Box>
+                      <TextField
+                        value={manualCountText}
+                        onChange={(event) => setManualCountText(event.target.value)}
+                        multiline
+                        minRows={7}
+                        placeholder={"1, 12\n2, 8\n20, 31\nR, 4"}
+                      />
+                      <Button variant="outlined" startIcon={<AddCircleRoundedIcon />} onClick={handleApplyPastedCounts}>
+                        Fill Boxes From Paste
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Stack>
+            </Grid>
+          </Grid>
+        ) : null}
+
+        {tab === 2 ? (
           <Stack spacing={2}>
             <TextField
               value={candidateSearch}
@@ -668,7 +913,7 @@ export default function ElectionCount() {
           </Stack>
         ) : null}
 
-        {tab === 2 ? (
+        {tab === 3 ? (
           <Card>
             <CardContent sx={{ p: { xs: 2, md: 3 } }}>
               <Box className="election-report-print">
@@ -698,7 +943,48 @@ export default function ElectionCount() {
           </Card>
         ) : null}
 
-        {tab === 3 ? (
+        {tab === 4 ? (
+          <Card>
+            <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+              <Stack spacing={2}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} justifyContent="space-between">
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 900 }}>
+                      Notice Board Result Sheet
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Print this official sheet and paste it on the school notice board after publishing final totals.
+                    </Typography>
+                  </Box>
+                  <Button variant="contained" startIcon={<PrintRoundedIcon />} onClick={handlePrintNoticeBoard}>
+                    Print Notice Sheet
+                  </Button>
+                </Stack>
+
+                <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                  <OfficialHeader compact />
+                  <Typography variant="h5" sx={{ fontWeight: 900, textAlign: "center", mt: 2 }}>
+                    Official Notice Board Result Sheet
+                  </Typography>
+                  <Grid container spacing={2} sx={{ my: 2 }}>
+                    <Grid item xs={12} md={4}>
+                      <StatCard title="Valid Votes" value={totals.validVotes} color="success" />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <StatCard title="Rejected Votes" value={totals.rejectedVotes} color="warning" />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <StatCard title="Total Votes" value={totals.totalVotes} />
+                    </Grid>
+                  </Grid>
+                  <CandidateResultTable candidates={totals.rankedCandidates} dense />
+                </Paper>
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {tab === 5 ? (
           <Grid container spacing={2}>
             <Grid item xs={12} md={7}>
               <Card>
