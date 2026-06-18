@@ -50,6 +50,7 @@ import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import HowToVoteRoundedIcon from "@mui/icons-material/HowToVoteRounded";
+import ShuffleRoundedIcon from "@mui/icons-material/ShuffleRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -96,6 +97,7 @@ export default function Layout() {
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
         { label: "Students By Subject", icon: <MenuBookRoundedIcon />, path: "/students/by-subject" },
         { label: "Classwise Lists", icon: <FactCheckRoundedIcon />, path: "/students/classwise-list" },
+        { label: "Class Shuffle", icon: <ShuffleRoundedIcon />, path: "/class-shuffle", badge: "NEW" },
         {
           label: "Class Data Management",
           icon: <DeleteSweepRoundedIcon />,

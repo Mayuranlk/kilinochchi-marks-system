@@ -22,6 +22,7 @@ const Students = lazy(() => import("./pages/Students"));
 const StudentsBySubject = lazy(() => import("./pages/StudentsBySubject"));
 const ClasswiseStudentList = lazy(() => import("./pages/ClasswiseStudentList"));
 const ClassDataManagement = lazy(() => import("./pages/ClassDataManagement"));
+const ClassShuffle = lazy(() => import("./pages/ClassShuffle"));
 
 const GenerateSubjectEnrollments = lazy(() => import("./pages/GenerateSubjectEnrollments"));
 const StudentSubjectEnrollments = lazy(() => import("./pages/StudentSubjectEnrollments"));
@@ -249,6 +250,16 @@ export default function App() {
                   <AdminRoute>
                     <LazyRoute>
                       <ClassDataManagement />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="class-shuffle"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <ClassShuffle />
                     </LazyRoute>
                   </AdminRoute>
                 }
