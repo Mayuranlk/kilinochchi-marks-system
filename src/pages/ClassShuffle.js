@@ -33,11 +33,7 @@ import PrintRoundedIcon from "@mui/icons-material/PrintRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
-import { addDoc, collection, doc, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
-import { saveAs } from "file-saver";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
+import { addDoc, collection, doc, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -78,6 +74,47 @@ const getBandLabel = (band) => {
 };
 
 const safeCountEntries = (countMap) => Object.entries(mapClassShuffleCounts(countMap));
+
+async function loadXlsx() {
+  return import("xlsx");
+}
+
+async function loadFileSaver() {
+  return import("file-saver");
+}
+
+async function loadPdfTools() {
+  const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+
+  return {
+    jsPDF,
+    autoTable: autoTableModule.default,
+  };
+}
+
+async function fetchStudentsForGrade(grade) {
+  const gradeNumber = Number(grade);
+  const gradeText = String(gradeNumber);
+  const variants = [gradeNumber, gradeText, `Grade ${gradeText}`];
+  const studentMap = new Map();
+
+  const snapshots = await Promise.all(
+    variants.map((gradeValue) =>
+      getDocs(query(collection(db, "students"), where("grade", "==", gradeValue)))
+    )
+  );
+
+  snapshots.forEach((snap) => {
+    snap.docs.forEach((docSnap) => {
+      studentMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+    });
+  });
+
+  return Array.from(studentMap.values());
+}
 
 const commitStudentUpdates = async ({ plan, academicYear, performedBy }) => {
   const rows = plan.classes.flatMap((classItem) => classItem.students);
@@ -140,7 +177,7 @@ const serializePlan = (plan) => ({
   })),
 });
 
-function createPlanWorkbook(plan) {
+function createPlanWorkbook(plan, XLSX) {
   const workbook = XLSX.utils.book_new();
   const rows = makeClassShuffleExportRows(plan);
   const summaryRows = plan.classes.map((classItem) => ({
@@ -159,19 +196,22 @@ function createPlanWorkbook(plan) {
   return workbook;
 }
 
-function downloadPlanWorkbook(plan, academicYear) {
-  XLSX.writeFile(createPlanWorkbook(plan), `${getShuffleFileBase(plan, academicYear)}.xlsx`);
+async function downloadPlanWorkbook(plan, academicYear) {
+  const XLSX = await loadXlsx();
+  XLSX.writeFile(createPlanWorkbook(plan, XLSX), `${getShuffleFileBase(plan, academicYear)}.xlsx`);
 }
 
-function createPlanWorkbookBlob(plan) {
-  const workbook = createPlanWorkbook(plan);
+async function createPlanWorkbookBlob(plan) {
+  const XLSX = await loadXlsx();
+  const workbook = createPlanWorkbook(plan, XLSX);
   const array = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
   return new Blob([array], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 }
 
-function createClassShufflePdf(plan, academicYear) {
+async function createClassShufflePdf(plan, academicYear) {
+  const { jsPDF, autoTable } = await loadPdfTools();
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   const title = `Grade ${plan.grade} Class Shuffle Plan`;
 
@@ -287,12 +327,13 @@ function createClassShufflePdf(plan, academicYear) {
   return doc;
 }
 
-function downloadPlanPdf(plan, academicYear) {
-  createClassShufflePdf(plan, academicYear).save(`${getShuffleFileBase(plan, academicYear)}.pdf`);
+async function downloadPlanPdf(plan, academicYear) {
+  const doc = await createClassShufflePdf(plan, academicYear);
+  doc.save(`${getShuffleFileBase(plan, academicYear)}.pdf`);
 }
 
-function printPlanPdf(plan, academicYear) {
-  const doc = createClassShufflePdf(plan, academicYear);
+async function printPlanPdf(plan, academicYear) {
+  const doc = await createClassShufflePdf(plan, academicYear);
   doc.autoPrint();
   window.open(doc.output("bloburl"), "_blank", "noopener,noreferrer");
 }
@@ -308,6 +349,7 @@ async function shareGeneratedFile({ file, title, text, fallbackMessage }) {
     console.warn("Class shuffle share fallback triggered:", err);
   }
 
+  const { saveAs } = await loadFileSaver();
   saveAs(file, file.name);
   window.open(
     `https://wa.me/?text=${encodeURIComponent(`${text}\n\n${fallbackMessage}`)}`,
@@ -352,8 +394,7 @@ export default function ClassShuffle() {
       setLoading(true);
       setError("");
       try {
-        const snap = await getDocs(collection(db, "students"));
-        const rows = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+        const rows = await fetchStudentsForGrade(grade);
         if (mounted) setStudents(rows);
       } catch (err) {
         console.error("Class shuffle load failed:", err);
@@ -367,7 +408,7 @@ export default function ClassShuffle() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [grade]);
 
   const gradeStudents = useMemo(() => {
     return students
@@ -390,7 +431,7 @@ export default function ClassShuffle() {
 
     try {
       const nextPlan = buildClassShufflePlan({
-        students,
+        students: gradeStudents,
         grade,
         targetClassCount,
         rareReligionClassCount,
@@ -413,7 +454,8 @@ export default function ClassShuffle() {
   const handleShareExcel = async () => {
     if (!plan) return;
     const fileName = `${getShuffleFileBase(plan, academicYear)}.xlsx`;
-    const file = new File([createPlanWorkbookBlob(plan)], fileName, {
+    const blob = await createPlanWorkbookBlob(plan);
+    const file = new File([blob], fileName, {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     const result = await shareGeneratedFile({
@@ -441,7 +483,8 @@ export default function ClassShuffle() {
   const handleSharePdf = async () => {
     if (!plan) return;
     const fileName = `${getShuffleFileBase(plan, academicYear)}.pdf`;
-    const blob = createClassShufflePdf(plan, academicYear).output("blob");
+    const doc = await createClassShufflePdf(plan, academicYear);
+    const blob = doc.output("blob");
     const file = new File([blob], fileName, { type: "application/pdf" });
     const result = await shareGeneratedFile({
       file,
