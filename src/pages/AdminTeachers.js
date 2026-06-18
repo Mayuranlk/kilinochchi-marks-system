@@ -11,7 +11,6 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { GRADES } from "../constants";
 import * as XLSX from "xlsx";
-/* eslint-disable no-unused-vars */
 import {
   Box,
   Typography,

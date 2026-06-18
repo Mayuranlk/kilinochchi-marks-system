@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   addDoc,
@@ -715,10 +715,10 @@ export default function Students() {
       .filter((subject) => subject.subjectNumber && subject.subjectName);
   }, [activeSubjects]);
 
-  const getALGeneralSubjectCatalogForGrade = (grade) =>
+  const getALGeneralSubjectCatalogForGrade = useCallback((grade) =>
     alGeneralSubjectCatalog.filter((subject) =>
       subjectSupportsGrade(subject, Number(grade))
-    );
+    ), [alGeneralSubjectCatalog]);
 
   const alMainSubjectByNumber = useMemo(
     () =>
@@ -739,15 +739,15 @@ export default function Students() {
     [alMainSubjectCatalog]
   );
 
-  const deriveALChoiceNamesFromNumbers = (choiceNumbers = []) =>
+  const deriveALChoiceNamesFromNumbers = useCallback((choiceNumbers = []) =>
     (choiceNumbers || [])
       .map((number) => alMainSubjectByNumber.get(normalizeALSubjectNumber(number))?.subjectName || "")
-      .filter(Boolean);
+      .filter(Boolean), [alMainSubjectByNumber]);
 
-  const deriveALChoiceNumbersFromNames = (choiceNames = []) =>
+  const deriveALChoiceNumbersFromNames = useCallback((choiceNames = []) =>
     (choiceNames || [])
       .map((name) => alMainSubjectByName.get(normalizeLoose(name))?.subjectNumber || "")
-      .filter(Boolean);
+      .filter(Boolean), [alMainSubjectByName]);
 
   const aestheticOptions = useMemo(() => {
     const grade = Number(form.grade);
@@ -941,7 +941,7 @@ export default function Students() {
     return classroomLookup.has(`${g}__${s}`);
   };
 
-  const cleanFormByGrade = (data) => {
+  const cleanFormByGrade = useCallback((data) => {
     const grade = Number(data.grade);
 
     const cleaned = {
@@ -992,7 +992,7 @@ export default function Students() {
       alSubjectChoiceNumbers: [],
       alSubjectChoices: [],
     };
-  };
+  }, [deriveALChoiceNamesFromNumbers, deriveALChoiceNumbersFromNames]);
 
   const buildPayloadFromForm = () => {
     const cleaned = cleanFormByGrade(form);
@@ -1856,7 +1856,7 @@ export default function Students() {
       mainSubjectCatalog: alOptionalChoiceOptions,
       generalSubjectCatalog: getALGeneralSubjectCatalogForGrade(grade),
     });
-  }, [alGeneralSubjectCatalog, alOptionalChoiceOptions, form]);
+  }, [alOptionalChoiceOptions, cleanFormByGrade, form, getALGeneralSubjectCatalogForGrade]);
 
   const basketMenuOptions = useMemo(
     () => ({

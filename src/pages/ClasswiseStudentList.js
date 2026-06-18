@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import {
   Alert,
@@ -26,10 +26,6 @@ import PrintIcon from "@mui/icons-material/Print";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import { saveAs } from "file-saver";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -177,6 +173,26 @@ function makeUploadStatusFileName(year) {
   return `student_upload_status_${year}.pdf`;
 }
 
+async function loadXlsx() {
+  return import("xlsx");
+}
+
+async function loadPdfTools() {
+  const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+
+  return {
+    jsPDF,
+    autoTable: autoTableModule.default,
+  };
+}
+
+async function loadFileSaver() {
+  return import("file-saver");
+}
+
 export default function ClasswiseStudentList() {
   const { isSectionalHead, assignedGrades } = useAuth();
   const printRef = useRef(null);
@@ -288,17 +304,7 @@ export default function ClasswiseStudentList() {
   const partialClassCount = uploadStatusRows.filter((row) => row.status === "Partial").length;
   const missingClassCount = uploadStatusRows.length - uploadedClassCount;
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    if (filteredClassrooms.length > 0 && !filteredClassrooms.some((item) => item.id === selectedClassId)) {
-      setSelectedClassId(filteredClassrooms[0].id);
-    }
-  }, [filteredClassrooms, selectedClassId]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -355,11 +361,23 @@ export default function ClasswiseStudentList() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [assignedGrades, isSectionalHead]);
 
-  function exportExcel() {
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (filteredClassrooms.length > 0 && !filteredClassrooms.some((item) => item.id === selectedClassId)) {
+      setSelectedClassId(filteredClassrooms[0].id);
+    }
+  }, [filteredClassrooms, selectedClassId]);
+
+  async function exportExcel() {
+    const XLSX = await loadXlsx();
+
     if (reportMode === REPORT_MODES.uploadStatus) {
-      exportUploadStatusExcel();
+      exportUploadStatusExcel(XLSX);
       return;
     }
 
@@ -402,7 +420,7 @@ export default function ClasswiseStudentList() {
     XLSX.writeFile(workbook, fileName);
   }
 
-  function exportUploadStatusExcel() {
+  function exportUploadStatusExcel(XLSX) {
     const worksheet = XLSX.utils.aoa_to_sheet([
       ["Kilinochchi Central College"],
       ["Student Details Upload Status Report"],
@@ -452,7 +470,8 @@ export default function ClasswiseStudentList() {
     XLSX.writeFile(workbook, `student_upload_status_${selectedYear}.xlsx`);
   }
 
-  function createUploadStatusPdf() {
+  async function createUploadStatusPdf() {
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
 
     doc.setFont("helvetica", "bold");
@@ -537,14 +556,14 @@ export default function ClasswiseStudentList() {
     return doc;
   }
 
-  function downloadUploadStatusPdf() {
-    const doc = createUploadStatusPdf();
+  async function downloadUploadStatusPdf() {
+    const doc = await createUploadStatusPdf();
     doc.save(makeUploadStatusFileName(selectedYear));
   }
 
   async function shareUploadStatusPdf() {
     try {
-      const doc = createUploadStatusPdf();
+      const doc = await createUploadStatusPdf();
       const blob = doc.output("blob");
       const file = new File([blob], makeUploadStatusFileName(selectedYear), {
         type: "application/pdf",
@@ -559,6 +578,7 @@ export default function ClasswiseStudentList() {
         return;
       }
 
+      const { saveAs } = await loadFileSaver();
       saveAs(blob, makeUploadStatusFileName(selectedYear));
       setError("This browser cannot attach the PDF directly to WhatsApp. The PDF was downloaded; attach it in WhatsApp manually.");
     } catch (err) {

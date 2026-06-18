@@ -1,11 +1,8 @@
-/* eslint-disable no-unused-vars */
 import React, { useEffect, useMemo, useState } from "react";
 import {
   collection,
   getDocs,
-  updateDoc,
   doc,
-  addDoc,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -67,12 +64,6 @@ function normalizeSection(value) {
   return match ? match[0] : raw;
 }
 
-function buildFullClassName(grade, section) {
-  const g = parseGrade(grade);
-  const s = normalizeSection(section);
-  return g && s ? `${g}${s}` : "";
-}
-
 function getStudentName(student) {
   return normalizeText(student?.name || student?.fullName || "Unnamed Student");
 }
@@ -101,28 +92,6 @@ function isStudentActive(student) {
 
 function getEnrollmentAcademicYear(enrollment) {
   return String(enrollment?.academicYear || enrollment?.year || "");
-}
-
-function getEnrollmentClassName(enrollment) {
-  const rawClassName = normalizeText(enrollment?.className || "");
-  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
-  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
-}
-
-function getEnrollmentGrade(enrollment) {
-  return parseGrade(enrollment?.grade || enrollment?.className);
-}
-
-function getEnrollmentSection(enrollment) {
-  return normalizeSection(enrollment?.section || enrollment?.className || "");
-}
-
-function getEnrollmentSubjectName(enrollment) {
-  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
-}
-
-function getEnrollmentSubjectId(enrollment) {
-  return normalizeText(enrollment?.subjectId || "");
 }
 
 function isEnrollmentActive(enrollment) {
