@@ -28,9 +28,15 @@ import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import MeetingRoomRoundedIcon from "@mui/icons-material/MeetingRoomRounded";
+import PictureAsPdfRoundedIcon from "@mui/icons-material/PictureAsPdfRounded";
+import PrintRoundedIcon from "@mui/icons-material/PrintRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { addDoc, collection, doc, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
+import { saveAs } from "file-saver";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
 import { db } from "../firebase";
@@ -55,6 +61,15 @@ const TARGET_CLASS_OPTIONS = [2, 3, 4, 5, 6];
 const BATCH_LIMIT = 400;
 
 const currentAcademicYear = () => String(new Date().getFullYear());
+
+const makeSafeFileName = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/[^a-z0-9_-]+/gi, "_")
+    .replace(/^_+|_+$/g, "");
+
+const getShuffleFileBase = (plan, academicYear) =>
+  `class_shuffle_grade_${plan.grade}_${makeSafeFileName(academicYear)}`;
 
 const getBandLabel = (band) => {
   if (band === "junior") return "Religion + Aesthetic";
@@ -125,7 +140,7 @@ const serializePlan = (plan) => ({
   })),
 });
 
-function downloadPlanWorkbook(plan, academicYear) {
+function createPlanWorkbook(plan) {
   const workbook = XLSX.utils.book_new();
   const rows = makeClassShuffleExportRows(plan);
   const summaryRows = plan.classes.map((classItem) => ({
@@ -141,7 +156,165 @@ function downloadPlanWorkbook(plan, academicYear) {
 
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "Summary");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Students");
-  XLSX.writeFile(workbook, `class_shuffle_grade_${plan.grade}_${academicYear}.xlsx`);
+  return workbook;
+}
+
+function downloadPlanWorkbook(plan, academicYear) {
+  XLSX.writeFile(createPlanWorkbook(plan), `${getShuffleFileBase(plan, academicYear)}.xlsx`);
+}
+
+function createPlanWorkbookBlob(plan) {
+  const workbook = createPlanWorkbook(plan);
+  const array = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  return new Blob([array], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+}
+
+function createClassShufflePdf(plan, academicYear) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  const title = `Grade ${plan.grade} Class Shuffle Plan`;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
+  doc.setFontSize(11);
+  doc.text(title, 148.5, 19, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(`Academic Year: ${academicYear}`, 10, 28);
+  doc.text(`Students: ${plan.totalStudents}`, 72, 28);
+  doc.text(`New Classes: ${plan.targetSections.join(", ")}`, 122, 28);
+  doc.text(`RC Classes: ${plan.rareSections.join(", ")}`, 190, 28);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 287, 28, { align: "right" });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [["Class", "Students", "Religion Counts", plan.band === "junior" ? "Aesthetic Counts" : "Basket Combination Counts"]],
+    body: plan.classes.map((classItem) => [
+      classItem.className,
+      classItem.students.length,
+      safeCountEntries(classItem.religionCounts)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(", "),
+      safeCountEntries(classItem.profileCounts)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(", "),
+    ]),
+    theme: "grid",
+    styles: { fontSize: 7.5, cellPadding: 1.2, valign: "middle" },
+    headStyles: { fillColor: [235, 239, 245], textColor: 20, fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 20, fontStyle: "bold" },
+      1: { cellWidth: 18, halign: "right" },
+      2: { cellWidth: 88 },
+      3: { cellWidth: 158 },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  autoTable(doc, {
+    startY: (doc.lastAutoTable?.finalY || 34) + 7,
+    head: [
+      plan.band === "junior"
+        ? ["Class", "No", "Admission", "Student Name", "Old Class", "Religion", "Aesthetic"]
+        : ["Class", "No", "Admission", "Student Name", "Old Class", "Religion", "Basket A", "Basket B", "Basket C"],
+    ],
+    body: plan.classes.flatMap((classItem) =>
+      classItem.students.map((student, index) =>
+        plan.band === "junior"
+          ? [
+              classItem.className,
+              index + 1,
+              getShuffleAdmissionNo(student),
+              getShuffleStudentName(student),
+              student.oldClassName || "-",
+              student.shuffleProfile.religion || "-",
+              student.shuffleProfile.aesthetic || "-",
+            ]
+          : [
+              classItem.className,
+              index + 1,
+              getShuffleAdmissionNo(student),
+              getShuffleStudentName(student),
+              student.oldClassName || "-",
+              student.shuffleProfile.religion || "-",
+              student.shuffleProfile.basketAChoice || "-",
+              student.shuffleProfile.basketBChoice || "-",
+              student.shuffleProfile.basketCChoice || "-",
+            ]
+      )
+    ),
+    theme: "grid",
+    styles: { fontSize: 6.8, cellPadding: 1.1, valign: "middle" },
+    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold" },
+    columnStyles:
+      plan.band === "junior"
+        ? {
+            0: { cellWidth: 18, fontStyle: "bold" },
+            1: { cellWidth: 9, halign: "right" },
+            2: { cellWidth: 24 },
+            3: { cellWidth: 78 },
+            4: { cellWidth: 22 },
+            5: { cellWidth: 34 },
+            6: { cellWidth: 45 },
+          }
+        : {
+            0: { cellWidth: 17, fontStyle: "bold" },
+            1: { cellWidth: 8, halign: "right" },
+            2: { cellWidth: 22 },
+            3: { cellWidth: 58 },
+            4: { cellWidth: 19 },
+            5: { cellWidth: 28 },
+            6: { cellWidth: 38 },
+            7: { cellWidth: 48 },
+            8: { cellWidth: 50 },
+          },
+    margin: { left: 8, right: 8 },
+  });
+
+  if (plan.warnings.length) {
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const y = Math.min((doc.lastAutoTable?.finalY || pageHeight - 22) + 7, pageHeight - 16);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("Warnings:", 8, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(plan.warnings.slice(0, 3).join(" | "), 25, y);
+  }
+
+  return doc;
+}
+
+function downloadPlanPdf(plan, academicYear) {
+  createClassShufflePdf(plan, academicYear).save(`${getShuffleFileBase(plan, academicYear)}.pdf`);
+}
+
+function printPlanPdf(plan, academicYear) {
+  const doc = createClassShufflePdf(plan, academicYear);
+  doc.autoPrint();
+  window.open(doc.output("bloburl"), "_blank", "noopener,noreferrer");
+}
+
+async function shareGeneratedFile({ file, title, text, fallbackMessage }) {
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({ title, text, files: [file] });
+      return { shared: true };
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return { shared: false, aborted: true };
+    console.warn("Class shuffle share fallback triggered:", err);
+  }
+
+  saveAs(file, file.name);
+  window.open(
+    `https://wa.me/?text=${encodeURIComponent(`${text}\n\n${fallbackMessage}`)}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+  return { shared: false };
 }
 
 function ProfileCountChips({ countMap }) {
@@ -237,6 +410,51 @@ export default function ClassShuffle() {
     downloadPlanWorkbook(plan, academicYear);
   };
 
+  const handleShareExcel = async () => {
+    if (!plan) return;
+    const fileName = `${getShuffleFileBase(plan, academicYear)}.xlsx`;
+    const file = new File([createPlanWorkbookBlob(plan)], fileName, {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const result = await shareGeneratedFile({
+      file,
+      title: "Class Shuffle Excel",
+      text: `Grade ${plan.grade} class shuffle Excel - ${academicYear}`,
+      fallbackMessage: `The Excel file has been downloaded. Please attach ${fileName} in WhatsApp or your sharing app.`,
+    });
+    if (result.aborted) return;
+    if (!result.shared) {
+      setError("This browser cannot attach the Excel file directly. The file was downloaded; attach it manually in WhatsApp or your sharing app.");
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    if (!plan) return;
+    downloadPlanPdf(plan, academicYear);
+  };
+
+  const handlePrintPdf = () => {
+    if (!plan) return;
+    printPlanPdf(plan, academicYear);
+  };
+
+  const handleSharePdf = async () => {
+    if (!plan) return;
+    const fileName = `${getShuffleFileBase(plan, academicYear)}.pdf`;
+    const blob = createClassShufflePdf(plan, academicYear).output("blob");
+    const file = new File([blob], fileName, { type: "application/pdf" });
+    const result = await shareGeneratedFile({
+      file,
+      title: "Class Shuffle PDF",
+      text: `Grade ${plan.grade} class shuffle PDF - ${academicYear}`,
+      fallbackMessage: `The PDF has been downloaded. Please attach ${fileName} in WhatsApp or your sharing app.`,
+    });
+    if (result.aborted) return;
+    if (!result.shared) {
+      setError("This browser cannot attach the PDF directly. The PDF was downloaded; attach it manually in WhatsApp or your sharing app.");
+    }
+  };
+
   const handleApply = async () => {
     if (!plan || applying) return;
 
@@ -306,7 +524,41 @@ export default function ClassShuffle() {
             onClick={handleExport}
             disabled={!plan}
           >
-            Export
+            Excel
+          </Button>
+          <Button
+            variant="outlined"
+            color="success"
+            startIcon={<ShareRoundedIcon />}
+            onClick={handleShareExcel}
+            disabled={!plan}
+          >
+            Share Excel
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<PictureAsPdfRoundedIcon />}
+            onClick={handleDownloadPdf}
+            disabled={!plan}
+          >
+            PDF
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ShareRoundedIcon />}
+            onClick={handleSharePdf}
+            disabled={!plan}
+          >
+            Share PDF
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PrintRoundedIcon />}
+            onClick={handlePrintPdf}
+            disabled={!plan}
+          >
+            Print
           </Button>
           <Button
             variant="contained"
