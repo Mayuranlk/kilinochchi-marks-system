@@ -120,13 +120,17 @@ const buildEnrollmentDedupKey = (item = {}, fallback = {}) => {
   const classContext = getClassContext(item, fallback);
   const subject = buildSubjectIdentity(item, fallback);
   const academicYear = normalizeAcademicYear(pick(item.academicYear, item.year, fallback.academicYear, fallback.year, ""));
+  const canonicalSubjectKey =
+    hasValue(subject.subjectNumber)
+      ? `number:${normalize(subject.subjectNumber)}`
+      : hasValue(subject.subjectName)
+        ? `name:${normalize(subject.subjectName).replace(/[\s._\-/&()]+/g, "")}`
+        : `id:${normalize(subject.subjectId)}`;
 
   return [
     String(pick(item.studentId, fallback.studentId, "")).trim(),
     normalize(classContext.fullClassName || classContext.className || ""),
-    normalize(subject.subjectId),
-    normalize(subject.subjectName),
-    normalize(subject.subjectNumber),
+    canonicalSubjectKey,
     normalize(academicYear),
   ].join("__");
 };

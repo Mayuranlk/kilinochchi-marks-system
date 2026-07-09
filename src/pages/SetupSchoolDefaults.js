@@ -20,7 +20,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import { useAuth } from "../context/AuthContext";
 import {
-  createDefaultSubjects,
+  restoreOfficialSubjects,
   fixStudentData,
 } from "../services/setupDefaultsService";
 
@@ -115,10 +115,10 @@ export default function SetupSchoolDefaults() {
     setLoadingSubjects(true);
 
     try {
-      const result = await createDefaultSubjects(profile);
+      const result = await restoreOfficialSubjects(profile);
       setSubjectResult(result);
       setSuccess(
-        `Default subjects setup completed. Created: ${result.created}, skipped existing: ${result.skipped}. Includes A/L common subjects: Common General Test, General English, and GIT for Grade 12.`
+        `Official subjects repaired. Created: ${result.created}, refreshed/reactivated: ${result.restored}. Compulsory subjects now cover their correct grade ranges.`
       );
     } catch (err) {
       setError("Failed to create default subjects: " + (err.message || "Unknown error"));
@@ -230,9 +230,9 @@ export default function SetupSchoolDefaults() {
 
         <ActionCard
           icon={<PlaylistAddCheckIcon />}
-          title="Create Default Subjects"
-          description="Creates missing subject definitions required by the system, including core subjects, religion subjects, aesthetic subjects, basket subjects, A/L stream subjects, and A/L common subjects such as Common General Test, General English, and GIT."
-          buttonText="Create Default Subjects"
+          title="Repair Official Subjects"
+          description="Creates missing definitions and repairs existing official subjects, including compulsory grade ranges, religion, aesthetic, basket and A/L subjects."
+          buttonText="Repair Official Subjects"
           onClick={handleCreateSubjects}
           loading={loadingSubjects}
           color="primary"
@@ -250,7 +250,7 @@ export default function SetupSchoolDefaults() {
                 <StatCard title="Created" value={subjectResult.created} color="success.main" />
               </Grid>
               <Grid item xs={12} sm={4}>
-                <StatCard title="Skipped" value={subjectResult.skipped} />
+                <StatCard title="Refreshed" value={subjectResult.restored} />
               </Grid>
               <Grid item xs={12} sm={4}>
                 <StatCard title="Templates" value={subjectResult.totalDefaults} />

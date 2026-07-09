@@ -114,7 +114,7 @@ function getCore6to9Subjects() {
       name: "Tamil",
       category: "core",
       minGrade: 6,
-      maxGrade: 9,
+      maxGrade: 11,
       displayOrder: 1,
     },
     {
@@ -122,7 +122,7 @@ function getCore6to9Subjects() {
       name: "Mathematics",
       category: "core",
       minGrade: 6,
-      maxGrade: 9,
+      maxGrade: 11,
       displayOrder: 2,
     },
     {
@@ -130,7 +130,7 @@ function getCore6to9Subjects() {
       name: "Science",
       category: "core",
       minGrade: 6,
-      maxGrade: 9,
+      maxGrade: 11,
       displayOrder: 3,
     },
     {
@@ -138,7 +138,7 @@ function getCore6to9Subjects() {
       name: "History",
       category: "core",
       minGrade: 6,
-      maxGrade: 9,
+      maxGrade: 11,
       displayOrder: 4,
     },
     {
@@ -146,7 +146,7 @@ function getCore6to9Subjects() {
       name: "English",
       category: "core",
       minGrade: 6,
-      maxGrade: 9,
+      maxGrade: 11,
       displayOrder: 5,
     },
     {

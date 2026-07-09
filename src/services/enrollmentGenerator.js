@@ -8,6 +8,11 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  COMPULSORY_CORE_6_9,
+  COMPULSORY_CORE_10_11,
+  getALCompulsorySubjectsForStream,
+} from "../constants";
 
 const STUDENTS_COLLECTION = "students";
 const SUBJECTS_COLLECTION = "subjects";
@@ -203,8 +208,23 @@ function getStudentBasketChoice(student, bucket) {
   return "";
 }
 
+function getStudentALSelectedChoices(student) {
+  return [
+    ...toArray(student?.alSubjectChoices),
+    ...toArray(student?.alSubjectChoiceNumbers),
+  ].map(canonicalizeChoiceValue);
+}
+
 function getStudentALChoices(student) {
-  return toArray(student?.alSubjectChoices).map(canonicalizeChoiceValue);
+  const compulsory = getALCompulsorySubjectsForStream(student?.stream);
+  return [
+    ...getStudentALSelectedChoices(student),
+    ...compulsory.flatMap((subject) => [
+      subject?.subjectName,
+      subject?.subjectNumber,
+      subject?.subjectCode,
+    ]),
+  ].filter(Boolean);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -292,6 +312,7 @@ function subjectTokens(subject) {
     getSubjectId(subject),
     getSubjectCode(subject),
     subject?.subjectCode,
+    subject?.subjectNumber,
     subjectName,
     subject?.shortName,
   ]
@@ -383,7 +404,9 @@ function getNormalizedBasketBucket(subject) {
     if (
       raw === "a" ||
       raw === "basket_1" ||
+      raw === "basket_a" ||
       raw === "basket1" ||
+      raw === "b1" ||
       raw === "1" ||
       raw === "basket a" ||
       raw === "basketa"
@@ -393,7 +416,9 @@ function getNormalizedBasketBucket(subject) {
     if (
       raw === "b" ||
       raw === "basket_2" ||
+      raw === "basket_b" ||
       raw === "basket2" ||
+      raw === "b2" ||
       raw === "2" ||
       raw === "basket b" ||
       raw === "basketb"
@@ -403,7 +428,9 @@ function getNormalizedBasketBucket(subject) {
     if (
       raw === "c" ||
       raw === "basket_3" ||
+      raw === "basket_c" ||
       raw === "basket3" ||
+      raw === "b3" ||
       raw === "3" ||
       raw === "basket c" ||
       raw === "basketc"
@@ -473,6 +500,26 @@ function buildSubjectIndex(subjects) {
   };
 }
 
+function coreSubjectAppliesToGrade(subject, grade) {
+  const category = getSubjectCategory(subject);
+  const isCoreCategory = ["core", "compulsory", "mandatory", "common"].includes(category);
+  const expectedNames =
+    grade >= 10 && grade <= 11
+      ? COMPULSORY_CORE_10_11
+      : grade >= 6 && grade <= 9
+        ? COMPULSORY_CORE_6_9
+        : [];
+  const isOfficialCoreForGrade =
+    isCoreCategory &&
+    expectedNames.some(
+      (name) => normalizeLoose(name) === normalizeLoose(getSubjectName(subject))
+    );
+
+  // The name-based check repairs catalogs seeded before shared Grade 6–11
+  // core subjects received their correct maxGrade.
+  return isOfficialCoreForGrade || subjectAppliesToGrade(subject, grade);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Validation                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -534,7 +581,7 @@ function validateStudent(student, subjectIndex) {
 
   if (isAL) {
     if (!student?.stream) errors.push("Missing stream");
-    if (!getStudentALChoices(student).length) {
+    if (!getStudentALSelectedChoices(student).length) {
       errors.push("Missing alSubjectChoices");
     }
   }
@@ -548,10 +595,14 @@ function validateStudent(student, subjectIndex) {
 
 function buildDesiredSubjects(student, subjectIndex) {
   const grade = parseGrade(student?.grade);
-  const issues = validateStudent(student, subjectIndex);
+  const validationIssues = validateStudent(student, subjectIndex);
+  const issues = validationIssues.filter((issue) =>
+    ["Missing grade", "Missing section"].includes(issue)
+  );
+  const warnings = validationIssues.filter((issue) => !issues.includes(issue));
 
   if (issues.length) {
-    return { subjects: [], issues };
+    return { subjects: [], issues, warnings };
   }
 
   const desired = new Map();
@@ -563,7 +614,7 @@ function buildDesiredSubjects(student, subjectIndex) {
   };
 
   subjectIndex.core
-    .filter((subject) => subjectAppliesToGrade(subject, grade))
+    .filter((subject) => coreSubjectAppliesToGrade(subject, grade))
     .forEach(add);
 
   subjectIndex.religion
@@ -627,10 +678,10 @@ function buildDesiredSubjects(student, subjectIndex) {
   }
 
   if (!desired.size) {
-    return { subjects: [], issues: ["No matching subjects found"] };
+    return { subjects: [], issues: ["No matching subjects found"], warnings };
   }
 
-  return { subjects: Array.from(desired.values()), issues: [] };
+  return { subjects: Array.from(desired.values()), issues: [], warnings };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -807,7 +858,8 @@ export async function generateMissingEnrollments({ academicYear }) {
     totalProcessed += 1;
 
     try {
-      const { subjects: desiredSubjects, issues } = buildDesiredSubjects(student, subjectIndex);
+      const { subjects: desiredSubjects, issues, warnings } =
+        buildDesiredSubjects(student, subjectIndex);
 
       if (issues.length) {
         skipped += 1;
@@ -817,6 +869,14 @@ export async function generateMissingEnrollments({ academicYear }) {
           details: issues.join(", "),
         });
         continue;
+      }
+
+      if (warnings.length) {
+        logs.push({
+          type: "warning",
+          message: `${getStudentName(student) || student.id} partially enrolled`,
+          details: `${warnings.join(", ")}. Available compulsory subjects were still included.`,
+        });
       }
 
       const existing = enrollmentMap.get(student.id) || [];
@@ -972,7 +1032,8 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
   }
 
   const subjectIndex = buildSubjectIndex(subjects);
-  const { subjects: desiredSubjects, issues } = buildDesiredSubjects(student, subjectIndex);
+  const { subjects: desiredSubjects, issues, warnings } =
+    buildDesiredSubjects(student, subjectIndex);
 
   if (issues.length) {
     return {
@@ -1054,7 +1115,9 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
       {
         type: "success",
         message: `${getStudentName(student) || student.id} regenerated`,
-        details: `Subjects rebuilt: ${desiredSubjects.length}`,
+        details: `Subjects rebuilt: ${desiredSubjects.length}${
+          warnings.length ? `. Needs attention: ${warnings.join(", ")}` : ""
+        }`,
       },
     ],
   };
@@ -1109,7 +1172,8 @@ export async function fullRebuildEnrollments({ academicYear }) {
     totalProcessed += 1;
 
     try {
-      const { subjects: desiredSubjects, issues } = buildDesiredSubjects(student, subjectIndex);
+      const { subjects: desiredSubjects, issues, warnings } =
+        buildDesiredSubjects(student, subjectIndex);
 
       if (issues.length) {
         skipped += 1;
@@ -1119,6 +1183,14 @@ export async function fullRebuildEnrollments({ academicYear }) {
           details: issues.join(", "),
         });
         continue;
+      }
+
+      if (warnings.length) {
+        logs.push({
+          type: "warning",
+          message: `${getStudentName(student) || student.id} partially enrolled`,
+          details: `${warnings.join(", ")}. Available compulsory subjects were still included.`,
+        });
       }
 
       const existing = enrollmentMap.get(student.id) || [];

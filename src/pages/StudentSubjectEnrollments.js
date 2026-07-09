@@ -296,7 +296,9 @@ export default function StudentSubjectEnrollments() {
               subject,
             },
           };
-        });
+        }).filter((row) =>
+          String(row.status || "active").trim().toLowerCase() === "active"
+        );
 
         if (mounted) {
           setRows(normalizedRows);
