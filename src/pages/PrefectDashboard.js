@@ -25,6 +25,8 @@ const REASONS = [
   "Transport delay", "Overslept", "Medical reason", "Family reason",
   "Weather", "School activity", "No reason given", "Other",
 ];
+const REPEAT_WINDOW_DAYS = 30;
+const REPEAT_ATTENTION_COUNT = 3;
 
 const clean = (value) => String(value || "").trim();
 const lower = (value) => clean(value).toLowerCase();
@@ -41,6 +43,11 @@ const dayKey = (date = new Date()) => {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+const daysAgoKey = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return dayKey(date);
 };
 const formatDateTime = (value) => {
   const date = toDate(value);
@@ -164,17 +171,53 @@ export default function PrefectDashboard() {
   const todayRecords = useMemo(() => records.filter((r) => r.dateKey === dayKey()), [records]);
   const pending = useMemo(() => records.filter(
     (r) => r.recordBookReceived && r.bookStatus !== "returned"
-  ), [records]);
+  ).sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey))), [records]);
   const filteredReport = useMemo(() => records.filter((r) =>
     (!fromDate || r.dateKey >= fromDate) && (!toDateFilter || r.dateKey <= toDateFilter)
   ), [records, fromDate, toDateFilter]);
+  const recentRecords = useMemo(() => records.filter(
+    (record) => record.dateKey >= daysAgoKey(REPEAT_WINDOW_DAYS - 1)
+  ), [records]);
+  const repeatStudents = useMemo(() => {
+    const groups = new Map();
+    recentRecords.forEach((record) => {
+      const key = record.studentId || record.admissionNo || record.studentName;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(record);
+    });
+    return [...groups.values()]
+      .filter((group) => group.length >= REPEAT_ATTENTION_COUNT)
+      .map((group) => ({
+        ...[...group].sort((a, b) => String(b.dateKey).localeCompare(String(a.dateKey)))[0],
+        repeatCount: group.length,
+        repeatDates: group.map((record) => record.dateKey).sort().reverse(),
+      }))
+      .sort((a, b) => b.repeatCount - a.repeatCount);
+  }, [recentRecords]);
+  const topReasons = useMemo(() => {
+    const countsByReason = recentRecords.reduce((result, record) => {
+      const key = record.reason || "Unknown";
+      result[key] = (result[key] || 0) + 1;
+      return result;
+    }, {});
+    return Object.entries(countsByReason).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [recentRecords]);
+  const topClasses = useMemo(() => {
+    const countsByClass = recentRecords.reduce((result, record) => {
+      const key = record.classLabel || "Unknown class";
+      result[key] = (result[key] || 0) + 1;
+      return result;
+    }, {});
+    return Object.entries(countsByClass).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [recentRecords]);
   const reportRows = useMemo(() => {
     if (reportType === "outstanding") return pending;
+    if (reportType === "repeat") return repeatStudents;
     if (reportType === "returned") {
       return filteredReport.filter((record) => record.bookStatus === "returned");
     }
     return filteredReport;
-  }, [reportType, pending, filteredReport]);
+  }, [reportType, pending, repeatStudents, filteredReport]);
 
   const saveLate = async () => {
     const finalReason = reason === "Other" ? clean(otherReason) : reason;
@@ -260,15 +303,21 @@ export default function PrefectDashboard() {
     const rows = reportRows.map((r) => [
       r.dateKey, formatDateTime(r.arrivalTime), r.admissionNo, r.studentName, r.classLabel,
       r.reason, bookStatusLabel(r), r.recordBookReceived ? heldDays(r) : "",
-      r.recordedBy?.name, r.handedOverBy?.name || "", formatDateTime(r.returnedAt),
+      r.repeatCount || "", r.recordedBy?.name, r.handedOverBy?.name || "", formatDateTime(r.returnedAt),
     ]);
     const csv = [
-      ["Date", "Arrival time", "Index No", "Student", "Class", "Reason", "Book status", "Days held", "Recorded by", "Handed over by", "Returned time"],
+      ["Date", "Arrival time", "Index No", "Student", "Class", "Reason", "Book status", "Days held", "Late count (30 days)", "Recorded by", "Handed over by", "Returned time"],
       ...rows,
     ].map((row) => row.map(escape).join(",")).join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `${reportType === "outstanding" ? "uncollected-books" : "late-arrivals"}-${dayKey()}.csv`;
+    link.download = `${
+      reportType === "outstanding"
+        ? "uncollected-books"
+        : reportType === "repeat"
+          ? "repeat-late-arrivals"
+          : "late-arrivals"
+    }-${dayKey()}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -278,6 +327,8 @@ export default function PrefectDashboard() {
     const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const title = reportType === "outstanding"
       ? "Students Who Have Not Collected Their Record Books"
+      : reportType === "repeat"
+        ? `Repeat Late Arrivals (${REPEAT_ATTENTION_COUNT}+ in ${REPEAT_WINDOW_DAYS} Days)`
       : reportType === "returned"
         ? "Returned Record Books Report"
         : "Late Arrival and Record Book Report";
@@ -300,7 +351,7 @@ export default function PrefectDashboard() {
       startY: 32,
       head: [[
         "No", "Index No", "Student Name", "Class", "Late Date",
-        "Reason", "Book Status", "Days Held", "Recorded By", "Handed Over By",
+        "Reason", "Book Status", "Days Held", "30-Day Count", "Recorded By", "Handed Over By",
       ]],
       body: reportRows.map((record, index) => [
         index + 1,
@@ -311,6 +362,7 @@ export default function PrefectDashboard() {
         record.reason || "-",
         bookStatusLabel(record),
         record.recordBookReceived ? heldDays(record) : "-",
+        record.repeatCount || "-",
         record.recordedBy?.name || "-",
         record.handedOverBy?.name || "-",
       ]),
@@ -320,7 +372,11 @@ export default function PrefectDashboard() {
     });
 
     const fileName = `${
-      reportType === "outstanding" ? "uncollected-record-books" : "late-arrival-report"
+      reportType === "outstanding"
+        ? "uncollected-record-books"
+        : reportType === "repeat"
+          ? "repeat-late-arrivals"
+          : "late-arrival-report"
     }-${dayKey()}.pdf`;
     const file = new File([pdf.output("blob")], fileName, { type: "application/pdf" });
 
@@ -336,6 +392,9 @@ export default function PrefectDashboard() {
   };
 
   const details = detailStudent ? records.filter((r) => r.studentId === detailStudent.id) : [];
+  const recentDetails = details.filter(
+    (record) => record.dateKey >= daysAgoKey(REPEAT_WINDOW_DAYS - 1)
+  );
 
   return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "#f5f7fb", pb: 5 }}>
@@ -355,6 +414,8 @@ export default function PrefectDashboard() {
           <Chip icon={<AccessTimeRoundedIcon />} label={`${todayRecords.length} late today`} />
           <Chip icon={<MenuBookRoundedIcon />} color={pending.length ? "warning" : "success"} label={`${pending.length} books pending`} />
           <Chip icon={<CheckCircleRoundedIcon />} label={`${todayRecords.filter((r) => r.bookStatus === "returned").length} returned today`} />
+          <Chip color={repeatStudents.length ? "error" : "default"}
+            label={`${repeatStudents.length} repeat attention`} />
         </Stack>
         <Card sx={{ borderRadius: 3, mb: 2 }}>
           <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="fullWidth">
@@ -406,12 +467,13 @@ export default function PrefectDashboard() {
                   <InputLabel>Report</InputLabel>
                   <Select value={reportType} label="Report" onChange={(e) => setReportType(e.target.value)}>
                     <MenuItem value="outstanding">Books not collected</MenuItem>
+                    <MenuItem value="repeat">Repeat late students</MenuItem>
                     <MenuItem value="all">All late arrivals</MenuItem>
                     <MenuItem value="returned">Returned books</MenuItem>
                   </Select>
                 </FormControl>
-                <TextField fullWidth type="date" label="From" value={fromDate} disabled={reportType === "outstanding"} onChange={(e) => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-                <TextField fullWidth type="date" label="To" value={toDateFilter} disabled={reportType === "outstanding"} onChange={(e) => setToDateFilter(e.target.value)} InputLabelProps={{ shrink: true }} />
+                <TextField fullWidth type="date" label="From" value={fromDate} disabled={["outstanding", "repeat"].includes(reportType)} onChange={(e) => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                <TextField fullWidth type="date" label="To" value={toDateFilter} disabled={["outstanding", "repeat"].includes(reportType)} onChange={(e) => setToDateFilter(e.target.value)} InputLabelProps={{ shrink: true }} />
                 <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!reportRows.length}>CSV</Button>
                 <Button variant="contained" startIcon={<PictureAsPdfRoundedIcon />} onClick={generatePdf} disabled={!reportRows.length}>Share PDF</Button>
               </Stack>
@@ -421,6 +483,27 @@ export default function PrefectDashboard() {
                 ? `${reportRows.length} student${reportRows.length === 1 ? "" : "s"} have not collected their record books.`
                 : "All record books have been collected."}
             </Alert>}
+            {reportType === "repeat" && <Alert severity={reportRows.length ? "warning" : "success"}>
+              {reportRows.length
+                ? `${reportRows.length} student${reportRows.length === 1 ? "" : "s"} reached the attention flag of ${REPEAT_ATTENTION_COUNT} late arrivals in ${REPEAT_WINDOW_DAYS} days. Review their reasons and offer appropriate support.`
+                : `No student has ${REPEAT_ATTENTION_COUNT} late arrivals in the last ${REPEAT_WINDOW_DAYS} days.`}
+            </Alert>}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+              <Card variant="outlined" sx={{ flex: 1 }}><CardContent>
+                <Typography fontWeight={850} mb={1}>Top reasons · last 30 days</Typography>
+                {!topReasons.length && <Typography color="text.secondary">No recent data.</Typography>}
+                {topReasons.map(([label, count]) => <Stack key={label} direction="row" justifyContent="space-between" py={.4}>
+                  <Typography variant="body2">{label}</Typography><Chip size="small" label={count} />
+                </Stack>)}
+              </CardContent></Card>
+              <Card variant="outlined" sx={{ flex: 1 }}><CardContent>
+                <Typography fontWeight={850} mb={1}>Classes needing attention · last 30 days</Typography>
+                {!topClasses.length && <Typography color="text.secondary">No recent data.</Typography>}
+                {topClasses.map(([label, count]) => <Stack key={label} direction="row" justifyContent="space-between" py={.4}>
+                  <Typography variant="body2">{label}</Typography><Chip size="small" label={count} />
+                </Stack>)}
+              </CardContent></Card>
+            </Stack>
             <Typography color="text.secondary">{reportRows.length} records in this report</Typography>
             {reportRows.map((r) => <Card key={r.id} variant="outlined"><CardContent>
               <Typography fontWeight={800}>{r.studentName} · {r.classLabel}</Typography>
@@ -428,6 +511,7 @@ export default function PrefectDashboard() {
               <Typography variant="caption" color="text.secondary">
                 Recorded by {r.recordedBy?.name || "Unknown"} · Book: {bookStatusLabel(r)}
                 {r.recordBookReceived ? ` · ${heldDays(r)} day${heldDays(r) === 1 ? "" : "s"}` : ""}
+                {r.repeatCount ? ` · ${r.repeatCount} late arrivals in ${REPEAT_WINDOW_DAYS} days` : ""}
               </Typography>
             </CardContent></Card>)}
           </Stack>}
@@ -473,6 +557,10 @@ export default function PrefectDashboard() {
         <DialogContent>
           <Typography fontWeight={900}>{detailStudent && studentName(detailStudent)}</Typography>
           <Typography color="text.secondary">{detailStudent && studentClass(detailStudent)} · {details.length} late days</Typography>
+          {recentDetails.length >= REPEAT_ATTENTION_COUNT && <Alert severity="warning" sx={{ mt: 2 }}>
+            Attention flag: {recentDetails.length} late arrivals in the last {REPEAT_WINDOW_DAYS} days.
+            Review the reasons and arrange supportive follow-up according to school policy.
+          </Alert>}
           <Divider sx={{ my: 2 }} />
           <Stack spacing={1.5}>
             {!details.length && <Typography color="text.secondary">No late records found.</Typography>}
