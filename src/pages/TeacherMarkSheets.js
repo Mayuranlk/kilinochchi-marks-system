@@ -78,8 +78,18 @@ function pickValue(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
 }
 
+function normalizeImportedStudentName(value) {
+  return normalizeText(value)
+    .replace(/\s+/g, " ")
+    .replace(/(?:\b[A-Za-z]\s+){2,}[A-Za-z]\b/g, (letterRun) =>
+      letterRun.replace(/\s+/g, "")
+    );
+}
+
 function getStudentName(student) {
-  return normalizeText(student?.name || student?.fullName || "Unnamed Student");
+  return normalizeImportedStudentName(
+    student?.name || student?.fullName || "Unnamed Student"
+  );
 }
 
 function getStudentIndexNo(student) {
