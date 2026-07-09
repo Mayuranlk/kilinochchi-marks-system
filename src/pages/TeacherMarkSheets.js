@@ -133,6 +133,28 @@ function getEnrollmentSubjectName(enrollment) {
   return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
 }
 
+function getEnrollmentSubjectNumber(enrollment) {
+  return normalizeText(enrollment?.subjectNumber || enrollment?.subjectNo || "");
+}
+
+// Subject documents can be recreated over time, leaving valid enrollments with
+// different subjectIds for the same subject. Mark sheets must group by the
+// canonical subject identity shown to users, rather than fragmenting by doc ID.
+function getEnrollmentSubjectKey(enrollment) {
+  const subjectNumber = getEnrollmentSubjectNumber(enrollment);
+  if (subjectNumber) return `number:${normalizeLower(subjectNumber)}`;
+
+  const subjectName = getEnrollmentSubjectName(enrollment);
+  if (subjectName) {
+    return `name:${normalizeLower(subjectName)
+      .normalize("NFKC")
+      .replace(/[\s._\-/&()]+/g, "")}`;
+  }
+
+  const subjectId = getEnrollmentSubjectId(enrollment);
+  return subjectId ? `id:${normalizeLower(subjectId)}` : "";
+}
+
 function getEnrollmentAcademicYear(enrollment) {
   return normalizeAcademicYear(enrollment?.academicYear || enrollment?.year);
 }
@@ -332,7 +354,7 @@ export default function TeacherMarkSheets() {
     rows.forEach((row) => {
       const subjectId = getEnrollmentSubjectId(row);
       const subjectName = getEnrollmentSubjectName(row);
-      const key = subjectId || subjectName;
+      const key = getEnrollmentSubjectKey(row);
       if (!key || !subjectName) return;
 
       if (!map.has(key)) {
@@ -372,7 +394,7 @@ export default function TeacherMarkSheets() {
         !selectedClass || getEnrollmentClassName(enrollment, student) === selectedClass;
 
       const subjectKey =
-        getEnrollmentSubjectId(enrollment) || getEnrollmentSubjectName(enrollment);
+        getEnrollmentSubjectKey(enrollment);
 
       const sameSubject =
         selectedSubject === "__ALL__" || selectedSubject === subjectKey;
@@ -389,7 +411,7 @@ export default function TeacherMarkSheets() {
       const className = getEnrollmentClassName(enrollment, student);
       const subjectId = getEnrollmentSubjectId(enrollment);
       const subjectName = getEnrollmentSubjectName(enrollment);
-      const key = `${className}__${subjectId || subjectName}`;
+      const key = `${className}__${getEnrollmentSubjectKey(enrollment)}`;
 
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -400,10 +422,13 @@ export default function TeacherMarkSheets() {
         });
       }
 
-      grouped.get(key).rows.push({
-        enrollment,
-        student,
-      });
+      const sheet = grouped.get(key);
+      const studentKey = normalizeText(enrollment.studentId) || normalizeText(student.id);
+      if (!sheet.rows.some((row) =>
+        (normalizeText(row.enrollment.studentId) || normalizeText(row.student.id)) === studentKey
+      )) {
+        sheet.rows.push({ enrollment, student });
+      }
     });
 
     return Array.from(grouped.values())
