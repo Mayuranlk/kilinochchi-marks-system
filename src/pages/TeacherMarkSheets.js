@@ -79,11 +79,28 @@ function pickValue(...values) {
 }
 
 function normalizeImportedStudentName(value) {
-  return normalizeText(value)
-    .replace(/\s+/g, " ")
-    .replace(/&*\s*(?:[A-Za-z](?:\s*&+\s*|\s+)){2,}[A-Za-z]\b/g, (letterRun) =>
-      letterRun.replace(/[\s&]+/g, "")
-    );
+  const wordBoundary = "\uE000";
+  let text = normalizeText(value).replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
+  const ampersandCount = (text.match(/&/g) || []).length;
+
+  if (ampersandCount >= 3) {
+    text = text.replace(/&{2,}/g, wordBoundary).replace(/&/g, "");
+  }
+
+  text = text.replace(/\s{2,}/g, wordBoundary);
+
+  return text
+    .split(wordBoundary)
+    .map((part) =>
+      part.replace(
+        /(?:\b[A-Za-z][^\p{L}\p{N}]+){2,}[A-Za-z]\b/gu,
+        (letterRun) => letterRun.replace(/[^\p{L}\p{N}]+/gu, "")
+      )
+    )
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ");
 }
 
 function getStudentName(student) {
