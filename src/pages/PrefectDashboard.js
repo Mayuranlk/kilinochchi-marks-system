@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  collection, doc, getDocs, orderBy, query, runTransaction,
-  serverTimestamp, Timestamp,
+  arrayUnion, collection, doc, getDocs, orderBy, query, serverTimestamp,
+  setDoc, Timestamp, updateDoc,
 } from "firebase/firestore";
 import {
   Alert, AppBar, Avatar, Box, Button, Card, CardContent, Checkbox, Chip,
@@ -50,6 +50,15 @@ const actor = (profile, user) => ({
   name: clean(profile?.name || profile?.fullName || profile?.displayName || user?.email) || "Prefect",
   email: clean(user?.email),
 });
+const friendlyFirestoreError = (error, fallback) => {
+  if (error?.code === "resource-exhausted" || /quota exceeded/i.test(error?.message || "")) {
+    return "Firebase quota is temporarily exhausted. Please try again after the quota resets or ask the administrator to upgrade the Firebase plan.";
+  }
+  if (error?.code === "permission-denied") {
+    return "Your account does not have permission to update prefect records.";
+  }
+  return error?.message || fallback;
+};
 
 function StudentSummary({ student, count, onSelect, onDetails }) {
   return (
@@ -145,33 +154,37 @@ export default function PrefectDashboard() {
     try {
       const who = actor(profile, user);
       const recordRef = doc(db, "lateArrivalRecords", `${dayKey()}_${selected.id}`);
-      await runTransaction(db, async (transaction) => {
-        const existing = await transaction.get(recordRef);
-        if (existing.exists()) throw new Error("This student already has a late record today.");
-        transaction.set(recordRef, {
-          studentId: selected.id,
-          studentName: studentName(selected),
-          admissionNo: clean(selected.admissionNo || selected.emisStudentId),
-          grade: clean(selected.grade),
-          section: clean(selected.section || selected.className),
-          classLabel: studentClass(selected),
-          dateKey: dayKey(),
-          arrivalTime: serverTimestamp(),
-          reason: finalReason,
-          recordBookReceived: bookReceived,
-          bookStatus: bookReceived ? "held" : "not_received",
-          recordedBy: who,
-          recordedAt: serverTimestamp(),
-          handoverHistory: [],
-        });
-      });
+      const localTime = Timestamp.now();
+      const newRecord = {
+        studentId: selected.id,
+        studentName: studentName(selected),
+        admissionNo: clean(selected.admissionNo || selected.emisStudentId),
+        grade: clean(selected.grade),
+        section: clean(selected.section || selected.className),
+        classLabel: studentClass(selected),
+        dateKey: dayKey(),
+        arrivalTime: serverTimestamp(),
+        reason: finalReason,
+        recordBookReceived: bookReceived,
+        bookStatus: bookReceived ? "held" : "not_received",
+        recordedBy: who,
+        recordedAt: serverTimestamp(),
+        handoverHistory: [],
+      };
+      await setDoc(recordRef, newRecord);
+      setRecords((current) => [
+        { ...newRecord, id: recordRef.id, arrivalTime: localTime, recordedAt: localTime },
+        ...current.filter((record) => record.id !== recordRef.id),
+      ]);
       setSelected(null); setReason(""); setOtherReason(""); setBookReceived(true);
       setMessage({ severity: "success", text: "Late arrival recorded." });
-      await load();
       setTab(0);
     } catch (error) {
       console.error(error);
-      setMessage({ severity: "error", text: error.message || "Could not save the late record." });
+      setMessage({
+        severity: "error",
+        text: friendlyFirestoreError(error, "Could not save the late record."),
+      });
     } finally { setSaving(false); }
   };
 
@@ -181,25 +194,32 @@ export default function PrefectDashboard() {
     try {
       const ref = doc(db, "lateArrivalRecords", returnRecord.id);
       const who = actor(profile, user);
-      await runTransaction(db, async (transaction) => {
-        const snap = await transaction.get(ref);
-        if (!snap.exists()) throw new Error("Record no longer exists.");
-        if (snap.data().bookStatus === "returned") throw new Error("Book was already returned.");
-        transaction.update(ref, {
-          bookStatus: "returned",
-          returnedAt: serverTimestamp(),
-          handedOverBy: who,
-          handoverHistory: [
-            ...(snap.data().handoverHistory || []),
-            { action: "returned_to_student", by: who, at: Timestamp.now() },
-          ],
-        });
+      const localTime = Timestamp.now();
+      const historyItem = { action: "returned_to_student", by: who, at: localTime };
+      await updateDoc(ref, {
+        bookStatus: "returned",
+        returnedAt: serverTimestamp(),
+        handedOverBy: who,
+        handoverHistory: arrayUnion(historyItem),
       });
+      setRecords((current) => current.map((record) =>
+        record.id === returnRecord.id
+          ? {
+              ...record,
+              bookStatus: "returned",
+              returnedAt: localTime,
+              handedOverBy: who,
+              handoverHistory: [...(record.handoverHistory || []), historyItem],
+            }
+          : record
+      ));
       setReturnRecord(null); setReturnConfirmed(false);
       setMessage({ severity: "success", text: "Record book handover confirmed." });
-      await load();
     } catch (error) {
-      setMessage({ severity: "error", text: error.message || "Could not update the handover." });
+      setMessage({
+        severity: "error",
+        text: friendlyFirestoreError(error, "Could not update the handover."),
+      });
     } finally { setSaving(false); }
   };
 
