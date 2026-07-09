@@ -46,6 +46,8 @@ const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples
 const SBAForm = lazy(() => import("./pages/SBAForm"));
 const ElectionCount = lazy(() => import("./pages/ElectionCount"));
 const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
+const PrefectLogin = lazy(() => import("./pages/PrefectLogin"));
+const PrefectDashboard = lazy(() => import("./pages/PrefectDashboard"));
 
 function LoadingScreen() {
   return (
@@ -116,6 +118,15 @@ function SectionalHeadRoute({ children }) {
   return children;
 }
 
+function PrefectRoute({ children }) {
+  const { user, loading, isPrefect, isAdmin } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/prefect-login" replace />;
+  if (!isPrefect && !isAdmin) return <Navigate to="/login" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <ThemeProvider theme={appTheme}>
@@ -129,6 +140,18 @@ export default function App() {
                 <LazyRoute>
                   <Login />
                 </LazyRoute>
+              }
+            />
+            <Route
+              path="/prefect-login"
+              element={<LazyRoute><PrefectLogin /></LazyRoute>}
+            />
+            <Route
+              path="/prefect"
+              element={
+                <PrefectRoute>
+                  <LazyRoute><PrefectDashboard /></LazyRoute>
+                </PrefectRoute>
               }
             />
 

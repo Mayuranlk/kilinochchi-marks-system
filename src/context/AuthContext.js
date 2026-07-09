@@ -92,6 +92,7 @@ export function AuthProvider({ children }) {
       role === "teacher" || hasITTeacherCapability || profile?.isSubjectTeacher === true;
     const assignedGrades = parseAssignedGrades(profile || {});
     const isAdmin = role === "admin";
+    const isPrefect = role === "prefect" || profile?.isPrefect === true;
     const canAccessAllReports = isAdmin || hasITTeacherCapability;
 
     return {
@@ -103,6 +104,7 @@ export function AuthProvider({ children }) {
 
       role,
       isAdmin,
+      isPrefect,
       isTeacher: hasSubjectTeacherCapability,
       isSubjectTeacher: hasSubjectTeacherCapability,
       isITTeacher: hasITTeacherCapability,

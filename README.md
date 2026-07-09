@@ -68,3 +68,32 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+# Prefect late-arrival portal
+
+The separate prefect interface is available at `/prefect-login`. It uses the
+existing Firebase Authentication project and `students` collection.
+
+To authorise a prefect:
+
+1. Create an Email/Password user in Firebase Authentication.
+2. Create `users/{uid}` in Firestore with:
+
+```json
+{
+  "name": "Prefect name",
+  "role": "prefect",
+  "status": "active"
+}
+```
+
+Late arrivals are stored in `lateArrivalRecords`. Each document contains a
+student snapshot, server arrival time, reason, record-book state, recording
+prefect, and handover prefect/time. The deterministic document ID prevents the
+same student being recorded twice on one date.
+
+Before production use, update Firestore Security Rules so only a user whose
+`users/{uid}.role` is `prefect` or `admin` can read/write
+`lateArrivalRecords`; prefects should have read-only access to `students` and
+read access only to their own user profile. Client-side route protection is not
+a replacement for Firestore rules.

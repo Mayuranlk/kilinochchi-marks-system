@@ -67,6 +67,11 @@ export default function Login() {
         return;
       }
 
+      if (role === "prefect" || profile.isPrefect === true) {
+        navigate("/prefect", { replace: true });
+        return;
+      }
+
       if (role === "teacher" || profile.isSubjectTeacher === true) {
         navigate("/teacher", { replace: true });
         return;
