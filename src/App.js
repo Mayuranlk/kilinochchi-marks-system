@@ -48,6 +48,7 @@ const ElectionCount = lazy(() => import("./pages/ElectionCount"));
 const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
 const PrefectLogin = lazy(() => import("./pages/PrefectLogin"));
 const PrefectDashboard = lazy(() => import("./pages/PrefectDashboard"));
+const AcademicDataHealth = lazy(() => import("./pages/AcademicDataHealth"));
 
 function LoadingScreen() {
   return (
@@ -451,6 +452,16 @@ export default function App() {
                   <AdminRoute>
                     <LazyRoute>
                       <ExportFirestoreSamples />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="academic-data-health"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <AcademicDataHealth />
                     </LazyRoute>
                   </AdminRoute>
                 }

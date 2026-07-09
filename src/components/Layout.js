@@ -51,6 +51,7 @@ import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import HowToVoteRoundedIcon from "@mui/icons-material/HowToVoteRounded";
 import ShuffleRoundedIcon from "@mui/icons-material/ShuffleRounded";
+import HealthAndSafetyRoundedIcon from "@mui/icons-material/HealthAndSafetyRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -152,6 +153,7 @@ export default function Layout() {
       section: "Promotion & Tools",
       items: [
         { label: "Promotion", icon: <UpgradeRoundedIcon />, path: "/promotion" },
+        { label: "Data Health", icon: <HealthAndSafetyRoundedIcon />, path: "/academic-data-health", badge: "CHECK" },
         { label: "Export Samples", icon: <DownloadRoundedIcon />, path: "/export-firestore-samples", badge: "DEV" },
       ],
     },
