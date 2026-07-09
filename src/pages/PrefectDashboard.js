@@ -15,6 +15,9 @@ import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import MenuBookRoundedIcon from "@mui/icons-material/MenuBookRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import PictureAsPdfRoundedIcon from "@mui/icons-material/PictureAsPdfRounded";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 
@@ -44,6 +47,25 @@ const formatDateTime = (value) => {
   return date && !Number.isNaN(date.getTime())
     ? new Intl.DateTimeFormat("en-LK", { dateStyle: "medium", timeStyle: "short" }).format(date)
     : "Pending server time";
+};
+const heldDays = (record, endDate = new Date()) => {
+  const [year, month, day] = String(record?.dateKey || "").split("-").map(Number);
+  if (!year || !month || !day) return 0;
+  const returnedDate = toDate(record?.returnedAt);
+  const end = returnedDate || endDate;
+  return Math.max(
+    0,
+    Math.round(
+      (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
+        Date.UTC(year, month - 1, day)) /
+        86400000
+    )
+  );
+};
+const bookStatusLabel = (record) => {
+  if (record.bookStatus === "returned") return "Returned";
+  if (record.bookStatus === "held") return "Not collected";
+  return "Book not received";
 };
 const actor = (profile, user) => ({
   uid: user?.uid || "",
@@ -101,6 +123,7 @@ export default function PrefectDashboard() {
   const [returnConfirmed, setReturnConfirmed] = useState(false);
   const [fromDate, setFromDate] = useState(dayKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [toDateFilter, setToDateFilter] = useState(dayKey());
+  const [reportType, setReportType] = useState("outstanding");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,10 +162,19 @@ export default function PrefectDashboard() {
   }, [students, search]);
 
   const todayRecords = useMemo(() => records.filter((r) => r.dateKey === dayKey()), [records]);
-  const pending = useMemo(() => todayRecords.filter((r) => r.recordBookReceived && r.bookStatus !== "returned"), [todayRecords]);
+  const pending = useMemo(() => records.filter(
+    (r) => r.recordBookReceived && r.bookStatus !== "returned"
+  ), [records]);
   const filteredReport = useMemo(() => records.filter((r) =>
     (!fromDate || r.dateKey >= fromDate) && (!toDateFilter || r.dateKey <= toDateFilter)
   ), [records, fromDate, toDateFilter]);
+  const reportRows = useMemo(() => {
+    if (reportType === "outstanding") return pending;
+    if (reportType === "returned") {
+      return filteredReport.filter((record) => record.bookStatus === "returned");
+    }
+    return filteredReport;
+  }, [reportType, pending, filteredReport]);
 
   const saveLate = async () => {
     const finalReason = reason === "Other" ? clean(otherReason) : reason;
@@ -225,19 +257,82 @@ export default function PrefectDashboard() {
 
   const exportCsv = () => {
     const escape = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-    const rows = filteredReport.map((r) => [
+    const rows = reportRows.map((r) => [
       r.dateKey, formatDateTime(r.arrivalTime), r.admissionNo, r.studentName, r.classLabel,
-      r.reason, r.bookStatus, r.recordedBy?.name, r.handedOverBy?.name || "", formatDateTime(r.returnedAt),
+      r.reason, bookStatusLabel(r), r.recordBookReceived ? heldDays(r) : "",
+      r.recordedBy?.name, r.handedOverBy?.name || "", formatDateTime(r.returnedAt),
     ]);
     const csv = [
-      ["Date", "Arrival time", "Index No", "Student", "Class", "Reason", "Book status", "Recorded by", "Handed over by", "Returned time"],
+      ["Date", "Arrival time", "Index No", "Student", "Class", "Reason", "Book status", "Days held", "Recorded by", "Handed over by", "Returned time"],
       ...rows,
     ].map((row) => row.map(escape).join(",")).join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `late-arrivals-${fromDate}-to-${toDateFilter}.csv`;
+    link.download = `${reportType === "outstanding" ? "uncollected-books" : "late-arrivals"}-${dayKey()}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
+  };
+
+  const generatePdf = async () => {
+    if (!reportRows.length) return;
+    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const title = reportType === "outstanding"
+      ? "Students Who Have Not Collected Their Record Books"
+      : reportType === "returned"
+        ? "Returned Record Books Report"
+        : "Late Arrival and Record Book Report";
+    const generatedAt = new Intl.DateTimeFormat("en-LK", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(new Date());
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    pdf.text("KN/Kilinochchi Central College", 148.5, 14, { align: "center" });
+    pdf.setFontSize(13);
+    pdf.text(title, 148.5, 21, { align: "center" });
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.text(`Generated: ${generatedAt} | Records: ${reportRows.length}`, 148.5, 27, {
+      align: "center",
+    });
+
+    autoTable(pdf, {
+      startY: 32,
+      head: [[
+        "No", "Index No", "Student Name", "Class", "Late Date",
+        "Reason", "Book Status", "Days Held", "Recorded By", "Handed Over By",
+      ]],
+      body: reportRows.map((record, index) => [
+        index + 1,
+        record.admissionNo || "-",
+        record.studentName || "-",
+        record.classLabel || "-",
+        record.dateKey || "-",
+        record.reason || "-",
+        bookStatusLabel(record),
+        record.recordBookReceived ? heldDays(record) : "-",
+        record.recordedBy?.name || "-",
+        record.handedOverBy?.name || "-",
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [15, 61, 99] },
+      alternateRowStyles: { fillColor: [244, 247, 250] },
+    });
+
+    const fileName = `${
+      reportType === "outstanding" ? "uncollected-record-books" : "late-arrival-report"
+    }-${dayKey()}.pdf`;
+    const file = new File([pdf.output("blob")], fileName, { type: "application/pdf" });
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ title, text: title, files: [file] });
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+    pdf.save(fileName);
   };
 
   const details = detailStudent ? records.filter((r) => r.studentId === detailStudent.id) : [];
@@ -259,7 +354,7 @@ export default function PrefectDashboard() {
         <Stack direction="row" spacing={1.5} mb={2} sx={{ overflowX: "auto" }}>
           <Chip icon={<AccessTimeRoundedIcon />} label={`${todayRecords.length} late today`} />
           <Chip icon={<MenuBookRoundedIcon />} color={pending.length ? "warning" : "success"} label={`${pending.length} books pending`} />
-          <Chip icon={<CheckCircleRoundedIcon />} label={`${todayRecords.length - pending.length} completed`} />
+          <Chip icon={<CheckCircleRoundedIcon />} label={`${todayRecords.filter((r) => r.bookStatus === "returned").length} returned today`} />
         </Stack>
         <Card sx={{ borderRadius: 3, mb: 2 }}>
           <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="fullWidth">
@@ -269,6 +364,7 @@ export default function PrefectDashboard() {
         {loading ? <Box textAlign="center" py={8}><CircularProgress /></Box> : <>
           {tab === 0 && <Stack spacing={2}>
             <Typography variant="h5" fontWeight={900}>Books to hand over</Typography>
+            <Typography color="text.secondary">Includes uncollected books from previous days.</Typography>
             {!pending.length && <Alert severity="success">No record books are waiting for handover.</Alert>}
             {pending.map((r) => <Card key={r.id} variant="outlined" sx={{ borderRadius: 3 }}>
               <CardContent>
@@ -277,6 +373,8 @@ export default function PrefectDashboard() {
                     <Typography fontWeight={900}>{r.studentName}</Typography>
                     <Typography color="text.secondary">{r.classLabel} · Index {r.admissionNo || "—"}</Typography>
                     <Typography variant="body2" mt={1}>Arrived {formatDateTime(r.arrivalTime)} · {r.reason}</Typography>
+                    <Chip size="small" color={heldDays(r) > 0 ? "error" : "warning"}
+                      label={`${heldDays(r)} day${heldDays(r) === 1 ? "" : "s"} held`} sx={{ mt: 1 }} />
                   </Box>
                   <Button variant="contained" color="success" onClick={() => setReturnRecord(r)}>Hand over book</Button>
                 </Stack>
@@ -301,19 +399,36 @@ export default function PrefectDashboard() {
             {results.map((s) => <StudentSummary key={s.id} student={s} count={counts[s.id] || 0} onSelect={setSelected} onDetails={setDetailStudent} />)}
           </Stack>}
           {tab === 2 && <Stack spacing={2}>
-            <Typography variant="h5" fontWeight={900}>Late arrival report</Typography>
+            <Typography variant="h5" fontWeight={900}>Late arrival and book reports</Typography>
             <Card variant="outlined"><CardContent>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField fullWidth type="date" label="From" value={fromDate} onChange={(e) => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-                <TextField fullWidth type="date" label="To" value={toDateFilter} onChange={(e) => setToDateFilter(e.target.value)} InputLabelProps={{ shrink: true }} />
-                <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!filteredReport.length}>Export CSV</Button>
+                <FormControl fullWidth>
+                  <InputLabel>Report</InputLabel>
+                  <Select value={reportType} label="Report" onChange={(e) => setReportType(e.target.value)}>
+                    <MenuItem value="outstanding">Books not collected</MenuItem>
+                    <MenuItem value="all">All late arrivals</MenuItem>
+                    <MenuItem value="returned">Returned books</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField fullWidth type="date" label="From" value={fromDate} disabled={reportType === "outstanding"} onChange={(e) => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                <TextField fullWidth type="date" label="To" value={toDateFilter} disabled={reportType === "outstanding"} onChange={(e) => setToDateFilter(e.target.value)} InputLabelProps={{ shrink: true }} />
+                <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!reportRows.length}>CSV</Button>
+                <Button variant="contained" startIcon={<PictureAsPdfRoundedIcon />} onClick={generatePdf} disabled={!reportRows.length}>Share PDF</Button>
               </Stack>
             </CardContent></Card>
-            <Typography color="text.secondary">{filteredReport.length} records in this period</Typography>
-            {filteredReport.map((r) => <Card key={r.id} variant="outlined"><CardContent>
+            {reportType === "outstanding" && <Alert severity={reportRows.length ? "warning" : "success"}>
+              {reportRows.length
+                ? `${reportRows.length} student${reportRows.length === 1 ? "" : "s"} have not collected their record books.`
+                : "All record books have been collected."}
+            </Alert>}
+            <Typography color="text.secondary">{reportRows.length} records in this report</Typography>
+            {reportRows.map((r) => <Card key={r.id} variant="outlined"><CardContent>
               <Typography fontWeight={800}>{r.studentName} · {r.classLabel}</Typography>
               <Typography variant="body2">{formatDateTime(r.arrivalTime)} — {r.reason}</Typography>
-              <Typography variant="caption" color="text.secondary">Recorded by {r.recordedBy?.name || "Unknown"} · Book: {r.bookStatus?.replace("_", " ")}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Recorded by {r.recordedBy?.name || "Unknown"} · Book: {bookStatusLabel(r)}
+                {r.recordBookReceived ? ` · ${heldDays(r)} day${heldDays(r) === 1 ? "" : "s"}` : ""}
+              </Typography>
             </CardContent></Card>)}
           </Stack>}
         </>}
@@ -343,6 +458,8 @@ export default function PrefectDashboard() {
         <DialogContent>
           <Typography fontWeight={800}>{returnRecord?.studentName}</Typography>
           <Typography color="text.secondary" mb={2}>{returnRecord?.classLabel}</Typography>
+          {returnRecord && <Chip color={heldDays(returnRecord) > 0 ? "error" : "warning"}
+            label={`Held for ${heldDays(returnRecord)} day${heldDays(returnRecord) === 1 ? "" : "s"}`} sx={{ mb: 2 }} />}
           <Alert severity="warning">Confirm only after the after-school class is complete and the book is physically handed to the student.</Alert>
           <FormControlLabel sx={{ mt: 1.5 }} control={<Checkbox checked={returnConfirmed} onChange={(e) => setReturnConfirmed(e.target.checked)} />}
             label="I handed this record book to the student" />
