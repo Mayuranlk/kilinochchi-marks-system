@@ -81,8 +81,8 @@ function pickValue(...values) {
 function normalizeImportedStudentName(value) {
   return normalizeText(value)
     .replace(/\s+/g, " ")
-    .replace(/(?:\b[A-Za-z]\s+){2,}[A-Za-z]\b/g, (letterRun) =>
-      letterRun.replace(/\s+/g, "")
+    .replace(/&*\s*(?:[A-Za-z](?:\s*&+\s*|\s+)){2,}[A-Za-z]\b/g, (letterRun) =>
+      letterRun.replace(/[\s&]+/g, "")
     );
 }
 
