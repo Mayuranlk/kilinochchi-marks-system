@@ -68,6 +68,7 @@ const money = (value) => `Rs. ${Number(value || 0).toLocaleString("en-LK")}`;
 const studentName = (student = {}) => clean(student.name || student.fullName || "Unnamed Student");
 const studentIndex = (student = {}) => clean(student.admissionNo || student.indexNo || student.studentIndex || student.emisStudentId);
 const studentClass = (student = {}) => `G${parseGrade(student.grade) || "-"}-${section(student.section || student.className) || "-"}`;
+const classKey = (student = {}) => `${parseGrade(student.grade) || 0}__${section(student.section || student.className)}`;
 const accountDocId = (year, studentId) => `${year}_${studentId}`;
 const isActiveStudent = (student = {}) => !["left", "inactive", "graduated", "suspended"].includes(lower(student.status || "active"));
 
@@ -259,6 +260,75 @@ function buildStudentStatementDoc(row) {
   return docPdf;
 }
 
+function StudentAccountCard({ row, onPay, onFamily, onStatement }) {
+  return (
+    <Card variant="outlined" sx={{ borderRadius: 2 }}>
+      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+        <Stack spacing={1.25}>
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Avatar sx={{ bgcolor: "success.dark", width: 38, height: 38, fontWeight: 900 }}>
+              {studentName(row.student).charAt(0).toUpperCase()}
+            </Avatar>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900 }} noWrap>
+                {studentName(row.student)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {studentIndex(row.student) || "-"} | {studentClass(row.student)}
+              </Typography>
+            </Box>
+            <Chip size="small" color={statusColor(row.overallStatus)} label={row.overallStatus} sx={{ fontWeight: 800 }} />
+          </Stack>
+
+          <Stack spacing={1}>
+            {row.feeHeads.map((fee) => (
+              <Box
+                key={fee.key}
+                sx={{
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1.5,
+                  p: 1,
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 850 }}>
+                      {fee.shortLabel}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Due {money(fee.due)} | Paid {money(fee.paid)} | Bal {money(fee.balance)}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color={fee.balance > 0 ? "success" : "inherit"}
+                    disabled={fee.balance <= 0}
+                    onClick={() => onPay(row, fee)}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    Pay
+                  </Button>
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+
+          <Stack direction="row" spacing={1}>
+            <Button fullWidth size="small" variant="outlined" startIcon={<FamilyRestroomRoundedIcon />} onClick={() => onFamily(row)}>
+              Family
+            </Button>
+            <Button fullWidth size="small" variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={() => onStatement(row)}>
+              PDF
+            </Button>
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function StudentAccounts() {
   const { user, profile, logout } = useAuth();
   const navigate = useNavigate();
@@ -273,7 +343,7 @@ export default function StudentAccounts() {
   const [message, setMessage] = useState(null);
 
   const [search, setSearch] = useState("");
-  const [gradeFilter, setGradeFilter] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
   const [feeFilter, setFeeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
@@ -318,15 +388,32 @@ export default function StudentAccounts() {
     [activeStudents, accountById, academicYear]
   );
 
-  const gradeOptions = useMemo(
-    () => [...new Set(rows.map((row) => parseGrade(row.student.grade)).filter(Boolean))].sort((a, b) => a - b),
+  const classOptions = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          rows
+            .map((row) => {
+              const grade = parseGrade(row.student.grade);
+              const classSection = section(row.student.section || row.student.className);
+              const value = classKey(row.student);
+              if (!grade || !classSection) return null;
+              return [value, { value, grade, section: classSection, label: `Grade ${grade}-${classSection}` }];
+            })
+            .filter(Boolean)
+        ).values()
+      ).sort((a, b) => a.grade - b.grade || a.section.localeCompare(b.section)),
     [rows]
+  );
+
+  const selectedClassRows = useMemo(
+    () => (selectedClass ? rows.filter((row) => classKey(row.student) === selectedClass) : []),
+    [rows, selectedClass]
   );
 
   const filteredRows = useMemo(() => {
     const term = lower(search);
-    return rows.filter((row) => {
-      if (gradeFilter && parseGrade(row.student.grade) !== Number(gradeFilter)) return false;
+    return selectedClassRows.filter((row) => {
       if (statusFilter && row.overallStatus !== statusFilter) return false;
       if (feeFilter && row.feeHeads.find((fee) => fee.key === feeFilter)?.balance <= 0) return false;
       if (!term) return true;
@@ -337,10 +424,10 @@ export default function StudentAccounts() {
         row.membershipCoveredByName,
       ].join(" ").toLowerCase().includes(term);
     });
-  }, [rows, search, gradeFilter, statusFilter, feeFilter]);
+  }, [selectedClassRows, search, statusFilter, feeFilter]);
 
   const totals = useMemo(() => {
-    return rows.reduce(
+    return selectedClassRows.reduce(
       (acc, row) => {
         acc.expected += row.totalDue;
         acc.paid += row.totalPaid;
@@ -359,7 +446,7 @@ export default function StudentAccounts() {
         byFee: Object.fromEntries(FEE_HEADS.map((fee) => [fee.key, { due: 0, paid: 0, balance: 0 }])),
       }
     );
-  }, [rows]);
+  }, [selectedClassRows]);
 
   const siblingCandidates = useMemo(() => {
     if (!membershipRow) return [];
@@ -592,7 +679,12 @@ export default function StudentAccounts() {
               <StatCard title="To Be Paid" value={money(totals.balance)} icon={<AccountBalanceWalletRoundedIcon />} color="warning" />
             </Grid>
             <Grid item xs={6} md={3}>
-              <StatCard title="Students" value={rows.length} helperText={`${filteredRows.length} shown`} color="info" />
+              <StatCard
+                title="Class Students"
+                value={selectedClassRows.length}
+                helperText={selectedClass ? `${filteredRows.length} shown` : "Select a class"}
+                color="info"
+              />
             </Grid>
           </Grid>
 
@@ -618,38 +710,54 @@ export default function StudentAccounts() {
               <Grid container spacing={1.25} alignItems="center">
                 <Grid item xs={12} md={3}>
                   <TextField
+                    select
+                    fullWidth
+                    required
+                    label="Select Class"
+                    value={selectedClass}
+                    onChange={(event) => {
+                      setSelectedClass(event.target.value);
+                      setSearch("");
+                    }}
+                    helperText="Choose a class before entering payments"
+                  >
+                    <MenuItem value="">Select class</MenuItem>
+                    {classOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <TextField
                     fullWidth
                     label="Search index no or student"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
+                    disabled={!selectedClass}
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon /></InputAdornment> }}
                   />
                 </Grid>
                 <Grid item xs={6} md={2}>
-                  <TextField select fullWidth label="Grade" value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}>
-                    <MenuItem value="">All</MenuItem>
-                    {gradeOptions.map((grade) => <MenuItem key={grade} value={grade}>Grade {grade}</MenuItem>)}
-                  </TextField>
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <TextField select fullWidth label="Due Fee" value={feeFilter} onChange={(event) => setFeeFilter(event.target.value)}>
+                  <TextField select fullWidth label="Due Fee" value={feeFilter} onChange={(event) => setFeeFilter(event.target.value)} disabled={!selectedClass}>
                     <MenuItem value="">All</MenuItem>
                     {FEE_HEADS.map((fee) => <MenuItem key={fee.key} value={fee.key}>{fee.shortLabel} due</MenuItem>)}
                   </TextField>
                 </Grid>
                 <Grid item xs={6} md={2}>
-                  <TextField select fullWidth label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <TextField select fullWidth label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} disabled={!selectedClass}>
                     <MenuItem value="">All</MenuItem>
                     <MenuItem value="Paid">Paid</MenuItem>
                     <MenuItem value="Part Paid">Part Paid</MenuItem>
                     <MenuItem value="Not Paid">Not Paid</MenuItem>
                   </TextField>
                 </Grid>
-                <Grid item xs={6} md={1.5}>
+                <Grid item xs={6} md={1}>
                   <TextField fullWidth label="Year" value={academicYear} onChange={(event) => setAcademicYear(event.target.value)} />
                 </Grid>
-                <Grid item xs={12} md={1.5}>
-                  <Button fullWidth variant="outlined" onClick={() => { setSearch(""); setGradeFilter(""); setFeeFilter(""); setStatusFilter(""); }}>
+                <Grid item xs={6} md={1}>
+                  <Button fullWidth variant="outlined" onClick={() => { setSearch(""); setSelectedClass(""); setFeeFilter(""); setStatusFilter(""); }}>
                     Clear
                   </Button>
                 </Grid>
@@ -670,8 +778,16 @@ export default function StudentAccounts() {
             <CardContent>
               <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5} sx={{ mb: 1.5 }}>
                 <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>Full Account Sheet</Typography>
-                  <Typography variant="body2" color="text.secondary">{filteredRows.length} records, each fee head tracked separately.</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                    {selectedClass
+                      ? `${classOptions.find((option) => option.value === selectedClass)?.label || "Selected Class"} Account Sheet`
+                      : "Select a Class"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {selectedClass
+                      ? `${filteredRows.length} records, each fee head tracked separately.`
+                      : "Choose a class above to enter payments without loading the full school list."}
+                  </Typography>
                 </Box>
               </Stack>
 
@@ -680,8 +796,22 @@ export default function StudentAccounts() {
                   <CircularProgress />
                   <Typography color="text.secondary">Loading accounts...</Typography>
                 </Stack>
+              ) : !selectedClass ? (
+                <EmptyState title="Select a class to begin" description="The account sheet will show only students from the selected class." />
               ) : filteredRows.length === 0 ? (
-                <EmptyState title="No account rows found" description="Try another search, grade, status, or fee filter." />
+                <EmptyState title="No account rows found" description="Try another search, status, or fee filter." />
+              ) : isMobile ? (
+                <Stack spacing={1.25}>
+                  {filteredRows.map((row) => (
+                    <StudentAccountCard
+                      key={row.id}
+                      row={row}
+                      onPay={openPayment}
+                      onFamily={openMembership}
+                      onStatement={downloadStatement}
+                    />
+                  ))}
+                </Stack>
               ) : (
                 <ResponsiveTableWrapper minWidth={1280}>
                   <Table size="small">
