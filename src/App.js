@@ -19,6 +19,7 @@ const PracticeExams = lazy(() => import("./pages/PracticeExams"));
 const SetupSchoolDefaults = lazy(() => import("./pages/SetupSchoolDefaults"));
 
 const Students = lazy(() => import("./pages/Students"));
+const StudentAccounts = lazy(() => import("./pages/StudentAccounts"));
 const StudentsBySubject = lazy(() => import("./pages/StudentsBySubject"));
 const ClasswiseStudentList = lazy(() => import("./pages/ClasswiseStudentList"));
 const ClassDataManagement = lazy(() => import("./pages/ClassDataManagement"));
@@ -78,11 +79,24 @@ function PrivateRoute({ children }) {
 }
 
 function AdminRoute({ children }) {
-  const { user, loading, isAdmin, isSectionalHead } = useAuth();
+  const { user, loading, isAdmin, isAccount, isSectionalHead } = useAuth();
 
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  if (isAccount) return <Navigate to="/accounts" replace />;
   if (!isAdmin) return <Navigate to={isSectionalHead ? "/sectional-head" : "/teacher"} replace />;
+
+  return children;
+}
+
+function AccountRoute({ children }) {
+  const { user, loading, isAdmin, isAccount, isSectionalHead, isTeacher } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin && !isAccount) {
+    return <Navigate to={isSectionalHead ? "/sectional-head" : isTeacher ? "/teacher" : "/"} replace />;
+  }
 
   return children;
 }
@@ -246,6 +260,16 @@ export default function App() {
                       <Students />
                     </LazyRoute>
                   </AdminRoute>
+                }
+              />
+              <Route
+                path="accounts"
+                element={
+                  <AccountRoute>
+                    <LazyRoute>
+                      <StudentAccounts />
+                    </LazyRoute>
+                  </AccountRoute>
                 }
               />
               <Route

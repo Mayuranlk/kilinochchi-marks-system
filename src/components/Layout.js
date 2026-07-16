@@ -52,6 +52,7 @@ import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import HowToVoteRoundedIcon from "@mui/icons-material/HowToVoteRounded";
 import ShuffleRoundedIcon from "@mui/icons-material/ShuffleRounded";
 import HealthAndSafetyRoundedIcon from "@mui/icons-material/HealthAndSafetyRounded";
+import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 
 const DRAWER_WIDTH = 280;
 
@@ -59,6 +60,7 @@ export default function Layout() {
   const {
     profile,
     isAdmin,
+    isAccount,
     isTeacher,
     isClassTeacher,
     isSectionalHead,
@@ -96,6 +98,7 @@ export default function Layout() {
       section: "Students",
       items: [
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
+        { label: "Accounts", icon: <AccountBalanceWalletRoundedIcon />, path: "/accounts", badge: "NEW" },
         { label: "Students By Subject", icon: <MenuBookRoundedIcon />, path: "/students/by-subject" },
         { label: "Classwise Lists", icon: <FactCheckRoundedIcon />, path: "/students/classwise-list" },
         { label: "Class Shuffle", icon: <ShuffleRoundedIcon />, path: "/class-shuffle", badge: "NEW" },
@@ -244,6 +247,8 @@ export default function Layout() {
 
   const menuItems = isAdmin
     ? adminMenuSections.flatMap((section) => section.items)
+    : isAccount
+    ? [{ label: "Accounts", icon: <AccountBalanceWalletRoundedIcon />, path: "/accounts" }]
     : isSectionalHead
     ? sectionalHeadMenu
     : teacherMenu;
@@ -253,10 +258,14 @@ export default function Layout() {
       return [
         { label: "Home", icon: <DashboardRoundedIcon />, path: "/" },
         { label: "Students", icon: <PeopleRoundedIcon />, path: "/students" },
+        { label: "Accounts", icon: <AccountBalanceWalletRoundedIcon />, path: "/accounts" },
         { label: "Marks", icon: <GradingRoundedIcon />, path: "/marks" },
-        { label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" },
         { label: "More", icon: <MoreHorizRoundedIcon />, path: null },
       ];
+    }
+
+    if (isAccount) {
+      return [{ label: "Accounts", icon: <AccountBalanceWalletRoundedIcon />, path: "/accounts" }];
     }
 
     if (isSectionalHead) {
@@ -293,7 +302,7 @@ export default function Layout() {
         ? [{ label: "Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports" }]
         : []),
     ];
-  }, [canAccessAllReports, isAdmin, isClassTeacher, isSectionalHead, isTeacher]);
+  }, [canAccessAllReports, isAccount, isAdmin, isClassTeacher, isSectionalHead, isTeacher]);
 
   const shouldShowBottomNav = isMobile && !mobileOpen;
 
@@ -579,6 +588,11 @@ export default function Layout() {
                 <List disablePadding>{section.items.map(renderMenuItem)}</List>
               </React.Fragment>
             ))}
+          </>
+        ) : isAccount ? (
+          <>
+            <SidebarSectionLabel>Accounts</SidebarSectionLabel>
+            <List disablePadding>{menuItems.map(renderMenuItem)}</List>
           </>
         ) : isSectionalHead ? (
           <>

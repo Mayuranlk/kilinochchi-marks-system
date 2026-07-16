@@ -100,6 +100,8 @@ function getRoleLabel(role) {
       return "Sectional Head";
     case "it_teacher":
       return "IT Teacher";
+    case "account":
+      return "Account Officer";
     default:
       return "Teacher";
   }
@@ -235,7 +237,7 @@ export default function AdminTeachers() {
 
       const teacherRows = userSnap.docs
         .map((d) => normalizeTeacher(d.id, d.data()))
-        .filter((user) => ["teacher", "it_teacher", "sectional_head"].includes(normalizeLower(user.role)))
+        .filter((user) => ["teacher", "it_teacher", "sectional_head", "account"].includes(normalizeLower(user.role)))
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const classroomRows = classroomSnap.docs
@@ -355,7 +357,9 @@ export default function AdminTeachers() {
         role: form.role,
         isSectionalHead: form.role === "sectional_head",
         isSubjectTeacher:
-          form.role === "teacher" || form.role === "it_teacher" || form.isSubjectTeacher === true,
+          form.role === "account"
+            ? false
+            : form.role === "teacher" || form.role === "it_teacher" || form.isSubjectTeacher === true,
         isITTeacher: form.role === "it_teacher",
         canAccessAllReports: form.role === "it_teacher",
         assignedGrades: form.role === "sectional_head" ? form.assignedGrades.map(Number) : [],
@@ -400,9 +404,11 @@ export default function AdminTeachers() {
         role: editForm.role || "teacher",
         isSectionalHead: editForm.role === "sectional_head",
         isSubjectTeacher:
-          editForm.role === "teacher" ||
-          editForm.role === "it_teacher" ||
-          editForm.isSubjectTeacher === true,
+          editForm.role === "account"
+            ? false
+            : editForm.role === "teacher" ||
+              editForm.role === "it_teacher" ||
+              editForm.isSubjectTeacher === true,
         isITTeacher: editForm.role === "it_teacher",
         canAccessAllReports: editForm.role === "it_teacher",
         assignedGrades:
@@ -1236,7 +1242,7 @@ export default function AdminTeachers() {
                       isSubjectTeacher:
                         e.target.value === "teacher" || e.target.value === "it_teacher"
                           ? true
-                          : form.isSubjectTeacher,
+                          : false,
                       assignedGrades:
                         e.target.value === "sectional_head" ? form.assignedGrades : [],
                     })
@@ -1245,6 +1251,7 @@ export default function AdminTeachers() {
                   <MenuItem value="teacher">Subject Teacher</MenuItem>
                   <MenuItem value="it_teacher">IT Teacher - Reports & Analysis</MenuItem>
                   <MenuItem value="sectional_head">Sectional Head</MenuItem>
+                  <MenuItem value="account">Account Officer</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -1370,7 +1377,7 @@ export default function AdminTeachers() {
                       isSubjectTeacher:
                         e.target.value === "teacher" || e.target.value === "it_teacher"
                           ? true
-                          : editForm.isSubjectTeacher,
+                          : false,
                       assignedGrades:
                         e.target.value === "sectional_head"
                           ? editForm.assignedGrades || []
@@ -1381,6 +1388,7 @@ export default function AdminTeachers() {
                   <MenuItem value="teacher">Subject Teacher</MenuItem>
                   <MenuItem value="it_teacher">IT Teacher - Reports & Analysis</MenuItem>
                   <MenuItem value="sectional_head">Sectional Head</MenuItem>
+                  <MenuItem value="account">Account Officer</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
