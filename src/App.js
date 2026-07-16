@@ -11,6 +11,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const SectionalHeadDashboard = lazy(() => import("./pages/SectionalHeadDashboard"));
+const AccountLogin = lazy(() => import("./pages/AccountLogin"));
 
 const ClassroomManagement = lazy(() => import("./pages/ClassroomManagement"));
 const SubjectManagement = lazy(() => import("./pages/SubjectManagement"));
@@ -90,12 +91,12 @@ function AdminRoute({ children }) {
 }
 
 function AccountRoute({ children }) {
-  const { user, loading, isAdmin, isAccount, isSectionalHead, isTeacher } = useAuth();
+  const { user, loading, isAdmin, isAccount } = useAuth();
 
   if (loading) return <LoadingScreen />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/accounts-login" replace />;
   if (!isAdmin && !isAccount) {
-    return <Navigate to={isSectionalHead ? "/sectional-head" : isTeacher ? "/teacher" : "/"} replace />;
+    return <Navigate to="/login" replace />;
   }
 
   return children;
@@ -160,6 +161,18 @@ export default function App() {
             <Route
               path="/prefect-login"
               element={<LazyRoute><PrefectLogin /></LazyRoute>}
+            />
+            <Route
+              path="/accounts-login"
+              element={<LazyRoute><AccountLogin /></LazyRoute>}
+            />
+            <Route
+              path="/accounts"
+              element={
+                <AccountRoute>
+                  <LazyRoute><StudentAccounts /></LazyRoute>
+                </AccountRoute>
+              }
             />
             <Route
               path="/prefect"
@@ -260,16 +273,6 @@ export default function App() {
                       <Students />
                     </LazyRoute>
                   </AdminRoute>
-                }
-              />
-              <Route
-                path="accounts"
-                element={
-                  <AccountRoute>
-                    <LazyRoute>
-                      <StudentAccounts />
-                    </LazyRoute>
-                  </AccountRoute>
                 }
               />
               <Route
