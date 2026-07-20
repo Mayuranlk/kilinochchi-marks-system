@@ -77,11 +77,14 @@ const RANGE_BANDS = [
   { key: "10-19", min: 10, max: 19 },
   { key: "20-29", min: 20, max: 29 },
   { key: "30-34", min: 30, max: 34 },
-  { key: "35-39", min: 35, max: 39 },
-  { key: "40-49", min: 40, max: 49 },
-  { key: "50-59", min: 50, max: 59 },
-  { key: "60-69", min: 60, max: 69 },
-  { key: "70-79", min: 70, max: 79 },
+  { key: "35-40", min: 35, max: 40 },
+  { key: "41-49", min: 41, max: 49 },
+  { key: "50-54", min: 50, max: 54 },
+  { key: "55-59", min: 55, max: 59 },
+  { key: "60-64", min: 60, max: 64 },
+  { key: "65-69", min: 65, max: 69 },
+  { key: "70-74", min: 70, max: 74 },
+  { key: "75-79", min: 75, max: 79 },
   { key: "80-89", min: 80, max: 89 },
   { key: "90-100", min: 90, max: 100 },
 ];
@@ -99,6 +102,7 @@ const LOW_MARK_BANDS = RANGE_BANDS.filter((band) => band.max <= 34);
 const TAB_CONFIG = [
   { value: "grade", label: "Grade Subject Analysis" },
   { value: "class", label: "Class Subject Analysis" },
+  { value: "subjectMarks", label: "Subject Marks List" },
   { value: "range", label: "Subject Mark Range" },
   { value: "summaryRange", label: "Summary Mark Range" },
   { value: "absent", label: "Absent Students" },
@@ -1201,6 +1205,59 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
   return doc;
 }
 
+function createSubjectMarkStudentsPdf({ title, context, rows, sortDirection }) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(`Sort: Marks ${sortDirection === "asc" ? "Ascending" : "Descending"}`, 10, 32);
+
+  autoTable(doc, {
+    startY: 36,
+    head: [["No", "Index No", "Name", "Marks", "Result", "Grade", "Division"]],
+    body: rows.map((row, index) => [
+      index + 1,
+      row.indexNo || row.studentId,
+      row.studentName,
+      formatNumber(row.mark, 0),
+      row.symbol || "-",
+      row.grade,
+      row.division,
+    ]),
+    theme: "grid",
+    styles: {
+      fontSize: 7.8,
+      cellPadding: 1.15,
+      valign: "middle",
+      halign: "center",
+      lineWidth: 0.12,
+      lineColor: [40, 40, 40],
+      textColor: 20,
+    },
+    headStyles: {
+      fillColor: [235, 239, 245],
+      textColor: 20,
+      fontStyle: "bold",
+      lineWidth: 0.14,
+      lineColor: [30, 30, 30],
+    },
+    columnStyles: {
+      0: { cellWidth: 10 },
+      1: { cellWidth: 25 },
+      2: { cellWidth: 78, halign: "left", fontStyle: "bold" },
+      3: { cellWidth: 20, halign: "right", fontStyle: "bold" },
+      4: { cellWidth: 18 },
+      5: { cellWidth: 16 },
+      6: { cellWidth: 20 },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  addPdfFooter(doc);
+  return doc;
+}
+
 function buildGroupedAbsentRows(rows = []) {
   const grouped = new Map();
 
@@ -1844,6 +1901,36 @@ function getLowMarkBand(mark) {
   return LOW_MARK_BANDS.find((band) => number >= band.min && number <= band.max) || null;
 }
 
+function buildSubjectMarkStudentRows(records, selectedSubjectKey, sortDirection = "desc") {
+  if (!selectedSubjectKey || selectedSubjectKey === ALL) return [];
+
+  const direction = sortDirection === "asc" ? 1 : -1;
+
+  return records
+    .filter((record) => record.subjectKey === selectedSubjectKey)
+    .filter((record) => hasEnteredMark(record.mark) && !record.absent)
+    .map((record) => ({
+      studentId: record.studentId,
+      indexNo: record.indexNo,
+      studentName: record.studentName,
+      grade: record.grade,
+      division: record.section || getDivisionFromClassName(record.className),
+      className: record.className,
+      subjectName: record.subjectName,
+      mark: Number(record.mark),
+      symbol: getGradeSymbol(record.mark, record.grade),
+    }))
+    .sort((a, b) => {
+      const markDiff = (Number(a.mark) - Number(b.mark)) * direction;
+      if (markDiff !== 0) return markDiff;
+      const classDiff = a.className.localeCompare(b.className, undefined, { numeric: true });
+      if (classDiff !== 0) return classDiff;
+      const indexDiff = clean(a.indexNo).localeCompare(clean(b.indexNo), undefined, { numeric: true });
+      if (indexDiff !== 0) return indexDiff;
+      return a.studentName.localeCompare(b.studentName, undefined, { numeric: true });
+    });
+}
+
 function buildLowMarkStudentRows(records, selectedSubjectKey) {
   if (!selectedSubjectKey || selectedSubjectKey === ALL) return [];
 
@@ -1921,6 +2008,7 @@ export default function SubjectAnalysis() {
   const [selectedGrade, setSelectedGrade] = useState(6);
   const [selectedClass, setSelectedClass] = useState(ALL);
   const [selectedSubject, setSelectedSubject] = useState(ALL);
+  const [subjectMarkSort, setSubjectMarkSort] = useState("desc");
   const [printTarget, setPrintTarget] = useState("");
   const [printSize, setPrintSize] = useState("A4 landscape");
 
@@ -2295,6 +2383,11 @@ export default function SubjectAnalysis() {
     return buildLowMarkStudentRows(sourceRecords, selectedSubject);
   }, [gradeRecords, classRecords, selectedClass, selectedSubject]);
 
+  const subjectMarkStudentRows = useMemo(() => {
+    const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
+    return buildSubjectMarkStudentRows(sourceRecords, selectedSubject, subjectMarkSort);
+  }, [gradeRecords, classRecords, selectedClass, selectedSubject, subjectMarkSort]);
+
   const absentStudentRows = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
     return buildAbsentStudentRows(sourceRecords, selectedSubject);
@@ -2308,7 +2401,11 @@ export default function SubjectAnalysis() {
   const selectedStats = useMemo(() => {
     return finishStats(
       selectedRecordsForStats.reduce((stats, record) => {
-        if (tab === "range" && selectedSubject !== ALL && record.subjectKey !== selectedSubject) {
+        if (
+          (tab === "range" || tab === "subjectMarks" || tab === "lowMarks") &&
+          selectedSubject !== ALL &&
+          record.subjectKey !== selectedSubject
+        ) {
           return stats;
         }
         addToStats(stats, record);
@@ -2532,6 +2629,22 @@ export default function SubjectAnalysis() {
                 onPrint={() => handlePrint("class-subject-analysis", "A4 landscape")}
                 rows={classSubjectRows}
                 emptyText="No class subject analysis found. Select a division/class with enrolled subjects."
+              />
+            )}
+
+            {tab === "subjectMarks" && (
+              <SubjectMarkStudentsReport
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                  selectedSubjectName || "Selected Subject"
+                } Marks List`}
+                reportId="subject-marks-list"
+                activePrint={printTarget === "subject-marks-list"}
+                context={shareContext}
+                onPrint={() => handlePrint("subject-marks-list", "A4 portrait")}
+                rows={subjectMarkStudentRows}
+                selectedSubject={selectedSubject}
+                sortDirection={subjectMarkSort}
+                onSortDirectionChange={setSubjectMarkSort}
               />
             )}
 
@@ -3538,6 +3651,103 @@ function ALResultSheetPreview({ row, subjects, context }) {
         Attendance requirement for A/L admission: 80%.
       </Typography>
     </Box>
+  );
+}
+
+function SubjectMarkStudentsReport({
+  title,
+  rows,
+  reportId,
+  activePrint,
+  context,
+  onPrint,
+  selectedSubject,
+  sortDirection,
+  onSortDirectionChange,
+}) {
+  if (selectedSubject === ALL) {
+    return (
+      <EmptyState
+        title="Select a subject"
+        description="Choose one subject to list student names, index numbers, divisions, and marks."
+      />
+    );
+  }
+
+  const createPdf = () =>
+    createSubjectMarkStudentsPdf({ title, context, rows, sortDirection });
+
+  return (
+    <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
+      <CardContent>
+        <Stack
+          className="analysis-no-print"
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "stretch", md: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 1.5 }}
+        >
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Sort by Marks</InputLabel>
+            <Select
+              value={sortDirection}
+              label="Sort by Marks"
+              onChange={(event) => onSortDirectionChange(event.target.value)}
+            >
+              <MenuItem value="desc">Highest to Lowest</MenuItem>
+              <MenuItem value="asc">Lowest to Highest</MenuItem>
+            </Select>
+          </FormControl>
+          <ReportActions
+            title={title}
+            context={context}
+            rowsCount={rows.length}
+            onPrint={onPrint}
+            createPdf={createPdf}
+            extra={`Marks sorted ${sortDirection === "asc" ? "ascending" : "descending"}.`}
+          />
+        </Stack>
+        <ReportHeader title={title} context={context} />
+        {!rows.length ? (
+          <EmptyState
+            title="No subject marks"
+            description="No entered marks were found for this subject and scope."
+          />
+        ) : (
+          <ResponsiveTableWrapper minWidth={860} sx={borderedReportTableSx}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 800 }}>No</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>Index No</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800 }}>Marks</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800 }}>Result</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800 }}>Grade</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800 }}>Division</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.map((row, index) => (
+                  <TableRow key={`${row.studentId}-${row.className}-${index}`} hover>
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>{row.indexNo || row.studentId}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>
+                      {formatNumber(row.mark, 0)}
+                    </TableCell>
+                    <TableCell align="center">{row.symbol || "-"}</TableCell>
+                    <TableCell align="center">{row.grade}</TableCell>
+                    <TableCell align="center">{row.division}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ResponsiveTableWrapper>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
