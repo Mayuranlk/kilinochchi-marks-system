@@ -1205,7 +1205,7 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
   return doc;
 }
 
-function createSubjectMarkStudentsPdf({ title, context, rows, sortDirection }) {
+function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortDirection }) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
 
@@ -1213,8 +1213,72 @@ function createSubjectMarkStudentsPdf({ title, context, rows, sortDirection }) {
   doc.setFontSize(8.5);
   doc.text(`Sort: Marks ${sortDirection === "asc" ? "Ascending" : "Descending"}`, 10, 32);
 
+  const summaryStartY = analysisRow ? 36 : 34;
+
+  if (analysisRow) {
+    autoTable(doc, {
+      startY: summaryStartY,
+      head: [["Enrolled", "Appeared", "Absent", "Average", "Highest", "Lowest", "Pass %"]],
+      body: [[
+        analysisRow.enrolled,
+        analysisRow.appeared,
+        analysisRow.absent,
+        formatNumber(analysisRow.average),
+        formatNumber(analysisRow.highest, 0),
+        formatNumber(analysisRow.lowest, 0),
+        `${formatNumber(analysisRow.passPercentage)}%`,
+      ]],
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        cellPadding: 1.15,
+        valign: "middle",
+        halign: "center",
+        lineWidth: 0.12,
+        lineColor: [40, 40, 40],
+        textColor: 20,
+      },
+      headStyles: {
+        fillColor: [235, 239, 245],
+        textColor: 20,
+        fontStyle: "bold",
+        lineWidth: 0.14,
+        lineColor: [30, 30, 30],
+      },
+      margin: { left: 8, right: 8 },
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 4,
+      head: [["Range", ...RANGE_BANDS.map((band) => band.key)]],
+      body: [[
+        "Count",
+        ...RANGE_BANDS.map((band) => analysisRow.rangeCounts[band.key] || 0),
+      ]],
+      theme: "grid",
+      styles: {
+        fontSize: 6.5,
+        cellPadding: 0.95,
+        valign: "middle",
+        halign: "center",
+        lineWidth: 0.12,
+        lineColor: [40, 40, 40],
+        textColor: 20,
+      },
+      headStyles: {
+        fillColor: [235, 239, 245],
+        textColor: 20,
+        fontStyle: "bold",
+        lineWidth: 0.14,
+        lineColor: [30, 30, 30],
+      },
+      columnStyles: { 0: { fontStyle: "bold" } },
+      margin: { left: 8, right: 8 },
+    });
+  }
+
   autoTable(doc, {
-    startY: 36,
+    startY: analysisRow ? doc.lastAutoTable.finalY + 6 : 36,
     head: [["No", "Index No", "Name", "Marks", "Grade", "Division"]],
     body: rows.map((row, index) => [
       index + 1,
@@ -2386,6 +2450,11 @@ export default function SubjectAnalysis() {
     return buildSubjectMarkStudentRows(sourceRecords, selectedSubject, subjectMarkSort);
   }, [gradeRecords, classRecords, selectedClass, selectedSubject, subjectMarkSort]);
 
+  const subjectMarkAnalysisRow = useMemo(
+    () => rangeRows.find((row) => row.subjectKey === selectedSubject) || null,
+    [rangeRows, selectedSubject]
+  );
+
   const absentStudentRows = useMemo(() => {
     const sourceRecords = selectedClass === ALL ? gradeRecords : classRecords;
     return buildAbsentStudentRows(sourceRecords, selectedSubject);
@@ -2640,6 +2709,7 @@ export default function SubjectAnalysis() {
                 context={shareContext}
                 onPrint={() => handlePrint("subject-marks-list", "A4 portrait")}
                 rows={subjectMarkStudentRows}
+                analysisRow={subjectMarkAnalysisRow}
                 selectedSubject={selectedSubject}
                 sortDirection={subjectMarkSort}
                 onSortDirectionChange={setSubjectMarkSort}
@@ -3655,6 +3725,7 @@ function ALResultSheetPreview({ row, subjects, context }) {
 function SubjectMarkStudentsReport({
   title,
   rows,
+  analysisRow,
   reportId,
   activePrint,
   context,
@@ -3673,7 +3744,7 @@ function SubjectMarkStudentsReport({
   }
 
   const createPdf = () =>
-    createSubjectMarkStudentsPdf({ title, context, rows, sortDirection });
+    createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortDirection });
 
   return (
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
@@ -3707,6 +3778,61 @@ function SubjectMarkStudentsReport({
           />
         </Stack>
         <ReportHeader title={title} context={context} />
+        {analysisRow && (
+          <Box sx={{ mb: 2 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1, textAlign: "left" }}>
+              Subject Analysis
+            </Typography>
+            <ResponsiveTableWrapper minWidth={720} sx={{ ...borderedReportTableSx, mb: 1.5 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Enrolled</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Absent</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Average</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Highest</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Lowest</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Pass %</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow hover>
+                    <TableCell align="right">{analysisRow.enrolled}</TableCell>
+                    <TableCell align="right">{analysisRow.appeared}</TableCell>
+                    <TableCell align="right">{analysisRow.absent}</TableCell>
+                    <TableCell align="right">{formatNumber(analysisRow.average)}</TableCell>
+                    <TableCell align="right">{formatNumber(analysisRow.highest, 0)}</TableCell>
+                    <TableCell align="right">{formatNumber(analysisRow.lowest, 0)}</TableCell>
+                    <TableCell align="right">{formatNumber(analysisRow.passPercentage)}%</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </ResponsiveTableWrapper>
+            <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 800 }}>Range</TableCell>
+                    {RANGE_BANDS.map((band) => (
+                      <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: 800 }}>Count</TableCell>
+                    {RANGE_BANDS.map((band) => (
+                      <TableCell key={band.key} align="right">
+                        {analysisRow.rangeCounts[band.key] || 0}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </ResponsiveTableWrapper>
+          </Box>
+        )}
         {!rows.length ? (
           <EmptyState
             title="No subject marks"
