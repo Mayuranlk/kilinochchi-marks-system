@@ -1215,13 +1215,12 @@ function createSubjectMarkStudentsPdf({ title, context, rows, sortDirection }) {
 
   autoTable(doc, {
     startY: 36,
-    head: [["No", "Index No", "Name", "Marks", "Result", "Grade", "Division"]],
+    head: [["No", "Index No", "Name", "Marks", "Grade", "Division"]],
     body: rows.map((row, index) => [
       index + 1,
       row.indexNo || row.studentId,
       row.studentName,
       formatNumber(row.mark, 0),
-      row.symbol || "-",
       row.grade,
       row.division,
     ]),
@@ -1245,11 +1244,10 @@ function createSubjectMarkStudentsPdf({ title, context, rows, sortDirection }) {
     columnStyles: {
       0: { cellWidth: 10 },
       1: { cellWidth: 25 },
-      2: { cellWidth: 78, halign: "left", fontStyle: "bold" },
+      2: { cellWidth: 88, halign: "left", fontStyle: "bold" },
       3: { cellWidth: 20, halign: "right", fontStyle: "bold" },
       4: { cellWidth: 18 },
-      5: { cellWidth: 16 },
-      6: { cellWidth: 20 },
+      5: { cellWidth: 20 },
     },
     margin: { left: 8, right: 8 },
   });
@@ -3723,7 +3721,6 @@ function SubjectMarkStudentsReport({
                   <TableCell sx={{ fontWeight: 800 }}>Index No</TableCell>
                   <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>Marks</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 800 }}>Result</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 800 }}>Grade</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 800 }}>Division</TableCell>
                 </TableRow>
@@ -3737,7 +3734,6 @@ function SubjectMarkStudentsReport({
                     <TableCell align="right" sx={{ fontWeight: 800 }}>
                       {formatNumber(row.mark, 0)}
                     </TableCell>
-                    <TableCell align="center">{row.symbol || "-"}</TableCell>
                     <TableCell align="center">{row.grade}</TableCell>
                     <TableCell align="center">{row.division}</TableCell>
                   </TableRow>
