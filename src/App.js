@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import appTheme from "./theme/appTheme";
 
 import Layout from "./components/Layout";
+import PageMeta from "./components/PageMeta";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -150,6 +151,7 @@ export default function App() {
       <CssBaseline />
       <AuthProvider>
         <Router>
+          <PageMeta />
           <Routes>
             <Route
               path="/login"
