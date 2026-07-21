@@ -146,6 +146,7 @@ export default function Layout() {
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "NEW" },
+        { label: "Live Marks Status", icon: <FactCheckRoundedIcon />, path: "/marks-status-live", badge: "PUBLIC" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "NEW" },
       ],
     },

@@ -7,8 +7,10 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { db, auth } from "../firebase";
+import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
+import { deleteApp, initializeApp } from "firebase/app";
+import { db } from "../firebase";
+import firebaseApp from "../firebase";
 import { GRADES } from "../constants";
 import * as XLSX from "xlsx";
 import {
@@ -47,6 +49,8 @@ import {
   AccordionDetails,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import ChatIcon from "@mui/icons-material/Chat";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
@@ -92,6 +96,45 @@ function buildFullClassName(grade, section) {
   const g = parseGrade(grade);
   const s = normalizeSection(section);
   return g && s ? `${g}${s}` : "";
+}
+
+async function createStaffAuthUser(email, password) {
+  const secondaryApp = initializeApp(
+    firebaseApp.options,
+    `staff-create-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+  const secondaryAuth = getAuth(secondaryApp);
+
+  try {
+    const credential = await createUserWithEmailAndPassword(
+      secondaryAuth,
+      email,
+      password
+    );
+    await signOut(secondaryAuth);
+    return credential;
+  } finally {
+    await deleteApp(secondaryApp);
+  }
+}
+
+function getLoginUrl() {
+  if (typeof window === "undefined") return "/login";
+  return `${window.location.origin}/login`;
+}
+
+function buildStaffLoginMessage({ name, role, email, password }) {
+  return [
+    `Dear ${normalizeText(name) || "Teacher"},`,
+    "",
+    `Your ${getRoleLabel(role)} login has been created for Kilinochchi Central College Marks System.`,
+    "",
+    `Login URL: ${getLoginUrl()}`,
+    `Email: ${normalizeText(email).toLowerCase()}`,
+    `Password: ${password}`,
+    "",
+    "Please login and keep these credentials private.",
+  ].join("\n");
 }
 
 function getRoleLabel(role) {
@@ -212,6 +255,7 @@ export default function AdminTeachers() {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [loginMessage, setLoginMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -347,9 +391,11 @@ export default function AdminTeachers() {
 
     setSaving(true);
     setError("");
+    setLoginMessage("");
 
     try {
-      const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+      const staffLoginMessage = buildStaffLoginMessage(form);
+      const cred = await createStaffAuthUser(form.email, form.password);
 
       await setDoc(doc(db, "users", cred.user.uid), {
         name: normalizeText(form.name),
@@ -369,7 +415,8 @@ export default function AdminTeachers() {
         createdAt: new Date().toISOString(),
       });
 
-      setSuccess(`${getRoleLabel(form.role)} ${form.name} added.`);
+      setSuccess(`${getRoleLabel(form.role)} ${form.name} added. Admin login stayed active.`);
+      setLoginMessage(staffLoginMessage);
       setOpen(false);
       setForm(empty);
       await fetchData();
@@ -563,6 +610,27 @@ export default function AdminTeachers() {
     }
   };
 
+  const handleCopyLoginMessage = async () => {
+    if (!loginMessage) return;
+
+    try {
+      await navigator.clipboard.writeText(loginMessage);
+      setSuccess("Login message copied. You can paste it into WhatsApp or SMS.");
+    } catch (err) {
+      console.error("Copy login message failed:", err);
+      setError("Could not copy automatically. Select and copy the message manually.");
+    }
+  };
+
+  const handleOpenWhatsAppMessage = () => {
+    if (!loginMessage) return;
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(loginMessage)}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  };
+
   const handleDelete = async (teacherId) => {
     const teacher = teachers.find((row) => row.id === teacherId);
     if (!teacher) return;
@@ -732,17 +800,14 @@ export default function AdminTeachers() {
 
     setBulkUploading(true);
     setBulkProgress(0);
+    setLoginMessage("");
 
     let count = 0;
     const failed = [];
 
     for (const teacher of bulkData) {
       try {
-        const cred = await createUserWithEmailAndPassword(
-          auth,
-          teacher.email,
-          teacher.password
-        );
+        const cred = await createStaffAuthUser(teacher.email, teacher.password);
 
         await setDoc(doc(db, "users", cred.user.uid), {
           name: teacher.name,
@@ -833,6 +898,7 @@ export default function AdminTeachers() {
               setOpen(true);
               setError("");
               setSuccess("");
+              setLoginMessage("");
               setForm(empty);
             }}
             sx={{ bgcolor: "#1a237e", borderRadius: 2 }}
@@ -847,6 +913,64 @@ export default function AdminTeachers() {
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
           {success}
         </Alert>
+      )}
+
+      {loginMessage && (
+        <Paper
+          variant="outlined"
+          sx={{
+            mb: 2,
+            p: 2,
+            borderRadius: 2,
+            borderColor: "#c8e6c9",
+            bgcolor: "#f1f8e9",
+          }}
+        >
+          <Box
+            display="flex"
+            gap={1}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", sm: "center" }}
+            flexDirection={{ xs: "column", sm: "row" }}
+            mb={1.25}
+          >
+            <Box>
+              <Typography variant="subtitle2" fontWeight={800} color="#1b5e20">
+                WhatsApp Login Message
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Copy this message or open WhatsApp, then send it to the new staff member.
+              </Typography>
+            </Box>
+            <Box display="flex" gap={1} flexWrap="wrap">
+              <Button
+                variant="outlined"
+                color="success"
+                startIcon={<ContentCopyIcon />}
+                onClick={handleCopyLoginMessage}
+                fullWidth={isMobile}
+              >
+                Copy
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<ChatIcon />}
+                onClick={handleOpenWhatsAppMessage}
+                fullWidth={isMobile}
+              >
+                WhatsApp
+              </Button>
+            </Box>
+          </Box>
+          <TextField
+            value={loginMessage}
+            multiline
+            fullWidth
+            minRows={6}
+            InputProps={{ readOnly: true }}
+          />
+        </Paper>
       )}
 
       {error && (

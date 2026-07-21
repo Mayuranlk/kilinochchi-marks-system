@@ -48,6 +48,7 @@ const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples
 const SBAForm = lazy(() => import("./pages/SBAForm"));
 const ElectionCount = lazy(() => import("./pages/ElectionCount"));
 const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
+const MarksStatusLive = lazy(() => import("./pages/MarksStatusLive"));
 const PrefectLogin = lazy(() => import("./pages/PrefectLogin"));
 const PrefectDashboard = lazy(() => import("./pages/PrefectDashboard"));
 const AcademicDataHealth = lazy(() => import("./pages/AcademicDataHealth"));
@@ -188,6 +189,14 @@ export default function App() {
               element={
                 <LazyRoute>
                   <ElectionLiveResults />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/marks-status-live"
+              element={
+                <LazyRoute>
+                  <MarksStatusLive />
                 </LazyRoute>
               }
             />
