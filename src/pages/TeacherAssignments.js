@@ -16,6 +16,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Alert,
+  Autocomplete,
   Avatar,
   Box,
   Button,
@@ -183,6 +184,48 @@ const getAssignmentSubjectName = (row) =>
 
 const getClassroomSection = (row) => normalizeSection(row.section || row.className);
 
+const getClassroomFullClassName = (row) => {
+  const explicitName = safeString(row.fullClassName || row.alClassName);
+  if (explicitName) return explicitName;
+
+  const grade = normalizeGrade(row.grade);
+  const section = getClassroomSection(row);
+  const stream = safeString(row.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return safeString(row.className) || `${grade}${section}`;
+};
+
+const getClassroomDisplayName = (row) => {
+  const explicitName = safeString(row.displayClassName);
+  if (explicitName) return explicitName;
+
+  const grade = normalizeGrade(row.grade);
+  const section = getClassroomSection(row);
+  const stream = safeString(row.stream);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || getClassroomFullClassName(row);
+  }
+
+  return getClassroomFullClassName(row);
+};
+
+const getClassroomOptionKey = (row) => {
+  const explicitId = safeString(row.id);
+  if (explicitId) return explicitId;
+
+  return [
+    normalizeGrade(row.grade) || "",
+    getClassroomSection(row),
+    safeString(row.stream),
+    getClassroomFullClassName(row),
+  ].join("|");
+};
+
 const getAssignmentFullClassName = (row) => {
   if (safeString(row.fullClassName)) return safeString(row.fullClassName);
 
@@ -241,6 +284,7 @@ export default function TeacherAssignments() {
   const [classrooms, setClassrooms] = useState([]);
 
   const [selectedTeacher, setSelectedTeacher] = useState("");
+  const [selectedClassKeys, setSelectedClassKeys] = useState([]);
   const [selectedGrades, setSelectedGrades] = useState([]);
   const [selectedSections, setSelectedSections] = useState([]);
   const [selectedStreams, setSelectedStreams] = useState([]);
@@ -305,9 +349,53 @@ export default function TeacherAssignments() {
     [teachers, selectedTeacher]
   );
 
+  const classOptions = useMemo(
+    () =>
+      classrooms
+        .filter((row) => {
+          const grade = normalizeGrade(row.grade);
+          return grade >= 6 && grade <= 13;
+        })
+        .sort((a, b) => {
+          const gradeDiff = Number(normalizeGrade(a.grade)) - Number(normalizeGrade(b.grade));
+          if (gradeDiff !== 0) return gradeDiff;
+          return getClassroomDisplayName(a).localeCompare(getClassroomDisplayName(b), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+        }),
+    [classrooms]
+  );
+
+  const selectedClassRows = useMemo(
+    () =>
+      classOptions.filter((classroom) =>
+        selectedClassKeys.includes(getClassroomOptionKey(classroom))
+      ),
+    [classOptions, selectedClassKeys]
+  );
+
+  const usingExactClasses = selectedClassRows.length > 0;
+
   const hasALGradeSelected = useMemo(
     () => selectedGrades.some((grade) => isALGrade(grade)),
     [selectedGrades]
+  );
+
+  const subjectFilterGrades = useMemo(
+    () =>
+      usingExactClasses
+        ? [...new Set(selectedClassRows.map((row) => normalizeGrade(row.grade)).filter(Boolean))]
+        : selectedGrades,
+    [selectedClassRows, selectedGrades, usingExactClasses]
+  );
+
+  const subjectFilterStreams = useMemo(
+    () =>
+      usingExactClasses
+        ? [...new Set(selectedClassRows.map((row) => safeString(row.stream)).filter(Boolean))]
+        : selectedStreams,
+    [selectedClassRows, selectedStreams, usingExactClasses]
   );
 
   const availableGrades = useMemo(() => {
@@ -346,23 +434,23 @@ export default function TeacherAssignments() {
   }, [classrooms, selectedGrades, selectedStreams]);
 
   const availableSubjects = useMemo(() => {
-    if (!selectedGrades.length) {
+    if (!subjectFilterGrades.length) {
       return [];
     }
 
     return subjects.filter((subject) =>
-      selectedGrades.some((grade) => {
+      subjectFilterGrades.some((grade) => {
         if (!subjectMatchesGrade(subject, grade)) return false;
 
         if (isALGrade(grade)) {
-          if (selectedStreams.length === 0) return true;
-          return selectedStreams.some((stream) => subjectMatchesStream(subject, stream));
+          if (subjectFilterStreams.length === 0) return true;
+          return subjectFilterStreams.some((stream) => subjectMatchesStream(subject, stream));
         }
 
         return true;
       })
     );
-  }, [subjects, selectedGrades, selectedStreams]);
+  }, [subjects, subjectFilterGrades, subjectFilterStreams]);
 
   const selectedSubjectRows = useMemo(() => {
     return availableSubjects.filter((subject) =>
@@ -375,6 +463,38 @@ export default function TeacherAssignments() {
 
   const previewCombos = useMemo(() => {
     const combos = [];
+
+    if (usingExactClasses) {
+      selectedClassRows.forEach((classroom) => {
+        const grade = normalizeGrade(classroom.grade);
+        const section = getClassroomSection(classroom);
+        const stream = safeString(classroom.stream);
+        const fullClassName = getClassroomFullClassName(classroom);
+        const displayClassName = getClassroomDisplayName(classroom);
+
+        selectedSubjectRows.forEach((subject) => {
+          if (!subjectMatchesGrade(subject, grade)) return;
+          if (isALGrade(grade) && stream && !subjectMatchesStream(subject, stream)) return;
+
+          combos.push({
+            grade: Number(grade),
+            section: safeString(section),
+            stream: isALGrade(grade) ? stream : "",
+            streamCode: isALGrade(grade) ? safeString(AL_STREAM_CODES[stream] || "") : "",
+            className: safeString(classroom.className) || `${grade}${section}`,
+            alClassName: isALGrade(grade) ? fullClassName : "",
+            fullClassName,
+            displayClassName,
+            subjectId: subject.id,
+            subjectName: getSubjectName(subject),
+            subjectCode: getSubjectCode(subject),
+            subjectNumber: getSubjectNumber(subject),
+          });
+        });
+      });
+
+      return combos;
+    }
 
     selectedGrades.forEach((grade) => {
       const alGrade = isALGrade(grade);
@@ -421,7 +541,15 @@ export default function TeacherAssignments() {
     });
 
     return combos;
-  }, [selectedGrades, selectedSections, selectedStreams, selectedSubjectRows, availableStreams]);
+  }, [
+    availableStreams,
+    selectedClassRows,
+    selectedGrades,
+    selectedSections,
+    selectedStreams,
+    selectedSubjectRows,
+    usingExactClasses,
+  ]);
 
   const previewCount = previewCombos.length;
 
@@ -436,6 +564,14 @@ export default function TeacherAssignments() {
       prev.filter((section) => availableSections.includes(section))
     );
   }, [availableSections]);
+
+  useEffect(() => {
+    setSelectedClassKeys((prev) =>
+      prev.filter((key) =>
+        classOptions.some((classroom) => getClassroomOptionKey(classroom) === key)
+      )
+    );
+  }, [classOptions]);
 
   const toggleGrade = (grade) => {
     setSelectedGrades((prev) => {
@@ -521,18 +657,23 @@ export default function TeacherAssignments() {
       return;
     }
 
-    if (!selectedGrades.length) {
+    if (!usingExactClasses && !selectedGrades.length) {
       setError("Select at least one grade.");
       return;
     }
 
-    if (!selectedSections.length) {
+    if (!usingExactClasses && !selectedSections.length) {
       setError("Select at least one section.");
       return;
     }
 
-    if (hasALGradeSelected && !selectedStreams.length) {
+    if (!usingExactClasses && hasALGradeSelected && !selectedStreams.length) {
       setError("Select at least one stream for A/L grades.");
+      return;
+    }
+
+    if (usingExactClasses && selectedClassRows.length === 0) {
+      setError("Select at least one class.");
       return;
     }
 
@@ -643,7 +784,7 @@ export default function TeacherAssignments() {
         `${rowsToCreate.length} assignment${rowsToCreate.length === 1 ? "" : "s"} added for ${safeString(selectedTeacherRow?.name)}.`
       );
 
-      setSelectedTeacher("");
+      setSelectedClassKeys([]);
       setSelectedGrades([]);
       setSelectedSections([]);
       setSelectedStreams([]);
@@ -865,46 +1006,108 @@ export default function TeacherAssignments() {
             Step 1 - Select Teacher
           </Typography>
 
-          <FormControl fullWidth size={isMobile ? "medium" : "small"} sx={{ maxWidth: 520 }}>
-            <InputLabel>Teacher *</InputLabel>
-            <Select
-              label="Teacher *"
-              value={selectedTeacher}
-              onChange={(e) => setSelectedTeacher(e.target.value)}
-            >
-              {teachers.map((teacher) => (
-                <MenuItem key={teacher.id} value={teacher.id}>
-                  <Box display="flex" alignItems="center" gap={1.5}>
-                    <Avatar
-                      sx={{
-                        bgcolor: getAvatarColor(teacher.name),
-                        width: 28,
-                        height: 28,
-                        fontSize: 13,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {safeString(teacher.name).charAt(0) || "T"}
-                    </Avatar>
+          <Autocomplete
+            options={teachers}
+            value={selectedTeacherRow}
+            onChange={(_, value) => setSelectedTeacher(value?.id || "")}
+            getOptionLabel={(teacher) => safeString(teacher?.name)}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            size={isMobile ? "medium" : "small"}
+            sx={{ maxWidth: 520 }}
+            renderInput={(params) => (
+              <TextField {...params} label="Teacher *" placeholder="Type teacher name..." />
+            )}
+            renderOption={(props, teacher) => (
+              <Box component="li" {...props}>
+                <Box display="flex" alignItems="center" gap={1.5} sx={{ width: "100%" }}>
+                  <Avatar
+                    sx={{
+                      bgcolor: getAvatarColor(teacher.name),
+                      width: 28,
+                      height: 28,
+                      fontSize: 13,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {safeString(teacher.name).charAt(0) || "T"}
+                  </Avatar>
 
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>
-                        {teacher.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {
-                          assignments.filter(
-                            (assignment) => safeString(assignment.teacherId) === teacher.id
-                          ).length
-                        }{" "}
-                        assigned
-                      </Typography>
-                    </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={700} noWrap>
+                      {teacher.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {
+                        assignments.filter(
+                          (assignment) => safeString(assignment.teacherId) === teacher.id
+                        ).length
+                      }{" "}
+                      assigned
+                    </Typography>
                   </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+                </Box>
+              </Box>
+            )}
+          />
+        </Box>
+
+        <Box mb={2}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+            <Box>
+              <Typography variant="body2" fontWeight={700} color="#1a237e">
+                Quick Pick - Exact Classes
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Search classes and choose only the sections this teacher teaches.
+              </Typography>
+            </Box>
+            {selectedClassKeys.length > 0 && (
+              <Button size="small" onClick={() => setSelectedClassKeys([])}>
+                Clear
+              </Button>
+            )}
+          </Box>
+
+          <Autocomplete
+            multiple
+            disableCloseOnSelect
+            options={classOptions}
+            value={selectedClassRows}
+            onChange={(_, value) =>
+              setSelectedClassKeys(value.map((classroom) => getClassroomOptionKey(classroom)))
+            }
+            getOptionLabel={(classroom) => getClassroomDisplayName(classroom)}
+            isOptionEqualToValue={(option, value) =>
+              getClassroomOptionKey(option) === getClassroomOptionKey(value)
+            }
+            limitTags={isMobile ? 2 : 5}
+            size={isMobile ? "medium" : "small"}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                placeholder="Example: 6C, 7B, 8C..."
+                label="Classes"
+              />
+            )}
+            renderOption={(props, classroom) => (
+              <Box component="li" {...props}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
+                  <Chip size="small" color="primary" label={getClassroomDisplayName(classroom)} />
+                  {safeString(classroom.stream) && (
+                    <Typography variant="caption" color="text.secondary">
+                      {classroom.stream}
+                    </Typography>
+                  )}
+                </Stack>
+              </Box>
+            )}
+          />
+
+          {usingExactClasses && (
+            <Alert severity="info" sx={{ mt: 1 }}>
+              Exact class mode is active. Grade, section, and stream bulk selectors below are ignored for this save.
+            </Alert>
+          )}
         </Box>
 
         <Grid container spacing={{ xs: 1.25, sm: 2 }}>
@@ -913,6 +1116,7 @@ export default function TeacherAssignments() {
               sx={{
                 ...selectionPanelSx,
                 bgcolor: selectedGrades.length > 0 ? "#e8eaf6" : "#fafafa",
+                opacity: usingExactClasses ? 0.55 : 1,
               }}
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
@@ -924,7 +1128,7 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0 }}
                   onClick={toggleAllGrades}
-                  disabled={availableGrades.length === 0}
+                  disabled={usingExactClasses || availableGrades.length === 0}
                 >
                   {selectedGrades.length === availableGrades.length ? "None" : "All"}
                 </Button>
@@ -944,6 +1148,7 @@ export default function TeacherAssignments() {
                         <Checkbox
                           checked={selectedGrades.includes(grade)}
                           onChange={() => toggleGrade(grade)}
+                          disabled={usingExactClasses}
                           size="small"
                           sx={{
                             py: 0.3,
@@ -974,6 +1179,7 @@ export default function TeacherAssignments() {
               sx={{
                 ...selectionPanelSx,
                 bgcolor: selectedSections.length > 0 ? "#e8f5e9" : "#fafafa",
+                opacity: usingExactClasses ? 0.55 : 1,
               }}
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
@@ -985,7 +1191,7 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#2e7d32" }}
                   onClick={toggleAllSections}
-                  disabled={availableSections.length === 0}
+                  disabled={usingExactClasses || availableSections.length === 0}
                 >
                   {selectedSections.length === availableSections.length ? "None" : "All"}
                 </Button>
@@ -1009,6 +1215,7 @@ export default function TeacherAssignments() {
                         <Checkbox
                           checked={selectedSections.includes(section)}
                           onChange={() => toggleSection(section)}
+                          disabled={usingExactClasses}
                           size="small"
                           sx={{
                             py: 0.3,
@@ -1039,7 +1246,7 @@ export default function TeacherAssignments() {
               sx={{
                 ...selectionPanelSx,
                 bgcolor: selectedStreams.length > 0 ? "#f3e5f5" : "#fafafa",
-                opacity: hasALGradeSelected ? 1 : 0.7,
+                opacity: usingExactClasses ? 0.55 : hasALGradeSelected ? 1 : 0.7,
               }}
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
@@ -1051,7 +1258,7 @@ export default function TeacherAssignments() {
                   variant="text"
                   sx={{ fontSize: 11, p: 0, minWidth: 0, color: "#6a1b9a" }}
                   onClick={toggleAllStreams}
-                  disabled={!hasALGradeSelected}
+                  disabled={usingExactClasses || !hasALGradeSelected}
                 >
                   {selectedStreams.length === availableStreams.length ? "None" : "All"}
                 </Button>
@@ -1071,6 +1278,7 @@ export default function TeacherAssignments() {
                         <Checkbox
                           checked={selectedStreams.includes(stream)}
                           onChange={() => toggleStream(stream)}
+                          disabled={usingExactClasses}
                           size="small"
                           sx={{
                             py: 0.3,
@@ -1119,9 +1327,9 @@ export default function TeacherAssignments() {
                 </Button>
               </Box>
 
-              {selectedGrades.length === 0 ? (
+              {subjectFilterGrades.length === 0 ? (
                 <Typography variant="caption" color="text.secondary">
-                  Select a grade to load matching subjects.
+                  Select classes or a grade to load matching subjects.
                 </Typography>
               ) : availableSubjects.length === 0 ? (
                 <Typography variant="caption" color="text.secondary">
