@@ -1,34 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Chip,
   CircularProgress,
   FormControl,
-  Grid,
   InputLabel,
   LinearProgress,
   MenuItem,
   Paper,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Typography,
 } from "@mui/material";
-import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
-import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
-import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 import { collection, onSnapshot } from "firebase/firestore";
 
 import { db } from "../firebase";
-import StatCard from "../components/ui/StatCard";
 import {
   filterStudentsForClass,
   matchesReportClass,
@@ -432,99 +425,69 @@ export default function MarksStatusLive() {
     };
   }, [rows]);
 
-  const urgentSubjects = useMemo(
-    () =>
-      rows
-        .flatMap((row) =>
-          row.subjectSummaries
-            .filter((subject) => subject.status !== "done")
-            .map((subject) => ({
-              ...subject,
-              className: row.className,
-              grade: row.grade,
-              classStatus: row.status,
-            }))
-        )
-        .sort((a, b) => b.missingCount - a.missingCount || a.className.localeCompare(b.className))
-        .slice(0, 12),
-    [rows]
-  );
-
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f8fafc" }}>
       {loading ? <LinearProgress /> : null}
 
-      <Box sx={{ px: { xs: 1.5, sm: 2.5, md: 4 }, py: { xs: 2, md: 3 }, maxWidth: 1560, mx: "auto" }}>
-        <Stack spacing={2.25}>
+      <Box sx={{ px: { xs: 1, sm: 2.5, md: 4 }, py: { xs: 1.25, md: 2.5 }, maxWidth: 980, mx: "auto" }}>
+        <Stack spacing={1.25}>
           <Paper
             elevation={0}
             sx={{
-              p: { xs: 2, md: 3 },
+              p: { xs: 1.5, md: 2.25 },
               borderRadius: 1,
               border: "1px solid #e2e8f0",
-              background: "linear-gradient(135deg, rgba(22,101,52,0.10), rgba(185,28,28,0.07), rgba(30,64,175,0.06))",
+              bgcolor: "white",
             }}
           >
             <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.25}
               alignItems={{ xs: "flex-start", md: "center" }}
               justifyContent="space-between"
             >
-              <Stack direction="row" spacing={1.5} alignItems="center">
+              <Stack direction="row" spacing={1.1} alignItems="center" sx={{ minWidth: 0 }}>
                 <Box
                   component="img"
                   src="/kcc-logo.png"
                   alt="Kilinochchi Central College"
-                  sx={{ width: { xs: 62, md: 82 }, height: { xs: 62, md: 82 }, objectFit: "contain" }}
+                  sx={{ width: { xs: 46, md: 62 }, height: { xs: 46, md: 62 }, objectFit: "contain", flexShrink: 0 }}
                 />
-                <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
-                    Marks Updating Status
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
+                    Marks Status
                   </Typography>
-                  <Typography variant="subtitle1" color="text.secondary" sx={{ fontWeight: 800, mt: 0.5 }}>
-                    Kilinochchi Central College Live Board
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
                     {selectedYear} | {selectedTerm} | Public read-only view
                   </Typography>
                 </Box>
               </Stack>
 
-              <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Chip color="success" label="GREEN COMPLETE" sx={{ fontWeight: 900 }} />
-                <Chip color="warning" label="YELLOW PARTIAL" sx={{ fontWeight: 900 }} />
-                <Chip color="error" label="RED PENDING" sx={{ fontWeight: 900 }} />
-                <Box sx={{ textAlign: { xs: "left", md: "right" }, width: { xs: "100%", md: "auto" } }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                    Last updated
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                    {lastUpdated || "Connecting..."}
-                  </Typography>
-                </Box>
+              <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Chip size="small" color="success" label={`Green ${summary.done}`} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="warning" label={`Yellow ${summary.partial}`} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="error" label={`Red ${summary.missing}`} sx={{ fontWeight: 900 }} />
               </Stack>
             </Stack>
           </Paper>
 
           {error ? <Alert severity="warning">{error}</Alert> : null}
 
-          <Paper elevation={0} sx={{ p: 2, borderRadius: 1, border: "1px solid #e2e8f0" }}>
-            <Grid container spacing={1.5} alignItems="center">
-              <Grid item xs={12} md={4}>
-                <Stack direction="row" spacing={1.25} alignItems="center">
-                  <PublicRoundedIcon color="primary" />
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-                      Share URL
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Open this page on a TV, projector, or staff phone for live tracking.
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Grid>
-              <Grid item xs={12} sm={4} md={2.5}>
+          <Paper elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid #e2e8f0", bgcolor: "white" }}>
+            <Stack spacing={1.1}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <PublicRoundedIcon color="primary" fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                    Live share page
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Last updated: {lastUpdated || "Connecting..."}
+                  </Typography>
+                </Box>
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
@@ -535,8 +498,6 @@ export default function MarksStatusLive() {
                     ))}
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4} md={2.5}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
@@ -547,8 +508,6 @@ export default function MarksStatusLive() {
                     ))}
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Status</InputLabel>
                   <Select value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
@@ -558,8 +517,8 @@ export default function MarksStatusLive() {
                     <MenuItem value="missing">Red - Needs attention</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-            </Grid>
+              </Stack>
+            </Stack>
           </Paper>
 
           {loading && rows.length === 0 ? (
@@ -568,181 +527,100 @@ export default function MarksStatusLive() {
             </Box>
           ) : (
             <>
-              <Grid container spacing={2}>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Classes" value={summary.total} icon={<AssessmentRoundedIcon />} />
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Green" value={summary.done} icon={<FactCheckRoundedIcon />} color="success" />
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Yellow" value={summary.partial} icon={<WarningAmberRoundedIcon />} color="warning" />
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Red" value={summary.missing} icon={<WarningAmberRoundedIcon />} color="error" />
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Completion" value={formatPercent(summary.completionPercent)} icon={<AssessmentRoundedIcon />} color="primary" />
-                </Grid>
-                <Grid item xs={6} md={2}>
-                  <StatCard title="Missing Marks" value={summary.missingMarks} icon={<WarningAmberRoundedIcon />} color="error" />
-                </Grid>
-              </Grid>
+              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={`${summary.total} classes`} />
+                <Chip size="small" label={`${formatPercent(summary.completionPercent)} complete`} />
+                <Chip size="small" color="error" variant="outlined" label={`${summary.missingMarks} marks missing`} />
+              </Stack>
 
-              <Grid container spacing={2}>
-                <Grid item xs={12} lg={8}>
-                  <Paper elevation={0} sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 1, border: "1px solid #e2e8f0" }}>
-                    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 1.5 }}>
-                      <AssessmentRoundedIcon color="primary" />
-                      <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                          Class Status Board
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Green is fully entered. Yellow is partially entered. Red has no marks, students, or enrollments to resolve.
-                        </Typography>
-                      </Box>
-                    </Stack>
+              <Stack spacing={0.8}>
+                {filteredRows.map((row) => (
+                  <Accordion
+                    key={row.id}
+                    disableGutters
+                    sx={{
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px !important",
+                      bgcolor: "white",
+                      boxShadow: "none",
+                      overflow: "hidden",
+                      "&:before": { display: "none" },
+                    }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreRoundedIcon />}
+                      sx={{
+                        px: { xs: 1.1, sm: 1.5 },
+                        py: 0.6,
+                        borderLeft: "6px solid",
+                        borderLeftColor: `${getStatusColor(row.status)}.main`,
+                        "& .MuiAccordionSummary-content": { minWidth: 0, my: 0.75 },
+                      }}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%", minWidth: 0, pr: 0.5 }}>
+                        <StatusDot status={row.status} />
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 900, lineHeight: 1.1 }} noWrap>
+                            {row.className}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {row.completedSubjectCount}/{row.subjectCount} subjects | {formatPercent(row.completionPercent)}
+                          </Typography>
+                        </Box>
+                        <StatusPill status={row.status} />
+                      </Stack>
+                    </AccordionSummary>
 
-                    <Grid container spacing={1.25}>
-                      {filteredRows.map((row) => (
-                        <Grid item xs={12} sm={6} md={4} key={row.id}>
-                          <Paper
-                            elevation={0}
-                            sx={{
-                              p: 1.5,
-                              borderRadius: 1,
-                              border: "1px solid",
-                              borderColor: `${getStatusColor(row.status)}.light`,
-                              bgcolor: (theme) => alpha(theme.palette[getStatusColor(row.status)].main, 0.08),
-                              height: "100%",
-                            }}
-                          >
-                            <Stack spacing={1}>
-                              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                                  <StatusDot status={row.status} large />
-                                  <Box sx={{ minWidth: 0 }}>
-                                    <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.05 }} noWrap>
-                                      {row.className}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" noWrap>
-                                      {row.classTeacherName || "Class teacher not set"}
-                                    </Typography>
-                                  </Box>
-                                </Stack>
-                                <StatusPill status={row.status} />
+                    <AccordionDetails sx={{ px: { xs: 1.1, sm: 1.5 }, pt: 0, pb: 1.25 }}>
+                      <Stack spacing={0.8}>
+                        <Typography variant="caption" color="text.secondary">
+                          {row.classTeacherName || "Class teacher not set"}
+                        </Typography>
+
+                        {row.subjectSummaries.length ? (
+                          row.subjectSummaries.map((subject) => (
+                            <Paper
+                              key={subject.subjectKey}
+                              elevation={0}
+                              sx={{
+                                p: 1,
+                                borderRadius: 1,
+                                border: "1px solid",
+                                borderColor: `${getStatusColor(subject.status)}.light`,
+                                bgcolor: (theme) => alpha(theme.palette[getStatusColor(subject.status)].main, 0.08),
+                              }}
+                            >
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <StatusDot status={subject.status} />
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>
+                                    {subject.subjectName}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" noWrap>
+                                    {subject.teacherName || "Teacher not assigned"}
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  size="small"
+                                  color={getStatusColor(subject.status)}
+                                  label={`${subject.enteredCount}/${subject.enrolledCount}`}
+                                  sx={{ fontWeight: 900, flexShrink: 0 }}
+                                />
                               </Stack>
+                            </Paper>
+                          ))
+                        ) : (
+                          <Alert severity="warning">No enrolled subjects found for this class.</Alert>
+                        )}
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
 
-                              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                                <Chip size="small" label={`${formatPercent(row.completionPercent)} done`} />
-                                <Chip size="small" label={`${row.completedSubjectCount}/${row.subjectCount} subjects`} />
-                                <Chip size="small" color="error" variant="outlined" label={`${row.missingMarkCount} missing`} />
-                              </Stack>
-                            </Stack>
-                          </Paper>
-                        </Grid>
-                      ))}
-                    </Grid>
-
-                    {filteredRows.length === 0 ? (
-                      <Alert severity="info" sx={{ mt: 2 }}>
-                        No classes match this status filter.
-                      </Alert>
-                    ) : null}
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} lg={4}>
-                  <Paper elevation={0} sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 1, border: "1px solid #e2e8f0", height: "100%" }}>
-                    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 1.5 }}>
-                      <WarningAmberRoundedIcon color="warning" />
-                      <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                          Needs Attention
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Subjects with missing marks, highest missing count first.
-                        </Typography>
-                      </Box>
-                    </Stack>
-
-                    <Stack spacing={1}>
-                      {urgentSubjects.length ? (
-                        urgentSubjects.map((subject) => (
-                          <Paper key={`${subject.className}-${subject.subjectKey}`} elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid #e2e8f0" }}>
-                            <Stack direction="row" spacing={1} alignItems="flex-start">
-                              <StatusDot status={subject.status} />
-                              <Box sx={{ minWidth: 0, flex: 1 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                                  {subject.className} | {subject.subjectName}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                                  {subject.teacherName || "Teacher not assigned"}
-                                </Typography>
-                                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                                  <Chip size="small" color={getStatusColor(subject.status)} label={getStatusText(subject.status)} />
-                                  <Chip size="small" label={`${subject.enteredCount}/${subject.enrolledCount} entered`} />
-                                  <Chip size="small" color="error" variant="outlined" label={`${subject.missingCount} missing`} />
-                                </Stack>
-                              </Box>
-                            </Stack>
-                          </Paper>
-                        ))
-                      ) : (
-                        <Alert severity="success">All visible subjects are complete.</Alert>
-                      )}
-                    </Stack>
-                  </Paper>
-                </Grid>
-              </Grid>
-
-              <Paper elevation={0} sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 1, border: "1px solid #e2e8f0" }}>
-                <Typography variant="h6" sx={{ fontWeight: 900, mb: 1.5 }}>
-                  Subject-Level Live Table
-                </Typography>
-                <TableContainer sx={{ maxHeight: 620 }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Class</TableCell>
-                        <TableCell>Subject</TableCell>
-                        <TableCell>Teacher</TableCell>
-                        <TableCell align="right">Enrolled</TableCell>
-                        <TableCell align="right">Entered</TableCell>
-                        <TableCell align="right">Missing</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filteredRows.flatMap((row) =>
-                        row.subjectSummaries.map((subject) => (
-                          <TableRow key={`${row.id}-${subject.subjectKey}`} hover>
-                            <TableCell>
-                              <StatusPill status={subject.status} />
-                            </TableCell>
-                            <TableCell sx={{ fontWeight: 900 }}>{row.className}</TableCell>
-                            <TableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                                {subject.subjectName}
-                              </Typography>
-                              {subject.subjectNumber || subject.subjectId ? (
-                                <Typography variant="caption" color="text.secondary">
-                                  {[subject.subjectNumber, subject.subjectId].filter(Boolean).join(" | ")}
-                                </Typography>
-                              ) : null}
-                            </TableCell>
-                            <TableCell>{subject.teacherName || "-"}</TableCell>
-                            <TableCell align="right">{subject.enrolledCount}</TableCell>
-                            <TableCell align="right">{subject.enteredCount}</TableCell>
-                            <TableCell align="right">{subject.missingCount}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Paper>
+                {filteredRows.length === 0 ? (
+                  <Alert severity="info">No classes match this status filter.</Alert>
+                ) : null}
+              </Stack>
             </>
           )}
         </Stack>
