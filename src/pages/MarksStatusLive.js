@@ -19,7 +19,7 @@ import {
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import { alpha, useTheme } from "@mui/material/styles";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 
 import { db } from "../firebase";
 import {
@@ -29,8 +29,6 @@ import {
 
 const CURRENT_YEAR = new Date().getFullYear();
 const DEFAULT_TERM = "Term 1";
-const PUBLIC_MARKS_STATUS_DOC_ID = "marks-status-live";
-const publicMarksStatusDocRef = doc(db, "elections", PUBLIC_MARKS_STATUS_DOC_ID);
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -311,41 +309,98 @@ function StatusPill({ status }) {
 }
 
 export default function MarksStatusLive() {
-  const [board, setBoard] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState({
+    students: [],
+    enrollments: [],
+    marks: [],
+    classrooms: [],
+    terms: [],
+    assignments: [],
+  });
+  const [loadingCollections, setLoadingCollections] = useState(new Set([
+    "students",
+    "studentSubjectEnrollments",
+    "marks",
+    "classrooms",
+    "academicTerms",
+    "teacherAssignments",
+  ]));
   const [error, setError] = useState("");
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const [selectedTerm, setSelectedTerm] = useState(DEFAULT_TERM);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [lastUpdated, setLastUpdated] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      publicMarksStatusDocRef,
-      (snapshot) => {
-        setLoading(false);
-        if (!snapshot.exists()) {
-          setBoard(null);
-          setError("Live marks status has not been published yet.");
-          return;
-        }
+    const collections = {
+      students: "students",
+      enrollments: "studentSubjectEnrollments",
+      marks: "marks",
+      classrooms: "classrooms",
+      terms: "academicTerms",
+      assignments: "teacherAssignments",
+    };
 
-        setBoard({ id: snapshot.id, ...snapshot.data() });
-        setError("");
-      },
-      (err) => {
-        console.error("Marks status live sync error:", err);
-        setLoading(false);
-        setError("Could not load the public marks status board. Please publish the live status again from Class Completion Report.");
-      }
+    const unsubscribers = Object.entries(collections).map(([stateKey, collectionName]) =>
+      onSnapshot(
+        collection(db, collectionName),
+        (snapshot) => {
+          setData((prev) => ({
+            ...prev,
+            [stateKey]: snapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+          }));
+          setLoadingCollections((prev) => {
+            const next = new Set(prev);
+            next.delete(collectionName);
+            return next;
+          });
+          setLastUpdated(new Date().toLocaleString());
+          setError("");
+        },
+        (err) => {
+          console.error("Marks status live sync error:", err);
+          setError("Could not load live marks status. Check Firestore read access for this public page.");
+          setLoadingCollections((prev) => {
+            const next = new Set(prev);
+            next.delete(collectionName);
+            return next;
+          });
+        }
+      )
     );
 
-    return () => unsubscribe();
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  const rows = useMemo(() => (Array.isArray(board?.rows) ? board.rows : []), [board]);
-  const selectedYear = board?.year || CURRENT_YEAR;
-  const selectedTerm = board?.termName || DEFAULT_TERM;
-  const lastUpdated = board?.updatedAtText
-    ? new Date(board.updatedAtText).toLocaleString()
-    : "";
+  useEffect(() => {
+    const activeTerm = data.terms.find((term) => term.isActive) || data.terms[0] || null;
+    if (activeTerm?.term) setSelectedTerm(activeTerm.term);
+  }, [data.terms]);
+
+  const loading = loadingCollections.size > 0;
+
+  const availableYears = useMemo(() => {
+    const years = new Set([
+      CURRENT_YEAR,
+      ...data.classrooms.map((item) => Number(item.year || item.academicYear || 0)),
+      ...data.marks.map((item) => Number(item.year || item.academicYear || 0)),
+    ].filter(Boolean));
+    return Array.from(years).sort((a, b) => b - a);
+  }, [data.classrooms, data.marks]);
+
+  const rows = useMemo(
+    () =>
+      buildLiveRows({
+        classrooms: data.classrooms,
+        students: data.students,
+        enrollments: data.enrollments,
+        marks: data.marks,
+        assignments: data.assignments,
+        year: selectedYear,
+        termName: selectedTerm,
+      }),
+    [data, selectedTerm, selectedYear]
+  );
 
   const filteredRows = useMemo(() => {
     if (statusFilter === "all") return rows;
@@ -433,13 +488,26 @@ export default function MarksStatusLive() {
               </Stack>
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ flex: 1 }}>
-                  <Chip size="small" label={`Year ${selectedYear}`} />
-                  <Chip size="small" label={selectedTerm} />
-                  {board?.publishedByName ? (
-                    <Chip size="small" variant="outlined" label={`Published by ${board.publishedByName}`} />
-                  ) : null}
-                </Stack>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Year</InputLabel>
+                  <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
+                    {availableYears.map((year) => (
+                      <MenuItem key={year} value={year}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Term</InputLabel>
+                  <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
+                    {(data.terms.length ? data.terms : [{ id: DEFAULT_TERM, term: DEFAULT_TERM }]).map((term) => (
+                      <MenuItem key={term.id} value={term.term}>
+                        {term.term}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <FormControl fullWidth size="small">
                   <InputLabel>Status</InputLabel>
                   <Select value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
