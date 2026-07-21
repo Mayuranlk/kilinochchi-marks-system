@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
@@ -41,6 +41,7 @@ import {
 
 const CURRENT_YEAR = new Date().getFullYear();
 const DEFAULT_TERM = "Term 1";
+const PUBLIC_MARKS_STATUS_DOC_ID = "marks-status-live";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -157,6 +158,38 @@ function formatPendingSubjects(row = {}) {
       return `${subject.subjectName}${missingText}`;
     })
     .join(", ");
+}
+
+function buildPublicMarksStatusRows(rows = []) {
+  return rows.map((row) => ({
+    id: normalizeText(row.id),
+    grade: Number(row.grade || 0),
+    className: normalizeText(row.className),
+    classTeacherName: normalizeText(row.classTeacherName),
+    studentCount: Number(row.studentCount || 0),
+    subjectCount: Number(row.subjectCount || 0),
+    expectedMarkCount: Number(row.expectedMarkCount || 0),
+    enteredMarkCount: Number(row.enteredMarkCount || 0),
+    missingMarkCount: Number(row.missingMarksCount || row.missingMarkCount || 0),
+    completedSubjectCount: Number(row.completedSubjectCount || 0),
+    partialSubjectCount: Number(row.partialSubjectCount || 0),
+    pendingSubjectCount: Number(row.pendingSubjectCount || 0),
+    completionPercent:
+      Number(row.expectedMarkCount || 0) > 0
+        ? (Number(row.enteredMarkCount || 0) / Number(row.expectedMarkCount || 0)) * 100
+        : 0,
+    status: normalizeText(row.status || "missing"),
+    subjectSummaries: (row.subjectSummaries || []).map((subject) => ({
+      subjectKey: normalizeText(subject.subjectKey),
+      subjectName: normalizeText(subject.subjectName),
+      subjectNumber: normalizeText(subject.subjectNumber),
+      teacherName: normalizeText(subject.teacherName),
+      enrolledCount: Number(subject.enrolledCount || 0),
+      enteredCount: Number(subject.enteredCount || 0),
+      missingCount: Number(subject.missingCount || 0),
+      status: normalizeText(subject.status || "missing"),
+    })),
+  }));
 }
 
 function buildPendingSubjectRows(rows = []) {
@@ -303,6 +336,7 @@ function buildClassCompletionRows({ classrooms, students, enrollments, marks, ye
       id: classroom.id,
       grade,
       className: getClassroomDisplayName(classroom),
+      classTeacherName: normalizeText(classroom.classTeacherName),
       studentCount: identityStudents.length,
       markedStudentCount: markedStudentIds.size,
       marksCount: classMarks.length,
@@ -651,8 +685,9 @@ function SummaryTile({ label, value, color }) {
 }
 
 export default function ClassCompletionReport() {
-  const { isSectionalHead, assignedGrades } = useAuth();
+  const { isSectionalHead, assignedGrades, profile, user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [publishingLive, setPublishingLive] = useState(false);
   const [error, setError] = useState("");
   const [students, setStudents] = useState([]);
   const [marks, setMarks] = useState([]);
@@ -814,6 +849,44 @@ export default function ClassCompletionReport() {
     }
   }
 
+  async function handlePublishLiveStatus() {
+    try {
+      setPublishingLive(true);
+      setError("");
+
+      const updatedAtText = new Date().toISOString();
+      await setDoc(doc(db, "elections", PUBLIC_MARKS_STATUS_DOC_ID), {
+        type: "marks-status-live",
+        year: Number(selectedYear),
+        termName: selectedTerm,
+        rows: buildPublicMarksStatusRows(rows),
+        summary: {
+          total: summary.total,
+          done: summary.done,
+          partial: summary.partial,
+          missing: summary.missing,
+          expected: summary.expectedMarks,
+          entered: summary.enteredMarks,
+          missingMarks: summary.missingMarks,
+          completionPercent: summary.completionPercent,
+          pendingSubjects: summary.pendingSubjects + summary.partialSubjects,
+        },
+        updatedAtText,
+        publishedAt: serverTimestamp(),
+        publishedByUid: user?.uid || "",
+        publishedByName: profile?.name || profile?.fullName || user?.email || "Staff",
+      });
+
+      setError("");
+      window.alert("Live marks status published. The public share page can now load without staff login.");
+    } catch (err) {
+      console.error("Publish live marks status failed:", err);
+      setError(err.message || "Failed to publish live marks status.");
+    } finally {
+      setPublishingLive(false);
+    }
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack spacing={3}>
@@ -926,6 +999,16 @@ export default function ClassCompletionReport() {
                     fullWidth
                   >
                     Share
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={publishingLive ? <CircularProgress size={16} color="inherit" /> : <ShareRoundedIcon />}
+                    onClick={handlePublishLiveStatus}
+                    disabled={loading || rows.length === 0 || publishingLive}
+                    fullWidth
+                  >
+                    {publishingLive ? "Publishing" : "Publish Live"}
                   </Button>
                 </Stack>
               </Grid>
