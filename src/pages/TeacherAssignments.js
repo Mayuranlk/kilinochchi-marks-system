@@ -8,6 +8,7 @@ import {
   query,
   serverTimestamp,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
@@ -39,6 +40,7 @@ import {
   useTheme,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import SaveIcon from "@mui/icons-material/Save";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
@@ -245,6 +247,7 @@ export default function TeacherAssignments() {
   const [selectedSubjectKeys, setSelectedSubjectKeys] = useState([]);
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [expandedTeacherId, setExpandedTeacherId] = useState("");
+  const [clearingTeacherId, setClearingTeacherId] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -668,6 +671,42 @@ export default function TeacherAssignments() {
     }
   };
 
+  const handleClearTeacherAssignments = async (teacher) => {
+    const teacherAssignments = teacher.assignments || [];
+    if (!teacherAssignments.length || clearingTeacherId) return;
+
+    const teacherName = safeString(teacher.name) || "this teacher";
+    const confirmed = window.confirm(
+      `Clear all ${teacherAssignments.length} assignment${teacherAssignments.length === 1 ? "" : "s"} for ${teacherName}?`
+    );
+    if (!confirmed) return;
+
+    setClearingTeacherId(teacher.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      const batch = writeBatch(db);
+      teacherAssignments.forEach((assignment) => {
+        batch.delete(doc(db, "teacherAssignments", assignment.id));
+      });
+      await batch.commit();
+
+      setSuccess(
+        `Cleared ${teacherAssignments.length} assignment${teacherAssignments.length === 1 ? "" : "s"} for ${teacherName}.`
+      );
+      if (expandedTeacherId === teacher.id) {
+        setExpandedTeacherId("");
+      }
+      await fetchAll();
+    } catch (err) {
+      console.error("TeacherAssignments bulk clear error:", err);
+      setError("Failed to clear teacher assignments.");
+    } finally {
+      setClearingTeacherId("");
+    }
+  };
+
   const groupedAssignments = teachers
     .map((teacher) => ({
       ...teacher,
@@ -727,6 +766,27 @@ export default function TeacherAssignments() {
     preview: previewCount,
   };
 
+  const selectionPanelSx = {
+    border: "1px solid #e2e8f0",
+    borderRadius: 1,
+    p: { xs: 1.25, sm: 1.5 },
+    minHeight: { sm: 260 },
+  };
+
+  const optionLabelSx = {
+    m: 0,
+    px: 1,
+    py: { xs: 0.7, sm: 0.4 },
+    minHeight: 42,
+    borderRadius: 1,
+    alignItems: "center",
+    "&:hover": { bgcolor: "rgba(26,35,126,0.04)" },
+    "& .MuiFormControlLabel-label": {
+      minWidth: 0,
+      flex: 1,
+    },
+  };
+
   return (
     <PageContainer
       title="Teacher Assignments"
@@ -737,7 +797,7 @@ export default function TeacherAssignments() {
           <Paper
             sx={{
               p: 1.5,
-              borderRadius: 3,
+              borderRadius: 1,
               border: "1px solid #e8eaf6",
               boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
             }}
@@ -781,7 +841,7 @@ export default function TeacherAssignments() {
         sx={{
           p: { xs: 2, sm: 3 },
           mb: 3,
-          borderRadius: 3,
+          borderRadius: 1,
           border: "2px solid #e8eaf6",
           boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
         }}
@@ -805,7 +865,7 @@ export default function TeacherAssignments() {
             Step 1 - Select Teacher
           </Typography>
 
-          <FormControl fullWidth size="small" sx={{ maxWidth: 420 }}>
+          <FormControl fullWidth size={isMobile ? "medium" : "small"} sx={{ maxWidth: 520 }}>
             <InputLabel>Teacher *</InputLabel>
             <Select
               label="Teacher *"
@@ -847,13 +907,11 @@ export default function TeacherAssignments() {
           </FormControl>
         </Box>
 
-        <Grid container spacing={2}>
+        <Grid container spacing={{ xs: 1.25, sm: 2 }}>
           <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
-                border: "1px solid #e8eaf6",
-                borderRadius: 2,
-                p: 2,
+                ...selectionPanelSx,
                 bgcolor: selectedGrades.length > 0 ? "#e8eaf6" : "#fafafa",
               }}
             >
@@ -881,6 +939,7 @@ export default function TeacherAssignments() {
                   {availableGrades.map((grade) => (
                     <FormControlLabel
                       key={grade}
+                      sx={optionLabelSx}
                       control={
                         <Checkbox
                           checked={selectedGrades.includes(grade)}
@@ -913,9 +972,7 @@ export default function TeacherAssignments() {
           <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
-                border: "1px solid #e8eaf6",
-                borderRadius: 2,
-                p: 2,
+                ...selectionPanelSx,
                 bgcolor: selectedSections.length > 0 ? "#e8f5e9" : "#fafafa",
               }}
             >
@@ -947,6 +1004,7 @@ export default function TeacherAssignments() {
                   {availableSections.map((section) => (
                     <FormControlLabel
                       key={section}
+                      sx={optionLabelSx}
                       control={
                         <Checkbox
                           checked={selectedSections.includes(section)}
@@ -979,9 +1037,7 @@ export default function TeacherAssignments() {
           <Grid item xs={12} sm={6} lg={3}>
             <Box
               sx={{
-                border: "1px solid #e8eaf6",
-                borderRadius: 2,
-                p: 2,
+                ...selectionPanelSx,
                 bgcolor: selectedStreams.length > 0 ? "#f3e5f5" : "#fafafa",
                 opacity: hasALGradeSelected ? 1 : 0.7,
               }}
@@ -1010,6 +1066,7 @@ export default function TeacherAssignments() {
                   {availableStreams.map((stream) => (
                     <FormControlLabel
                       key={stream}
+                      sx={optionLabelSx}
                       control={
                         <Checkbox
                           checked={selectedStreams.includes(stream)}
@@ -1041,11 +1098,9 @@ export default function TeacherAssignments() {
           <Grid item xs={12} lg={3}>
             <Box
               sx={{
-                border: "1px solid #e8eaf6",
-                borderRadius: 2,
-                p: 2,
+                ...selectionPanelSx,
                 bgcolor: selectedSubjectKeys.length > 0 ? "#fff3e0" : "#fafafa",
-                maxHeight: { xs: 280, sm: 360 },
+                maxHeight: { xs: 340, sm: 360 },
                 overflowY: "auto",
               }}
             >
@@ -1083,6 +1138,7 @@ export default function TeacherAssignments() {
                   return (
                     <FormControlLabel
                       key={key}
+                      sx={optionLabelSx}
                       control={
                         <Checkbox
                           checked={selectedSubjectKeys.includes(key)}
@@ -1214,6 +1270,7 @@ export default function TeacherAssignments() {
             <Stack spacing={1} sx={{ maxHeight: 620, overflowY: "auto", pr: 0.5 }}>
               {filteredGroupedAssignments.map((teacher) => {
                 const classGroups = groupAssignmentsByClass(teacher.assignments);
+                const isClearingTeacher = clearingTeacherId === teacher.id;
 
                 return (
                   <Accordion
@@ -1225,48 +1282,116 @@ export default function TeacherAssignments() {
                     disableGutters
                     sx={{
                       border: "1px solid #e8eaf6",
-                      borderRadius: "12px !important",
+                      borderRadius: "8px !important",
                       boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
                       "&:before": { display: "none" },
                     }}
                   >
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{
+                        px: { xs: 1.25, sm: 2 },
+                        py: { xs: 0.75, sm: 0.5 },
+                        "& .MuiAccordionSummary-content": {
+                          minWidth: 0,
+                        },
+                      }}
+                    >
                       <Stack
-                        direction="row"
+                        direction={{ xs: "column", sm: "row" }}
                         spacing={1.25}
-                        alignItems="center"
+                        alignItems={{ xs: "stretch", sm: "center" }}
                         sx={{ width: "100%", minWidth: 0, pr: 1 }}
                       >
-                        <Avatar
-                          sx={{
-                            bgcolor: getAvatarColor(teacher.name),
-                            width: 34,
-                            height: 34,
-                            fontSize: 14,
-                            fontWeight: 700,
-                          }}
+                        <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                          <Avatar
+                            sx={{
+                              bgcolor: getAvatarColor(teacher.name),
+                              width: 38,
+                              height: 38,
+                              fontSize: 15,
+                              fontWeight: 700,
+                              flex: "0 0 auto",
+                            }}
+                          >
+                            {safeString(teacher.name).charAt(0) || "T"}
+                          </Avatar>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography variant="body2" fontWeight={800} noWrap>
+                              {teacher.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>
+                              {teacher.email || "Teacher assignments"}
+                            </Typography>
+                          </Box>
+                        </Stack>
+
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          alignItems="center"
+                          justifyContent={{ xs: "space-between", sm: "flex-end" }}
+                          sx={{ width: { xs: "100%", sm: "auto" } }}
                         >
-                          {safeString(teacher.name).charAt(0) || "T"}
-                        </Avatar>
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography variant="body2" fontWeight={800} noWrap>
-                            {teacher.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {teacher.email || "Teacher assignments"}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={`${teacher.assignments.length} assigned`}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
+                          <Chip
+                            label={`${teacher.assignments.length} assigned`}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                            sx={{ flexShrink: 0 }}
+                          />
+                          <Button
+                            size="small"
+                            color="error"
+                            variant="outlined"
+                            startIcon={
+                              isClearingTeacher ? (
+                                <CircularProgress size={14} color="inherit" />
+                              ) : (
+                                <DeleteSweepIcon fontSize="small" />
+                              )
+                            }
+                            disabled={isClearingTeacher || Boolean(clearingTeacherId)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleClearTeacherAssignments(teacher);
+                            }}
+                            onFocus={(event) => event.stopPropagation()}
+                            sx={{
+                              minHeight: 36,
+                              display: { xs: "none", sm: "inline-flex" },
+                            }}
+                          >
+                            Clear All
+                          </Button>
+                        </Stack>
                       </Stack>
                     </AccordionSummary>
 
-                    <AccordionDetails sx={{ pt: 0 }}>
+                    <AccordionDetails sx={{ pt: 0, px: { xs: 1.25, sm: 2 } }}>
                       <Stack spacing={0.85}>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          fullWidth
+                          startIcon={
+                            isClearingTeacher ? (
+                              <CircularProgress size={14} color="inherit" />
+                            ) : (
+                              <DeleteSweepIcon fontSize="small" />
+                            )
+                          }
+                          disabled={isClearingTeacher || Boolean(clearingTeacherId)}
+                          onClick={() => handleClearTeacherAssignments(teacher)}
+                          sx={{
+                            minHeight: 42,
+                            display: { xs: "inline-flex", sm: "none" },
+                          }}
+                        >
+                          Clear all assigned classes
+                        </Button>
+
                         {classGroups.map((group) => (
                           <Box
                             key={group.key}
@@ -1277,7 +1402,7 @@ export default function TeacherAssignments() {
                               alignItems: "start",
                               p: 1,
                               border: "1px solid #edf0f7",
-                              borderRadius: 1.5,
+                              borderRadius: 1,
                               bgcolor: "#fafbff",
                             }}
                           >
@@ -1296,14 +1421,16 @@ export default function TeacherAssignments() {
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 0.5,
+                                    width: { xs: "100%", sm: "auto" },
                                     maxWidth: { xs: "100%", sm: 360 },
+                                    minHeight: 40,
                                     pl: 1,
                                     border: "1px solid #e3e7f3",
-                                    borderRadius: 1.5,
+                                    borderRadius: 1,
                                     bgcolor: "white",
                                   }}
                                 >
-                                  <Box sx={{ minWidth: 0 }}>
+                                  <Box sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography variant="caption" fontWeight={700} noWrap>
                                       {assignment.subjectName || assignment.subject}
                                     </Typography>
@@ -1322,7 +1449,7 @@ export default function TeacherAssignments() {
                                       size="small"
                                       color="error"
                                       onClick={() => handleDelete(assignment.id)}
-                                      sx={{ p: 0.5 }}
+                                      sx={{ p: 0.75 }}
                                     >
                                       <DeleteIcon fontSize="small" />
                                     </IconButton>
