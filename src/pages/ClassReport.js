@@ -41,6 +41,7 @@ import {
   isClassMarksEmisExportSupported,
 } from "../utils/classMarksExportUtils";
 import { getOlGradeBand } from "../utils/gradeUtils";
+import { PageContainer } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -785,24 +786,26 @@ export default function ClassReport() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" mt={5}>
-        <CircularProgress />
-      </Box>
+      <PageContainer title="Class Report">
+        <Box display="flex" justifyContent="center" mt={5}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
     );
   }
 
   if (!classTeacherClass) {
     return (
-      <Box mt={4}>
+      <PageContainer title="Class Report">
         <Alert severity="error">
           You are not assigned as a class teacher in the classrooms collection.
         </Alert>
-      </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer>
       <Button
         startIcon={<ArrowBackIcon />}
         onClick={() => navigate("/teacher")}
@@ -1389,6 +1392,6 @@ export default function ClassReport() {
           Print Class Report
         </Button>
       )}
-    </Box>
+    </PageContainer>
   );
 }

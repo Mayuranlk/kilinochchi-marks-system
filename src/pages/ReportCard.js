@@ -28,6 +28,7 @@ import { db } from "../firebase";
 import { SCHOOL_NAME } from "../constants";
 import { useAuth } from "../context/AuthContext";
 import { getOlGradeBand } from "../utils/gradeUtils";
+import { PageContainer } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -714,14 +715,16 @@ export default function ReportCard() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" mt={5}>
-        <CircularProgress />
-      </Box>
+      <PageContainer title="Report Card">
+        <Box display="flex" justifyContent="center" mt={5}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer>
       <Button
         startIcon={<ArrowBackIcon />}
         onClick={() => navigate(backPath)}
@@ -748,7 +751,7 @@ export default function ReportCard() {
             flexWrap="wrap"
             gap={1}
           >
-            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
+            <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="primary.main">
               Report Card
             </Typography>
 
@@ -789,7 +792,7 @@ export default function ReportCard() {
                   variant="contained"
                   startIcon={<PrintIcon />}
                   onClick={handlePrint}
-                  sx={{ bgcolor: "#1a237e" }}
+                  sx={{ bgcolor: "primary.main" }}
                 >
                   Print
                 </Button>
@@ -1132,7 +1135,7 @@ export default function ReportCard() {
                 variant="contained"
                 startIcon={<PrintIcon />}
                 onClick={handlePrint}
-                sx={{ bgcolor: "#1a237e" }}
+                sx={{ bgcolor: "primary.main" }}
               >
                 Print Report Card
               </Button>
@@ -1140,6 +1143,6 @@ export default function ReportCard() {
           )}
         </>
       )}
-    </Box>
+    </PageContainer>
   );
 }

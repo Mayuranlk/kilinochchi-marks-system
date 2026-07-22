@@ -39,6 +39,7 @@ import {
   resetClassData,
 } from "../services/classDataService";
 import { buildALClassName, isALGrade, normalizeText } from "../constants";
+import { PageContainer } from "../components/ui";
 
 // Optional:
 // import { useAuth } from "../contexts/AuthContext";
@@ -299,17 +300,11 @@ export default function ClassDataManagement() {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer
+      title="Class Data Management"
+      subtitle="Delete selected students or reset all records for a class."
+    >
       <Stack spacing={3}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>
-            Class Data Management
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Delete selected students or reset all records for a class.
-          </Typography>
-        </Box>
-
         {error ? <Alert severity="error">{error}</Alert> : null}
         {success ? <Alert severity="success">{success}</Alert> : null}
 
@@ -680,6 +675,6 @@ export default function ClassDataManagement() {
           </Grid>
         ) : null}
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

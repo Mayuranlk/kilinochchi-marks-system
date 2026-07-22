@@ -33,7 +33,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 
 import { db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
-import { ResponsiveTableWrapper } from "../../components/ui";
+import { PageContainer, ResponsiveTableWrapper } from "../../components/ui";
 import {
   filterStudentsForClass,
   matchesReportClass,
@@ -815,17 +815,11 @@ export default function ClassCompletionReport() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer
+      title="Class Completion Report"
+      subtitle="Check which classes uploaded students, entered marks, and completed Admission No plus Student ID details."
+    >
       <Stack spacing={3}>
-        <Box>
-          <Typography variant="h5" fontWeight={800}>
-            Class Completion Report
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Check which classes uploaded students, entered marks, and completed Admission No plus Student ID details.
-          </Typography>
-        </Box>
-
         {error ? <Alert severity="error">{error}</Alert> : null}
 
         <Card sx={{ borderRadius: 3 }}>
@@ -1244,6 +1238,6 @@ export default function ClassCompletionReport() {
           </>
         )}
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

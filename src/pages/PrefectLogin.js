@@ -58,12 +58,12 @@ export default function PrefectLogin() {
   return (
     <Box sx={{
       minHeight: "100dvh", display: "grid", placeItems: "center", p: 2,
-      background: "radial-gradient(circle at top, #dbeafe 0, #f8fafc 45%, #ecfeff 100%)",
+      bgcolor: "background.default",
     }}>
-      <Card sx={{ width: "100%", maxWidth: 430, borderRadius: 4, boxShadow: "0 24px 80px rgba(15,23,42,.14)" }}>
+      <Card sx={{ width: "100%", maxWidth: 430, borderRadius: 2, boxShadow: "0px 14px 34px rgba(15,23,42,.08)" }}>
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Stack alignItems="center" spacing={1} mb={3} textAlign="center">
-            <Box sx={{ width: 64, height: 64, borderRadius: 3, display: "grid", placeItems: "center", bgcolor: "primary.main", color: "white" }}>
+            <Box sx={{ width: 64, height: 64, borderRadius: 2, display: "grid", placeItems: "center", bgcolor: "primary.main", color: "white" }}>
               <SecurityRoundedIcon sx={{ fontSize: 36 }} />
             </Box>
             <Typography variant="h4" fontWeight={900}>Prefect Portal</Typography>

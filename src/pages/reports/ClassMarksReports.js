@@ -22,6 +22,7 @@ import { saveAs } from "file-saver";
 import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import { db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
+import { PageContainer } from "../../components/ui";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
 import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
 import {
@@ -735,17 +736,11 @@ export default function ClassMarksReports() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer
+      title="Class Marks Reports"
+      subtitle="Grades 6-13 schedule and analysis, including A/L stream-wise reports."
+    >
       <Stack spacing={3}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>
-            Class Marks Reports
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Grades 6-13 schedule + analysis, including A/L stream-wise reports
-          </Typography>
-        </Box>
-
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
             <Grid container spacing={2}>
@@ -919,6 +914,6 @@ export default function ClassMarksReports() {
           </>
         )}
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

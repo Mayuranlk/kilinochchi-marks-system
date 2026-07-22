@@ -31,6 +31,7 @@ import {
   buildALClassName,
   isALGrade,
 } from "../constants";
+import { PageContainer } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */
@@ -802,14 +803,14 @@ export default function TeacherMarkSheets() {
 
   if (!canAccessAllReports) {
     return (
-      <Box>
+      <PageContainer title="Teacher Mark Sheets">
         <Alert severity="error">Only admin or IT teacher accounts can generate teacher mark sheets.</Alert>
-      </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <PageContainer>
       <Stack spacing={3}>
         <Box>
           <Stack direction="row" spacing={1.2} alignItems="center" mb={1}>
@@ -1043,6 +1044,6 @@ export default function TeacherMarkSheets() {
           </Typography>
         </Paper>
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

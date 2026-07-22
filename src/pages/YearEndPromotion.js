@@ -42,6 +42,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningIcon from "@mui/icons-material/Warning";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import { PageContainer } from "../components/ui";
 
 const STREAMS = ["Maths", "Bio", "Technology", "Arts", "Commerce"];
 
@@ -377,19 +378,10 @@ export default function YearEndPromotion() {
   const detainedCount = Object.values(studentStatus).filter((status) => status === "detain").length;
 
   return (
-    <Box>
-      <Typography
-        variant={isMobile ? "h6" : "h5"}
-        fontWeight={700}
-        color="#1a237e"
-        gutterBottom
-      >
-        Year End Promotion
-      </Typography>
-
-      <Typography variant="body2" color="text.secondary" mb={2}>
-        Promote students to the next grade and carry forward their enrollment year safely.
-      </Typography>
+    <PageContainer
+      title="Year End Promotion"
+      subtitle="Promote students to the next grade and carry forward their enrollment year safely."
+    >
 
       <Stepper activeStep={step} sx={{ mb: 3 }} orientation={isMobile ? "vertical" : "horizontal"}>
         {["Select Class", "Review Students", "Done"].map((label) => (
@@ -819,6 +811,6 @@ export default function YearEndPromotion() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }

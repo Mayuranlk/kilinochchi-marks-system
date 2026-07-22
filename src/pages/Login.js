@@ -131,8 +131,7 @@ export default function Login() {
         display: "grid",
         alignItems: "center",
         justifyContent: "center",
-        background:
-          "linear-gradient(135deg, #eef4ff 0%, #f8fafc 45%, #ecfdf5 100%)",
+        bgcolor: "background.default",
         px: { xs: 1.5, sm: 2 },
         py: 4,
       }}
@@ -141,9 +140,9 @@ export default function Login() {
         sx={{
           width: "100%",
           maxWidth: 440,
-          borderRadius: 3,
-          borderColor: "rgba(148, 163, 184, 0.32)",
-          boxShadow: "0px 24px 70px rgba(15, 23, 42, 0.14)",
+          borderRadius: 2,
+          borderColor: "divider",
+          boxShadow: "0px 14px 34px rgba(15, 23, 42, 0.08)",
         }}
       >
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
@@ -155,7 +154,7 @@ export default function Login() {
                 height: 64,
                 alignItems: "center",
                 justifyContent: "center",
-                borderRadius: 2.5,
+                borderRadius: 2,
                 bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
                 border: "1px solid",
                 borderColor: "divider",

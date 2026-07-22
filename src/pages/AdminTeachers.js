@@ -61,6 +61,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import HomeWorkIcon from "@mui/icons-material/HomeWork";
 import SearchIcon from "@mui/icons-material/Search";
 import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
+import { PageContainer } from "../components/ui";
 
 const empty = {
   name: "",
@@ -952,7 +953,7 @@ export default function AdminTeachers() {
   ).length;
 
   return (
-    <Box>
+    <PageContainer>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <Box>
           <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
@@ -2230,6 +2231,6 @@ export default function AdminTeachers() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }

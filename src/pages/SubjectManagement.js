@@ -41,7 +41,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
-import { MobileListRow, ResponsiveTableWrapper } from "../components/ui";
+import { MobileListRow, PageContainer, ResponsiveTableWrapper } from "../components/ui";
 import { restoreOfficialSubjects } from "../services/setupDefaultsService";
 
 const SUBJECT_COLLECTION = "subjects";
@@ -840,14 +840,16 @@ export default function SubjectManagement() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" mt={6}>
-        <CircularProgress />
-      </Box>
+      <PageContainer title="Subject Management">
+        <Box display="flex" justifyContent="center" mt={6}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box>
+    <PageContainer>
       <Stack
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
@@ -856,7 +858,7 @@ export default function SubjectManagement() {
         mb={3}
       >
         <Box>
-          <Typography variant="h5" fontWeight={700} color="#1a237e">
+          <Typography variant="h5" fontWeight={700} color="primary.main">
             Subject Management
           </Typography>
           <Typography variant="body2" color="text.secondary" mt={0.5}>
@@ -1088,7 +1090,7 @@ export default function SubjectManagement() {
       <Paper variant="outlined" sx={{ overflowX: "auto" }}>
         <ResponsiveTableWrapper minWidth={980}>
         <Table size="small">
-          <TableHead sx={{ bgcolor: "#1a237e" }}>
+          <TableHead sx={{ bgcolor: "primary.main" }}>
             <TableRow>
               {[
                 "No.",
@@ -1637,6 +1639,6 @@ export default function SubjectManagement() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   );
 }

@@ -22,6 +22,7 @@ import {
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { db } from "../firebase";
+import { PageContainer } from "../components/ui";
 
 const OLD_FIELDS = [
   "religionSubject",
@@ -113,11 +114,7 @@ export default function MigrateStudentSubjects() {
   };
 
   return (
-    <Box>
-      <Typography variant="h5" fontWeight={700} color="#1a237e" mb={2}>
-        Legacy Subject Fields Cleanup
-      </Typography>
-
+    <PageContainer title="Legacy Subject Fields Cleanup">
       <Typography variant="body2" color="text.secondary" mb={2}>
         This tool removes old subject fields from students. Your system now uses{" "}
         <b>studentSubjectEnrollments</b> as the source of truth.
@@ -165,7 +162,7 @@ export default function MigrateStudentSubjects() {
       ) : (
         <Paper>
           <Table size="small">
-            <TableHead sx={{ bgcolor: "#1a237e" }}>
+            <TableHead sx={{ bgcolor: "primary.main" }}>
               <TableRow>
                 <TableCell sx={{ color: "white" }}>#</TableCell>
                 <TableCell sx={{ color: "white" }}>Name</TableCell>
@@ -195,6 +192,6 @@ export default function MigrateStudentSubjects() {
           </Table>
         </Paper>
       )}
-    </Box>
+    </PageContainer>
   );
 }

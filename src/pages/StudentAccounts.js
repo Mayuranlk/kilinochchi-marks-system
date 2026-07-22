@@ -639,7 +639,7 @@ export default function StudentAccounts() {
   };
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f8fafc" }}>
+    <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
       <AppBar position="sticky" color="inherit" elevation={0} sx={{ borderBottom: "1px solid", borderColor: "divider" }}>
         <Toolbar sx={{ gap: 1.5 }}>
           <Box sx={{ width: 40, height: 40, borderRadius: 2, display: "grid", placeItems: "center", bgcolor: "success.dark", color: "white" }}>

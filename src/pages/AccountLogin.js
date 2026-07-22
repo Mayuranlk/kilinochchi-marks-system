@@ -78,10 +78,10 @@ export default function AccountLogin() {
         display: "grid",
         placeItems: "center",
         p: 2,
-        background: "linear-gradient(135deg, #ecfdf5 0%, #f8fafc 48%, #eff6ff 100%)",
+        bgcolor: "background.default",
       }}
     >
-      <Card sx={{ width: "100%", maxWidth: 430, borderRadius: 3, boxShadow: "0 24px 80px rgba(15,23,42,.14)" }}>
+      <Card sx={{ width: "100%", maxWidth: 430, borderRadius: 2, boxShadow: "0px 14px 34px rgba(15,23,42,.08)" }}>
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Stack alignItems="center" spacing={1} mb={3} textAlign="center">
             <Box

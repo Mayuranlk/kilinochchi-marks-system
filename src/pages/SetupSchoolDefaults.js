@@ -23,6 +23,7 @@ import {
   restoreOfficialSubjects,
   fixStudentData,
 } from "../services/setupDefaultsService";
+import { PageContainer } from "../components/ui";
 
 function StatCard({ title, value, color = "text.primary" }) {
   return (
@@ -147,14 +148,14 @@ export default function SetupSchoolDefaults() {
 
   if (!isAdmin) {
     return (
-      <Box>
+      <PageContainer title="School Setup">
         <Alert severity="error">Only admin can access school setup tools.</Alert>
-      </Box>
+      </PageContainer>
     );
   }
 
   return (
-    <Box sx={{ p: 0 }}>
+    <PageContainer>
       <Stack spacing={3}>
         <Box
           sx={{
@@ -339,6 +340,6 @@ export default function SetupSchoolDefaults() {
           This page is setup-only. Enrollment generation and enrollment correction must be handled through the dedicated enrollment pages, not through student profile defaults.
         </Alert>
       </Stack>
-    </Box>
+    </PageContainer>
   );
 }

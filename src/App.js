@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { CircularProgress, Box, CssBaseline, ThemeProvider } from "@mui/material";
+import { Box, CssBaseline, LinearProgress, Stack, ThemeProvider, Typography } from "@mui/material";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import appTheme from "./theme/appTheme";
@@ -63,9 +63,30 @@ function LoadingScreen() {
         alignItems: "center",
         justifyContent: "center",
         bgcolor: "background.default",
+        px: 2,
       }}
     >
-      <CircularProgress />
+      <Box
+        sx={{
+          width: "100%",
+          maxWidth: 360,
+          p: 2,
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          bgcolor: "background.paper",
+        }}
+      >
+        <Stack spacing={1.25}>
+          <Typography variant="subtitle1" fontWeight={850}>
+            Kilinochchi Marks
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Preparing your workspace...
+          </Typography>
+          <LinearProgress sx={{ borderRadius: 999 }} />
+        </Stack>
+      </Box>
     </Box>
   );
 }

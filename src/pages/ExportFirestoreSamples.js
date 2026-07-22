@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Box, Button, Card, CardContent, Stack, Typography, Alert } from "@mui/material";
+import { Button, Card, CardContent, Stack, Typography, Alert } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import { exportFirestoreSamples } from "../utils/exportFirestoreSamples";
+import { PageContainer } from "../components/ui";
 
 export default function ExportFirestoreSamples() {
   const [loading, setLoading] = useState(false);
@@ -22,14 +23,10 @@ export default function ExportFirestoreSamples() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer title="Export Firestore Samples">
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h5" fontWeight={700}>
-              Export Firestore Samples
-            </Typography>
-
             <Typography variant="body2" color="text.secondary">
               This will export sample documents from the main Firestore collections into a JSON file.
             </Typography>
@@ -47,6 +44,6 @@ export default function ExportFirestoreSamples() {
           </Stack>
         </CardContent>
       </Card>
-    </Box>
+    </PageContainer>
   );
 }
