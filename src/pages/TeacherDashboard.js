@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -343,6 +343,7 @@ export default function TeacherDashboard() {
   const [classrooms, setClassrooms] = useState([]);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const lastLoadedTermKey = useRef("");
 
   const currentTerm = useMemo(
     () => terms.find((term) => buildTermKey(term) === selectedTermKey) || terms.find(isActiveTerm) || null,
@@ -364,7 +365,6 @@ export default function TeacherDashboard() {
         classroomsSnap,
         enrollmentsSnap,
         marksSnap,
-        studentsSnap,
         termsSnap,
       ] = await Promise.all([
         getDocs(collection(db, "users")),
@@ -372,7 +372,6 @@ export default function TeacherDashboard() {
         getDocs(collection(db, "classrooms")),
         getDocs(collection(db, "studentSubjectEnrollments")),
         getDocs(collection(db, "marks")),
-        getDocs(collection(db, "students")),
         getDocs(collection(db, "academicTerms")),
       ]);
 
@@ -381,10 +380,8 @@ export default function TeacherDashboard() {
       const classrooms = classroomsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const studentsData = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const loadedTerms = termsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      setStudents(studentsData);
       setEnrollments(enrollments);
       setMarks(marks);
       setClassrooms(classrooms);
@@ -420,6 +417,7 @@ export default function TeacherDashboard() {
       if (!selectedTermKey && defaultTerm) {
         setSelectedTermKey(effectiveTermKey);
       }
+      lastLoadedTermKey.current = effectiveTermKey;
 
       const chosenTerm =
         sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
@@ -641,20 +639,30 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     if (selectedTermKey) {
+      if (selectedTermKey === lastLoadedTermKey.current) return;
       loadDashboard(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTermKey]);
 
-  const buildAssignedClassReportData = useCallback(() => {
-    if (!assignedClassroom || !currentTerm || !students.length) return null;
+  const ensureStudentsLoaded = useCallback(async () => {
+    if (students.length > 0) return students;
+
+    const studentsSnap = await getDocs(collection(db, "students"));
+    const studentsData = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    setStudents(studentsData);
+    return studentsData;
+  }, [students]);
+
+  const buildAssignedClassReportData = useCallback((studentRows = students) => {
+    if (!assignedClassroom || !currentTerm || !studentRows.length) return null;
 
     const termName = pick(currentTerm.term, currentTerm.termName, "");
     const year = pick(currentTerm.year, currentTerm.academicYear, "");
 
     try {
       return buildClassMarksReportData({
-        students,
+        students: studentRows,
         enrollments,
         marks,
         classrooms,
@@ -679,7 +687,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const reportData = buildAssignedClassReportData();
+      const studentRows = await ensureStudentsLoaded();
+      const reportData = buildAssignedClassReportData(studentRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksPdf(reportData);
     } catch (err) {
@@ -696,7 +705,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const reportData = buildAssignedClassReportData();
+      const studentRows = await ensureStudentsLoaded();
+      const reportData = buildAssignedClassReportData(studentRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksExcel(reportData);
     } catch (err) {
@@ -712,7 +722,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const reportData = buildAssignedClassReportData();
+      const studentRows = await ensureStudentsLoaded();
+      const reportData = buildAssignedClassReportData(studentRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksEmisExcel(reportData);
     } catch (err) {
@@ -740,9 +751,22 @@ export default function TeacherDashboard() {
   if (loading) {
     return (
       <PageContainer title="Teacher Dashboard">
-        <Box textAlign="center" py={6}>
-          <CircularProgress />
-        </Box>
+        <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <CircularProgress size={24} />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={800}>
+                  Opening your dashboard
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Loading your classes and current term.
+                </Typography>
+              </Box>
+            </Stack>
+            <LinearProgress />
+          </Stack>
+        </Paper>
       </PageContainer>
     );
   }
@@ -756,6 +780,7 @@ export default function TeacherDashboard() {
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
           onClick={() => loadDashboard(true)}
+          fullWidth={isMobile}
         >
           Refresh
         </Button>
@@ -767,20 +792,23 @@ export default function TeacherDashboard() {
         <Paper
           sx={{
             ...sectionCardSx,
-            p: 2,
-            position: { xs: "sticky", md: "static" },
-            top: { xs: 76, md: "auto" },
-            zIndex: { xs: 2, md: "auto" },
+            p: { xs: 1.5, sm: 2 },
+            borderColor: "#dbeafe",
+            background:
+              "linear-gradient(135deg, rgba(239,246,255,0.98) 0%, rgba(255,255,255,1) 64%)",
           }}
         >
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={5}>
               <Stack spacing={0.75}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
-                  Current View
+                <Typography
+                  variant={isMobile ? "h6" : "subtitle1"}
+                  sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}
+                >
+                  Today&apos;s Work
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Review marks completion by class and subject.
+                  Marks entry and class monitoring for the selected term.
                 </Typography>
               </Stack>
             </Grid>

@@ -47,6 +47,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  InputAdornment,
+  Stack,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChatIcon from "@mui/icons-material/Chat";
@@ -57,6 +59,8 @@ import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import HomeWorkIcon from "@mui/icons-material/HomeWork";
+import SearchIcon from "@mui/icons-material/Search";
+import PersonAddAlt1Icon from "@mui/icons-material/PersonAddAlt1";
 
 const empty = {
   name: "",
@@ -71,6 +75,9 @@ const empty = {
   transferredDate: "",
   transferredReason: "",
   transferredTo: "",
+  assignAsClassTeacher: false,
+  classTeacherGrade: 6,
+  classTeacherSection: "A",
 };
 
 function normalizeText(value) {
@@ -252,6 +259,7 @@ export default function AdminTeachers() {
     grade: 6,
     section: "A",
   });
+  const [teacherSearch, setTeacherSearch] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -321,6 +329,49 @@ export default function AdminTeachers() {
     return map;
   }, [activeTeachers, classrooms]);
 
+  const teacherSearchTerm = normalizeLower(teacherSearch);
+
+  const filteredActiveTeachers = useMemo(() => {
+    if (!teacherSearchTerm) return activeTeachers;
+
+    return activeTeachers.filter((teacher) => {
+      const classroom = classTeacherByTeacherId.get(teacher.id);
+      const classTeacherLabel = classroom
+        ? `Grade ${classroom.grade}-${classroom.section}`
+        : "";
+      const searchable = [
+        teacher.name,
+        teacher.email,
+        teacher.phone,
+        teacher.signatureNo,
+        getRoleLabel(teacher.isITTeacher ? "it_teacher" : teacher.role),
+        classTeacherLabel,
+      ]
+        .map(normalizeLower)
+        .join(" ");
+
+      return searchable.includes(teacherSearchTerm);
+    });
+  }, [activeTeachers, teacherSearchTerm, classTeacherByTeacherId]);
+
+  const filteredTransferredTeachers = useMemo(() => {
+    if (!teacherSearchTerm) return transferredTeachers;
+
+    return transferredTeachers.filter((teacher) => {
+      const searchable = [
+        teacher.name,
+        teacher.email,
+        teacher.phone,
+        teacher.signatureNo,
+        getRoleLabel(teacher.isITTeacher ? "it_teacher" : teacher.role),
+      ]
+        .map(normalizeLower)
+        .join(" ");
+
+      return searchable.includes(teacherSearchTerm);
+    });
+  }, [transferredTeachers, teacherSearchTerm]);
+
   const liveSections = useMemo(() => {
     const selectedGrade = Number(classTeacherForm.grade);
     const sections = classrooms
@@ -332,6 +383,18 @@ export default function AdminTeachers() {
       a.localeCompare(b)
     );
   }, [classrooms, classTeacherForm.grade]);
+
+  const addTeacherSections = useMemo(() => {
+    const selectedGrade = Number(form.classTeacherGrade);
+    const sections = classrooms
+      .filter((classroom) => classroom.grade === selectedGrade)
+      .map((classroom) => classroom.section)
+      .filter(Boolean);
+
+    return [...new Set(sections.length ? sections : ["A", "B", "C", "D"])].sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [classrooms, form.classTeacherGrade]);
 
   const clearClassTeacherFromClassroom = async (classroom) => {
     await updateDoc(doc(db, "classrooms", classroom.id), {
@@ -389,6 +452,22 @@ export default function AdminTeachers() {
       return;
     }
 
+    if (form.assignAsClassTeacher) {
+      const targetClassroom =
+        classrooms.find(
+          (classroom) =>
+            classroom.grade === Number(form.classTeacherGrade) &&
+            classroom.section === normalizeSection(form.classTeacherSection)
+        ) || null;
+
+      if (!targetClassroom) {
+        setError(
+          `Classroom Grade ${form.classTeacherGrade}-${form.classTeacherSection} does not exist. Create it first in Classroom Management.`
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     setError("");
     setLoginMessage("");
@@ -414,6 +493,26 @@ export default function AdminTeachers() {
         status: "active",
         createdAt: new Date().toISOString(),
       });
+
+      if (form.assignAsClassTeacher) {
+        const targetClassroom =
+          classrooms.find(
+            (classroom) =>
+              classroom.grade === Number(form.classTeacherGrade) &&
+              classroom.section === normalizeSection(form.classTeacherSection)
+          ) || null;
+
+        if (targetClassroom) {
+          await setClassTeacherOnClassroom(targetClassroom, {
+            id: cred.user.uid,
+            raw: { uid: cred.user.uid },
+            name: normalizeText(form.name),
+            email: normalizeText(form.email).toLowerCase(),
+            phone: normalizeText(form.phone),
+            signatureNo: normalizeText(form.signatureNo),
+          });
+        }
+      }
 
       setSuccess(`${getRoleLabel(form.role)} ${form.name} added. Admin login stayed active.`);
       setLoginMessage(staffLoginMessage);
@@ -979,13 +1078,59 @@ export default function AdminTeachers() {
         </Alert>
       )}
 
+      <Paper
+        variant="outlined"
+        sx={{
+          mb: 2,
+          p: { xs: 1.25, sm: 1.5 },
+          borderRadius: 2,
+          borderColor: "#e0e7ff",
+          bgcolor: "#fbfcff",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.25}
+          alignItems={{ xs: "stretch", md: "center" }}
+          justifyContent="space-between"
+        >
+          <TextField
+            value={teacherSearch}
+            onChange={(e) => setTeacherSearch(e.target.value)}
+            placeholder="Search by name, email, phone, signature, role, class..."
+            size="small"
+            fullWidth
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            <Chip
+              label={`${filteredActiveTeachers.length} shown`}
+              size="small"
+              color={teacherSearchTerm ? "primary" : "default"}
+            />
+            {teacherSearchTerm ? (
+              <Button size="small" onClick={() => setTeacherSearch("")}>
+                Clear
+              </Button>
+            ) : null}
+          </Stack>
+        </Stack>
+      </Paper>
+
       {loading ? (
         <CircularProgress />
       ) : (
         <>
           {isMobile ? (
             <Box>
-              {activeTeachers.map((teacher) => {
+              {filteredActiveTeachers.map((teacher) => {
                 const classTeacherLabel = getTeacherClassTeacherLabel(teacher);
 
                 return (
@@ -1089,9 +1234,9 @@ export default function AdminTeachers() {
                 );
               })}
 
-              {activeTeachers.length === 0 && (
+              {filteredActiveTeachers.length === 0 && (
                 <Typography align="center" color="text.secondary" mt={3}>
-                  No active teachers.
+                  {teacherSearchTerm ? "No teachers match your search." : "No active teachers."}
                 </Typography>
               )}
             </Box>
@@ -1117,7 +1262,7 @@ export default function AdminTeachers() {
                 </TableHead>
 
                 <TableBody>
-                  {activeTeachers.map((teacher, idx) => {
+                  {filteredActiveTeachers.map((teacher, idx) => {
                     const classTeacherLabel = getTeacherClassTeacherLabel(teacher);
 
                     return (
@@ -1232,10 +1377,10 @@ export default function AdminTeachers() {
                     );
                   })}
 
-                  {activeTeachers.length === 0 && (
+                  {filteredActiveTeachers.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} align="center">
-                        No active teachers.
+                        {teacherSearchTerm ? "No teachers match your search." : "No active teachers."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -1244,7 +1389,7 @@ export default function AdminTeachers() {
             </Paper>
           )}
 
-          {transferredTeachers.length > 0 && (
+          {filteredTransferredTeachers.length > 0 && (
             <Accordion
               sx={{
                 mt: 2,
@@ -1258,7 +1403,7 @@ export default function AdminTeachers() {
                 sx={{ bgcolor: "#fff8e1", borderRadius: 3 }}
               >
                 <Typography fontWeight={700} color="#f57f17">
-                  🚌 Transferred Teachers ({transferredTeachers.length})
+                  Transferred Teachers ({filteredTransferredTeachers.length})
                 </Typography>
               </AccordionSummary>
 
@@ -1275,7 +1420,7 @@ export default function AdminTeachers() {
                   </TableHead>
 
                   <TableBody>
-                    {transferredTeachers.map((teacher) => (
+                    {filteredTransferredTeachers.map((teacher) => (
                       <TableRow key={teacher.id} sx={{ bgcolor: "#fffde7" }}>
                         <TableCell>
                           <Typography variant="body2" fontWeight={600}>
@@ -1315,12 +1460,30 @@ export default function AdminTeachers() {
         </>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
-        <DialogTitle sx={{ bgcolor: "#1a237e", color: "white" }}>
-          Add New Teacher
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth fullScreen={isMobile}>
+        <DialogTitle
+          sx={{
+            bgcolor: "#0f172a",
+            color: "white",
+            py: 2,
+          }}
+        >
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Avatar sx={{ bgcolor: "rgba(255,255,255,0.16)", color: "white" }}>
+              <PersonAddAlt1Icon />
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={800}>
+                Add New Teacher
+              </Typography>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.76)" }}>
+                Create login access and optional class teacher duty.
+              </Typography>
+            </Box>
+          </Stack>
         </DialogTitle>
 
-        <DialogContent>
+        <DialogContent sx={{ bgcolor: "#f8fafc" }}>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
 
           <Grid container spacing={2} mt={0.5}>
@@ -1445,10 +1608,103 @@ export default function AdminTeachers() {
                 onChange={(e) => setForm({ ...form, signatureNo: e.target.value })}
               />
             </Grid>
+
+            <Grid item xs={12}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: { xs: 1.5, sm: 2 },
+                  borderRadius: 2,
+                  borderColor: form.assignAsClassTeacher ? "#bfdbfe" : "#e2e8f0",
+                  bgcolor: form.assignAsClassTeacher ? "#eff6ff" : "white",
+                }}
+              >
+                <Stack spacing={1.5}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1}
+                    alignItems={{ xs: "stretch", sm: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={800} color="#0f172a">
+                        Class Teacher Duty
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Optional. You can also change this later from the teacher list.
+                      </Typography>
+                    </Box>
+
+                    <Button
+                      variant={form.assignAsClassTeacher ? "contained" : "outlined"}
+                      startIcon={<HomeWorkIcon />}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          assignAsClassTeacher: !form.assignAsClassTeacher,
+                        })
+                      }
+                      sx={{ alignSelf: { xs: "stretch", sm: "center" } }}
+                    >
+                      {form.assignAsClassTeacher ? "Assigning" : "Assign Class"}
+                    </Button>
+                  </Stack>
+
+                  {form.assignAsClassTeacher ? (
+                    <Grid container spacing={1.5}>
+                      <Grid item xs={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Grade</InputLabel>
+                          <Select
+                            value={form.classTeacherGrade}
+                            label="Grade"
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                classTeacherGrade: Number(e.target.value),
+                                classTeacherSection: "A",
+                              })
+                            }
+                          >
+                            {GRADES.map((g) => (
+                              <MenuItem key={g} value={g}>
+                                Grade {g}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+
+                      <Grid item xs={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Section</InputLabel>
+                          <Select
+                            value={form.classTeacherSection}
+                            label="Section"
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                classTeacherSection: e.target.value,
+                              })
+                            }
+                          >
+                            {addTeacherSections.map((sectionValue) => (
+                              <MenuItem key={sectionValue} value={sectionValue}>
+                                {sectionValue}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    </Grid>
+                  ) : null}
+                </Stack>
+              </Paper>
+            </Grid>
           </Grid>
         </DialogContent>
 
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions sx={{ p: 2, bgcolor: "#f8fafc" }}>
           <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
             Cancel
           </Button>
