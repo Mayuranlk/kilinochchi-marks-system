@@ -54,6 +54,9 @@ import ShuffleRoundedIcon from "@mui/icons-material/ShuffleRounded";
 import HealthAndSafetyRoundedIcon from "@mui/icons-material/HealthAndSafetyRounded";
 
 const DRAWER_WIDTH = 280;
+const navSurface = "#ffffff";
+const activeNavBg = "rgba(37, 99, 235, 0.08)";
+const hoverNavBg = "rgba(15, 23, 42, 0.04)";
 
 export default function Layout() {
   const {
@@ -398,16 +401,16 @@ export default function Layout() {
         onClick={() => handleNavigate(item.path)}
         sx={{
           mx: 1.25,
-          mb: 0.5,
-          minHeight: 46,
-          borderRadius: 2,
+          mb: 0.25,
+          minHeight: 42,
+          borderRadius: 1.5,
           px: 1.25,
-          py: 0.75,
+          py: 0.5,
           alignItems: "center",
-          bgcolor: active ? "rgba(37, 99, 235, 0.12)" : "transparent",
-          border: active ? "1px solid rgba(37, 99, 235, 0.18)" : "1px solid transparent",
+          bgcolor: active ? activeNavBg : "transparent",
+          border: "1px solid transparent",
           "&:hover": {
-            bgcolor: active ? "rgba(37, 99, 235, 0.16)" : "rgba(148, 163, 184, 0.08)",
+            bgcolor: active ? activeNavBg : hoverNavBg,
           },
         }}
       >
@@ -424,8 +427,8 @@ export default function Layout() {
           primary={item.label}
           primaryTypographyProps={{
             fontSize: 14,
-            fontWeight: active ? 800 : 600,
-            color: active ? "text.primary" : "text.secondary",
+            fontWeight: active ? 800 : 650,
+            color: active ? "primary.main" : "text.secondary",
             noWrap: true,
           }}
         />
@@ -440,13 +443,13 @@ export default function Layout() {
       variant="caption"
       sx={{
         px: 2.25,
-        pb: 0.75,
-        pt: 1.25,
+        pb: 0.55,
+        pt: 1.15,
         display: "block",
         color: "text.secondary",
         fontWeight: 800,
-        fontSize: 11,
-        letterSpacing: 0.8,
+        fontSize: 10.5,
+        letterSpacing: 0.6,
         textTransform: "uppercase",
       }}
     >
@@ -460,30 +463,29 @@ export default function Layout() {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        bgcolor: "background.paper",
+        bgcolor: navSurface,
       }}
     >
       <Box
         sx={{
-          px: 2,
-          py: 2,
+          px: 1.75,
+          py: 1.75,
           borderBottom: "1px solid",
           borderColor: "divider",
-          background:
-            "linear-gradient(135deg, rgba(29,78,216,0.10) 0%, rgba(15,118,110,0.06) 100%)",
+          bgcolor: navSurface,
         }}
       >
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Box
             sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 2,
+              width: 40,
+              height: 40,
+              borderRadius: 1.5,
               display: "grid",
               placeItems: "center",
               bgcolor: "primary.main",
               color: "white",
-              boxShadow: "0px 10px 24px rgba(37, 99, 235, 0.22)",
+              boxShadow: "none",
             }}
           >
             <SchoolRoundedIcon />
@@ -502,8 +504,8 @@ export default function Layout() {
 
       <Box
         sx={{
-          px: 2,
-          py: 1.75,
+          px: 1.75,
+          py: 1.5,
           borderBottom: "1px solid",
           borderColor: "divider",
         }}
@@ -536,6 +538,7 @@ export default function Layout() {
                   fontWeight: 700,
                   textTransform: "capitalize",
                   bgcolor: "grey.100",
+                  borderRadius: 1,
                 }}
               />
 
@@ -628,7 +631,7 @@ export default function Layout() {
       {!isMobile ? (
         <Box
           sx={{
-            p: 1.25,
+            p: 1,
             borderTop: "1px solid",
             borderColor: "divider",
             bgcolor: "background.paper",
@@ -638,7 +641,7 @@ export default function Layout() {
             <ListItemButton
               onClick={handleLogout}
               sx={{
-                borderRadius: 3,
+                borderRadius: 1.5,
                 "&:hover": {
                   bgcolor: "rgba(220, 38, 38, 0.08)",
                 },
@@ -672,14 +675,14 @@ export default function Layout() {
           sx={{
             borderBottom: "1px solid",
             borderColor: "divider",
-            bgcolor: "rgba(255,255,255,0.92)",
+            bgcolor: "rgba(255,255,255,0.96)",
             backdropFilter: "blur(10px)",
             zIndex: theme.zIndex.drawer + 1,
           }}
         >
           <Toolbar
             sx={{
-              minHeight: 64,
+              minHeight: 58,
               px: { xs: 1.25, sm: 2 },
             }}
           >
@@ -690,7 +693,7 @@ export default function Layout() {
                 mr: 1,
                 border: "1px solid",
                 borderColor: "divider",
-                borderRadius: 2,
+                borderRadius: 1.5,
               }}
             >
               <MenuRoundedIcon />
@@ -699,9 +702,9 @@ export default function Layout() {
             <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexGrow: 1, minWidth: 0 }}>
               <Box
                 sx={{
-                  width: 34,
-                  height: 34,
-                borderRadius: 2,
+                  width: 32,
+                  height: 32,
+                  borderRadius: 1.25,
                   display: "grid",
                   placeItems: "center",
                   bgcolor: "primary.main",
@@ -789,8 +792,8 @@ export default function Layout() {
           flexGrow: 1,
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
           minHeight: "100vh",
-          pt: { xs: "72px", md: 0 },
-          pb: { xs: shouldShowBottomNav ? "104px" : 0, md: 0 },
+          pt: { xs: "64px", md: 0 },
+          pb: { xs: shouldShowBottomNav ? "92px" : 0, md: 0 },
           px: { xs: 0, md: 0 },
           overflowX: "hidden",
           bgcolor: "background.default",
@@ -804,15 +807,15 @@ export default function Layout() {
           elevation={0}
           sx={{
             position: "fixed",
-            left: 12,
-            right: 12,
-            bottom: 12,
+            left: 10,
+            right: 10,
+            bottom: 10,
             zIndex: 1300,
-            borderRadius: 4,
+            borderRadius: 2,
             overflow: "hidden",
             border: "1px solid",
             borderColor: "divider",
-            boxShadow: "0px 16px 40px rgba(15, 23, 42, 0.14)",
+            boxShadow: "0px 14px 30px rgba(15, 23, 42, 0.12)",
           }}
         >
           <BottomNavigation
@@ -827,7 +830,7 @@ export default function Layout() {
             }}
             showLabels
             sx={{
-              height: 68,
+              height: 62,
               bgcolor: "background.paper",
               "& .MuiBottomNavigationAction-root": {
                 minWidth: 0,

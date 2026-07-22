@@ -22,8 +22,8 @@ const PageContainer = ({
             ? 960
             : 720,
         mx: "auto",
-        px: { xs: 1.5, sm: 2.25, md: 3 },
-        py: { xs: 1.75, sm: 2.25, md: 2.75 },
+        px: { xs: 1.25, sm: 2, md: 2.75 },
+        py: { xs: 1.5, sm: 2, md: 2.5 },
         ...sx,
       }}
     >
@@ -32,8 +32,8 @@ const PageContainer = ({
           direction={{ xs: "column", md: "row" }}
           alignItems={{ xs: "flex-start", md: "center" }}
           justifyContent="space-between"
-          spacing={2}
-          sx={{ mb: 2.5 }}
+          spacing={1.5}
+          sx={{ mb: 2 }}
         >
           <Box>
             {title ? (
@@ -42,14 +42,15 @@ const PageContainer = ({
                 sx={{
                   mb: subtitle ? 0.35 : 0,
                   color: "text.primary",
-                  lineHeight: 1.2,
+                  lineHeight: 1.15,
+                  fontWeight: 850,
                 }}
               >
                 {title}
               </Typography>
             ) : null}
             {subtitle ? (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 760 }}>
                 {subtitle}
               </Typography>
             ) : null}

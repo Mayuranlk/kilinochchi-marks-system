@@ -10,19 +10,19 @@ const SectionCard = ({
   sx = {},
 }) => {
   return (
-    <Card sx={{ overflow: "hidden", ...sx }}>
+    <Card sx={{ overflow: "hidden", boxShadow: "none", ...sx }}>
       {(title || subtitle || action) && (
         <>
-          <Box sx={{ px: { xs: 2, sm: 2.25 }, py: 1.75, bgcolor: "background.paper" }}>
+          <Box sx={{ px: { xs: 1.5, sm: 2 }, py: 1.5, bgcolor: "background.paper" }}>
             <Stack
               direction={{ xs: "column", sm: "row" }}
               alignItems={{ xs: "flex-start", sm: "center" }}
               justifyContent="space-between"
-              spacing={1.5}
+              spacing={1.25}
             >
               <Box>
                 {title ? (
-                  <Typography variant="h6" sx={{ lineHeight: 1.25 }}>
+                  <Typography variant="subtitle1" sx={{ lineHeight: 1.25, fontWeight: 800 }}>
                     {title}
                   </Typography>
                 ) : null}
@@ -41,8 +41,8 @@ const SectionCard = ({
 
       <CardContent
         sx={{
-          p: { xs: 2, sm: 2.5 },
-          "&:last-child": { pb: { xs: 2, sm: 2.5 } },
+          p: { xs: 1.5, sm: 2 },
+          "&:last-child": { pb: { xs: 1.5, sm: 2 } },
           ...contentSx,
         }}
       >

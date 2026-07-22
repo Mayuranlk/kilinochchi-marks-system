@@ -6,7 +6,7 @@ const ActionBar = ({ children, sticky = false, sx = {} }) => {
     <Box
       sx={(theme) => ({
         position: sticky ? "sticky" : "relative",
-        bottom: sticky ? { xs: 92, sm: 12 } : "auto",
+        bottom: sticky ? { xs: 86, sm: 12 } : "auto",
         zIndex: sticky ? theme.zIndex.appBar - 1 : "auto",
         mt: 2,
         ...sx,
@@ -14,12 +14,13 @@ const ActionBar = ({ children, sticky = false, sx = {} }) => {
     >
       <Box
         sx={{
-          p: { xs: 1, sm: 1.25 },
-          borderRadius: 2,
+          p: { xs: 0.85, sm: 1 },
+          borderRadius: 1.5,
           border: "1px solid",
           borderColor: "divider",
-          bgcolor: "background.paper",
-          boxShadow: sticky ? "0px 12px 28px rgba(15, 23, 42, 0.10)" : "none",
+          bgcolor: "rgba(255,255,255,0.96)",
+          backdropFilter: "blur(12px)",
+          boxShadow: sticky ? "0px 12px 24px rgba(15, 23, 42, 0.10)" : "none",
         }}
       >
         <Stack

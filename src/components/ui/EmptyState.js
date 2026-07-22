@@ -13,9 +13,9 @@ const EmptyState = ({
       sx={{
         border: "1px dashed",
         borderColor: "divider",
-        borderRadius: 3,
+        borderRadius: 1.5,
         px: 2,
-        py: 4,
+        py: 3,
         textAlign: "center",
         bgcolor: "background.default",
       }}
@@ -23,9 +23,9 @@ const EmptyState = ({
       <Stack spacing={1.25} alignItems="center">
         <Box
           sx={{
-            height: 56,
-            width: 56,
-            borderRadius: 16,
+            height: 48,
+            width: 48,
+            borderRadius: 1.5,
             display: "grid",
             placeItems: "center",
             bgcolor: "background.paper",

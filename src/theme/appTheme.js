@@ -1,35 +1,35 @@
 import { alpha, createTheme } from "@mui/material/styles";
 
-const primaryMain = "#1d4ed8";
-const secondaryMain = "#0f766e";
+const primaryMain = "#2563eb";
+const secondaryMain = "#0d9488";
 const successMain = "#16a34a";
-const warningMain = "#d97706";
+const warningMain = "#f59e0b";
 const errorMain = "#dc2626";
 const infoMain = "#0284c7";
-const backgroundDefault = "#f6f7f9";
+const backgroundDefault = "#f8fafc";
 const backgroundPaper = "#ffffff";
-const borderColor = "#dfe3ea";
+const borderColor = "#e2e8f0";
 const textPrimary = "#0f172a";
 const textSecondary = "#64748b";
 
 const shadows = [
   "none",
-  "0px 1px 2px rgba(15, 23, 42, 0.06)",
-  "0px 3px 10px rgba(15, 23, 42, 0.05)",
-  "0px 8px 20px rgba(15, 23, 42, 0.07)",
-  "0px 12px 28px rgba(15, 23, 42, 0.08)",
-  ...Array(20).fill("0px 12px 28px rgba(15, 23, 42, 0.08)"),
+  "0px 1px 2px rgba(15, 23, 42, 0.05)",
+  "0px 2px 8px rgba(15, 23, 42, 0.05)",
+  "0px 8px 18px rgba(15, 23, 42, 0.06)",
+  "0px 12px 26px rgba(15, 23, 42, 0.07)",
+  ...Array(20).fill("0px 12px 26px rgba(15, 23, 42, 0.07)"),
 ];
 
 const appTheme = createTheme({
   palette: {
     mode: "light",
-    primary: { main: primaryMain },
-    secondary: { main: secondaryMain },
-    success: { main: successMain },
-    warning: { main: warningMain },
-    error: { main: errorMain },
-    info: { main: infoMain },
+    primary: { main: primaryMain, light: "#dbeafe", dark: "#1d4ed8" },
+    secondary: { main: secondaryMain, light: "#ccfbf1", dark: "#0f766e" },
+    success: { main: successMain, light: "#dcfce7", dark: "#15803d" },
+    warning: { main: warningMain, light: "#fef3c7", dark: "#b45309" },
+    error: { main: errorMain, light: "#fee2e2", dark: "#b91c1c" },
+    info: { main: infoMain, light: "#e0f2fe", dark: "#0369a1" },
     background: {
       default: backgroundDefault,
       paper: backgroundPaper,
@@ -41,7 +41,7 @@ const appTheme = createTheme({
     },
   },
   shape: {
-    borderRadius: 10,
+    borderRadius: 8,
   },
   spacing: 8,
   shadows,
@@ -57,29 +57,29 @@ const appTheme = createTheme({
     ].join(","),
     h4: {
       fontWeight: 800,
-      fontSize: "1.8rem",
+      fontSize: "1.72rem",
       letterSpacing: 0,
     },
     h5: {
       fontWeight: 800,
-      fontSize: "1.35rem",
+      fontSize: "1.28rem",
       letterSpacing: 0,
     },
     h6: {
       fontWeight: 700,
-      fontSize: "1.05rem",
+      fontSize: "1rem",
       letterSpacing: 0,
     },
     subtitle1: {
       fontWeight: 600,
     },
     body1: {
-      fontSize: "0.95rem",
-      lineHeight: 1.6,
+      fontSize: "0.94rem",
+      lineHeight: 1.58,
     },
     body2: {
-      fontSize: "0.86rem",
-      lineHeight: 1.55,
+      fontSize: "0.84rem",
+      lineHeight: 1.5,
     },
     button: {
       fontWeight: 700,
@@ -94,6 +94,9 @@ const appTheme = createTheme({
           backgroundColor: backgroundDefault,
           color: textPrimary,
         },
+        html: {
+          backgroundColor: backgroundDefault,
+        },
         "*": {
           boxSizing: "border-box",
         },
@@ -103,22 +106,26 @@ const appTheme = createTheme({
       },
     },
     MuiPaper: {
+      defaultProps: {
+        elevation: 0,
+      },
       styleOverrides: {
         root: {
           border: `1px solid ${borderColor}`,
           backgroundImage: "none",
         },
         rounded: {
-          borderRadius: 10,
+          borderRadius: 8,
         },
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 10,
+          borderRadius: 8,
           border: `1px solid ${borderColor}`,
-          boxShadow: "0px 2px 10px rgba(15, 23, 42, 0.04)",
+          boxShadow: "0px 1px 3px rgba(15, 23, 42, 0.04)",
+          backgroundImage: "none",
         },
       },
     },
@@ -128,12 +135,15 @@ const appTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          minHeight: 42,
+          minHeight: 40,
           borderRadius: 8,
           paddingInline: 16,
         },
         contained: {
-          boxShadow: "0px 6px 14px rgba(29, 78, 216, 0.16)",
+          boxShadow: "none",
+          "&:hover": {
+            boxShadow: "none",
+          },
         },
         outlined: {
           borderColor: alpha(primaryMain, 0.25),
@@ -143,8 +153,9 @@ const appTheme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          borderRadius: 999,
+          borderRadius: 8,
           fontWeight: 700,
+          height: 28,
         },
       },
     },
@@ -158,8 +169,8 @@ const appTheme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 8,
-          backgroundColor: alpha("#fff", 0.9),
-          minHeight: 42,
+          backgroundColor: "#fff",
+          minHeight: 40,
           "& fieldset": {
             borderColor: borderColor,
           },
@@ -172,22 +183,35 @@ const appTheme = createTheme({
           },
         },
         input: {
-          paddingTop: 11,
-          paddingBottom: 11,
+          paddingTop: 10,
+          paddingBottom: 10,
         },
+      },
+    },
+    MuiSelect: {
+      defaultProps: {
+        size: "small",
+      },
+    },
+    MuiFormControl: {
+      defaultProps: {
+        size: "small",
       },
     },
     MuiTableCell: {
       styleOverrides: {
         root: {
           borderBottomColor: borderColor,
-          paddingTop: 10,
-          paddingBottom: 10,
+          paddingTop: 9,
+          paddingBottom: 9,
         },
         head: {
           fontWeight: 800,
-          color: textPrimary,
+          color: "#334155",
           backgroundColor: "#f8fafc",
+          fontSize: "0.76rem",
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
         },
       },
     },
@@ -203,14 +227,15 @@ const appTheme = createTheme({
     MuiListItemButton: {
       styleOverrides: {
         root: {
-          minHeight: 42,
+          minHeight: 40,
+          borderRadius: 8,
         },
       },
     },
     MuiCheckbox: {
       styleOverrides: {
         root: {
-          padding: 10,
+          padding: 8,
         },
       },
     },
@@ -237,7 +262,22 @@ const appTheme = createTheme({
     MuiAlert: {
       styleOverrides: {
         root: {
-          borderRadius: 14,
+          borderRadius: 8,
+          border: "1px solid transparent",
+        },
+      },
+    },
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          borderRadius: 10,
+        },
+      },
+    },
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: {
+          fontWeight: 800,
         },
       },
     },
