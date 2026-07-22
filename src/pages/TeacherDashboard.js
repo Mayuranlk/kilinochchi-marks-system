@@ -322,6 +322,266 @@ const sectionCardSx = {
   backgroundColor: "white",
 };
 
+const buildTeacherDashboardData = ({
+  user,
+  users,
+  assignments,
+  classrooms,
+  enrollments = [],
+  marks = [],
+  sortedTerms,
+  effectiveTermKey,
+  progressReady,
+}) => {
+  const currentTeacher =
+    users.find(
+      (u) =>
+        normalize(u.id) === normalize(user.uid) ||
+        normalize(u.uid) === normalize(user.uid) ||
+        normalize(u.email) === normalize(user.email)
+    ) || null;
+
+  const teacherName = pick(
+    currentTeacher?.name,
+    currentTeacher?.fullName,
+    user.displayName,
+    "Teacher"
+  );
+
+  const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+  const chosenTerm =
+    sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
+
+  const targetTerm = {
+    term: pick(chosenTerm?.term, chosenTerm?.termName, ""),
+    year: String(pick(chosenTerm?.year, chosenTerm?.academicYear, "")),
+  };
+
+  const myAssignments = assignments.filter(
+    (assignment) =>
+      normalize(assignment.teacherId) === normalize(user.uid) ||
+      normalize(assignment.teacherEmail) === normalize(user.email)
+  );
+
+  const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
+    const classIdentity = normalize(getClassDisplayName(assignment));
+    const subjectIdentity = getSubjectIdentity(assignment);
+    const stream = normalize(getResolvedStream(assignment));
+    return `${classIdentity}__${subjectIdentity}__${stream}`;
+  });
+
+  const dedupedSubjectRowsMap = new Map();
+
+  dedupedAssignments.forEach((assignment) => {
+    const classIdentity = getClassDisplayName(assignment);
+    const classShort = getClassShortDisplayName(assignment);
+    const classContext = getClassContext(assignment);
+    const subjectName = pick(assignment.subjectName, assignment.subject, "");
+    const subjectId = pick(assignment.subjectId, "");
+    const subjectNumber = pick(assignment.subjectNumber, "");
+    const stream = normalizeText(assignment.stream);
+
+    if (!subjectName && !subjectId && !subjectNumber) return;
+
+    const progressInfo = progressReady
+      ? isCompletedForSubject(
+          enrollments,
+          marks,
+          classContext,
+          {
+            subjectName,
+            subjectId,
+            subjectNumber,
+          },
+          targetTerm
+        )
+      : {
+          total: 0,
+          doneCount: 0,
+          pending: 0,
+          progress: 0,
+          completed: false,
+        };
+
+    if (progressReady && progressInfo.total === 0) return;
+
+    const rowKey = `${normalize(classIdentity)}__${getSubjectIdentity({
+      subjectId,
+      subjectName,
+      subjectNumber,
+    })}__${normalize(stream)}`;
+
+    if (!dedupedSubjectRowsMap.has(rowKey)) {
+      dedupedSubjectRowsMap.set(rowKey, {
+        className: pick(assignment.className, ""),
+        fullClassName: classIdentity,
+        displayClassName: classShort,
+        stream,
+        streamCode: pick(assignment.streamCode, ""),
+        subjectName,
+        subjectId,
+        subjectNumber,
+        total: progressInfo.total,
+        done: progressInfo.doneCount,
+        pending: progressInfo.pending,
+        progress: progressInfo.progress,
+        progressLoading: !progressReady,
+      });
+    }
+  });
+
+  const subjectRows = Array.from(dedupedSubjectRowsMap.values()).sort((a, b) => {
+    const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+    if (classDiff !== 0) return classDiff;
+    return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
+      sensitivity: "base",
+    });
+  });
+
+  const assignedClassroom =
+    classrooms.find(
+      (c) =>
+        normalize(c.classTeacherId) === normalize(user.uid) ||
+        normalize(c.classTeacherEmail) === normalize(user.email)
+    ) || null;
+
+  let classTeacherData = null;
+
+  if (assignedClassroom) {
+    const classIdentity = getClassDisplayName(assignedClassroom);
+    const classContext = getClassContext(assignedClassroom);
+    const classStream = normalizeText(assignedClassroom.stream);
+
+    const classStudentsRaw = progressReady
+      ? enrollments.filter(
+          (enrollment) =>
+            matchesClassContext(enrollment, classContext) &&
+            normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
+              normalizeAcademicYear(targetTerm.year)
+        )
+      : [];
+
+    const classStudents = dedupeBy(
+      classStudentsRaw,
+      (row) => String(pick(row.studentId, row.id, "")).trim()
+    );
+
+    const uniqueStudentIds = new Set(
+      classStudents
+        .map((student) => String(pick(student.studentId, student.id, "")).trim())
+        .filter(Boolean)
+    );
+
+    const dedupedClassSubjects = new Map();
+
+    dedupeBy(
+      assignments.filter((assignment) => matchesClassContext(assignment, classContext)),
+      (assignment) => `${getSubjectIdentity(assignment)}__${normalize(getResolvedStream(assignment))}`
+    ).forEach((assignment) => {
+      const teacherUser =
+        users.find(
+          (u) =>
+            normalize(u.id) === normalize(assignment.teacherId) ||
+            normalize(u.email) === normalize(assignment.teacherEmail)
+        ) || null;
+
+      const subjectName = pick(assignment.subjectName, assignment.subject, "");
+      const subjectId = pick(assignment.subjectId, "");
+      const subjectNumber = pick(assignment.subjectNumber, "");
+
+      if (!subjectName && !subjectId && !subjectNumber) return;
+
+      const progressInfo = progressReady
+        ? isCompletedForSubject(
+            enrollments,
+            marks,
+            getClassContext(assignment),
+            {
+              subjectName,
+              subjectId,
+              subjectNumber,
+            },
+            targetTerm
+          )
+        : {
+            total: 0,
+            doneCount: 0,
+            pending: 0,
+            progress: 0,
+            completed: false,
+          };
+
+      if (progressReady && progressInfo.total === 0) return;
+
+      const isMine =
+        normalize(assignment.teacherId) === normalize(user.uid) ||
+        normalize(assignment.teacherEmail) === normalize(user.email);
+
+      const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
+        getResolvedStream(assignment)
+      )}`;
+
+      if (!dedupedClassSubjects.has(rowKey)) {
+        dedupedClassSubjects.set(rowKey, {
+          subjectName,
+          subjectId,
+          subjectNumber,
+          teacherName: pick(
+            teacherUser?.name,
+            teacherUser?.fullName,
+            assignment.teacherName,
+            "Teacher"
+          ),
+          teacherPhone: pick(teacherUser?.phone, ""),
+          total: progressInfo.total,
+          done: progressInfo.doneCount,
+          pending: progressInfo.pending,
+          progress: progressInfo.progress,
+          completed: progressInfo.completed,
+          isMine,
+          progressLoading: !progressReady,
+        });
+      }
+    });
+
+    const classSubjects = Array.from(dedupedClassSubjects.values()).sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
+        sensitivity: "base",
+      });
+    });
+
+    const completedCount = classSubjects.filter((subject) => subject.completed).length;
+    const pendingCount = classSubjects.length - completedCount;
+
+    classTeacherData = {
+      className: pick(assignedClassroom.className, ""),
+      fullClassName: classIdentity,
+      displayClassName: getClassShortDisplayName(assignedClassroom),
+      stream: classStream,
+      totalStudents: uniqueStudentIds.size,
+      totalSubjects: classSubjects.length,
+      completed: completedCount,
+      pending: pendingCount,
+      progress: classSubjects.length
+        ? Math.round((completedCount / classSubjects.length) * 100)
+        : 0,
+      subjects: classSubjects,
+      progressLoading: !progressReady,
+    };
+  }
+
+  return {
+    teacherName,
+    subjectRows,
+    classTeacherData,
+    assignedClassroom,
+  };
+};
+
 export default function TeacherDashboard() {
   const navigate = useNavigate();
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
@@ -341,6 +601,7 @@ export default function TeacherDashboard() {
   const [enrollments, setEnrollments] = useState([]);
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const lastLoadedTermKey = useRef("");
@@ -359,44 +620,19 @@ export default function TeacherDashboard() {
       const user = auth.currentUser;
       if (!user) throw new Error("User is not logged in.");
 
-      const [
-        usersSnap,
-        assignmentsSnap,
-        classroomsSnap,
-        enrollmentsSnap,
-        marksSnap,
-        termsSnap,
-      ] = await Promise.all([
+      const [usersSnap, assignmentsSnap, classroomsSnap, termsSnap] = await Promise.all([
         getDocs(collection(db, "users")),
         getDocs(collection(db, "teacherAssignments")),
         getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "marks")),
         getDocs(collection(db, "academicTerms")),
       ]);
 
       const users = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const assignments = assignmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const classrooms = classroomsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const loadedTerms = termsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      setEnrollments(enrollments);
-      setMarks(marks);
       setClassrooms(classrooms);
-
-      const currentTeacher =
-        users.find(
-          (u) =>
-            normalize(u.id) === normalize(user.uid) ||
-            normalize(u.uid) === normalize(user.uid) ||
-            normalize(u.email) === normalize(user.email)
-        ) || null;
-
-      setTeacherName(
-        pick(currentTeacher?.name, currentTeacher?.fullName, user.displayName, "Teacher")
-      );
 
       const sortedTerms = [...loadedTerms].sort((a, b) => {
         const yearDiff =
@@ -419,209 +655,56 @@ export default function TeacherDashboard() {
       }
       lastLoadedTermKey.current = effectiveTermKey;
 
-      const chosenTerm =
-        sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
-
-      const targetTerm = {
-        term: pick(chosenTerm?.term, chosenTerm?.termName, ""),
-        year: String(pick(chosenTerm?.year, chosenTerm?.academicYear, "")),
-      };
-
-      const myAssignments = assignments.filter(
-        (assignment) =>
-          normalize(assignment.teacherId) === normalize(user.uid) ||
-          normalize(assignment.teacherEmail) === normalize(user.email)
-      );
-
-      const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
-        const classIdentity = normalize(getClassDisplayName(assignment));
-        const subjectIdentity = getSubjectIdentity(assignment);
-        const stream = normalize(getResolvedStream(assignment));
-        return `${classIdentity}__${subjectIdentity}__${stream}`;
+      const initialData = buildTeacherDashboardData({
+        user,
+        users,
+        assignments,
+        classrooms,
+        sortedTerms,
+        effectiveTermKey,
+        progressReady: false,
       });
 
-      const dedupedSubjectRowsMap = new Map();
+      setTeacherName(initialData.teacherName);
+      setSubjectRows(initialData.subjectRows);
+      setClassTeacherData(initialData.classTeacherData);
+      setAssignedClassroom(initialData.assignedClassroom);
+      setLoading(false);
+      setRefreshing(false);
+      setProgressLoading(true);
 
-      dedupedAssignments.forEach((assignment) => {
-        const classIdentity = getClassDisplayName(assignment);
-        const classShort = getClassShortDisplayName(assignment);
-        const classContext = getClassContext(assignment);
-        const subjectName = pick(assignment.subjectName, assignment.subject, "");
-        const subjectId = pick(assignment.subjectId, "");
-        const subjectNumber = pick(assignment.subjectNumber, "");
-        const stream = normalizeText(assignment.stream);
+      try {
+        const [enrollmentsSnap, marksSnap] = await Promise.all([
+          getDocs(collection(db, "studentSubjectEnrollments")),
+          getDocs(collection(db, "marks")),
+        ]);
 
-        if (!subjectName && !subjectId && !subjectNumber) return;
+        const loadedEnrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const loadedMarks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-        const progressInfo = isCompletedForSubject(
-          enrollments,
-          marks,
-          classContext,
-          {
-            subjectName,
-            subjectId,
-            subjectNumber,
-          },
-          targetTerm
-        );
+        setEnrollments(loadedEnrollments);
+        setMarks(loadedMarks);
 
-        if (progressInfo.total === 0) return;
-
-        const rowKey = `${normalize(classIdentity)}__${getSubjectIdentity({
-          subjectId,
-          subjectName,
-          subjectNumber,
-        })}__${normalize(stream)}`;
-
-        if (!dedupedSubjectRowsMap.has(rowKey)) {
-          dedupedSubjectRowsMap.set(rowKey, {
-            className: pick(assignment.className, ""),
-            fullClassName: classIdentity,
-            displayClassName: classShort,
-            stream,
-            streamCode: pick(assignment.streamCode, ""),
-            subjectName,
-            subjectId,
-            subjectNumber,
-            total: progressInfo.total,
-            done: progressInfo.doneCount,
-            pending: progressInfo.pending,
-            progress: progressInfo.progress,
-          });
-        }
-      });
-
-      const mySubjectRows = Array.from(dedupedSubjectRowsMap.values()).sort((a, b) => {
-        const classDiff = String(a.fullClassName).localeCompare(String(b.fullClassName), undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-        if (classDiff !== 0) return classDiff;
-        return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
-          sensitivity: "base",
-        });
-      });
-
-      setSubjectRows(mySubjectRows);
-
-      const myClass = classrooms.find(
-        (c) =>
-          normalize(c.classTeacherId) === normalize(user.uid) ||
-          normalize(c.classTeacherEmail) === normalize(user.email)
-      );
-
-      if (myClass) {
-        setAssignedClassroom(myClass);
-        const classIdentity = getClassDisplayName(myClass);
-        const classContext = getClassContext(myClass);
-        const classStream = normalizeText(myClass.stream);
-
-        const classStudentsRaw = enrollments.filter(
-          (enrollment) =>
-            matchesClassContext(enrollment, classContext) &&
-            normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
-              normalizeAcademicYear(targetTerm.year)
-        );
-
-        const classStudents = dedupeBy(
-          classStudentsRaw,
-          (row) => String(pick(row.studentId, row.id, "")).trim()
-        );
-
-        const uniqueStudentIds = new Set(
-          classStudents.map((student) => String(pick(student.studentId, student.id, "")).trim()).filter(Boolean)
-        );
-
-        const dedupedClassSubjects = new Map();
-
-        dedupeBy(
-          assignments.filter((assignment) => matchesClassContext(assignment, classContext)),
-          (assignment) => `${getSubjectIdentity(assignment)}__${normalize(getResolvedStream(assignment))}`
-        ).forEach((assignment) => {
-          const teacherUser =
-            users.find(
-              (u) =>
-                normalize(u.id) === normalize(assignment.teacherId) ||
-                normalize(u.email) === normalize(assignment.teacherEmail)
-            ) || null;
-
-          const subjectName = pick(assignment.subjectName, assignment.subject, "");
-          const subjectId = pick(assignment.subjectId, "");
-          const subjectNumber = pick(assignment.subjectNumber, "");
-
-          if (!subjectName && !subjectId && !subjectNumber) return;
-
-          const progressInfo = isCompletedForSubject(
-            enrollments,
-            marks,
-            getClassContext(assignment),
-            {
-              subjectName,
-              subjectId,
-              subjectNumber,
-            },
-            targetTerm
-          );
-
-          if (progressInfo.total === 0) return;
-
-          const isMine =
-            normalize(assignment.teacherId) === normalize(user.uid) ||
-            normalize(assignment.teacherEmail) === normalize(user.email);
-
-          const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
-            getResolvedStream(assignment)
-          )}`;
-
-          if (!dedupedClassSubjects.has(rowKey)) {
-            dedupedClassSubjects.set(rowKey, {
-              subjectName,
-              subjectId,
-              subjectNumber,
-              teacherName: pick(
-                teacherUser?.name,
-                teacherUser?.fullName,
-                assignment.teacherName,
-                "Teacher"
-              ),
-              teacherPhone: pick(teacherUser?.phone, ""),
-              total: progressInfo.total,
-              done: progressInfo.doneCount,
-              pending: progressInfo.pending,
-              progress: progressInfo.progress,
-              completed: progressInfo.completed,
-              isMine,
-            });
-          }
+        const completedData = buildTeacherDashboardData({
+          user,
+          users,
+          assignments,
+          classrooms,
+          enrollments: loadedEnrollments,
+          marks: loadedMarks,
+          sortedTerms,
+          effectiveTermKey,
+          progressReady: true,
         });
 
-        const classSubjects = Array.from(dedupedClassSubjects.values()).sort((a, b) => {
-          if (a.completed !== b.completed) return a.completed ? 1 : -1;
-          return String(a.subjectName).localeCompare(String(b.subjectName), undefined, {
-            sensitivity: "base",
-          });
-        });
-
-        const completedCount = classSubjects.filter((subject) => subject.completed).length;
-        const pendingCount = classSubjects.length - completedCount;
-
-        setClassTeacherData({
-          className: pick(myClass.className, ""),
-          fullClassName: classIdentity,
-          displayClassName: getClassShortDisplayName(myClass),
-          stream: classStream,
-          totalStudents: uniqueStudentIds.size,
-          totalSubjects: classSubjects.length,
-          completed: completedCount,
-          pending: pendingCount,
-          progress: classSubjects.length
-            ? Math.round((completedCount / classSubjects.length) * 100)
-            : 0,
-          subjects: classSubjects,
-        });
-      } else {
-        setClassTeacherData(null);
-        setAssignedClassroom(null);
+        setSubjectRows(completedData.subjectRows);
+        setClassTeacherData(completedData.classTeacherData);
+        setAssignedClassroom(completedData.assignedClassroom);
+      } catch (statsError) {
+        console.error(statsError);
+        setError(statsError.message || "Dashboard opened, but progress stats failed to load.");
+      } finally {
+        setProgressLoading(false);
       }
     } catch (e) {
       console.error(e);
@@ -788,6 +871,16 @@ export default function TeacherDashboard() {
     >
       <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
+        {progressLoading ? (
+          <Paper sx={{ ...sectionCardSx, p: 1.25 }}>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
+                Syncing marks progress in the background
+              </Typography>
+            </Stack>
+          </Paper>
+        ) : null}
 
         <Paper
           sx={{
@@ -842,6 +935,7 @@ export default function TeacherDashboard() {
                 {currentTerm ? <Chip label={buildTermLabel(currentTerm)} color="primary" /> : null}
                 <Chip label={`Subject Assignments: ${subjectRows.length}`} />
                 <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
+                {progressLoading ? <Chip label="Stats syncing" color="info" variant="outlined" /> : null}
               </Stack>
             </Grid>
           </Grid>
@@ -861,11 +955,19 @@ export default function TeacherDashboard() {
                 <StatusChip status="saved" label={`${subjectRows.length} subjects`} />
                 <StatusChip
                   status="completed"
-                  label={`${subjectRows.filter((row) => row.pending === 0 && row.total > 0).length} completed`}
+                  label={
+                    progressLoading
+                      ? "syncing"
+                      : `${subjectRows.filter((row) => row.pending === 0 && row.total > 0).length} completed`
+                  }
                 />
                 <StatusChip
                   status="pending"
-                  label={`${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} pending`}
+                  label={
+                    progressLoading
+                      ? "syncing"
+                      : `${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} pending`
+                  }
                 />
               </Stack>
             </Stack>
@@ -891,7 +993,7 @@ export default function TeacherDashboard() {
             <Grid item xs={6} md={3}>
               <StatCard
                 title="Completed"
-                value={subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
+                value={progressLoading ? "..." : subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
                 icon={<CheckCircleRoundedIcon />}
                 color="success"
               />
@@ -899,7 +1001,7 @@ export default function TeacherDashboard() {
             <Grid item xs={6} md={3}>
               <StatCard
                 title="Pending"
-                value={subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
+                value={progressLoading ? "..." : subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
                 icon={<HourglassBottomRoundedIcon />}
                 color="warning"
               />
@@ -934,7 +1036,11 @@ export default function TeacherDashboard() {
                     />
                   ) : null}
                   <Chip
-                    label={`${classTeacherData.progress}% Completed`}
+                    label={
+                      progressLoading
+                        ? "Progress syncing"
+                        : `${classTeacherData.progress}% Completed`
+                    }
                     color={classTeacherData.progress === 100 ? "success" : "warning"}
                   />
                 </Stack>
@@ -953,7 +1059,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="secondary"
                   onClick={handleExportPdf}
-                  disabled={!assignedClassroom || !currentTerm || exportingPdf}
+                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressLoading}
                   startIcon={<PictureAsPdfIcon />}
                 >
                   {exportingPdf ? "Exporting PDF..." : "Export PDF"}
@@ -962,7 +1068,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="info"
                   onClick={handleExportExcel}
-                  disabled={!assignedClassroom || !currentTerm || exportingExcel}
+                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressLoading}
                   startIcon={<TableViewRoundedIcon />}
                 >
                   {exportingExcel ? "Exporting Excel..." : "Export Excel"}
@@ -972,7 +1078,7 @@ export default function TeacherDashboard() {
                     variant="outlined"
                     color="success"
                     onClick={handleExportEmis}
-                    disabled={!assignedClassroom || !currentTerm}
+                    disabled={!assignedClassroom || !currentTerm || progressLoading}
                     startIcon={<TableViewRoundedIcon />}
                   >
                     Export EMIS NP
@@ -982,17 +1088,26 @@ export default function TeacherDashboard() {
 
               {isMobile ? (
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <StatusChip status="active" label={`${classTeacherData.totalStudents} students`} />
+                  <StatusChip
+                    status="active"
+                    label={progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`}
+                  />
                   <StatusChip status="saved" label={`${classTeacherData.totalSubjects} subjects`} />
-                  <StatusChip status="completed" label={`${classTeacherData.completed} completed`} />
-                  <StatusChip status="pending" label={`${classTeacherData.pending} pending`} />
+                  <StatusChip
+                    status="completed"
+                    label={progressLoading ? "syncing" : `${classTeacherData.completed} completed`}
+                  />
+                  <StatusChip
+                    status="pending"
+                    label={progressLoading ? "syncing" : `${classTeacherData.pending} pending`}
+                  />
                 </Stack>
               ) : (
                 <Grid container spacing={1.25}>
                   <Grid item xs={6} sm={3}>
                     <StatCard
                       title="Students"
-                      value={classTeacherData.totalStudents}
+                      value={progressLoading ? "..." : classTeacherData.totalStudents}
                       icon={<GroupRoundedIcon />}
                       color="primary"
                       sx={{ boxShadow: "none" }}
@@ -1010,7 +1125,7 @@ export default function TeacherDashboard() {
                   <Grid item xs={6} sm={3}>
                     <StatCard
                       title="Completed"
-                      value={classTeacherData.completed}
+                      value={progressLoading ? "..." : classTeacherData.completed}
                       icon={<CheckCircleRoundedIcon />}
                       color="success"
                       sx={{ boxShadow: "none" }}
@@ -1019,7 +1134,7 @@ export default function TeacherDashboard() {
                   <Grid item xs={6} sm={3}>
                     <StatCard
                       title="Pending"
-                      value={classTeacherData.pending}
+                      value={progressLoading ? "..." : classTeacherData.pending}
                       icon={<HourglassBottomRoundedIcon />}
                       color="error"
                       sx={{ boxShadow: "none" }}
@@ -1030,12 +1145,14 @@ export default function TeacherDashboard() {
 
               <Box>
                 <LinearProgress
-                  variant="determinate"
-                  value={classTeacherData.progress}
+                  variant={progressLoading ? "indeterminate" : "determinate"}
+                  value={progressLoading ? undefined : classTeacherData.progress}
                   sx={{ height: 8, borderRadius: 5 }}
                 />
                 <Typography variant="body2" color="text.secondary" mt={0.75}>
-                  {classTeacherData.progress}% overall class completion
+                  {progressLoading
+                    ? "Calculating overall class completion"
+                    : `${classTeacherData.progress}% overall class completion`}
                 </Typography>
               </Box>
 
@@ -1049,11 +1166,21 @@ export default function TeacherDashboard() {
                         key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
                         compact
                         title={subject.subjectName}
-                        subtitle={`${subject.done}/${subject.total} students`}
+                        subtitle={
+                          subject.progressLoading
+                            ? "Progress syncing"
+                            : `${subject.done}/${subject.total} students`
+                        }
                         right={
                           <StatusChip
-                            status={subject.completed ? "completed" : "pending"}
-                            label={subject.completed ? "Completed" : "Pending"}
+                            status={subject.progressLoading ? "active" : subject.completed ? "completed" : "pending"}
+                            label={
+                              subject.progressLoading
+                                ? "Syncing"
+                                : subject.completed
+                                ? "Completed"
+                                : "Pending"
+                            }
                           />
                         }
                         meta={
@@ -1061,7 +1188,11 @@ export default function TeacherDashboard() {
                             {subject.subjectNumber ? (
                               <Chip size="small" variant="outlined" label={`No. ${subject.subjectNumber}`} />
                             ) : null}
-                            <Chip size="small" variant="outlined" label={`${subject.progress}%`} />
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={subject.progressLoading ? "Syncing" : `${subject.progress}%`}
+                            />
                             <Chip size="small" variant="outlined" label={subject.teacherName} />
                           </Stack>
                         }
@@ -1144,7 +1275,9 @@ export default function TeacherDashboard() {
                                 ) : null}
                               </Stack>
                               <Typography variant="body2" color="text.secondary">
-                                {subject.done}/{subject.total} students
+                                {subject.progressLoading
+                                  ? "Progress syncing"
+                                  : `${subject.done}/${subject.total} students`}
                               </Typography>
                             </Box>
 
@@ -1162,7 +1295,7 @@ export default function TeacherDashboard() {
                             useFlexGap
                           >
                             <Typography variant="body2" color="text.secondary">
-                              {subject.progress}%
+                              {subject.progressLoading ? "Syncing" : `${subject.progress}%`}
                             </Typography>
 
                             <Typography variant="body2" color="text.secondary">
@@ -1241,7 +1374,11 @@ export default function TeacherDashboard() {
                 />
                 <Chip
                   icon={<TimelineRoundedIcon />}
-                  label={`${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} Pending`}
+                  label={
+                    progressLoading
+                      ? "Stats syncing"
+                      : `${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} Pending`
+                  }
                   color="warning"
                   variant="outlined"
                 />
@@ -1276,22 +1413,24 @@ export default function TeacherDashboard() {
                       footer={
                         <Stack spacing={1}>
                           <Typography variant="body2" color="text.secondary">
-                            {row.done}/{row.total} students completed
+                            {row.progressLoading
+                              ? "Progress syncing"
+                              : `${row.done}/${row.total} students completed`}
                           </Typography>
 
                           <LinearProgress
-                            variant="determinate"
-                            value={row.progress}
+                            variant={row.progressLoading ? "indeterminate" : "determinate"}
+                            value={row.progressLoading ? undefined : row.progress}
                             sx={{ height: 6, borderRadius: 5 }}
                           />
 
                           <Stack direction="row" justifyContent="space-between">
                             <Typography variant="body2">
-                              {row.progress}%
+                              {row.progressLoading ? "Syncing" : `${row.progress}%`}
                             </Typography>
 
                             <Typography variant="body2">
-                              {row.done}/{row.total}
+                              {row.progressLoading ? "" : `${row.done}/${row.total}`}
                             </Typography>
                           </Stack>
 

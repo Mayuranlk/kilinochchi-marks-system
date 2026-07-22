@@ -13,6 +13,7 @@ const PageContainer = ({
     <Box
       sx={{
         width: "100%",
+        minWidth: 0,
         maxWidth:
           maxWidth === "xl"
             ? 1600
@@ -24,6 +25,11 @@ const PageContainer = ({
         mx: "auto",
         px: { xs: 1.25, sm: 2, md: 2.75 },
         py: { xs: 1.5, sm: 2, md: 2.5 },
+        overflowX: "hidden",
+        "& > *": {
+          minWidth: 0,
+          maxWidth: "100%",
+        },
         ...sx,
       }}
     >
@@ -35,7 +41,7 @@ const PageContainer = ({
           spacing={1.5}
           sx={{ mb: 2 }}
         >
-          <Box>
+          <Box sx={{ minWidth: 0, maxWidth: "100%" }}>
             {title ? (
               <Typography
                 variant="h5"

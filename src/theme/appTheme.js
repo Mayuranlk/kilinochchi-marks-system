@@ -93,9 +93,13 @@ const appTheme = createTheme({
         body: {
           backgroundColor: backgroundDefault,
           color: textPrimary,
+          maxWidth: "100vw",
+          overflowX: "hidden",
         },
         html: {
           backgroundColor: backgroundDefault,
+          maxWidth: "100vw",
+          overflowX: "hidden",
         },
         "*": {
           boxSizing: "border-box",
@@ -113,6 +117,7 @@ const appTheme = createTheme({
         root: {
           border: `1px solid ${borderColor}`,
           backgroundImage: "none",
+          maxWidth: "100%",
         },
         rounded: {
           borderRadius: 8,
@@ -126,6 +131,7 @@ const appTheme = createTheme({
           border: `1px solid ${borderColor}`,
           boxShadow: "0px 1px 3px rgba(15, 23, 42, 0.04)",
           backgroundImage: "none",
+          maxWidth: "100%",
         },
       },
     },

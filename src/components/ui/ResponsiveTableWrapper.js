@@ -6,7 +6,10 @@ const ResponsiveTableWrapper = ({ children, minWidth = 760, sx = {} }) => {
     <Box
       sx={{
         width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
         overflowX: "auto",
+        overflowY: "hidden",
         WebkitOverflowScrolling: "touch",
         borderRadius: 2,
         "& table": {

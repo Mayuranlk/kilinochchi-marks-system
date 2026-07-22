@@ -666,7 +666,16 @@ export default function Layout() {
   );
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
+    <Box
+      sx={{
+        display: "flex",
+        minHeight: "100vh",
+        width: "100%",
+        maxWidth: "100vw",
+        overflowX: "hidden",
+        bgcolor: "background.default",
+      }}
+    >
       {isMobile && (
         <AppBar
           position="fixed"
@@ -791,6 +800,8 @@ export default function Layout() {
         sx={{
           flexGrow: 1,
           width: { xs: "100%", md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          minWidth: 0,
+          maxWidth: { xs: "100vw", md: `calc(100vw - ${DRAWER_WIDTH}px)` },
           minHeight: "100vh",
           pt: { xs: "64px", md: 0 },
           pb: { xs: shouldShowBottomNav ? "92px" : 0, md: 0 },
