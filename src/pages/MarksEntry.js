@@ -305,6 +305,14 @@ const isSameTeacher = (item, user) => {
 const getStudentSortIndex = (row = {}) =>
   String(row.indexNo || row.admissionNo || "").trim();
 
+const getStudentEntryLabel = (row = {}, fallbackIndex = 0) => {
+  const indexNo = String(row.indexNo || "").trim();
+  const admissionNo = String(row.admissionNo || "").trim();
+  if (indexNo) return indexNo;
+  if (admissionNo) return admissionNo;
+  return `Row ${fallbackIndex + 1}`;
+};
+
 const sortRowsInTeacherMarkSheetOrder = (rows = []) => {
   return [...rows].sort((a, b) => {
     const aIndex = getStudentSortIndex(a);
@@ -1429,8 +1437,8 @@ export default function MarksEntry() {
 
             <Grid item xs={12} sm={6} md={2.5}>
               <TextField
-                label="Search student"
-                placeholder="Name, index no, admission no"
+                label="Search index"
+                placeholder="Index, admission, or name"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 InputProps={{
@@ -1597,13 +1605,8 @@ export default function MarksEntry() {
                       <MobileListRow
                         key={row.key}
                         compact
-                        title={`${index + 1}. ${row.studentName}`}
-                        subtitle={[
-                          row.indexNo ? `Index: ${row.indexNo}` : null,
-                          row.admissionNo ? `Admission: ${row.admissionNo}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" • ")}
+                        title={`${index + 1}. Index ${getStudentEntryLabel(row, index)}`}
+                        subtitle={row.indexNo && row.admissionNo ? `Admission ${row.admissionNo}` : ""}
                         right={
                           row.isDirty ? (
                             <StatusChip status="draft" />
@@ -1627,77 +1630,73 @@ export default function MarksEntry() {
                           </Stack>
                         }
                         footer={
-                          <Stack spacing={1.25}>
-                            <Grid container spacing={1.25}>
-                              <Grid item xs={12}>
-                                <TextField
-                                  label="Mark"
-                                  value={drafts[row.key]?.mark ?? row.mark ?? ""}
-                                  onChange={(e) => handleMarkChange(row.key, e.target.value)}
-                                  onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
-                                  disabled={drafts[row.key]?.absent ?? row.absent}
-                                  inputProps={{
-                                    inputMode: "decimal",
-                                  }}
-                                  inputRef={(element) => setMarkInputRef(row.key, element)}
-                                />
-                              </Grid>
-                              <Grid item xs={12}>
-                                <Box
-                                  sx={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    border: "1px solid",
-                                    borderColor: "divider",
-                                    borderRadius: 2,
-                                    px: 1.25,
-                                    py: 0.5,
-                                    bgcolor: "rgba(37,99,235,0.02)",
-                                  }}
-                                >
-                                  <Box>
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                      Attendance
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      Mark absent students before saving
-                                    </Typography>
-                                  </Box>
-                                  <FormControlLabel
-                                    control={
-                                      <Checkbox
-                                        checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
-                                        onChange={(e) =>
-                                          handleAbsentChange(row.key, e.target.checked)
-                                        }
-                                      />
-                                    }
-                                    label="Absent"
-                                    sx={{ mr: 0 }}
-                                  />
-                                </Box>
-                              </Grid>
+                          <Grid container spacing={1}>
+                            <Grid item xs={7}>
+                              <TextField
+                                label="Mark"
+                                value={drafts[row.key]?.mark ?? row.mark ?? ""}
+                                onChange={(e) => handleMarkChange(row.key, e.target.value)}
+                                onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
+                                disabled={drafts[row.key]?.absent ?? row.absent}
+                                inputProps={{
+                                  inputMode: "decimal",
+                                }}
+                                inputRef={(element) => setMarkInputRef(row.key, element)}
+                                size="small"
+                                fullWidth
+                              />
                             </Grid>
-                          </Stack>
+                            <Grid item xs={5}>
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  minHeight: 40,
+                                  border: "1px solid",
+                                  borderColor: "divider",
+                                  borderRadius: 1.5,
+                                  bgcolor: "rgba(37,99,235,0.02)",
+                                }}
+                              >
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={Boolean(drafts[row.key]?.absent ?? row.absent)}
+                                      onChange={(e) =>
+                                        handleAbsentChange(row.key, e.target.checked)
+                                      }
+                                      size="small"
+                                    />
+                                  }
+                                  label="Absent"
+                                  sx={{
+                                    m: 0,
+                                    "& .MuiFormControlLabel-label": {
+                                      fontSize: 13,
+                                      fontWeight: 700,
+                                    },
+                                  }}
+                                />
+                              </Box>
+                            </Grid>
+                          </Grid>
                         }
                       />
                     ))}
                   </Stack>
                 ) : (
-                  <ResponsiveTableWrapper minWidth={1080}>
+                  <ResponsiveTableWrapper minWidth={720}>
                     <Table>
                       <TableHead>
                         <TableRow>
-                          <TableCell width={80}>No</TableCell>
-                          <TableCell>Name</TableCell>
-                          <TableCell width={140}>Index No</TableCell>
-                          <TableCell width={160}>Admission No</TableCell>
-                          <TableCell width={110}>Subject No</TableCell>
-                          <TableCell width={140}>Stream</TableCell>
-                          <TableCell width={160}>Mark</TableCell>
-                          <TableCell width={120}>Absent</TableCell>
-                          <TableCell width={140}>Status</TableCell>
+                          <TableCell width={72}>No</TableCell>
+                          <TableCell width={180}>Index No</TableCell>
+                          <TableCell width={120}>Subject No</TableCell>
+                          <TableCell width={120}>Stream</TableCell>
+                          <TableCell width={150}>Mark</TableCell>
+                          <TableCell width={96}>Absent</TableCell>
+                          <TableCell width={120}>Status</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1706,11 +1705,9 @@ export default function MarksEntry() {
                             <TableCell>{index + 1}</TableCell>
                             <TableCell>
                               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                {row.studentName}
+                                {getStudentEntryLabel(row, index)}
                               </Typography>
                             </TableCell>
-                            <TableCell>{row.indexNo || "-"}</TableCell>
-                            <TableCell>{row.admissionNo || "-"}</TableCell>
                             <TableCell>{row.subjectNumber || "-"}</TableCell>
                             <TableCell>{row.stream || "-"}</TableCell>
                             <TableCell>
