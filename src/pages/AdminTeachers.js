@@ -55,6 +55,7 @@ import ChatIcon from "@mui/icons-material/Chat";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import KeyIcon from "@mui/icons-material/Key";
 import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -136,6 +137,20 @@ function buildStaffLoginMessage({ name, role, email, password }) {
     `Dear ${normalizeText(name) || "Teacher"},`,
     "",
     `Your ${getRoleLabel(role)} login has been created for Kilinochchi Central College Marks System.`,
+    "",
+    `Login URL: ${getLoginUrl()}`,
+    `Email: ${normalizeText(email).toLowerCase()}`,
+    `Password: ${password}`,
+    "",
+    "Please login and keep these credentials private.",
+  ].join("\n");
+}
+
+function buildForgotCredentialsMessage({ name, role, email, password }) {
+  return [
+    `Dear ${normalizeText(name) || "Teacher"},`,
+    "",
+    `Your ${getRoleLabel(role)} login details for Kilinochchi Central College Marks System are below.`,
     "",
     `Login URL: ${getLoginUrl()}`,
     `Email: ${normalizeText(email).toLowerCase()}`,
@@ -247,10 +262,12 @@ export default function AdminTeachers() {
   const [editOpen, setEditOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [classTeacherOpen, setClassTeacherOpen] = useState(false);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
 
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [form, setForm] = useState(empty);
   const [editForm, setEditForm] = useState({});
+  const [credentialsPassword, setCredentialsPassword] = useState("");
   const [transferForm, setTransferForm] = useState({
     date: "",
     reason: "",
@@ -722,6 +739,34 @@ export default function AdminTeachers() {
     }
   };
 
+  const handleCreateForgotCredentialsMessage = () => {
+    if (!selectedTeacher) return;
+
+    const password = normalizeText(credentialsPassword);
+
+    if (!password) {
+      setError("Enter the password to include in the login message.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
+    setLoginMessage(
+      buildForgotCredentialsMessage({
+        ...selectedTeacher,
+        role: selectedTeacher.isITTeacher ? "it_teacher" : selectedTeacher.role,
+        password,
+      })
+    );
+    setSuccess(`Login message created for ${selectedTeacher.name}.`);
+    setCredentialsOpen(false);
+    setCredentialsPassword("");
+    setError("");
+  };
+
   const handleOpenWhatsAppMessage = () => {
     if (!loginMessage) return;
     window.open(
@@ -790,6 +835,14 @@ export default function AdminTeachers() {
     });
     setError("");
     setClassTeacherOpen(true);
+  };
+
+  const openCredentialsMessage = (teacher) => {
+    setSelectedTeacher(teacher);
+    setCredentialsPassword("");
+    setError("");
+    setSuccess("");
+    setCredentialsOpen(true);
   };
 
   const getAvatarColor = (name) => {
@@ -1216,6 +1269,16 @@ export default function AdminTeachers() {
                       <Button
                         size="small"
                         variant="outlined"
+                        color="success"
+                        startIcon={<KeyIcon />}
+                        onClick={() => openCredentialsMessage(teacher)}
+                      >
+                        Login Message
+                      </Button>
+
+                      <Button
+                        size="small"
+                        variant="outlined"
                         color="warning"
                         startIcon={<FlightTakeoffIcon />}
                         onClick={() => openTransfer(teacher)}
@@ -1351,6 +1414,16 @@ export default function AdminTeachers() {
                               onClick={() => openClassTeacher(teacher)}
                             >
                               <HomeWorkIcon />
+                            </IconButton>
+                          </Tooltip>
+
+                          <Tooltip title="Create Login Message">
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => openCredentialsMessage(teacher)}
+                            >
+                              <KeyIcon />
                             </IconButton>
                           </Tooltip>
 
@@ -1856,6 +1929,60 @@ export default function AdminTeachers() {
             sx={{ bgcolor: "#1a237e" }}
           >
             {saving ? <CircularProgress size={20} /> : "Save Changes"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={credentialsOpen}
+        onClose={() => setCredentialsOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle sx={{ bgcolor: "#1b5e20", color: "white" }}>
+          <KeyIcon sx={{ mr: 1, verticalAlign: "middle" }} />
+          Login Message
+        </DialogTitle>
+
+        <DialogContent>
+          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
+
+          <Alert severity="info" sx={{ mb: 2, mt: 1 }}>
+            Create a message for <strong>{selectedTeacher?.name}</strong> with their login URL,
+            email, and password.
+          </Alert>
+
+          <TextField
+            fullWidth
+            label="Email"
+            value={selectedTeacher?.email || ""}
+            InputProps={{ readOnly: true }}
+            sx={{ mb: 2 }}
+          />
+
+          <TextField
+            fullWidth
+            label="Password to Share *"
+            type="text"
+            value={credentialsPassword}
+            onChange={(e) => setCredentialsPassword(e.target.value)}
+            autoFocus
+            helperText="Use the teacher's current password or the new password you have set for them."
+          />
+        </DialogContent>
+
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setCredentialsOpen(false)} fullWidth={isMobile}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateForgotCredentialsMessage}
+            variant="contained"
+            color="success"
+            fullWidth={isMobile}
+          >
+            Create Message
           </Button>
         </DialogActions>
       </Dialog>
