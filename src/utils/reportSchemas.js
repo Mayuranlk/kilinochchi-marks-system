@@ -295,9 +295,19 @@ export const REPORT_SCHEMA_10_TO_11 = {
           aliases: ["Home Economics"],
         },
         {
-          key: "B3_ICT",
-          label: "ICT",
-          aliases: ["Information & Communication Technology", "ICT"],
+          key: "B3_ICT_T",
+          label: "ICT (T)",
+          aliases: [
+            "Information & Communication Technology (T)",
+            "Information & Communication Technology",
+            "ICT (T)",
+            "ICT",
+          ],
+        },
+        {
+          key: "B3_ICT_E",
+          label: "ICT (E)",
+          aliases: ["Information & Communication Technology (E)", "ICT (E)"],
         },
         {
           key: "B3_MEDIA",

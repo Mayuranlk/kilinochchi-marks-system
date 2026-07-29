@@ -5,20 +5,17 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   IconButton,
   InputAdornment,
-  Stack,
   TextField,
-  Typography,
 } from "@mui/material";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import { auth } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { AuthShell } from "../components/ui";
 
 export default function AccountLogin() {
   const [email, setEmail] = useState("");
@@ -72,81 +69,49 @@ export default function AccountLogin() {
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
-        display: "grid",
-        placeItems: "center",
-        p: 2,
-        bgcolor: "background.default",
-      }}
+    <AuthShell
+      title="Accounts Portal"
+      subtitle="Student facilities and development fee desk."
+      badge="Finance Access"
+      accent="success"
+      icon={<AccountBalanceWalletRoundedIcon />}
+      footer="Uses student records from the marks database with separate finance access."
     >
-      <Card sx={{ width: "100%", maxWidth: 430, borderRadius: 2, boxShadow: "0px 14px 34px rgba(15,23,42,.08)" }}>
-        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-          <Stack alignItems="center" spacing={1} mb={3} textAlign="center">
-            <Box
-              sx={{
-                width: 64,
-                height: 64,
-                borderRadius: 2,
-                display: "grid",
-                placeItems: "center",
-                bgcolor: "success.dark",
-                color: "white",
-              }}
-            >
-              <AccountBalanceWalletRoundedIcon sx={{ fontSize: 36 }} />
-            </Box>
-            <Typography variant="h4" fontWeight={900}>
-              Accounts Portal
-            </Typography>
-            <Typography color="text.secondary">Student facilities and development fee desk</Typography>
-          </Stack>
-
-          {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
-
-          <Box component="form" onSubmit={login}>
-            <TextField
-              fullWidth
-              label="Account email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              autoFocus
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Password"
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                      onClick={() => setShowPassword((value) => !value)}
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-              sx={{ mb: 2.5 }}
-            />
-            <Button fullWidth size="large" variant="contained" color="success" type="submit" disabled={submitting} sx={{ py: 1.35, fontWeight: 800 }}>
-              {submitting ? <CircularProgress size={24} color="inherit" /> : "Sign in to accounts"}
-            </Button>
-          </Box>
-
-          <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mt={2.5}>
-            Uses student records from the marks database with separate finance access.
-          </Typography>
-        </CardContent>
-      </Card>
-    </Box>
+      {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
+      <Box component="form" onSubmit={login}>
+        <TextField
+          label="Account email"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          autoComplete="email"
+          autoFocus
+          sx={{ mb: 2 }}
+        />
+        <TextField
+          label="Password"
+          type={showPassword ? "text" : "password"}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="current-password"
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((value) => !value)}
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+          sx={{ mb: 2.5 }}
+        />
+        <Button fullWidth size="large" variant="contained" color="success" type="submit" disabled={submitting}>
+          {submitting ? <CircularProgress size={24} color="inherit" /> : "Sign in to accounts"}
+        </Button>
+      </Box>
+    </AuthShell>
   );
 }

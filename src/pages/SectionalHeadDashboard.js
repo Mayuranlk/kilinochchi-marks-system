@@ -193,32 +193,32 @@ export default function SectionalHeadDashboard() {
         ) : (
           <>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <StatCard title="Active Students" value={scopedStudents.length} icon={<GroupsRoundedIcon />} />
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <StatCard title="Classes" value={scopedClassrooms.length} icon={<SchoolRoundedIcon />} color="success" />
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <StatCard title="Subject Enrollments" value={scopedEnrollments.length} icon={<AssessmentRoundedIcon />} color="warning" />
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <StatCard title="Absent Entries" value={scopedMarks.filter(isAbsentMark).length} icon={<WarningAmberRoundedIcon />} color="error" />
               </Grid>
             </Grid>
 
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Button fullWidth variant="contained" startIcon={<AssessmentRoundedIcon />} onClick={() => navigate("/sectional-head/class-marks-reports")}>
                   Class Marks Reports
                 </Button>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Button fullWidth variant="contained" color="success" startIcon={<BarChartRoundedIcon />} onClick={() => navigate("/sectional-head/subject-analysis")}>
                   Subject Analysis
                 </Button>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <Button fullWidth variant="outlined" startIcon={<FactCheckRoundedIcon />} onClick={() => navigate("/sectional-head/classwise-list")}>
                   Classwise Lists
                 </Button>

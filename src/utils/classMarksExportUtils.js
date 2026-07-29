@@ -252,7 +252,13 @@ function getScheduleColumnWidths(reportData) {
   const is69 = isGradeSixToNine(reportData);
   const is1011 = isGradeTenToEleven(reportData);
   const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
-  const widths = [is1011 ? 6 : 8, is1011 ? 16 : 20, is1011 ? 13 : 16, is1011 ? 28 : 32];
+  const widths = [
+    is1011 ? 6 : 8,
+    is1011 ? 16 : 20,
+    is1011 ? 13 : 16,
+    is1011 ? 28 : 32,
+  ];
+  if (reportData.separateMediumRanking) widths.push(is1011 ? 12 : 15);
 
   flatColumns.forEach((column) => {
     const labelLength = (column.label || "").length;
@@ -308,6 +314,9 @@ function buildGroupedHeaderRows(reportData) {
     { content: "Index No", rowSpan: 2 },
     { content: "Students Name", rowSpan: 2 },
   ];
+  if (reportData.separateMediumRanking) {
+    topRow.push({ content: "Medium", rowSpan: 2 });
+  }
 
   groups.forEach((group) => {
     topRow.push({
@@ -339,6 +348,9 @@ function buildScheduleBody(reportData) {
     safeText(row.studentId),
     safeText(row.studentIndexNo),
     safeText(row.studentName),
+    ...(reportData.separateMediumRanking
+      ? [safeText(row.rankingMedium || "Unassigned")]
+      : []),
     ...flatColumns.map((column) => {
       if (row.absencesByColumn?.[column.key]) return "AB";
       const value = row.marksByColumn?.[column.key];
@@ -568,8 +580,8 @@ function buildPdfDoc(reportData) {
   });
 
   const flatColumns = flattenSchemaColumns(reportData.schema);
-  const subjectColumnStart = 4;
-  const subjectColumnEnd = 4 + flatColumns.length - 1;
+  const subjectColumnStart = reportData.separateMediumRanking ? 5 : 4;
+  const subjectColumnEnd = subjectColumnStart + flatColumns.length - 1;
   const scheduleSettings = getScheduleTableSettings(reportData);
 
   drawHeader(doc, "Mark Schedule", reportData);
@@ -852,6 +864,7 @@ function makeScheduleSheetRows(reportData) {
     "Student ID",
     "Index No",
     "Students Name",
+    ...(reportData.separateMediumRanking ? ["Medium"] : []),
     ...flatColumns.map((column) => column.label),
     showOverallTotal ? "Main Total" : "Total",
     showOverallTotal ? "Main Average" : "Average",
@@ -864,6 +877,9 @@ function makeScheduleSheetRows(reportData) {
     row.studentId,
     row.studentIndexNo,
     row.studentName,
+    ...(reportData.separateMediumRanking
+      ? [row.rankingMedium || "Unassigned"]
+      : []),
     ...flatColumns.map((column) =>
       row.absencesByColumn?.[column.key] ? "AB" : row.marksByColumn?.[column.key] ?? ""
     ),
@@ -984,7 +1000,7 @@ function getEmisStudentId(student = {}) {
 
 function getMarkCellValue(row, columnKey) {
   if (!columnKey) return "";
-  if (row.absencesByColumn?.[columnKey]) return 999;
+  if (row.absencesByColumn?.[columnKey]) return 9999;
 
   const value = row.marksByColumn?.[columnKey];
   return value === null || value === undefined ? "" : value;

@@ -4,23 +4,18 @@ import { auth } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
-  alpha,
   Box,
-  Card,
-  CardContent,
   TextField,
   Button,
-  Typography,
   CircularProgress,
   Alert,
   InputAdornment,
   IconButton,
-  Chip,
-  Stack,
 } from "@mui/material";
 import SchoolIcon from "@mui/icons-material/School";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import { AuthShell } from "../components/ui";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -125,124 +120,52 @@ export default function Login() {
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        display: "grid",
-        alignItems: "center",
-        justifyContent: "center",
-        bgcolor: "background.default",
-        px: { xs: 1.5, sm: 2 },
-        py: 4,
-      }}
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to continue to the school management workspace."
+      badge="Admin & Teacher Access"
+      icon={<SchoolIcon />}
+      footer="Contact your administrator if you forgot your password."
     >
-      <Card
-        sx={{
-          width: "100%",
-          maxWidth: 440,
-          borderRadius: 2,
-          borderColor: "divider",
-          boxShadow: "0px 14px 34px rgba(15, 23, 42, 0.08)",
-        }}
-      >
-        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-          <Box textAlign="center" mb={3}>
-            <Box
-              sx={{
-                display: "inline-flex",
-                width: 64,
-                height: 64,
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 2,
-                bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
-                border: "1px solid",
-                borderColor: "divider",
-                mb: 2,
-              }}
-            >
-              <SchoolIcon sx={{ fontSize: 34, color: "primary.main" }} />
-            </Box>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-            <Typography variant="h5" fontWeight={800}>
-              Kilinochchi Marks System
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary" mt={0.5}>
-              Professional assessment and marks management
-            </Typography>
-
-            <Stack direction="row" justifyContent="center" mt={1.5}>
-              <Chip label="Admin & Teacher Access" size="small" color="primary" />
-            </Stack>
-          </Box>
-
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-          <form onSubmit={handleLogin}>
-            <TextField
-              fullWidth
-              label="Email Address"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              sx={{ mb: 2 }}
-              required
-              autoFocus
-              autoComplete="email"
-            />
-
-            <TextField
-              fullWidth
-              label="Password"
-              type={showPass ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              sx={{ mb: 3 }}
-              required
-              autoComplete="current-password"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowPass((prev) => !prev)}
-                      edge="end"
-                      aria-label={showPass ? "Hide password" : "Show password"}
-                    >
-                      {showPass ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            <Button
-              fullWidth
-              type="submit"
-              variant="contained"
-              size="large"
-              disabled={loading}
-              sx={{
-                py: 1.25,
-                fontSize: 16,
-                fontWeight: 800,
-              }}
-            >
-              {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
-            </Button>
-          </form>
-
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            display="block"
-            textAlign="center"
-            mt={3}
-          >
-            Contact your administrator if you forgot your password.
-          </Typography>
-        </CardContent>
-      </Card>
-    </Box>
+      <Box component="form" onSubmit={handleLogin}>
+        <TextField
+          label="Email address"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          sx={{ mb: 2 }}
+          required
+          autoFocus
+          autoComplete="email"
+        />
+        <TextField
+          label="Password"
+          type={showPass ? "text" : "password"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          sx={{ mb: 3 }}
+          required
+          autoComplete="current-password"
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  onClick={() => setShowPass((prev) => !prev)}
+                  edge="end"
+                  aria-label={showPass ? "Hide password" : "Show password"}
+                >
+                  {showPass ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+        />
+        <Button fullWidth type="submit" variant="contained" size="large" disabled={loading}>
+          {loading ? <CircularProgress size={24} color="inherit" /> : "Sign In"}
+        </Button>
+      </Box>
+    </AuthShell>
   );
 }

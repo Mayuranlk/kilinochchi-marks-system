@@ -1,57 +1,103 @@
-* {
+:root {
+  --app-bg: #f5f7fb;
+  --app-surface: #ffffff;
+  --app-border: #dfe5ee;
+  --app-scrollbar: #aeb9c8;
+  --app-scrollbar-hover: #7f8da1;
+  color-scheme: light;
+}
+
+:root[data-color-mode="dark"] {
+  --app-bg: #0b1220;
+  --app-surface: #111a2b;
+  --app-border: #2a374b;
+  --app-scrollbar: #536078;
+  --app-scrollbar-hover: #75839b;
+  color-scheme: dark;
+}
+
+:root[data-color-mode="contrast"] {
+  --app-bg: #000000;
+  --app-surface: #050505;
+  --app-border: #a3a3a3;
+  --app-scrollbar: #ffffff;
+  --app-scrollbar-hover: #ffdf00;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body,
+#root {
   margin: 0;
-  padding: 0;
-  overflow-x: hidden;
+  min-height: 100%;
   max-width: 100vw;
-  background: #f8fafc;
+  overflow-x: hidden;
+  background: var(--app-bg);
 }
 
 #root {
-  overflow-x: hidden;
-  max-width: 100vw;
+  isolation: isolate;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  color: #111827;
+  font-family: Inter, "Segoe UI Variable", "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  scrollbar-color: var(--app-scrollbar) var(--app-bg);
+  scrollbar-width: thin;
 }
 
-body {
-  color: #0f172a;
-  text-rendering: optimizeLegibility;
-  -webkit-tap-highlight-color: transparent;
+img,
+svg,
+canvas {
+  max-width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
+:root[data-color-mode="dark"] body,
+:root[data-color-mode="contrast"] body {
+  color: #ffffff;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--app-bg);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border: 2px solid #f1f5f9;
+  background: var(--app-scrollbar);
+  border: 3px solid var(--app-bg);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--app-scrollbar-hover);
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
+
 .MuiDrawer-paper {
   overflow-x: hidden !important;
 }
@@ -61,4 +107,55 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+/* Legacy page-level surfaces remain readable while they migrate to semantic tokens. */
+:root[data-color-mode="dark"] .MuiCard-root,
+:root[data-color-mode="dark"] .MuiPaper-root:not(.MuiAlert-root) {
+  background-color: var(--app-surface) !important;
+}
+
+:root[data-color-mode="contrast"] .MuiCard-root,
+:root[data-color-mode="contrast"] .MuiPaper-root:not(.MuiAlert-root) {
+  background-color: var(--app-surface) !important;
+  background-image: none !important;
+}
+
+:root[data-color-mode="contrast"] .MuiCard-root,
+:root[data-color-mode="contrast"] .MuiPaper-root,
+:root[data-color-mode="contrast"] .MuiOutlinedInput-notchedOutline,
+:root[data-color-mode="contrast"] .MuiTableCell-root {
+  border-color: var(--app-border) !important;
+}
+
+:root[data-color-mode="contrast"] .MuiCard-root,
+:root[data-color-mode="contrast"] .MuiPaper-root {
+  border-width: 1px !important;
+  box-shadow: none !important;
+}
+
+:root[data-color-mode="dark"] .MuiTableCell-head,
+:root[data-color-mode="contrast"] .MuiTableCell-head {
+  background: #172235 !important;
+  color: #ffffff !important;
+}
+
+:root[data-color-mode="contrast"] .MuiTableCell-head {
+  background: #000000 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    max-width: none;
+    overflow: visible;
+    background: #ffffff;
+  }
 }

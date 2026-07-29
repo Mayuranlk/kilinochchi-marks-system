@@ -631,7 +631,7 @@ export default function ClassShuffle() {
               </Box>
 
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <FormControl fullWidth>
                     <InputLabel>Academic Year</InputLabel>
                     <Select
@@ -648,7 +648,7 @@ export default function ClassShuffle() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <FormControl fullWidth>
                     <InputLabel>Grade</InputLabel>
                     <Select
@@ -668,7 +668,7 @@ export default function ClassShuffle() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <FormControl fullWidth>
                     <InputLabel>New Classes</InputLabel>
                     <Select
@@ -690,7 +690,7 @@ export default function ClassShuffle() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <FormControl fullWidth>
                     <InputLabel>RC Classes</InputLabel>
                     <Select
@@ -710,7 +710,7 @@ export default function ClassShuffle() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <TextField
                     fullWidth
                     label="Shuffle Seed"
@@ -722,7 +722,7 @@ export default function ClassShuffle() {
                   />
                 </Grid>
 
-                <Grid item xs={12} sm={6} md={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                   <Button
                     fullWidth
                     variant="contained"
@@ -740,16 +740,16 @@ export default function ClassShuffle() {
         </Card>
 
         <Grid container spacing={1.25}>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Active Students" value={gradeStudents.length} icon={<GroupsRoundedIcon />} color="primary" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Current Classes" value={currentClassCount} helperText={currentSections.join(", ") || "-"} icon={<MeetingRoomRoundedIcon />} color="secondary" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="New Classes" value={targetClassCount} helperText={plan ? plan.targetSections.join(", ") : "Preview pending"} color="success" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Rule Set" value={plan ? getBandLabel(plan.band) : getBandLabel(Number(grade) <= 9 ? "junior" : "ol")} color="warning" />
           </Grid>
         </Grid>
@@ -786,7 +786,7 @@ export default function ClassShuffle() {
 
                   <Grid container spacing={1.25}>
                     {plan.classes.map((classItem) => (
-                      <Grid item xs={12} md={6} xl={4} key={classItem.section}>
+                      <Grid size={{ xs: 12, md: 6, xl: 4 }} key={classItem.section}>
                         <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
                           <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">

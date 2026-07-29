@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -35,11 +36,15 @@ import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   orderBy,
+  onSnapshot,
   query,
   serverTimestamp,
   writeBatch,
@@ -63,6 +68,16 @@ import {
   buildALClassName,
   buildALDisplayClassName,
 } from "../constants";
+import {
+  getAcademicMedium,
+  matchesAcademicMedium,
+} from "../utils/academicMediumUtils";
+import {
+  DEFAULT_MARKS_ENTRY_SETTINGS,
+  getTeacherMarksEntryLockReason,
+  isTeacherMarksEntryLocked,
+  normalizeMarksEntrySettings,
+} from "../utils/marksEntryAccess";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -340,9 +355,10 @@ const sortRowsInTeacherMarkSheetOrder = (rows = []) => {
 
 const sectionCardSx = {
   borderRadius: 3,
-  border: "1px solid #e8eaf6",
-  boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
-  backgroundColor: "white",
+  border: "1px solid",
+  borderColor: "divider",
+  boxShadow: 1,
+  backgroundColor: "background.paper",
 };
 
 const mobileStickyOffset = 76;
@@ -357,6 +373,7 @@ export default function MarksEntry() {
   const [bootLoading, setBootLoading] = useState(true);
   const [loadingRows, setLoadingRows] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingMarkId, setDeletingMarkId] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -366,6 +383,10 @@ export default function MarksEntry() {
   const [terms, setTerms] = useState([]);
   const [practiceExams, setPracticeExams] = useState([]);
   const [marksDocs, setMarksDocs] = useState([]);
+  const [adminStudents, setAdminStudents] = useState([]);
+  const [deleteStudent, setDeleteStudent] = useState(null);
+  const [entrySettings, setEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
+  const [entrySettingsLoading, setEntrySettingsLoading] = useState(!isAdmin);
 
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
@@ -375,6 +396,13 @@ export default function MarksEntry() {
 
   const [studentRows, setStudentRows] = useState([]);
   const [drafts, setDrafts] = useState({});
+
+  const teacherEntryLocked =
+    !isAdmin &&
+    (entrySettingsLoading || isTeacherMarksEntryLocked(entrySettings));
+  const teacherEntryLockReason = entrySettingsLoading
+    ? "Checking marks entry access..."
+    : getTeacherMarksEntryLockReason(entrySettings);
 
   const urlParams = useMemo(
     () => new URLSearchParams(location.search),
@@ -406,6 +434,11 @@ export default function MarksEntry() {
       subjectId: pick(
         urlParams.get("subjectId"),
         location.state?.subjectId,
+        ""
+      ),
+      medium: pick(
+        urlParams.get("medium"),
+        location.state?.medium,
         ""
       ),
       termKey: pick(
@@ -513,7 +546,8 @@ export default function MarksEntry() {
         const subjectId = pick(assignment.subjectId, "");
         const subjectName = pick(assignment.subjectName, assignment.subject, "");
         const subjectNumber = pick(assignment.subjectNumber, "");
-        const subjectKey = `${subjectId}__${subjectName}__${subjectNumber}`;
+        const medium = getAcademicMedium(assignment);
+        const subjectKey = `${subjectId}__${subjectName}__${subjectNumber}__${medium}`;
 
         if (!subjectName) return;
 
@@ -523,6 +557,7 @@ export default function MarksEntry() {
             subjectId,
             subjectName,
             subjectNumber,
+            medium,
             stream: pick(assignment.stream, ""),
             className: pick(assignment.className, ""),
             fullClassName:
@@ -608,6 +643,57 @@ export default function MarksEntry() {
     });
   }, [studentRows, searchText]);
 
+  const getAdminStudentLabel = useCallback((student) => {
+    if (!student) return "";
+    const name = pick(student.name, student.fullName, "Unnamed student");
+    const admissionNo = pick(student.admissionNo, "");
+    const emisStudentId = pick(
+      student.emisStudentId,
+      student.emisId,
+      student.externalStudentId,
+      ""
+    );
+    const className = pick(student.fullClassName, student.className, "");
+    const details = [admissionNo && `Admission ${admissionNo}`, emisStudentId && `EMIS ${emisStudentId}`, className]
+      .filter(Boolean)
+      .join(" | ");
+    return details ? `${name} - ${details}` : name;
+  }, []);
+
+  const deleteStudentMarks = useMemo(() => {
+    if (!deleteStudent) return [];
+
+    const studentId = String(deleteStudent.id || "");
+    const admissionNo = normalize(deleteStudent.admissionNo);
+    const emisStudentId = normalize(
+      pick(deleteStudent.emisStudentId, deleteStudent.emisId, deleteStudent.externalStudentId, "")
+    );
+
+    return marksDocs
+      .filter((mark) => {
+        const markStudentId = String(pick(mark.studentId, ""));
+        if (markStudentId) return markStudentId === studentId;
+
+        const markAdmissionNo = normalize(mark.admissionNo);
+        const markEmisStudentId = normalize(
+          pick(mark.emisStudentId, mark.emisId, mark.externalStudentId, "")
+        );
+        return (
+          (admissionNo && markAdmissionNo === admissionNo) ||
+          (emisStudentId && markEmisStudentId === emisStudentId)
+        );
+      })
+      .sort((a, b) => {
+        const yearDiff = Number(pick(b.year, b.academicYear, 0)) - Number(pick(a.year, a.academicYear, 0));
+        if (yearDiff !== 0) return yearDiff;
+        return String(pick(a.subjectName, a.subject, "")).localeCompare(
+          String(pick(b.subjectName, b.subject, "")),
+          undefined,
+          { sensitivity: "base" }
+        );
+      });
+  }, [deleteStudent, marksDocs]);
+
   const stats = useMemo(() => {
     const total = filteredRows.length;
     const saved = filteredRows.filter(
@@ -662,7 +748,7 @@ export default function MarksEntry() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, practiceExamSnap, marksSnap] =
+      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, practiceExamSnap, marksSnap, studentsSnap] =
         await Promise.all([
           getDocs(collection(db, "users")),
           getDocs(collection(db, "teacherAssignments")),
@@ -671,6 +757,9 @@ export default function MarksEntry() {
           ).catch(() => getDocs(collection(db, "academicTerms"))),
           getDocs(collection(db, "practiceExams")).catch(() => ({ docs: [] })),
           getDocs(collection(db, "marks")),
+          isAdmin
+            ? getDocs(collection(db, "students"))
+            : Promise.resolve({ docs: [] }),
         ]);
 
       const allUsers = usersSnap.docs.map((docSnap) => ({
@@ -745,6 +834,20 @@ export default function MarksEntry() {
         ...docSnap.data(),
       }));
       setMarksDocs(allMarks);
+
+      if (isAdmin) {
+        setAdminStudents(
+          studentsSnap.docs
+            .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+            .sort((a, b) =>
+              String(pick(a.name, a.fullName, "")).localeCompare(
+                String(pick(b.name, b.fullName, "")),
+                undefined,
+                { sensitivity: "base" }
+              )
+            )
+        );
+      }
 
       if (!selectedClass && scopedAssignments.length > 0) {
         const defaultClass =
@@ -838,6 +941,11 @@ export default function MarksEntry() {
           : false;
 
         const sameSubject = matchesSubjectIdentity(enrollment, selectedSubject, student);
+        const sameMedium = matchesAcademicMedium(
+          enrollment,
+          selectedSubject.medium,
+          student
+        );
 
         const sameYear =
           !termYear ||
@@ -846,7 +954,7 @@ export default function MarksEntry() {
 
         const status = normalize(pick(enrollment.status, "active"));
 
-        return sameClass && sameSubject && sameYear && (!status || status === "active");
+        return sameClass && sameSubject && sameMedium && sameYear && (!status || status === "active");
       });
 
       const uniqueRelevantEnrollments = Array.from(
@@ -975,6 +1083,7 @@ export default function MarksEntry() {
           studentName,
           indexNo,
           admissionNo,
+          medium: getAcademicMedium(enrollment, student),
           grade: pick(enrollment.grade, student.grade, ""),
           section: pick(enrollment.section, student.section, ""),
           className: pick(enrollment.className, student.className, selectedClassRow?.className, ""),
@@ -1034,6 +1143,35 @@ export default function MarksEntry() {
   useEffect(() => {
     loadBase();
   }, [loadBase]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      setEntrySettingsLoading(false);
+      return undefined;
+    }
+
+    const unsubscribe = onSnapshot(
+      doc(db, "systemSettings", "marksEntry"),
+      (snapshot) => {
+        setEntrySettings(
+          snapshot.exists()
+            ? normalizeMarksEntrySettings(snapshot.data())
+            : DEFAULT_MARKS_ENTRY_SETTINGS
+        );
+        setEntrySettingsLoading(false);
+      },
+      (settingsError) => {
+        console.error("Marks entry access load error:", settingsError);
+        setEntrySettings({
+          teacherEntryEnabled: false,
+          teacherEntryDeadline: "",
+        });
+        setEntrySettingsLoading(false);
+      }
+    );
+
+    return unsubscribe;
+  }, [isAdmin]);
 
   useEffect(() => {
     appliedNavigationSelectionRef.current = "";
@@ -1116,7 +1254,11 @@ export default function MarksEntry() {
         navigationSelection.subjectName &&
         normalize(option.subjectName) === normalize(navigationSelection.subjectName);
 
-      return subjectIdMatch || subjectNameMatch;
+      const mediumMatch =
+        !navigationSelection.medium ||
+        normalize(option.medium) === normalize(navigationSelection.medium);
+
+      return (subjectIdMatch || subjectNameMatch) && mediumMatch;
     });
 
     if (matchedSubject && selectedSubjectKey !== matchedSubject.key) {
@@ -1165,6 +1307,30 @@ export default function MarksEntry() {
     loadStudents();
   }, [loadStudents]);
 
+  useEffect(() => {
+    if (bootLoading) return undefined;
+
+    let initialSnapshot = true;
+    let refreshTimer = null;
+    const unsubscribe = onSnapshot(
+      collection(db, "studentSubjectEnrollments"),
+      () => {
+        if (initialSnapshot) {
+          initialSnapshot = false;
+          return;
+        }
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => loadStudents(), 250);
+      },
+      (snapshotError) => console.error("Marks entry enrollment sync error:", snapshotError)
+    );
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+  }, [bootLoading, loadStudents]);
+
   const setRowValue = (rowKey, updates) => {
     setDrafts((prev) => ({
       ...prev,
@@ -1188,6 +1354,7 @@ export default function MarksEntry() {
   };
 
   const handleMarkChange = (rowKey, value) => {
+    if (teacherEntryLocked) return;
     const safeValue = value === "" ? "" : value.replace(/[^\d.]/g, "");
     setRowValue(rowKey, {
       mark: safeValue,
@@ -1196,10 +1363,59 @@ export default function MarksEntry() {
   };
 
   const handleAbsentChange = (rowKey, checked) => {
+    if (teacherEntryLocked) return;
     setRowValue(rowKey, {
       absent: checked,
       mark: checked ? "" : drafts[rowKey]?.mark ?? "",
     });
+  };
+
+  const handleAdminDeleteMark = async (mark) => {
+    if (!isAdmin || !deleteStudent || !mark?.id || deletingMarkId) return;
+
+    const studentLabel = getAdminStudentLabel(deleteStudent);
+    const subjectName = pick(mark.subjectName, mark.subject, "selected subject");
+    const termName = pick(mark.term, mark.termName, "selected term");
+    const confirmed = window.confirm(
+      `Delete the ${subjectName} mark (${termName}) for ${studentLabel}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingMarkId(mark.id);
+      setError("");
+      setSuccess("");
+
+      await deleteDoc(doc(db, "marks", mark.id));
+
+      setMarksDocs((prev) => prev.filter((item) => item.id !== mark.id));
+      const loadedRow = studentRows.find((item) => item.existingDocId === mark.id);
+      if (loadedRow) {
+        setDrafts((prev) => ({
+          ...prev,
+          [loadedRow.key]: { mark: "", absent: false },
+        }));
+      }
+      setStudentRows((prev) =>
+        prev.map((item) =>
+          item.existingDocId === mark.id
+            ? {
+                ...item,
+                mark: "",
+                absent: false,
+                existingDocId: "",
+                isDirty: false,
+              }
+            : item
+        )
+      );
+      setSuccess(`${subjectName} mark deleted for ${studentLabel}.`);
+    } catch (deleteError) {
+      console.error(deleteError);
+      setError(deleteError.message || "Failed to delete the selected mark.");
+    } finally {
+      setDeletingMarkId("");
+    }
   };
 
   const handleSave = async () => {
@@ -1207,6 +1423,10 @@ export default function MarksEntry() {
       setSaving(true);
       setError("");
       setSuccess("");
+
+      if (teacherEntryLocked) {
+        throw new Error(teacherEntryLockReason || "Marks entry is locked by the administrator.");
+      }
 
       if (!selectedClass || !selectedSubject || !activeTerm) {
         throw new Error("Please select class, subject, and term.");
@@ -1247,6 +1467,8 @@ export default function MarksEntry() {
           grade: row.grade || "",
           section: row.section || "",
           stream: row.stream || "",
+          medium: row.medium || selectedSubject.medium || "",
+          teachingMedium: selectedSubject.medium || "",
           subjectId: row.subjectId || "",
           subjectName: row.subjectName,
           subject: row.subjectName,
@@ -1338,6 +1560,97 @@ export default function MarksEntry() {
       <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
         {success ? <Alert severity="success">{success}</Alert> : null}
+        {!isAdmin && teacherEntryLocked ? (
+          <Alert severity="warning" icon={<LockRoundedIcon />}>
+            <strong>Marks Entry Disabled.</strong> {teacherEntryLockReason} You can still view saved marks and use the other teacher dashboard features.
+          </Alert>
+        ) : null}
+
+        {isAdmin ? (
+          <Paper sx={{ ...sectionCardSx, p: 2 }}>
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "error.main" }}>
+                  Delete Student Marks
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Search by student name, admission number, or EMIS student ID. Only administrators can use this tool.
+                </Typography>
+              </Box>
+
+              <Autocomplete
+                options={adminStudents}
+                value={deleteStudent}
+                onChange={(_, value) => setDeleteStudent(value)}
+                getOptionLabel={getAdminStudentLabel}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Type or select a student"
+                    placeholder="Student name, admission number, or EMIS ID"
+                    size="small"
+                  />
+                )}
+              />
+
+              {deleteStudent ? (
+                deleteStudentMarks.length > 0 ? (
+                  <ResponsiveTableWrapper minWidth={820}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Year</TableCell>
+                          <TableCell>Term / Assessment</TableCell>
+                          <TableCell>Class</TableCell>
+                          <TableCell>Subject</TableCell>
+                          <TableCell>Mark</TableCell>
+                          <TableCell align="right">Action</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {deleteStudentMarks.map((mark) => (
+                          <TableRow key={mark.id} hover>
+                            <TableCell>{pick(mark.year, mark.academicYear, "-")}</TableCell>
+                            <TableCell>
+                              {[
+                                pick(mark.term, mark.termName, ""),
+                                pick(mark.assessmentName, ""),
+                              ].filter(Boolean).join(" - ") || "-"}
+                            </TableCell>
+                            <TableCell>{pick(mark.fullClassName, mark.className, "-")}</TableCell>
+                            <TableCell>{pick(mark.subjectName, mark.subject, "-")}</TableCell>
+                            <TableCell>{mark.absent ? "Absent" : pick(mark.mark, "-")}</TableCell>
+                            <TableCell align="right">
+                              <Button
+                                color="error"
+                                variant="outlined"
+                                size="small"
+                                startIcon={
+                                  deletingMarkId === mark.id ? (
+                                    <CircularProgress size={15} color="inherit" />
+                                  ) : (
+                                    <DeleteOutlineRoundedIcon />
+                                  )
+                                }
+                                disabled={Boolean(deletingMarkId)}
+                                onClick={() => handleAdminDeleteMark(mark)}
+                              >
+                                Delete
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ResponsiveTableWrapper>
+                ) : (
+                  <Alert severity="info">No saved marks were found for this student.</Alert>
+                )
+              ) : null}
+            </Stack>
+          </Paper>
+        ) : null}
 
         <Paper
           sx={{
@@ -1349,9 +1662,9 @@ export default function MarksEntry() {
           }}
         >
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <Stack spacing={0.75}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
                   Select Mark Entry Context
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -1360,7 +1673,7 @@ export default function MarksEntry() {
               </Stack>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2.5}>
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel id="marks-entry-class-label">Class</InputLabel>
                 <Select
@@ -1378,7 +1691,7 @@ export default function MarksEntry() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2.5}>
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel id="marks-entry-subject-label">Subject</InputLabel>
                 <Select
@@ -1390,13 +1703,14 @@ export default function MarksEntry() {
                   {subjectOptions.map((option) => (
                     <MenuItem key={option.key} value={option.key}>
                       {option.subjectName}
+                      {option.medium ? ` - ${option.medium} Medium` : ""}
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2.5}>
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel id="marks-entry-term-label">Academic Term</InputLabel>
                 <Select
@@ -1417,7 +1731,7 @@ export default function MarksEntry() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2.5}>
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel id="marks-entry-assessment-label">Exam</InputLabel>
                 <Select
@@ -1435,7 +1749,7 @@ export default function MarksEntry() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2.5}>
+            <Grid size={{ xs: 12, sm: 6, md: 2.5 }}>
               <TextField
                 label="Search index"
                 placeholder="Index, admission, or name"
@@ -1456,7 +1770,7 @@ export default function MarksEntry() {
         {isMobile ? (
           <Paper sx={{ ...sectionCardSx, p: 1.5 }}>
             <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -1469,7 +1783,7 @@ export default function MarksEntry() {
           </Paper>
         ) : (
           <Grid container spacing={1.5}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Students"
                 value={stats.total}
@@ -1477,7 +1791,7 @@ export default function MarksEntry() {
                 color="primary"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Saved Rows"
                 value={stats.saved}
@@ -1485,7 +1799,7 @@ export default function MarksEntry() {
                 color="success"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Draft Changes"
                 value={stats.draftCount}
@@ -1493,7 +1807,7 @@ export default function MarksEntry() {
                 color="warning"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Absent"
                 value={stats.absent}
@@ -1513,12 +1827,12 @@ export default function MarksEntry() {
               spacing={1}
             >
               <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
                   Mark Entry Sheet
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {selectedClass && selectedSubject && activeTerm
-                    ? `${selectedClassRow?.displayClassName || selectedClass} - ${selectedSubject.subjectName} - ${buildTermLabel(activeTerm)}`
+                    ? `${selectedClassRow?.displayClassName || selectedClass} - ${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""} - ${buildTermLabel(activeTerm)}`
                     : "Select class, subject, and term to begin."}
                 </Typography>
               </Box>
@@ -1562,7 +1876,7 @@ export default function MarksEntry() {
                     ) : null}
                     <Chip
                       icon={<AutoStoriesRoundedIcon />}
-                      label={selectedSubject.subjectName}
+                      label={`${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""}`}
                       variant="outlined"
                     />
                     {selectedSubject.subjectNumber ? (
@@ -1631,13 +1945,13 @@ export default function MarksEntry() {
                         }
                         footer={
                           <Grid container spacing={1}>
-                            <Grid item xs={7}>
+                            <Grid size={{ xs: 7 }}>
                               <TextField
                                 label="Mark"
                                 value={drafts[row.key]?.mark ?? row.mark ?? ""}
                                 onChange={(e) => handleMarkChange(row.key, e.target.value)}
                                 onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
-                                disabled={drafts[row.key]?.absent ?? row.absent}
+                                disabled={teacherEntryLocked || (drafts[row.key]?.absent ?? row.absent)}
                                 inputProps={{
                                   inputMode: "decimal",
                                 }}
@@ -1646,7 +1960,7 @@ export default function MarksEntry() {
                                 fullWidth
                               />
                             </Grid>
-                            <Grid item xs={5}>
+                            <Grid size={{ xs: 5 }}>
                               <Box
                                 sx={{
                                   display: "flex",
@@ -1656,7 +1970,7 @@ export default function MarksEntry() {
                                   border: "1px solid",
                                   borderColor: "divider",
                                   borderRadius: 1.5,
-                                  bgcolor: "rgba(37,99,235,0.02)",
+                                  bgcolor: "action.hover",
                                 }}
                               >
                                 <FormControlLabel
@@ -1666,6 +1980,7 @@ export default function MarksEntry() {
                                       onChange={(e) =>
                                         handleAbsentChange(row.key, e.target.checked)
                                       }
+                                      disabled={teacherEntryLocked}
                                       size="small"
                                     />
                                   }
@@ -1715,7 +2030,7 @@ export default function MarksEntry() {
                                 value={drafts[row.key]?.mark ?? row.mark ?? ""}
                                 onChange={(e) => handleMarkChange(row.key, e.target.value)}
                                 onKeyDown={(e) => handleMarkInputKeyDown(e, index)}
-                                disabled={drafts[row.key]?.absent ?? row.absent}
+                                disabled={teacherEntryLocked || (drafts[row.key]?.absent ?? row.absent)}
                                 inputProps={{
                                   inputMode: "decimal",
                                 }}
@@ -1729,6 +2044,7 @@ export default function MarksEntry() {
                                 onChange={(e) =>
                                   handleAbsentChange(row.key, e.target.checked)
                                 }
+                                disabled={teacherEntryLocked}
                               />
                             </TableCell>
                             <TableCell>
@@ -1775,7 +2091,7 @@ export default function MarksEntry() {
                     <Button
                       variant="contained"
                       onClick={handleSave}
-                      disabled={saving || loadingRows || dirtyCount === 0}
+                      disabled={teacherEntryLocked || saving || loadingRows || dirtyCount === 0}
                       fullWidth={isMobile}
                       startIcon={
                         saving ? (

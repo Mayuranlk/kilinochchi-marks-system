@@ -79,7 +79,13 @@ import {
   getALCompulsorySubjectsForStream,
   validateALChoices,
 } from "../constants";
+import {
+  TEACHING_MEDIUMS,
+  normalizeAcademicMedium,
+  usesSeparateMediumRanking,
+} from "../utils/academicMediumUtils";
 import { regenerateSingleStudent } from "../services/enrollmentGenerator";
+import { normalizeStudentName } from "../utils/studentNameUtils";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
@@ -257,7 +263,14 @@ const BASKET_CHOICE_ALIASES = {
     dramaandtheatre: "Drama and Theatre (Tamil)",
   },
   C: {
-    ict: "Information & Communication Technology",
+    ict: "Information & Communication Technology (T)",
+    informationcommunicationtechnology: "Information & Communication Technology (T)",
+    informationcommunicationtechnologyt: "Information & Communication Technology (T)",
+    ictt: "Information & Communication Technology (T)",
+    icttamil: "Information & Communication Technology (T)",
+    informationcommunicationtechnologye: "Information & Communication Technology (E)",
+    icte: "Information & Communication Technology (E)",
+    ictenglish: "Information & Communication Technology (E)",
   },
 };
 
@@ -333,7 +346,8 @@ const initials = (name = "") =>
     .join("")
     .toUpperCase();
 
-const getStudentName = (student) => student.name || student.fullName || "";
+const getStudentName = (student) =>
+  normalizeStudentName(student.name || student.fullName || "");
 
 const buildALMetadata = (grade, stream, section) => {
   if (!isALGrade(grade)) {
@@ -493,7 +507,7 @@ const downloadOLTemplate = () => {
       Religion: "Catholicism",
       "Basket A Choice": "Geography",
       "Basket B Choice": "Art",
-      "Basket C Choice": "Information & Communication Technology",
+      "Basket C Choice": "Information & Communication Technology (T)",
       Medium: "Tamil",
     },
   ];
@@ -659,6 +673,7 @@ export default function Students() {
     if (!form.grade) return [];
 
     const grade = Number(form.grade);
+
     const formStream = normalizeText(form.stream);
 
     return [
@@ -896,7 +911,10 @@ export default function Students() {
           aestheticChoice: raw.aestheticChoice || raw.aesthetic || "",
           basketAChoice: raw.basketAChoice || raw.basket1 || "",
           basketBChoice: raw.basketBChoice || raw.basket2 || "",
-          basketCChoice: raw.basketCChoice || raw.basket3 || "",
+          basketCChoice: canonicalizeBasketChoice(
+            "C",
+            raw.basketCChoice || raw.basket3 || ""
+          ),
           alSubjectChoiceNumbers: Array.isArray(raw.alSubjectChoiceNumbers)
             ? raw.alSubjectChoiceNumbers
             : [],
@@ -1005,8 +1023,8 @@ export default function Students() {
     });
 
     return {
-      name: normalizeText(cleaned.name),
-      fullName: normalizeText(cleaned.name),
+      name: normalizeStudentName(cleaned.name),
+      fullName: normalizeStudentName(cleaned.name),
       admissionNo: identity.admissionNo,
       emisStudentId: identity.emisStudentId,
       grade,
@@ -1124,6 +1142,10 @@ export default function Students() {
     if (!form.section) return "Section is required.";
 
     const grade = Number(form.grade);
+
+    if (usesSeparateMediumRanking(grade) && !normalizeAcademicMedium(form.medium)) {
+      return "Tamil or English medium is required for Grades 6 to 11.";
+    }
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
@@ -1290,7 +1312,7 @@ export default function Students() {
 
     setForm(
       cleanFormByGrade({
-      name: s.name || s.fullName || "",
+      name: normalizeStudentName(s.name || s.fullName || ""),
       admissionNo: identity.admissionNo,
       emisStudentId: identity.emisStudentId,
       grade: s.grade || "",
@@ -1303,7 +1325,7 @@ export default function Students() {
       aestheticChoice: s.aestheticChoice || s.aesthetic || "",
       basketAChoice: s.basketAChoice || s.basket1 || "",
       basketBChoice: s.basketBChoice || s.basket2 || "",
-      basketCChoice: s.basketCChoice || s.basket3 || "",
+      basketCChoice: canonicalizeBasketChoice("C", s.basketCChoice || s.basket3 || ""),
       stream: s.stream || "",
       streamCode: s.streamCode || "",
       alClassName: s.alClassName || "",
@@ -1355,7 +1377,7 @@ export default function Students() {
     });
 
     const raw = {
-      name: normalizeText(row["Name"] || row.name),
+      name: normalizeStudentName(row["Name"] || row.name),
       admissionNo: identity.admissionNo,
       emisStudentId: identity.emisStudentId,
       grade: normalizeGradeValue(row["Grade"] || row.grade),
@@ -1413,6 +1435,9 @@ export default function Students() {
 
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
     if (!student.section) return `Row ${rowNumber}: Section is required.`;
+    if (usesSeparateMediumRanking(grade) && !normalizeAcademicMedium(student.medium)) {
+      return `Row ${rowNumber} (${band}): Medium must be Tamil or English.`;
+    }
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(student.stream)) {
@@ -1502,8 +1527,8 @@ export default function Students() {
     });
 
     return {
-      name: normalizeText(cleaned.name),
-      fullName: normalizeText(cleaned.name),
+      name: normalizeStudentName(cleaned.name),
+      fullName: normalizeStudentName(cleaned.name),
       admissionNo: identity.admissionNo,
       emisStudentId: identity.emisStudentId,
       grade,
@@ -2197,16 +2222,16 @@ export default function Students() {
         </Paper>
       ) : (
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Active" value={activeCount} icon={<PersonIcon />} color="success" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Left" value={leftCount} icon={<BlockIcon />} color="error" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Total Students" value={students.length} icon={<PersonIcon />} color="primary" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Filtered" value={filtered.length} icon={<SearchIcon />} color="warning" />
           </Grid>
         </Grid>
@@ -2498,7 +2523,7 @@ export default function Students() {
           )}
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Card sx={sectionCardSx}>
                 <CardContent>
                   <Typography variant="subtitle1" fontWeight={800} mb={2}>
@@ -2506,7 +2531,7 @@ export default function Students() {
                   </Typography>
 
                   <Grid container spacing={2}>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <TextField
                         fullWidth
                         required
@@ -2516,7 +2541,7 @@ export default function Students() {
                       />
                     </Grid>
 
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <TextField
                         fullWidth
                         required
@@ -2527,7 +2552,7 @@ export default function Students() {
                       />
                     </Grid>
 
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <TextField
                         fullWidth
                         label="EMIS StudentID"
@@ -2537,7 +2562,7 @@ export default function Students() {
                       />
                     </Grid>
 
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <FormControl fullWidth required>
                         <InputLabel>Grade</InputLabel>
                         <Select
@@ -2570,7 +2595,7 @@ export default function Students() {
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <FormControl fullWidth required disabled={!form.grade}>
                         <InputLabel>Section</InputLabel>
                         <Select
@@ -2604,8 +2629,8 @@ export default function Students() {
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} sm={4}>
-                      <FormControl fullWidth>
+                    <Grid size={{ xs: 12, sm: 4 }}>
+                      <FormControl fullWidth required={usesSeparateMediumRanking(form.grade)}>
                         <InputLabel>Status</InputLabel>
                         <Select
                           value={form.status}
@@ -2625,7 +2650,7 @@ export default function Students() {
               </Card>
             </Grid>
 
-            <Grid item xs={12} md={6}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <Card sx={sectionCardSx}>
                 <CardContent>
                   <Typography variant="subtitle1" fontWeight={800} mb={2}>
@@ -2633,7 +2658,7 @@ export default function Students() {
                   </Typography>
 
                   <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <FormControl fullWidth>
                         <InputLabel>Gender</InputLabel>
                         <Select
@@ -2651,7 +2676,7 @@ export default function Students() {
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <TextField
                         fullWidth
                         label="Date of Birth"
@@ -2662,7 +2687,7 @@ export default function Students() {
                       />
                     </Grid>
 
-                    <Grid item xs={12} sm={4}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <TextField
                         fullWidth
                         label="Join Date"
@@ -2673,7 +2698,7 @@ export default function Students() {
                       />
                     </Grid>
 
-                    <Grid item xs={12} sm={6}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
                       <FormControl fullWidth>
                         <InputLabel>Medium</InputLabel>
                         <Select
@@ -2682,7 +2707,10 @@ export default function Students() {
                           onChange={(e) => setForm({ ...form, medium: e.target.value })}
                         >
                           <MenuItem value="">—</MenuItem>
-                          {MEDIUM_OPTIONS.map((item) => (
+                          {(usesSeparateMediumRanking(form.grade)
+                            ? TEACHING_MEDIUMS
+                            : MEDIUM_OPTIONS
+                          ).map((item) => (
                             <MenuItem key={item} value={item}>
                               {item}
                             </MenuItem>
@@ -2691,7 +2719,7 @@ export default function Students() {
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} sm={6}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
                       <Box
                         sx={{
                           height: "100%",
@@ -2713,7 +2741,7 @@ export default function Students() {
               </Card>
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Card sx={sectionCardSx}>
                 <CardContent>
                   <Typography variant="subtitle1" fontWeight={800} mb={2}>
@@ -2738,7 +2766,7 @@ export default function Students() {
 
                       <Grid container spacing={2}>
                         {shouldShowReligion(form.grade) && (
-                          <Grid item xs={12} sm={6} md={4}>
+                          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                             <FormControl fullWidth required>
                               <InputLabel>Religion</InputLabel>
                               <Select
@@ -2757,7 +2785,7 @@ export default function Students() {
                         )}
 
                         {shouldShowAesthetic(form.grade) && (
-                          <Grid item xs={12} sm={6} md={4}>
+                          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                             <FormControl fullWidth required disabled={aestheticOptions.length === 0}>
                               <InputLabel>Aesthetic Choice</InputLabel>
                               <Select
@@ -2784,7 +2812,7 @@ export default function Students() {
 
                         {shouldShowBasketChoices(form.grade) && (
                           <>
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <FormControl fullWidth required disabled={basketMenuOptions.A.length === 0}>
                                 <InputLabel>Basket A Choice</InputLabel>
                                 <Select
@@ -2806,7 +2834,7 @@ export default function Students() {
                               </FormControl>
                             </Grid>
 
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <FormControl fullWidth required disabled={basketMenuOptions.B.length === 0}>
                                 <InputLabel>Basket B Choice</InputLabel>
                                 <Select
@@ -2828,7 +2856,7 @@ export default function Students() {
                               </FormControl>
                             </Grid>
 
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <FormControl fullWidth required disabled={basketMenuOptions.C.length === 0}>
                                 <InputLabel>Basket C Choice</InputLabel>
                                 <Select
@@ -2854,7 +2882,7 @@ export default function Students() {
 
                         {shouldShowALFields(form.grade) && (
                           <>
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <FormControl fullWidth required>
                                 <InputLabel>Stream</InputLabel>
                                 <Select
@@ -2884,7 +2912,7 @@ export default function Students() {
                               </FormControl>
                             </Grid>
 
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <TextField
                                 fullWidth
                                 label="Stream Code"
@@ -2893,7 +2921,7 @@ export default function Students() {
                               />
                             </Grid>
 
-                            <Grid item xs={12} md={4}>
+                            <Grid size={{ xs: 12, md: 4 }}>
                               <TextField
                                 fullWidth
                                 label="A/L Class Name"
@@ -2905,7 +2933,7 @@ export default function Students() {
                               />
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                               <FormControl
                                 fullWidth
                                 required
@@ -2966,7 +2994,7 @@ export default function Students() {
                               </FormControl>
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                               {alValidationPreview && (
                                 <Alert severity={alValidationPreview.valid ? "success" : "warning"}>
                                   {alValidationPreview.valid ? (

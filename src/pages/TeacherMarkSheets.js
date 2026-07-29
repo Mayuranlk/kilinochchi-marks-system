@@ -31,6 +31,10 @@ import {
   buildALClassName,
   isALGrade,
 } from "../constants";
+import {
+  getAcademicMedium,
+  isMediumSplitSubject,
+} from "../utils/academicMediumUtils";
 import { PageContainer } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
@@ -439,13 +443,20 @@ export default function TeacherMarkSheets() {
       const className = getEnrollmentClassName(enrollment, student);
       const subjectId = getEnrollmentSubjectId(enrollment);
       const subjectName = getEnrollmentSubjectName(enrollment);
-      const key = `${className}__${getEnrollmentSubjectKey(enrollment)}`;
+      const grade = getEnrollmentGrade(enrollment, student);
+      const mediumSplit = isMediumSplitSubject(subjectName, grade);
+      const medium = mediumSplit
+        ? getAcademicMedium(enrollment, student)
+        : "";
+      if (mediumSplit && !medium) return;
+      const key = `${className}__${getEnrollmentSubjectKey(enrollment)}__${medium || "all"}`;
 
       if (!grouped.has(key)) {
         grouped.set(key, {
           className,
           subjectId,
           subjectName,
+          medium,
           rows: [],
         });
       }
@@ -513,7 +524,9 @@ export default function TeacherMarkSheets() {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text(
-      `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}`,
+      `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}${
+        sheet.medium ? ` - ${sheet.medium} Medium` : ""
+      }`,
       centerX,
       y + 9.6,
       { align: "center" }
@@ -634,7 +647,9 @@ export default function TeacherMarkSheets() {
           <div class="title">Teacher Mark Sheet - ${escapeHtml(selectedYear)}</div>
           <div class="meta">Class ${escapeHtml(sheet.className)} - ${escapeHtml(
       selectedTerm || "Term"
-    )} - ${escapeHtml(sheet.subjectName)}</div>
+    )} - ${escapeHtml(sheet.subjectName)}${
+      sheet.medium ? ` - ${escapeHtml(sheet.medium)} Medium` : ""
+    }</div>
         </div>
 
         <table>
@@ -814,8 +829,8 @@ export default function TeacherMarkSheets() {
       <Stack spacing={3}>
         <Box>
           <Stack direction="row" spacing={1.2} alignItems="center" mb={1}>
-            <DescriptionIcon sx={{ color: "#1a237e" }} />
-            <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} color="#1a237e">
+            <DescriptionIcon sx={{ color: "primary.main" }} />
+            <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} color="primary.main">
               Teacher Mark Sheets
             </Typography>
           </Stack>
@@ -842,7 +857,7 @@ export default function TeacherMarkSheets() {
         >
           <CardContent>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth>
                   <InputLabel>Academic Year</InputLabel>
                   <Select
@@ -859,7 +874,7 @@ export default function TeacherMarkSheets() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth>
                   <InputLabel>Term</InputLabel>
                   <Select
@@ -876,7 +891,7 @@ export default function TeacherMarkSheets() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth>
                   <InputLabel>Class</InputLabel>
                   <Select
@@ -896,7 +911,7 @@ export default function TeacherMarkSheets() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth disabled={!selectedClass}>
                   <InputLabel>Subject</InputLabel>
                   <Select
@@ -985,11 +1000,8 @@ export default function TeacherMarkSheets() {
               const panels = Math.ceil(sheet.rows.length / ROWS_PER_PANEL);
 
               return (
-                <Grid
-                  item
-                  xs={12}
-                  md={6}
-                  key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}`}
+                <Grid size={{ xs: 12, md: 6 }}
+                  key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}_${sheet.medium || "all"}`}
                 >
                   <Paper
                     sx={{
@@ -1000,8 +1012,8 @@ export default function TeacherMarkSheets() {
                       height: "100%",
                     }}
                   >
-                    <Typography variant="subtitle1" fontWeight={700} color="#1a237e">
-                      {sheet.subjectName}
+                    <Typography variant="subtitle1" fontWeight={700} color="primary.main">
+                      {sheet.subjectName}{sheet.medium ? ` - ${sheet.medium} Medium` : ""}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" mb={1}>
                       Class {sheet.className} · {selectedTerm || "Term"} · {selectedYear}
@@ -1023,8 +1035,9 @@ export default function TeacherMarkSheets() {
           sx={{
             p: 2,
             borderRadius: 3,
-            border: "1px solid #e8eaf6",
-            bgcolor: "#fafbff",
+            border: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
           }}
         >
           <Typography variant="subtitle2" fontWeight={700} mb={1}>

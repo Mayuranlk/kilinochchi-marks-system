@@ -16,6 +16,7 @@ import {
   Select,
   Stack,
   Typography,
+  useTheme,
 } from "@mui/material";
 import { collection, getDocs } from "firebase/firestore";
 import { saveAs } from "file-saver";
@@ -72,11 +73,12 @@ function formatNumber(value) {
   return Number.isInteger(value) ? String(value) : Number(value).toFixed(2);
 }
 
-function createPreviewCellStyle({ compact = false, header = false, align = "center", minWidth }) {
+function createPreviewCellStyle({ theme, compact = false, header = false, align = "center", minWidth }) {
   return {
-    border: "1px solid #999",
+    border: `1px solid ${theme.palette.divider}`,
     padding: compact ? "4px 5px" : "6px 8px",
-    background: header ? "#f5f5f5" : undefined,
+    background: header ? theme.custom.surfaces.subtle : theme.palette.background.paper,
+    color: theme.palette.text.primary,
     whiteSpace: compact ? "normal" : "nowrap",
     wordBreak: compact ? "break-word" : "normal",
     overflowWrap: compact ? "anywhere" : "normal",
@@ -88,20 +90,26 @@ function createPreviewCellStyle({ compact = false, header = false, align = "cent
 }
 
 function SchedulePreview({ reportData }) {
+  const theme = useTheme();
   const { schema, rows, className, year, termName } = reportData;
   const flatColumns = flattenSchemaColumns(schema);
   const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
   const overallExclusionNote = getOverallExclusionNote(schema);
+  const unassignedMediumCount = reportData.separateMediumRanking
+    ? rows.filter((row) => !row.rankingMedium).length
+    : 0;
   const previewLayout = useMemo(
     () => getClassMarksSchedulePreviewLayout(reportData),
     [reportData]
   );
   const headCellStyle = createPreviewCellStyle({
+    theme,
     compact: previewLayout.compact,
     header: true,
   });
-  const bodyCellStyle = createPreviewCellStyle({ compact: previewLayout.compact });
+  const bodyCellStyle = createPreviewCellStyle({ theme, compact: previewLayout.compact });
   const nameCellStyle = createPreviewCellStyle({
+    theme,
     compact: previewLayout.compact,
     align: "left",
     minWidth: previewLayout.compact ? 150 : 180,
@@ -117,6 +125,12 @@ function SchedulePreview({ reportData }) {
         <Typography variant="body2" sx={{ mb: 2 }}>
           Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
         </Typography>
+
+        {unassignedMediumCount > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {unassignedMediumCount} student{unassignedMediumCount === 1 ? " is" : "s are"} not ranked because Tamil or English medium is not assigned.
+          </Alert>
+        )}
 
         <Box sx={{ overflowX: "auto" }}>
           <table
@@ -143,6 +157,9 @@ function SchedulePreview({ reportData }) {
                 <th style={headCellStyle} rowSpan={2}>Student ID</th>
                 <th style={headCellStyle} rowSpan={2}>Index No</th>
                 <th style={headCellStyle} rowSpan={2}>Students Name</th>
+                {reportData.separateMediumRanking && (
+                  <th style={headCellStyle} rowSpan={2}>Medium</th>
+                )}
 
                 {schema.groups.map((group) => (
                   <th key={group.key} style={headCellStyle} colSpan={group.columns.length}>
@@ -182,6 +199,9 @@ function SchedulePreview({ reportData }) {
                   <td style={nameCellStyle}>
                     {row.studentName}
                   </td>
+                  {reportData.separateMediumRanking && (
+                    <td style={bodyCellStyle}>{row.rankingMedium || "Unassigned"}</td>
+                  )}
 
                   {flatColumns.map((column) => {
                     const mark = row.marksByColumn[column.key];
@@ -193,7 +213,13 @@ function SchedulePreview({ reportData }) {
                         key={column.key}
                         style={{
                           ...bodyCellStyle,
-                          ...(isHighest ? { background: "#fff9c4", fontWeight: 700 } : {}),
+                          ...(isHighest
+                            ? {
+                                background: theme.palette.warning.lighter,
+                                color: theme.palette.text.primary,
+                                fontWeight: 800,
+                              }
+                            : {}),
                         }}
                       >
                         {row.absencesByColumn[column.key]
@@ -211,7 +237,7 @@ function SchedulePreview({ reportData }) {
                       <td style={bodyCellStyle}>{formatNumber(row.overallAverage)}</td>
                     </>
                   )}
-                  <td style={bodyCellStyle}>{row.rank}</td>
+                  <td style={bodyCellStyle}>{row.rank ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -236,17 +262,17 @@ function SchedulePreview({ reportData }) {
         )}
 
         <Grid container spacing={2} sx={{ mt: 3 }}>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
               {reportData.classroom?.classTeacherName || "Class Teacher"}
             </Typography>
           </Grid>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
               {reportData.classroom?.sectionHeadName || "Sectional Head"}
             </Typography>
           </Grid>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="right">
               Principal
             </Typography>
@@ -258,15 +284,15 @@ function SchedulePreview({ reportData }) {
 }
 
 function AnalysisPreview({ reportData }) {
+  const theme = useTheme();
   const { schema, analysis, className, year, termName } = reportData;
   const flatColumns = flattenSchemaColumns(schema);
-  const subjectStats = reportData.subjectStats || {};
-  const groupStats = reportData.groupStats || [];
   const optimiStudents = reportData.optimiStudents || [];
   const compact = Number(reportData?.grade || 0) >= 10 && Number(reportData?.grade || 0) <= 11;
-  const headCellStyle = createPreviewCellStyle({ compact, header: true });
-  const bodyCellStyle = createPreviewCellStyle({ compact });
+  const headCellStyle = createPreviewCellStyle({ theme, compact, header: true });
+  const bodyCellStyle = createPreviewCellStyle({ theme, compact });
   const labelCellStyle = createPreviewCellStyle({
+    theme,
     compact,
     align: "left",
   });
@@ -337,76 +363,6 @@ function AnalysisPreview({ reportData }) {
           </table>
         </Box>
 
-        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1, fontWeight: 700 }}>
-          Section Subject Analysis
-        </Typography>
-
-        <Box sx={{ overflowX: "auto" }}>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              minWidth: 720,
-              fontSize: 12,
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={headCellStyle}>Subject</th>
-                <th style={headCellStyle}>Average</th>
-                <th style={headCellStyle}>Highest Mark</th>
-                <th style={headCellStyle}>Top Student(s)</th>
-                <th style={headCellStyle}>Appeared</th>
-                <th style={headCellStyle}>Pass %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {flatColumns.map((column) => {
-                const stats = subjectStats[column.key] || {};
-                return (
-                  <tr key={column.key}>
-                    <td style={bodyCellStyle}>{column.label}</td>
-                    <td style={bodyCellStyle}>{formatNumber(stats.average, 2)}</td>
-                    <td style={bodyCellStyle}>{stats.highestMark ?? ""}</td>
-                    <td style={bodyCellStyle}>
-                      {stats.topStudents?.join(", ") || "-"}
-                    </td>
-                    <td style={bodyCellStyle}>{stats.appeared}</td>
-                    <td style={bodyCellStyle}>{formatNumber(stats.passPercentage, 2)}%</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Box>
-
-        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1, fontWeight: 700 }}>
-          Divisional Analysis
-        </Typography>
-
-        <Grid container spacing={2}>
-          {groupStats.map((group) => (
-            <Grid item xs={12} md={6} key={group.key}>
-              <Card variant="outlined" sx={{ borderRadius: 2, p: 1 }}>
-                <CardContent sx={{ p: 1.5 }}>
-                  <Typography variant="subtitle2" fontWeight={700}>
-                    {group.label || "Division"}
-                  </Typography>
-                  <Typography variant="body2">
-                    Subjects: {group.subjectCount}
-                  </Typography>
-                  <Typography variant="body2">
-                    Average Mark: {formatNumber(group.average, 2)}
-                  </Typography>
-                  <Typography variant="body2">
-                    Pass %: {formatNumber(group.passPercentage, 2)}%
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-
         {optimiStudents.length > 0 && (
           <Card sx={{ borderRadius: 3, mt: 3 }}>
             <CardContent>
@@ -428,17 +384,17 @@ function AnalysisPreview({ reportData }) {
         )}
 
         <Grid container spacing={2} sx={{ mt: 3 }}>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
               {reportData.classroom?.classTeacherName || "Class Teacher"}
             </Typography>
           </Grid>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
               {reportData.classroom?.sectionHeadName || "Sectional Head"}
             </Typography>
           </Grid>
-          <Grid item xs={4}>
+          <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="right">
               Principal
             </Typography>
@@ -744,7 +700,7 @@ export default function ClassMarksReports() {
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select
@@ -764,7 +720,7 @@ export default function ClassMarksReports() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={5}>
+              <Grid size={{ xs: 12, md: 5 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
                   <Select
@@ -781,7 +737,7 @@ export default function ClassMarksReports() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select

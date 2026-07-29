@@ -36,21 +36,40 @@ export function calculateStudentTotalAndAverage(
   };
 }
 
-export function assignRanks(rows = []) {
+export function assignRanks(rows = [], options = {}) {
+  const getGroupKey =
+    typeof options.getGroupKey === "function" ? options.getGroupKey : () => "__all__";
   const sorted = [...rows].sort((a, b) => {
+    const groupDiff = String(getGroupKey(a) || "").localeCompare(
+      String(getGroupKey(b) || ""),
+      undefined,
+      { sensitivity: "base" }
+    );
+    if (groupDiff !== 0) return groupDiff;
     if (b.total !== a.total) return b.total - a.total;
     return a.studentName.localeCompare(b.studentName);
   });
 
-  let currentRank = 1;
+  const groupState = new Map();
 
-  return sorted.map((row, index) => {
-    if (index > 0) {
-      const prev = sorted[index - 1];
-      if (prev.total !== row.total) {
-        currentRank = index + 1;
-      }
-    }
+  return sorted.map((row) => {
+    const groupKey = String(getGroupKey(row) || "");
+    const state = groupState.get(groupKey) || {
+      position: 0,
+      previousTotal: null,
+      currentRank: 0,
+    };
+    const position = state.position + 1;
+    const currentRank =
+      state.position === 0 || state.previousTotal !== row.total
+        ? position
+        : state.currentRank;
+
+    groupState.set(groupKey, {
+      position,
+      previousTotal: row.total,
+      currentRank,
+    });
 
     return {
       ...row,

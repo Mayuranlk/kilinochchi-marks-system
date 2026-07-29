@@ -397,7 +397,7 @@ export default function PrefectDashboard() {
   );
 
   return (
-    <Box sx={{ minHeight: "100dvh", bgcolor: "#f5f7fb", pb: 5 }}>
+    <Box sx={{ minHeight: "100dvh", bgcolor: "background.default", pb: 5 }}>
       <AppBar position="sticky" elevation={0} sx={{ bgcolor: "#0f3d63" }}>
         <Toolbar sx={{ gap: 1.5 }}>
           <MenuBookRoundedIcon />

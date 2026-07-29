@@ -209,13 +209,13 @@ export default function PracticeExams() {
         {error && <Alert severity="error" onClose={() => setError("")}>{error}</Alert>}
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Practice Exams" value={exams.length} />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Academic Years" value={new Set(exams.map((exam) => exam.year || exam.academicYear)).size} color="success" />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Subjects Used" value={new Set(exams.map((exam) => exam.subjectName)).size} color="warning" />
           </Grid>
         </Grid>
@@ -275,10 +275,10 @@ export default function PracticeExams() {
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField fullWidth label="Exam Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Term</InputLabel>
                 <Select value={form.term} label="Term" onChange={(e) => setForm({ ...form, term: e.target.value })}>
@@ -286,21 +286,21 @@ export default function PracticeExams() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth type="number" label="Year" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth type="number" label="Grade" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth select label="Subject" value={form.subjectName} onChange={(e) => setForm({ ...form, subjectName: e.target.value })}>
                 {subjectOptions.map((subject) => <MenuItem key={subject} value={subject}>{subject}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth type="date" label="Exam Date" value={form.examDate} onChange={(e) => setForm({ ...form, examDate: e.target.value })} InputLabelProps={{ shrink: true }} />
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField fullWidth label="Source / Instruction" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="Zonal / Ministry / School" />
             </Grid>
           </Grid>

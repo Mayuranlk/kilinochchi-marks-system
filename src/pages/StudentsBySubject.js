@@ -796,7 +796,7 @@ export default function StudentsBySubject() {
       >
         <CardContent sx={{ pb: "16px !important" }}>
           <Grid container spacing={1.5} alignItems="flex-end">
-            <Grid item xs={6} sm={mode === "marks" ? 2 : 3}>
+            <Grid size={{ xs: 6, sm: mode === "marks" ? 2 : 3 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Grade</InputLabel>
                 <Select
@@ -813,7 +813,7 @@ export default function StudentsBySubject() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={6} sm={mode === "marks" ? 3 : 5}>
+            <Grid size={{ xs: 6, sm: mode === "marks" ? 3 : 5 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>Subject</InputLabel>
                 <Select
@@ -833,7 +833,7 @@ export default function StudentsBySubject() {
 
             {mode === "marks" && (
               <>
-                <Grid item xs={6} sm={2}>
+                <Grid size={{ xs: 6, sm: 2 }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Term</InputLabel>
                     <Select
@@ -850,7 +850,7 @@ export default function StudentsBySubject() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={6} sm={2}>
+                <Grid size={{ xs: 6, sm: 2 }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Year</InputLabel>
                     <Select
@@ -869,7 +869,7 @@ export default function StudentsBySubject() {
               </>
             )}
 
-            <Grid item xs={12} sm={mode === "marks" ? 3 : 4}>
+            <Grid size={{ xs: 12, sm: mode === "marks" ? 3 : 4 }}>
               <Button
                 variant="contained"
                 fullWidth
@@ -962,7 +962,7 @@ export default function StudentsBySubject() {
             </Box>
           ) : (
             <Grid container spacing={1.5} mb={2}>
-              <Grid item xs={12} sm={6} lg={mode === "marks" ? 3 : 4}>
+              <Grid size={{ xs: 12, sm: 6, lg: mode === "marks" ? 3 : 4 }}>
                 <StatCard
                   title="Total Students"
                   value={students.length}
@@ -972,7 +972,7 @@ export default function StudentsBySubject() {
               </Grid>
 
               {mode === "marks" && avgMark ? (
-                <Grid item xs={12} sm={6} lg={3}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                   <StatCard
                     title="Class Average"
                     value={avgMark}
@@ -983,7 +983,7 @@ export default function StudentsBySubject() {
               ) : null}
 
               {mode === "marks" ? (
-                <Grid item xs={12} sm={6} lg={3}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                   <StatCard
                     title="Passed"
                     value={passedCount}
@@ -994,7 +994,7 @@ export default function StudentsBySubject() {
               ) : null}
 
               {mode === "marks" ? (
-                <Grid item xs={12} sm={6} lg={3}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                   <StatCard
                     title="Failed"
                     value={failedCount}

@@ -2571,7 +2571,7 @@ export default function SubjectAnalysis() {
         <Card>
           <CardContent>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
@@ -2581,7 +2581,7 @@ export default function SubjectAnalysis() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
@@ -2594,7 +2594,7 @@ export default function SubjectAnalysis() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Exam</InputLabel>
                   <Select value={selectedAssessmentId} label="Exam" onChange={(event) => setSelectedAssessmentId(event.target.value)}>
@@ -2604,7 +2604,7 @@ export default function SubjectAnalysis() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Grade</InputLabel>
                   <Select value={selectedGrade} label="Grade" onChange={(event) => setSelectedGrade(Number(event.target.value))}>
@@ -2614,7 +2614,7 @@ export default function SubjectAnalysis() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Division / Class</InputLabel>
                   <Select value={selectedClass} label="Division / Class" onChange={(event) => setSelectedClass(event.target.value)}>
@@ -2625,7 +2625,7 @@ export default function SubjectAnalysis() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Subject</InputLabel>
                   <Select value={selectedSubject} label="Subject" onChange={(event) => setSelectedSubject(event.target.value)}>
@@ -2661,16 +2661,16 @@ export default function SubjectAnalysis() {
         ) : (
           <>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <StatCard title="Enrolled Entries" value={selectedStats.enrolled} icon={<SchoolRoundedIcon />} />
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <StatCard title="Appeared" value={selectedStats.appeared} icon={<AnalyticsRoundedIcon />} color="success" />
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <StatCard title="Average" value={formatNumber(selectedStats.average)} icon={<SubjectRoundedIcon />} color="warning" />
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <StatCard title="Pass %" value={`${formatNumber(selectedStats.passPercentage)}%`} icon={<AnalyticsRoundedIcon />} color="info" />
               </Grid>
             </Grid>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -12,15 +12,18 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
   Grid,
   LinearProgress,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
   Typography,
+  TextField,
   useMediaQuery,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -34,15 +37,24 @@ import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
-import { db } from "../firebase";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
+import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import { auth, db } from "../firebase";
 import {
   EmptyState,
+  LoadingState,
   MobileListRow,
   PageContainer,
   ResponsiveTableWrapper,
   SectionCard,
   StatusChip,
 } from "../components/ui";
+import {
+  DEFAULT_MARKS_ENTRY_SETTINGS,
+  isTeacherMarksEntryLocked,
+  normalizeMarksEntrySettings,
+} from "../utils/marksEntryAccess";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -227,6 +239,10 @@ export default function Dashboard() {
   const [enrollmentsCount, setEnrollmentsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
+  const [savingMarksEntrySettings, setSavingMarksEntrySettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
+  const [settingsError, setSettingsError] = useState("");
 
   useEffect(() => {
     async function fetchAll() {
@@ -234,13 +250,14 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [studentsSnap, usersSnap, marksSnap, subjectsSnap, enrollmentsSnap] =
+        const [studentsSnap, usersSnap, marksSnap, subjectsSnap, enrollmentsSnap, marksEntrySettingsSnap] =
           await Promise.all([
             getDocs(collection(db, "students")),
             getDocs(collection(db, "users")),
             getDocs(collection(db, "marks")),
             getDocs(collection(db, "subjects")),
             getDocs(collection(db, "studentSubjectEnrollments")),
+            getDoc(doc(db, "systemSettings", "marksEntry")),
           ]);
 
         const loadedStudents = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -251,6 +268,11 @@ export default function Dashboard() {
         setMarksCount(marksSnap.size);
         setSubjectsCount(subjectsSnap.size);
         setEnrollmentsCount(enrollmentsSnap.size);
+        setMarksEntrySettings(
+          marksEntrySettingsSnap.exists()
+            ? normalizeMarksEntrySettings(marksEntrySettingsSnap.data())
+            : DEFAULT_MARKS_ENTRY_SETTINGS
+        );
       } catch (error) {
         console.error("Dashboard load error:", error);
         setLoadError("Failed to load dashboard data.");
@@ -261,6 +283,36 @@ export default function Dashboard() {
 
     fetchAll();
   }, []);
+
+  async function saveMarksEntrySettings() {
+    setSavingMarksEntrySettings(true);
+    setSettingsMessage("");
+    setSettingsError("");
+    try {
+      const normalized = normalizeMarksEntrySettings(marksEntrySettings);
+      await setDoc(
+        doc(db, "systemSettings", "marksEntry"),
+        {
+          ...normalized,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.uid || "",
+          updatedByEmail: auth.currentUser?.email || "",
+        },
+        { merge: true }
+      );
+      setMarksEntrySettings(normalized);
+      setSettingsMessage(
+        isTeacherMarksEntryLocked(normalized)
+          ? "Teacher marks entry is locked."
+          : "Teacher marks entry is available."
+      );
+    } catch (error) {
+      console.error("Marks entry settings save error:", error);
+      setSettingsError(error.message || "Failed to save marks entry settings.");
+    } finally {
+      setSavingMarksEntrySettings(false);
+    }
+  }
 
   const activeStudents = useMemo(
     () => students.filter((student) => isActiveStudent(student)),
@@ -343,96 +395,72 @@ export default function Dashboard() {
   if (loading) {
     return (
       <PageContainer maxWidth="lg" sx={{ pb: { xs: 10, md: 3 } }}>
-        <SectionCard>
-          <Stack alignItems="center" spacing={2} py={6}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary">
-              Loading dashboard...
-            </Typography>
-          </Stack>
-        </SectionCard>
+        <LoadingState cards={4} rows={6} />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer maxWidth="xl" sx={{ pb: { xs: 10, md: 3 } }}>
+    <PageContainer
+      maxWidth="xl"
+      title="Admin Dashboard"
+      subtitle="School operations, academic progress, and system controls in one workspace."
+      actions={
+        <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
+          <Button
+            variant="contained"
+            onClick={() => navigate("/marks")}
+            fullWidth={isMobile}
+            endIcon={<ArrowForwardRoundedIcon />}
+          >
+            Marks Entry
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => navigate("/subject-analysis")}
+            fullWidth={isMobile}
+          >
+            Analysis
+          </Button>
+        </Stack>
+      }
+      sx={{ pb: { xs: 10, md: 3 } }}
+    >
       <Stack spacing={{ xs: 1.5, md: 2 }}>
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
         <Card
           sx={{
-            borderRadius: 2,
-            boxShadow: "none",
-            border: "1px solid",
-            borderColor: "divider",
+            borderRadius: 2.5,
             overflow: "hidden",
-            background: {
-              xs: "background.paper",
-              md: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(
-                theme.palette.secondary.main,
-                0.08
-              )} 100%)`,
-            },
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(
+              theme.palette.secondary.main,
+              0.045
+            )} 100%)`,
           }}
         >
-          <CardContent sx={{ p: { xs: 1.75, sm: 2.5, md: 3 }, "&:last-child": { pb: { xs: 1.75, sm: 2.5, md: 3 } } }}>
-            <Stack spacing={2}>
+          <CardContent sx={{ p: { xs: 1.75, md: 2.25 }, "&:last-child": { pb: { xs: 1.75, md: 2.25 } } }}>
+            <Stack direction={{ xs: "column", lg: "row" }} spacing={{ xs: 1.75, lg: 3 }} alignItems={{ lg: "center" }}>
               <Stack
-                direction={{ xs: "column", md: "row" }}
-                justifyContent="space-between"
-                alignItems={{ xs: "stretch", md: "center" }}
-                spacing={2}
+                direction="row"
+                spacing={1.35}
+                alignItems="center"
+                sx={{ minWidth: { lg: 265 } }}
               >
-                <Stack direction="row" spacing={1.4} alignItems="center">
-                  <Box
-                    sx={{
-                      width: { xs: 44, md: 52 },
-                      height: { xs: 44, md: 52 },
-                      borderRadius: 2,
-                      display: "grid",
-                      placeItems: "center",
-                      bgcolor: "primary.main",
-                      color: "primary.contrastText",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <SchoolRoundedIcon />
-                  </Box>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant={isMobile ? "h6" : "h5"} sx={{ fontWeight: 900, lineHeight: 1.15 }}>
-                      Admin Dashboard
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
-                      Kilinochchi Marks Management System
-                    </Typography>
-                  </Box>
-                </Stack>
-
-                <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
-                  <Button
-                    variant="contained"
-                    onClick={() => navigate("/marks")}
-                    fullWidth={isMobile}
-                    endIcon={<ArrowForwardRoundedIcon />}
-                  >
-                    Marks
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => navigate("/subject-analysis")}
-                    fullWidth={isMobile}
-                  >
-                    Analysis
-                  </Button>
-                </Stack>
+                <Box sx={{ width: 44, height: 44, borderRadius: 2, display: "grid", placeItems: "center", bgcolor: "primary.main", color: "primary.contrastText", flexShrink: 0 }}>
+                  <SchoolRoundedIcon />
+                </Box>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Student coverage</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {activeStudents.length} of {students.length} students active
+                  </Typography>
+                </Box>
               </Stack>
 
-              <Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                    Active student coverage
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Active records</Typography>
                   <Typography variant="caption" sx={{ fontWeight: 850 }}>
                     {activePercent}%
                   </Typography>
@@ -444,7 +472,7 @@ export default function Dashboard() {
                 />
               </Box>
 
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ minWidth: { lg: 360 }, justifyContent: { lg: "flex-end" } }}>
                 <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudents.length} active`} color="success" />
                 <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudents.length} left`} color="warning" />
                 <Chip label={`${subjectsCount} subjects`} variant="outlined" color="primary" />
@@ -454,9 +482,104 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        <Card
+          sx={{
+            borderRadius: 2.5,
+            borderColor: isTeacherMarksEntryLocked(marksEntrySettings) ? "error.light" : "success.light",
+            borderLeftWidth: 4,
+          }}
+        >
+          <CardContent sx={{ p: { xs: 1.75, md: 2 }, "&:last-child": { pb: { xs: 1.75, md: 2 } } }}>
+            <Stack spacing={1.5}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", md: "minmax(280px, 1.25fr) minmax(210px, .75fr)", xl: "minmax(300px, 1.3fr) minmax(220px, .7fr) minmax(260px, .9fr) auto" },
+                  gap: { xs: 1.5, md: 2 },
+                  alignItems: "center",
+                }}
+              >
+                <Stack direction="row" spacing={1.25} alignItems="center">
+                  <Box
+                    sx={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 2,
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: isTeacherMarksEntryLocked(marksEntrySettings) ? "error.lighter" : "success.lighter",
+                      color: isTeacherMarksEntryLocked(marksEntrySettings) ? "error.main" : "success.main",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isTeacherMarksEntryLocked(marksEntrySettings) ? <LockRoundedIcon /> : <LockOpenRoundedIcon />}
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Teacher Marks Entry</Typography>
+                      <StatusChip
+                        status={isTeacherMarksEntryLocked(marksEntrySettings) ? "inactive" : "active"}
+                        label={isTeacherMarksEntryLocked(marksEntrySettings) ? "Locked" : "Open"}
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      Control teacher editing after reports are finalized.
+                    </Typography>
+                  </Box>
+                </Stack>
+
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={marksEntrySettings.teacherEntryEnabled}
+                      onChange={(event) =>
+                        setMarksEntrySettings((current) => ({
+                          ...current,
+                          teacherEntryEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  }
+                  label={marksEntrySettings.teacherEntryEnabled ? "Entry enabled" : "Entry disabled"}
+                  sx={{ m: 0 }}
+                />
+
+                <TextField
+                  type="date"
+                  size="small"
+                  fullWidth
+                  label="Automatic closing date"
+                  value={marksEntrySettings.teacherEntryDeadline}
+                  onChange={(event) =>
+                    setMarksEntrySettings((current) => ({
+                      ...current,
+                      teacherEntryDeadline: event.target.value,
+                    }))
+                  }
+                  InputLabelProps={{ shrink: true }}
+                />
+
+                <Button
+                  variant="contained"
+                  color={isTeacherMarksEntryLocked(marksEntrySettings) ? "error" : "primary"}
+                  startIcon={savingMarksEntrySettings ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
+                  disabled={savingMarksEntrySettings}
+                  onClick={saveMarksEntrySettings}
+                  sx={{ minWidth: { xl: 178 } }}
+                >
+                  Save Access
+                </Button>
+              </Box>
+
+              {settingsError ? <Alert severity="error">{settingsError}</Alert> : null}
+              {settingsMessage ? <Alert severity="success">{settingsMessage}</Alert> : null}
+            </Stack>
+          </CardContent>
+        </Card>
+
         <Grid container spacing={1.25}>
           {metricCards.map((card) => (
-            <Grid item xs={6} md={3} key={card.title}>
+            <Grid size={{ xs: 6, md: 3 }} key={card.title}>
               <MetricTile {...card} />
             </Grid>
           ))}
@@ -464,14 +587,14 @@ export default function Dashboard() {
 
         <Grid container spacing={1.25}>
           {quickActions.map((item) => (
-            <Grid item xs={12} md={4} key={item.title}>
+            <Grid size={{ xs: 12, md: 4 }} key={item.title}>
               <QuickActionCard {...item} />
             </Grid>
           ))}
         </Grid>
 
         <Grid container spacing={1.25} alignItems="stretch">
-          <Grid item xs={12} lg={7}>
+          <Grid size={{ xs: 12, lg: 7 }}>
             <SectionCard
               title="Recent Students"
               subtitle="Latest student records currently in the system."
@@ -592,7 +715,7 @@ export default function Dashboard() {
             </SectionCard>
           </Grid>
 
-          <Grid item xs={12} lg={5}>
+          <Grid size={{ xs: 12, lg: 5 }}>
             <SectionCard
               title="System Snapshot"
               subtitle="Current totals across the core collections."

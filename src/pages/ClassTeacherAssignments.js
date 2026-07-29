@@ -274,7 +274,7 @@ export default function ClassTeacherAssignments() {
       <Stack spacing={2.25}>
       <Box
         sx={{
-          bgcolor: "white",
+          bgcolor: "background.paper",
           borderRadius: 3,
           p: { xs: 2, sm: 2.5 },
           mb: 2,
@@ -285,7 +285,7 @@ export default function ClassTeacherAssignments() {
         <Typography
           variant={isMobile ? "h6" : "h5"}
           fontWeight={800}
-          color="#1a237e"
+          color="primary.main"
         >
           Class Teacher Assignments
         </Typography>
@@ -332,7 +332,7 @@ export default function ClassTeacherAssignments() {
       {isMobile ? (
         <Paper sx={{ p: 1.5, borderRadius: 3, border: "1px solid #e8eaf6" }}>
           <Stack spacing={1}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
               Quick Summary
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -345,16 +345,16 @@ export default function ClassTeacherAssignments() {
         </Paper>
       ) : (
         <Grid container spacing={1.5}>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Assigned" value={stats.assigned} icon={<CheckCircleIcon />} color="success" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Unassigned" value={stats.unassigned} icon={<WarningAmberIcon />} color="warning" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Classes" value={stats.total} icon={<HomeWorkIcon />} color="primary" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Grades" value={stats.grades} icon={<SchoolIcon />} color="secondary" />
           </Grid>
         </Grid>
@@ -636,7 +636,7 @@ export default function ClassTeacherAssignments() {
           <Typography
             variant="subtitle1"
             fontWeight={800}
-            color="#1a237e"
+            color="primary.main"
             mb={1.5}
           >
             Grade-wise Overview
@@ -644,7 +644,7 @@ export default function ClassTeacherAssignments() {
 
           <Grid container spacing={1.5}>
             {groupedByGrade.map(([grade, gradeClassrooms]) => (
-              <Grid item xs={12} sm={6} md={4} key={grade}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={grade}>
                 <Paper
                   sx={{
                     p: 1.5,
@@ -654,11 +654,11 @@ export default function ClassTeacherAssignments() {
                   }}
                 >
                   <Box display="flex" alignItems="center" gap={0.5} mb={1}>
-                    <SchoolIcon sx={{ color: "#1a237e", fontSize: 18 }} />
+                    <SchoolIcon sx={{ color: "primary.main", fontSize: 18 }} />
                     <Typography
                       variant="subtitle2"
                       fontWeight={800}
-                      color="#1a237e"
+                      color="primary.main"
                     >
                       Grade {grade}
                     </Typography>

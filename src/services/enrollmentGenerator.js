@@ -13,6 +13,7 @@ import {
   COMPULSORY_CORE_10_11,
   getALCompulsorySubjectsForStream,
 } from "../constants";
+import { normalizeStudentName } from "../utils/studentNameUtils";
 
 const STUDENTS_COLLECTION = "students";
 const SUBJECTS_COLLECTION = "subjects";
@@ -58,9 +59,17 @@ const COMMON_SUBJECT_ALIASES = {
   "appreciation of tamil literature": "Appreciation of Tamil Literary Texts",
   "appreciation of tamil literary text": "Appreciation of Tamil Literary Texts",
 
-  "ict": "Information & Communication Technology",
-  "information communication technology": "Information & Communication Technology",
-  "information and communication technology": "Information & Communication Technology",
+  "ict": "Information & Communication Technology (T)",
+  "ict t": "Information & Communication Technology (T)",
+  "ict tamil": "Information & Communication Technology (T)",
+  "information communication technology": "Information & Communication Technology (T)",
+  "information and communication technology": "Information & Communication Technology (T)",
+  "information communication technology t": "Information & Communication Technology (T)",
+  "information and communication technology t": "Information & Communication Technology (T)",
+  "ict e": "Information & Communication Technology (E)",
+  "ict english": "Information & Communication Technology (E)",
+  "information communication technology e": "Information & Communication Technology (E)",
+  "information and communication technology e": "Information & Communication Technology (E)",
 
   "agriculture": "Agriculture & Food Technology",
   "agriculture food technology": "Agriculture & Food Technology",
@@ -160,7 +169,7 @@ function isALStudent(student) {
 }
 
 function getStudentName(student) {
-  return student?.fullName || student?.name || "";
+  return normalizeStudentName(student?.fullName || student?.name || "");
 }
 
 function getStudentSection(student) {

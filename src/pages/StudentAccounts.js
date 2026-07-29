@@ -669,16 +669,16 @@ export default function StudentAccounts() {
           {message ? <Alert severity={message.severity}>{message.text}</Alert> : null}
 
           <Grid container spacing={1.25}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Expected" value={money(totals.expected)} icon={<ArticleRoundedIcon />} color="primary" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Paid" value={money(totals.paid)} icon={<AddCardRoundedIcon />} color="success" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="To Be Paid" value={money(totals.balance)} icon={<AccountBalanceWalletRoundedIcon />} color="warning" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Class Students"
                 value={selectedClassRows.length}
@@ -690,7 +690,7 @@ export default function StudentAccounts() {
 
           <Grid container spacing={1.25}>
             {FEE_HEADS.map((fee) => (
-              <Grid item xs={12} md={4} key={fee.key}>
+              <Grid size={{ xs: 12, md: 4 }} key={fee.key}>
                 <Card variant="outlined" sx={{ borderRadius: 2 }}>
                   <CardContent>
                     <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{fee.label}</Typography>
@@ -708,7 +708,7 @@ export default function StudentAccounts() {
           <Card variant="outlined" sx={{ borderRadius: 2 }}>
             <CardContent>
               <Grid container spacing={1.25} alignItems="center">
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <TextField
                     select
                     fullWidth
@@ -729,7 +729,7 @@ export default function StudentAccounts() {
                     ))}
                   </TextField>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <TextField
                     fullWidth
                     label="Search index no or student"
@@ -739,13 +739,13 @@ export default function StudentAccounts() {
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon /></InputAdornment> }}
                   />
                 </Grid>
-                <Grid item xs={6} md={2}>
+                <Grid size={{ xs: 6, md: 2 }}>
                   <TextField select fullWidth label="Due Fee" value={feeFilter} onChange={(event) => setFeeFilter(event.target.value)} disabled={!selectedClass}>
                     <MenuItem value="">All</MenuItem>
                     {FEE_HEADS.map((fee) => <MenuItem key={fee.key} value={fee.key}>{fee.shortLabel} due</MenuItem>)}
                   </TextField>
                 </Grid>
-                <Grid item xs={6} md={2}>
+                <Grid size={{ xs: 6, md: 2 }}>
                   <TextField select fullWidth label="Status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} disabled={!selectedClass}>
                     <MenuItem value="">All</MenuItem>
                     <MenuItem value="Paid">Paid</MenuItem>
@@ -753,10 +753,10 @@ export default function StudentAccounts() {
                     <MenuItem value="Not Paid">Not Paid</MenuItem>
                   </TextField>
                 </Grid>
-                <Grid item xs={6} md={1}>
+                <Grid size={{ xs: 6, md: 1 }}>
                   <TextField fullWidth label="Year" value={academicYear} onChange={(event) => setAcademicYear(event.target.value)} />
                 </Grid>
-                <Grid item xs={6} md={1}>
+                <Grid size={{ xs: 6, md: 1 }}>
                   <Button fullWidth variant="outlined" onClick={() => { setSearch(""); setSelectedClass(""); setFeeFilter(""); setStatusFilter(""); }}>
                     Clear
                   </Button>

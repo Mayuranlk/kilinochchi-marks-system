@@ -411,7 +411,7 @@ export default function YearEndPromotion() {
             </Typography>
 
             <Grid container spacing={2}>
-              <Grid item xs={6}>
+              <Grid size={{ xs: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>From Year</InputLabel>
                   <Select
@@ -432,7 +432,7 @@ export default function YearEndPromotion() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={6}>
+              <Grid size={{ xs: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>To Year</InputLabel>
                   <Select value={toYear} label="To Year" disabled>
@@ -441,7 +441,7 @@ export default function YearEndPromotion() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={6}>
+              <Grid size={{ xs: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>Grade</InputLabel>
                   <Select
@@ -458,7 +458,7 @@ export default function YearEndPromotion() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={6}>
+              <Grid size={{ xs: 6 }}>
                 <FormControl fullWidth>
                   <InputLabel>Section</InputLabel>
                   <Select
@@ -475,7 +475,7 @@ export default function YearEndPromotion() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid size={{ xs: 12 }}>
                 {transitionType === "normal" && (
                   <Alert severity="info" icon={<ArrowForwardIcon />}>
                     Grade {grade} → Grade {nextGrade}
@@ -683,7 +683,7 @@ export default function YearEndPromotion() {
           )}
 
           <Grid container spacing={2} mt={1}>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <Button
                 fullWidth
                 variant="outlined"
@@ -696,7 +696,7 @@ export default function YearEndPromotion() {
               </Button>
             </Grid>
 
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <Button
                 fullWidth
                 variant="contained"
@@ -730,7 +730,7 @@ export default function YearEndPromotion() {
       {step === 2 && (
         <Box textAlign="center" py={4}>
           <EmojiEventsIcon sx={{ fontSize: 64, color: "#ffd54f" }} />
-          <Typography variant="h6" fontWeight={700} mt={1} color="#1a237e">
+          <Typography variant="h6" fontWeight={700} mt={1} color="primary.main">
             Promotion Complete! 🎉
           </Typography>
           <Typography variant="body2" color="text.secondary" mt={1}>

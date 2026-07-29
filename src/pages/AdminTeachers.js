@@ -6,8 +6,17 @@ import {
   doc,
   setDoc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut,
+  updateEmail,
+  updatePassword,
+} from "firebase/auth";
 import { deleteApp, initializeApp } from "firebase/app";
 import { db } from "../firebase";
 import firebaseApp from "../firebase";
@@ -123,6 +132,26 @@ async function createStaffAuthUser(email, password) {
     await signOut(secondaryAuth);
     return credential;
   } finally {
+    await deleteApp(secondaryApp);
+  }
+}
+
+async function withStaffAuthUser(email, password, action) {
+  const secondaryApp = initializeApp(
+    firebaseApp.options,
+    `staff-security-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+  const secondaryAuth = getAuth(secondaryApp);
+
+  try {
+    const credential = await signInWithEmailAndPassword(
+      secondaryAuth,
+      normalizeText(email).toLowerCase(),
+      password
+    );
+    return await action(credential.user);
+  } finally {
+    await signOut(secondaryAuth).catch(() => undefined);
     await deleteApp(secondaryApp);
   }
 }
@@ -268,6 +297,11 @@ export default function AdminTeachers() {
   const [form, setForm] = useState(empty);
   const [editForm, setEditForm] = useState({});
   const [credentialsPassword, setCredentialsPassword] = useState("");
+  const [accountSecurityForm, setAccountSecurityForm] = useState({
+    currentPassword: "",
+    newEmail: "",
+    newPassword: "",
+  });
   const [transferForm, setTransferForm] = useState({
     date: "",
     reason: "",
@@ -767,6 +801,167 @@ export default function AdminTeachers() {
     setError("");
   };
 
+  const assertSelectedAuthUser = (authUser) => {
+    const expectedUid = normalizeText(selectedTeacher?.raw?.uid || selectedTeacher?.id);
+    if (!expectedUid || authUser.uid !== expectedUid) {
+      throw new Error("The login email does not match the selected staff account.");
+    }
+  };
+
+  const handleChangeStaffEmail = async () => {
+    if (!selectedTeacher) return;
+    const currentPassword = accountSecurityForm.currentPassword;
+    const oldEmail = normalizeText(selectedTeacher.email).toLowerCase();
+    const newEmail = normalizeText(accountSecurityForm.newEmail).toLowerCase();
+
+    if (!currentPassword) {
+      setError("Enter the staff member's current password to change their email.");
+      return;
+    }
+    if (!newEmail || !newEmail.includes("@")) {
+      setError("Enter a valid new email address.");
+      return;
+    }
+    if (newEmail === oldEmail) {
+      setError("The new email is the same as the current email.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await withStaffAuthUser(oldEmail, currentPassword, async (authUser) => {
+        assertSelectedAuthUser(authUser);
+        await updateEmail(authUser, newEmail);
+
+        try {
+          const [assignmentSnap, classroomSnap] = await Promise.all([
+            getDocs(collection(db, "teacherAssignments")),
+            getDocs(collection(db, "classrooms")),
+          ]);
+          const batch = writeBatch(db);
+          batch.update(doc(db, "users", selectedTeacher.id), {
+            email: newEmail,
+            updatedAt: new Date().toISOString(),
+          });
+
+          assignmentSnap.docs.forEach((assignmentDoc) => {
+            const data = assignmentDoc.data();
+            const sameTeacher =
+              normalizeText(data.teacherId || data.teacherUid) === normalizeText(selectedTeacher.id) ||
+              normalizeLower(data.teacherEmail) === oldEmail;
+            if (sameTeacher) {
+              batch.update(doc(db, "teacherAssignments", assignmentDoc.id), {
+                teacherEmail: newEmail,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          });
+
+          classroomSnap.docs.forEach((classroomDoc) => {
+            const data = classroomDoc.data();
+            const sameTeacher =
+              normalizeText(data.classTeacherId || data.classTeacherUid) === normalizeText(selectedTeacher.id) ||
+              normalizeLower(data.classTeacherEmail) === oldEmail;
+            if (sameTeacher) {
+              batch.update(doc(db, "classrooms", classroomDoc.id), {
+                classTeacherEmail: newEmail,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          });
+
+          await batch.commit();
+        } catch (syncError) {
+          await updateEmail(authUser, oldEmail).catch(() => undefined);
+          throw syncError;
+        }
+      });
+
+      setSuccess(`Login email changed to ${newEmail}.`);
+      setSelectedTeacher((current) =>
+        current
+          ? { ...current, email: newEmail, raw: { ...current.raw, email: newEmail } }
+          : current
+      );
+      setAccountSecurityForm((current) => ({
+        ...current,
+        currentPassword: "",
+        newEmail,
+      }));
+      await fetchData();
+    } catch (changeError) {
+      console.error("Staff email update error:", changeError);
+      setError(
+        ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found"].includes(changeError.code)
+          ? "The current email or password is incorrect."
+          : changeError.code === "auth/email-already-in-use"
+            ? "That email address is already used by another account."
+            : changeError.message || "Failed to change the login email."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChangeStaffPassword = async () => {
+    if (!selectedTeacher) return;
+    const currentPassword = accountSecurityForm.currentPassword;
+    const newPassword = accountSecurityForm.newPassword;
+
+    if (!currentPassword) {
+      setError("Enter the staff member's current password.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError("The new password must be at least 6 characters.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await withStaffAuthUser(selectedTeacher.email, currentPassword, async (authUser) => {
+        assertSelectedAuthUser(authUser);
+        await updatePassword(authUser, newPassword);
+      });
+      setCredentialsPassword(newPassword);
+      setAccountSecurityForm((current) => ({
+        ...current,
+        currentPassword: "",
+        newPassword: "",
+      }));
+      setSuccess(`Password changed for ${selectedTeacher.name}.`);
+    } catch (changeError) {
+      console.error("Staff password update error:", changeError);
+      setError(
+        ["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found"].includes(changeError.code)
+          ? "The current email or password is incorrect."
+          : changeError.message || "Failed to change the password."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendStaffPasswordReset = async () => {
+    if (!selectedTeacher?.email) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await sendPasswordResetEmail(getAuth(firebaseApp), selectedTeacher.email);
+      setSuccess(`Password reset email sent to ${selectedTeacher.email}.`);
+    } catch (resetError) {
+      console.error("Password reset email error:", resetError);
+      setError(resetError.message || "Failed to send the password reset email.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleOpenWhatsAppMessage = () => {
     if (!loginMessage) return;
     window.open(
@@ -840,6 +1035,11 @@ export default function AdminTeachers() {
   const openCredentialsMessage = (teacher) => {
     setSelectedTeacher(teacher);
     setCredentialsPassword("");
+    setAccountSecurityForm({
+      currentPassword: "",
+      newEmail: teacher.email || "",
+      newPassword: "",
+    });
     setError("");
     setSuccess("");
     setCredentialsOpen(true);
@@ -1009,7 +1209,7 @@ export default function AdminTeachers() {
     <PageContainer>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <Box>
-          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
+          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="primary.main">
             Manage Teachers
           </Typography>
 
@@ -1039,7 +1239,7 @@ export default function AdminTeachers() {
               setBulkSuccess("");
             }}
             size={isMobile ? "small" : "medium"}
-            sx={{ borderColor: "#1a237e", color: "#1a237e" }}
+            sx={{ borderColor: "primary.main", color: "primary.main" }}
           >
             {isMobile ? "Bulk" : "Bulk Upload"}
           </Button>
@@ -1075,8 +1275,8 @@ export default function AdminTeachers() {
             mb: 2,
             p: 2,
             borderRadius: 2,
-            borderColor: "#c8e6c9",
-            bgcolor: "#f1f8e9",
+            borderColor: "success.light",
+            bgcolor: "success.lighter",
           }}
         >
           <Box
@@ -1088,7 +1288,7 @@ export default function AdminTeachers() {
             mb={1.25}
           >
             <Box>
-              <Typography variant="subtitle2" fontWeight={800} color="#1b5e20">
+              <Typography variant="subtitle2" fontWeight={800} color="success.dark">
                 WhatsApp Login Message
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -1138,8 +1338,8 @@ export default function AdminTeachers() {
           mb: 2,
           p: { xs: 1.25, sm: 1.5 },
           borderRadius: 2,
-          borderColor: "#e0e7ff",
-          bgcolor: "#fbfcff",
+          borderColor: "divider",
+          bgcolor: "background.paper",
         }}
       >
         <Stack
@@ -1273,7 +1473,7 @@ export default function AdminTeachers() {
                         startIcon={<KeyIcon />}
                         onClick={() => openCredentialsMessage(teacher)}
                       >
-                        Login Message
+                        Login & Security
                       </Button>
 
                       <Button
@@ -1417,7 +1617,7 @@ export default function AdminTeachers() {
                             </IconButton>
                           </Tooltip>
 
-                          <Tooltip title="Create Login Message">
+                          <Tooltip title="Login & Security">
                             <IconButton
                               size="small"
                               color="success"
@@ -1474,16 +1674,16 @@ export default function AdminTeachers() {
             >
               <AccordionSummary
                 expandIcon={<ExpandMoreIcon />}
-                sx={{ bgcolor: "#fff8e1", borderRadius: 3 }}
+                sx={{ bgcolor: "warning.lighter", borderRadius: 3 }}
               >
-                <Typography fontWeight={700} color="#f57f17">
+                <Typography fontWeight={700} color="warning.dark">
                   Transferred Teachers ({filteredTransferredTeachers.length})
                 </Typography>
               </AccordionSummary>
 
               <AccordionDetails sx={{ p: 0 }}>
                 <Table size="small">
-                  <TableHead sx={{ bgcolor: "#fff3e0" }}>
+                  <TableHead sx={{ bgcolor: "warning.lighter" }}>
                     <TableRow>
                       {["Name", "Email", "Phone", "Date", "To School", "Actions"].map((heading) => (
                         <TableCell key={heading} sx={{ fontWeight: 600, fontSize: 13 }}>
@@ -1495,7 +1695,7 @@ export default function AdminTeachers() {
 
                   <TableBody>
                     {filteredTransferredTeachers.map((teacher) => (
-                      <TableRow key={teacher.id} sx={{ bgcolor: "#fffde7" }}>
+                      <TableRow key={teacher.id} sx={{ bgcolor: "action.hover" }}>
                         <TableCell>
                           <Typography variant="body2" fontWeight={600}>
                             {teacher.name}
@@ -1557,11 +1757,11 @@ export default function AdminTeachers() {
           </Stack>
         </DialogTitle>
 
-        <DialogContent sx={{ bgcolor: "#f8fafc" }}>
+        <DialogContent sx={{ bgcolor: "background.paper" }}>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
 
           <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Full Name *"
@@ -1570,7 +1770,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Email Address *"
@@ -1580,7 +1780,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Password (min 6 chars) *"
@@ -1590,7 +1790,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Login Role</InputLabel>
                 <Select
@@ -1617,7 +1817,7 @@ export default function AdminTeachers() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Phone Number"
@@ -1628,7 +1828,7 @@ export default function AdminTeachers() {
 
             {form.role === "sectional_head" && (
               <>
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <FormControl fullWidth>
                     <InputLabel>Subject Teacher Access</InputLabel>
                     <Select
@@ -1644,7 +1844,7 @@ export default function AdminTeachers() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <FormControl fullWidth>
                     <InputLabel>Assigned Grades</InputLabel>
                     <Select
@@ -1673,7 +1873,7 @@ export default function AdminTeachers() {
               </>
             )}
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Signature No."
@@ -1683,14 +1883,14 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Paper
                 variant="outlined"
                 sx={{
                   p: { xs: 1.5, sm: 2 },
                   borderRadius: 2,
-                  borderColor: form.assignAsClassTeacher ? "#bfdbfe" : "#e2e8f0",
-                  bgcolor: form.assignAsClassTeacher ? "#eff6ff" : "white",
+                  borderColor: form.assignAsClassTeacher ? "primary.light" : "divider",
+                  bgcolor: form.assignAsClassTeacher ? "primary.lighter" : "background.paper",
                 }}
               >
                 <Stack spacing={1.5}>
@@ -1701,7 +1901,7 @@ export default function AdminTeachers() {
                     justifyContent="space-between"
                   >
                     <Box>
-                      <Typography variant="subtitle2" fontWeight={800} color="#0f172a">
+                      <Typography variant="subtitle2" fontWeight={800} color="text.primary">
                         Class Teacher Duty
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
@@ -1726,7 +1926,7 @@ export default function AdminTeachers() {
 
                   {form.assignAsClassTeacher ? (
                     <Grid container spacing={1.5}>
-                      <Grid item xs={6}>
+                      <Grid size={{ xs: 6 }}>
                         <FormControl fullWidth>
                           <InputLabel>Grade</InputLabel>
                           <Select
@@ -1749,7 +1949,7 @@ export default function AdminTeachers() {
                         </FormControl>
                       </Grid>
 
-                      <Grid item xs={6}>
+                      <Grid size={{ xs: 6 }}>
                         <FormControl fullWidth>
                           <InputLabel>Section</InputLabel>
                           <Select
@@ -1778,7 +1978,7 @@ export default function AdminTeachers() {
           </Grid>
         </DialogContent>
 
-        <DialogActions sx={{ p: 2, bgcolor: "#f8fafc" }}>
+        <DialogActions sx={{ p: 2, bgcolor: "background.paper" }}>
           <Button onClick={() => setOpen(false)} fullWidth={isMobile}>
             Cancel
           </Button>
@@ -1809,7 +2009,7 @@ export default function AdminTeachers() {
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
 
           <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Full Name *"
@@ -1818,7 +2018,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Login Role</InputLabel>
                 <Select
@@ -1847,7 +2047,7 @@ export default function AdminTeachers() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Phone Number"
@@ -1858,7 +2058,7 @@ export default function AdminTeachers() {
 
             {editForm.role === "sectional_head" && (
               <>
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <FormControl fullWidth>
                     <InputLabel>Subject Teacher Access</InputLabel>
                     <Select
@@ -1877,7 +2077,7 @@ export default function AdminTeachers() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12}>
+                <Grid size={{ xs: 12 }}>
                   <FormControl fullWidth>
                     <InputLabel>Assigned Grades</InputLabel>
                     <Select
@@ -1906,7 +2106,7 @@ export default function AdminTeachers() {
               </>
             )}
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Signature No."
@@ -1936,21 +2136,20 @@ export default function AdminTeachers() {
       <Dialog
         open={credentialsOpen}
         onClose={() => setCredentialsOpen(false)}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
         fullScreen={isMobile}
       >
         <DialogTitle sx={{ bgcolor: "#1b5e20", color: "white" }}>
           <KeyIcon sx={{ mr: 1, verticalAlign: "middle" }} />
-          Login Message
+          Login & Security
         </DialogTitle>
 
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
 
           <Alert severity="info" sx={{ mb: 2, mt: 1 }}>
-            Create a message for <strong>{selectedTeacher?.name}</strong> with their login URL,
-            email, and password.
+            Manage the Firebase login for <strong>{selectedTeacher?.name}</strong>. Direct changes require their current password and do not sign out the administrator.
           </Alert>
 
           <TextField
@@ -1963,13 +2162,98 @@ export default function AdminTeachers() {
 
           <TextField
             fullWidth
-            label="Password to Share *"
-            type="text"
-            value={credentialsPassword}
-            onChange={(e) => setCredentialsPassword(e.target.value)}
-            autoFocus
-            helperText="Use the teacher's current password or the new password you have set for them."
+            label="Current Password"
+            type="password"
+            value={accountSecurityForm.currentPassword}
+            onChange={(e) =>
+              setAccountSecurityForm((current) => ({
+                ...current,
+                currentPassword: e.target.value,
+              }))
+            }
+            helperText="Required for direct email or password changes."
+            sx={{ mb: 2 }}
           />
+
+          <Grid container spacing={1.5}>
+            <Grid size={{ xs: 12, sm: 8 }}>
+              <TextField
+                fullWidth
+                label="New Login Email"
+                type="email"
+                value={accountSecurityForm.newEmail}
+                onChange={(e) =>
+                  setAccountSecurityForm((current) => ({
+                    ...current,
+                    newEmail: e.target.value,
+                  }))
+                }
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Button
+                variant="outlined"
+                onClick={handleChangeStaffEmail}
+                disabled={saving}
+                fullWidth
+                sx={{ height: "100%" }}
+              >
+                Change Email
+              </Button>
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 8 }}>
+              <TextField
+                fullWidth
+                label="New Password"
+                type="password"
+                value={accountSecurityForm.newPassword}
+                onChange={(e) =>
+                  setAccountSecurityForm((current) => ({
+                    ...current,
+                    newPassword: e.target.value,
+                  }))
+                }
+                helperText="Minimum 6 characters."
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Button
+                variant="outlined"
+                onClick={handleChangeStaffPassword}
+                disabled={saving}
+                fullWidth
+                sx={{ height: "100%" }}
+              >
+                Change Password
+              </Button>
+            </Grid>
+          </Grid>
+
+          <Button
+            variant="text"
+            color="warning"
+            onClick={handleSendStaffPasswordReset}
+            disabled={saving}
+            sx={{ mt: 1.5 }}
+          >
+            Send Password Reset Email Instead
+          </Button>
+
+          <Box sx={{ borderTop: "1px solid", borderColor: "divider", mt: 2, pt: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+              Create Login Message
+            </Typography>
+
+            <TextField
+              fullWidth
+              label="Password to Share"
+              type="text"
+              value={credentialsPassword}
+              onChange={(e) => setCredentialsPassword(e.target.value)}
+              helperText="After changing a password, the new password is filled here automatically."
+            />
+          </Box>
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>
@@ -1980,6 +2264,7 @@ export default function AdminTeachers() {
             onClick={handleCreateForgotCredentialsMessage}
             variant="contained"
             color="success"
+            disabled={saving}
             fullWidth={isMobile}
           >
             Create Message
@@ -2001,7 +2286,7 @@ export default function AdminTeachers() {
           </Alert>
 
           <Grid container spacing={2}>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Grade</InputLabel>
                 <Select
@@ -2024,7 +2309,7 @@ export default function AdminTeachers() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Section</InputLabel>
                 <Select
@@ -2115,7 +2400,7 @@ export default function AdminTeachers() {
           </Alert>
 
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Transfer Date *"
@@ -2126,7 +2411,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Transferred To (School Name)"
@@ -2136,7 +2421,7 @@ export default function AdminTeachers() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Reason (optional)"
@@ -2206,11 +2491,11 @@ export default function AdminTeachers() {
                 borderRadius: 2,
                 p: 3,
                 textAlign: "center",
-                bgcolor: "#f8f9ff",
+                bgcolor: "background.default",
                 mb: 2,
               }}
             >
-              <UploadFileIcon sx={{ fontSize: 40, color: "#1a237e", mb: 1 }} />
+              <UploadFileIcon sx={{ fontSize: 40, color: "primary.main", mb: 1 }} />
               <Typography variant="body2" color="text.secondary" mb={1.5}>
                 Select your filled Excel file (.xlsx / .xls)
               </Typography>

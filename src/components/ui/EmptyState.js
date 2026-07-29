@@ -10,22 +10,25 @@ const EmptyState = ({
 }) => {
   return (
     <Box
+      role="status"
       sx={{
         border: "1px dashed",
         borderColor: "divider",
-        borderRadius: 1.5,
-        px: 2,
-        py: 3,
+        borderRadius: 2,
+        px: { xs: 2, sm: 3 },
+        py: { xs: 3.5, sm: 4.5 },
         textAlign: "center",
         bgcolor: "background.default",
+        backgroundImage: (theme) =>
+          `radial-gradient(circle at 50% 0%, ${theme.palette.action.selected}, transparent 58%)`,
       }}
     >
       <Stack spacing={1.25} alignItems="center">
         <Box
           sx={{
-            height: 48,
-            width: 48,
-            borderRadius: 1.5,
+            height: 52,
+            width: 52,
+            borderRadius: 2,
             display: "grid",
             placeItems: "center",
             bgcolor: "background.paper",
@@ -36,7 +39,7 @@ const EmptyState = ({
           {icon || <InboxRoundedIcon color="action" />}
         </Box>
 
-        <Typography variant="h6">{title}</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>{title}</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460 }}>
           {description}
         </Typography>

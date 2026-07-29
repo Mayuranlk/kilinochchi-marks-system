@@ -1,9 +1,11 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { Box, CssBaseline, LinearProgress, Stack, ThemeProvider, Typography } from "@mui/material";
+import { Box, CssBaseline, LinearProgress, Skeleton, Stack, ThemeProvider, Typography } from "@mui/material";
+import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import appTheme from "./theme/appTheme";
+import { COLOR_MODES, createAppTheme } from "./theme/appTheme";
+import { ColorModeContext } from "./theme/ColorModeContext";
 
 import Layout from "./components/Layout";
 import PageMeta from "./components/PageMeta";
@@ -67,23 +69,37 @@ function LoadingScreen() {
       }}
     >
       <Box
+        role="status"
+        aria-live="polite"
         sx={{
           width: "100%",
           maxWidth: 360,
-          p: 2,
+          p: { xs: 2, sm: 2.5 },
           border: "1px solid",
           borderColor: "divider",
-          borderRadius: 2,
+          borderRadius: 3,
           bgcolor: "background.paper",
+          boxShadow: 2,
         }}
       >
-        <Stack spacing={1.25}>
-          <Typography variant="subtitle1" fontWeight={850}>
-            Kilinochchi Marks
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Preparing your workspace...
-          </Typography>
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box sx={{ width: 38, height: 38, display: "grid", placeItems: "center", borderRadius: 1.5, bgcolor: "primary.lighter", color: "primary.main" }}>
+              <SchoolRoundedIcon />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="subtitle1" fontWeight={800}>
+                Kilinochchi Marks
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Preparing your workspace...
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <Skeleton variant="rounded" width="34%" height={34} />
+            <Skeleton variant="rounded" width="66%" height={34} />
+          </Stack>
           <LinearProgress sx={{ borderRadius: 999 }} />
         </Stack>
       </Box>
@@ -167,11 +183,40 @@ function PrefectRoute({ children }) {
 }
 
 export default function App() {
+  const [colorMode, setColorModeState] = useState(() => {
+    const savedMode = window.localStorage.getItem("kcc-color-mode");
+    if (Object.values(COLOR_MODES).includes(savedMode)) return savedMode;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? COLOR_MODES.DARK
+      : COLOR_MODES.LIGHT;
+  });
+
+  const appTheme = useMemo(() => createAppTheme(colorMode), [colorMode]);
+
+  const setColorMode = (nextMode) => {
+    if (!Object.values(COLOR_MODES).includes(nextMode)) return;
+    setColorModeState(nextMode);
+    window.localStorage.setItem("kcc-color-mode", nextMode);
+  };
+
+  const cycleColorMode = () => {
+    const modeOrder = [COLOR_MODES.LIGHT, COLOR_MODES.DARK, COLOR_MODES.CONTRAST];
+    const currentIndex = modeOrder.indexOf(colorMode);
+    setColorMode(modeOrder[(currentIndex + 1) % modeOrder.length]);
+  };
+
+  useEffect(() => {
+    document.documentElement.dataset.colorMode = colorMode;
+  }, [colorMode]);
+
   return (
-    <ThemeProvider theme={appTheme}>
-      <CssBaseline />
-      <AuthProvider>
-        <Router>
+    <ColorModeContext.Provider
+      value={{ mode: colorMode, setMode: setColorMode, cycleMode: cycleColorMode }}
+    >
+      <ThemeProvider theme={appTheme}>
+        <CssBaseline />
+        <AuthProvider>
+          <Router>
           <PageMeta />
           <Routes>
             <Route
@@ -506,7 +551,7 @@ export default function App() {
                 }
               />
               <Route
-                path="export-firestore-samples"
+                path="backup-restore"
                 element={
                   <AdminRoute>
                     <LazyRoute>
@@ -515,6 +560,7 @@ export default function App() {
                   </AdminRoute>
                 }
               />
+              <Route path="export-firestore-samples" element={<Navigate to="/backup-restore" replace />} />
               <Route
                 path="academic-data-health"
                 element={
@@ -675,8 +721,9 @@ export default function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </Router>
-      </AuthProvider>
-    </ThemeProvider>
+          </Router>
+        </AuthProvider>
+      </ThemeProvider>
+    </ColorModeContext.Provider>
   );
 }

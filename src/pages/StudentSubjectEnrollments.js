@@ -532,11 +532,11 @@ export default function StudentSubjectEnrollments() {
           }}
         >
           <Stack spacing={1.5}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
               Filter Enrollment View
             </Typography>
             <Grid container spacing={1.5}>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Grade</InputLabel>
                   <Select
@@ -554,7 +554,7 @@ export default function StudentSubjectEnrollments() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Stream</InputLabel>
                   <Select
@@ -572,7 +572,7 @@ export default function StudentSubjectEnrollments() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
                   <Select
@@ -590,7 +590,7 @@ export default function StudentSubjectEnrollments() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Subject</InputLabel>
                   <Select
@@ -614,7 +614,7 @@ export default function StudentSubjectEnrollments() {
         {isMobile ? (
           <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
             <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -627,16 +627,16 @@ export default function StudentSubjectEnrollments() {
           </Paper>
         ) : (
           <Grid container spacing={1.25}>
-            <Grid item xs={6} sm={3}>
+            <Grid size={{ xs: 6, sm: 3 }}>
               <StatCard title="Enrollments" value={summary.enrollments} icon={<TagIcon />} color="primary" />
             </Grid>
-            <Grid item xs={6} sm={3}>
+            <Grid size={{ xs: 6, sm: 3 }}>
               <StatCard title="Students" value={summary.students} icon={<PersonIcon />} color="success" />
             </Grid>
-            <Grid item xs={6} sm={3}>
+            <Grid size={{ xs: 6, sm: 3 }}>
               <StatCard title="Classes" value={summary.classes} icon={<ClassIcon />} color="secondary" />
             </Grid>
-            <Grid item xs={6} sm={3}>
+            <Grid size={{ xs: 6, sm: 3 }}>
               <StatCard title="Subjects" value={summary.subjects} icon={<MenuBookIcon />} color="warning" />
             </Grid>
           </Grid>
@@ -725,7 +725,7 @@ export default function StudentSubjectEnrollments() {
                           <Box sx={{ p: 1 }}>
                             <Grid container spacing={1}>
                               {subjectGroup.students.map((student) => (
-                                <Grid item xs={12} key={student.enrollmentId}>
+                                <Grid size={{ xs: 12 }} key={student.enrollmentId}>
                                   <StudentCard student={student} />
                                 </Grid>
                               ))}

@@ -825,7 +825,7 @@ export default function ClassCompletionReport() {
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
             <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} sm={4} md={3}>
+              <Grid size={{ xs: 12, sm: 4, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select
@@ -842,7 +842,7 @@ export default function ClassCompletionReport() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={4} md={3}>
+              <Grid size={{ xs: 12, sm: 4, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select
@@ -859,7 +859,7 @@ export default function ClassCompletionReport() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={4} md={3}>
+              <Grid size={{ xs: 12, sm: 4, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -875,7 +875,7 @@ export default function ClassCompletionReport() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <Stack direction="row" spacing={1} justifyContent={{ xs: "stretch", md: "flex-end" }}>
                   <Button
                     variant="outlined"
@@ -934,16 +934,16 @@ export default function ClassCompletionReport() {
         ) : (
           <>
             <Grid container spacing={2}>
-              <Grid item xs={6} md={3}>
+              <Grid size={{ xs: 6, md: 3 }}>
                 <SummaryTile label="Classes" value={summary.total} color="primary" />
               </Grid>
-              <Grid item xs={6} md={3}>
+              <Grid size={{ xs: 6, md: 3 }}>
                 <SummaryTile label="Green" value={summary.done} color="success" />
               </Grid>
-              <Grid item xs={6} md={3}>
+              <Grid size={{ xs: 6, md: 3 }}>
                 <SummaryTile label="Yellow" value={summary.partial} color="warning" />
               </Grid>
-              <Grid item xs={6} md={3}>
+              <Grid size={{ xs: 6, md: 3 }}>
                 <SummaryTile label="Red" value={summary.missing} color="error" />
               </Grid>
             </Grid>
@@ -967,16 +967,16 @@ export default function ClassCompletionReport() {
                 </Stack>
 
                 <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                  <Grid item xs={6} md={3}>
+                  <Grid size={{ xs: 6, md: 3 }}>
                     <SummaryTile label="Expected Marks" value={summary.expectedMarks} color="primary" />
                   </Grid>
-                  <Grid item xs={6} md={3}>
+                  <Grid size={{ xs: 6, md: 3 }}>
                     <SummaryTile label="Entered Marks" value={summary.enteredMarks} color="success" />
                   </Grid>
-                  <Grid item xs={6} md={3}>
+                  <Grid size={{ xs: 6, md: 3 }}>
                     <SummaryTile label="Missing Marks" value={summary.missingMarks} color="error" />
                   </Grid>
-                  <Grid item xs={6} md={3}>
+                  <Grid size={{ xs: 6, md: 3 }}>
                     <SummaryTile
                       label="Pending Subjects"
                       value={summary.pendingSubjects + summary.partialSubjects}
@@ -1062,7 +1062,7 @@ export default function ClassCompletionReport() {
             <Card sx={{ borderRadius: 3 }}>
               <CardContent>
                 <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
-                  <Grid item xs={12} md={7}>
+                  <Grid size={{ xs: 12, md: 7 }}>
                     <Typography variant="h6" fontWeight={800}>
                       Class Subject Completion
                     </Typography>
@@ -1070,7 +1070,7 @@ export default function ClassCompletionReport() {
                       Select a class to see each enrolled subject as completed, partial, or pending. Subjects with no enrolled students are skipped.
                     </Typography>
                   </Grid>
-                  <Grid item xs={12} md={5}>
+                  <Grid size={{ xs: 12, md: 5 }}>
                     <FormControl fullWidth size="small">
                       <InputLabel>Class</InputLabel>
                       <Select

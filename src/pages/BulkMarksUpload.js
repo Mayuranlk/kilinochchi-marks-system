@@ -1765,7 +1765,7 @@ export default function BulkMarksUpload() {
         {isMobile ? (
           <Paper sx={{ p: 1.5, borderRadius: 3, border: "1px solid #e8eaf6" }}>
             <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -1777,16 +1777,16 @@ export default function BulkMarksUpload() {
           </Paper>
         ) : (
           <Grid container spacing={1.5}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Template Rows" value={previewRows.length} icon={<SchoolIcon />} color="primary" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Uploaded Rows" value={validRows.length + invalidRows.length} icon={<PreviewIcon />} color="secondary" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Valid Rows" value={validRows.length} icon={<CheckCircleIcon />} color="success" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Invalid Rows" value={invalidRows.length} icon={<ErrorOutlineIcon />} color="error" />
             </Grid>
           </Grid>
@@ -1804,11 +1804,11 @@ export default function BulkMarksUpload() {
           }}
         >
           <Stack spacing={1.5}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
               Upload Context
             </Typography>
             <Grid container spacing={2} alignItems="flex-end">
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Academic Year</InputLabel>
                   <Select
@@ -1826,7 +1826,7 @@ export default function BulkMarksUpload() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
                   <Select
@@ -1845,7 +1845,7 @@ export default function BulkMarksUpload() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Subject</InputLabel>
                   <Select
@@ -1864,7 +1864,7 @@ export default function BulkMarksUpload() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Term</InputLabel>
                   <Select
@@ -1882,7 +1882,7 @@ export default function BulkMarksUpload() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Button
                   variant="contained"
                   startIcon={
@@ -1901,7 +1901,7 @@ export default function BulkMarksUpload() {
                 </Button>
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Button
                   variant="outlined"
                   component="label"
@@ -1934,7 +1934,7 @@ export default function BulkMarksUpload() {
                 </Button>
               </Grid>
 
-              <Grid item xs={12} md={6}>
+              <Grid size={{ xs: 12, md: 6 }}>
                 <Button
                   variant="outlined"
                   color="error"
@@ -2229,7 +2229,7 @@ export default function BulkMarksUpload() {
             ) : (
               <Grid container spacing={1.5}>
                 {summaryOptions.slice(0, 12).map((item) => (
-                  <Grid item xs={12} md={6} lg={4} key={`${item.className}-${item.subjectName}-${item.academicYear}`}>
+                  <Grid size={{ xs: 12, md: 6, lg: 4 }} key={`${item.className}-${item.subjectName}-${item.academicYear}`}>
                     <Card variant="outlined" sx={{ height: "100%" }}>
                       <CardContent>
                         <Stack spacing={1}>

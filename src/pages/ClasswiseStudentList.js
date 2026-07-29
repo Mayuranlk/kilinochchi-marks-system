@@ -636,7 +636,7 @@ export default function ClasswiseStudentList() {
         <Card sx={{ borderRadius: 2 }}>
           <CardContent>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Report</InputLabel>
                   <Select
@@ -650,7 +650,7 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select
@@ -670,7 +670,7 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={2.5}>
+              <Grid size={{ xs: 12, md: 2.5 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Class</InputLabel>
                   <Select
@@ -688,7 +688,7 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={2.5}>
+              <Grid size={{ xs: 12, md: 2.5 }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Purpose</InputLabel>
                   <Select
@@ -706,7 +706,7 @@ export default function ClasswiseStudentList() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <TextField
                   fullWidth
                   size="small"
@@ -789,13 +789,13 @@ export default function ClasswiseStudentList() {
         {!loading && reportMode === REPORT_MODES.uploadStatus && (
           <>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Classes" value={uploadStatusRows.length} />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Completed" value={completedClassCount} color="success" />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Partial / Empty" value={`${partialClassCount} / ${missingClassCount}`} color="warning" />
               </Grid>
             </Grid>
@@ -873,13 +873,13 @@ export default function ClasswiseStudentList() {
         {!loading && reportMode === REPORT_MODES.classList && selectedClassroom && (
           <>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Class" value={getClassDisplayName(selectedClassroom)} />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Active Students" value={classStudents.length} color="success" />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <StatCard title="Purpose" value={selectedPurpose || "Class List"} color="warning" />
               </Grid>
             </Grid>

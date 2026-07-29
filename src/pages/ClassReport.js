@@ -41,6 +41,10 @@ import {
   isClassMarksEmisExportSupported,
 } from "../utils/classMarksExportUtils";
 import { getOlGradeBand } from "../utils/gradeUtils";
+import {
+  getRankingMedium,
+  usesSeparateMediumRanking,
+} from "../utils/academicMediumUtils";
 import { PageContainer } from "../components/ui";
 
 /* -------------------------------------------------------------------------- */
@@ -612,6 +616,7 @@ export default function ClassReport() {
 
       return {
         ...student,
+        rankingMedium: getRankingMedium(student, studentEnrollments),
         marksBySubject,
         total,
         enteredCount,
@@ -622,29 +627,43 @@ export default function ClassReport() {
   }, [students, enrollments, classSubjects, termMarks, currentTermYear]);
 
   const rankedRows = useMemo(() => {
+    const separateMediumRanking = usesSeparateMediumRanking(classTeacherClass?.grade);
     const sortable = studentRows
-      .filter((student) => student.enteredCount > 0)
-      .sort((a, b) => b.total - a.total);
+      .filter(
+        (student) =>
+          student.enteredCount > 0 &&
+          (!separateMediumRanking || Boolean(student.rankingMedium))
+      )
+      .sort((a, b) => {
+        const mediumDiff = separateMediumRanking
+          ? text(a.rankingMedium).localeCompare(text(b.rankingMedium))
+          : 0;
+        if (mediumDiff !== 0) return mediumDiff;
+        return b.total - a.total;
+      });
 
-    let currentRank = 1;
+    const groupState = new Map();
 
-    return sortable.map((student, index) => {
-      if (index > 0 && student.total === sortable[index - 1].total) {
-        return {
-          ...student,
-          rank: sortable[index - 1].rank,
-        };
-      }
-
-      const row = {
-        ...student,
-        rank: currentRank,
+    return sortable.map((student) => {
+      const groupKey = separateMediumRanking ? student.rankingMedium : "__all__";
+      const state = groupState.get(groupKey) || {
+        position: 0,
+        previousTotal: null,
+        currentRank: 0,
       };
-
-      currentRank = index + 2;
-      return row;
+      const position = state.position + 1;
+      const rank =
+        state.position === 0 || state.previousTotal !== student.total
+          ? position
+          : state.currentRank;
+      groupState.set(groupKey, {
+        position,
+        previousTotal: student.total,
+        currentRank: rank,
+      });
+      return { ...student, rank };
     });
-  }, [studentRows]);
+  }, [studentRows, classTeacherClass?.grade]);
 
   const finalRows = useMemo(() => {
     return studentRows.map((student) => {
@@ -721,7 +740,7 @@ export default function ClassReport() {
       .filter((student) => student.average !== null)
       .map((student) => student.average);
 
-    const topStudent = rankedRows.find((student) => student.rank === 1) || null;
+    const topStudents = rankedRows.filter((student) => student.rank === 1);
 
     const lowestStudent = finalRows
       .filter((student) => student.average !== null)
@@ -733,8 +752,15 @@ export default function ClassReport() {
     return {
       classAverage: averages.length ? Number(average(averages).toFixed(1)) : "—",
       highestAverage:
-        topStudent?.average !== null
-          ? `${topStudent.average} (${getStudentName(topStudent).split(" ")[0]})`
+        topStudents.length > 0
+          ? topStudents
+              .map(
+                (student) =>
+                  `${student.average} (${getStudentName(student).split(" ")[0]}${
+                    student.rankingMedium ? `, ${student.rankingMedium}` : ""
+                  })`
+              )
+              .join(" / ")
           : "—",
       lowestAverage:
         lowestStudent?.average !== null
@@ -746,11 +772,19 @@ export default function ClassReport() {
 
   const sortedDisplayRows = useMemo(() => {
     return [...finalRows].sort((a, b) => {
-      if (a.rank === "—") return 1;
-      if (b.rank === "—") return -1;
-      return a.rank - b.rank;
+      const mediumDiff = usesSeparateMediumRanking(classTeacherClass?.grade)
+        ? text(a.rankingMedium || "Unassigned").localeCompare(
+            text(b.rankingMedium || "Unassigned")
+          )
+        : 0;
+      if (mediumDiff !== 0) return mediumDiff;
+      const aRank = Number(a.rank);
+      const bRank = Number(b.rank);
+      if (!Number.isFinite(aRank)) return 1;
+      if (!Number.isFinite(bRank)) return -1;
+      return aRank - bRank;
     });
-  }, [finalRows]);
+  }, [finalRows, classTeacherClass?.grade]);
 
   const handlePrint = () => {
     if (!printRef.current || !classTeacherClass) return;
@@ -829,7 +863,7 @@ export default function ClassReport() {
         gap={1}
       >
         <Box>
-          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="#1a237e">
+          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="primary.main">
             Class Report
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -908,7 +942,7 @@ export default function ClassReport() {
       ) : (
         <Box ref={printRef}>
           <Box textAlign="center" mb={2} className="header">
-            <Typography variant="h6" fontWeight={700} color="#1a237e">
+            <Typography variant="h6" fontWeight={700} color="primary.main">
               {SCHOOL_NAME}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -924,7 +958,14 @@ export default function ClassReport() {
 
           <Divider sx={{ mb: 2 }} />
 
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1}>
+          {usesSeparateMediumRanking(classTeacherClass.grade) &&
+            finalRows.some((student) => !student.rankingMedium) && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Students without Tamil or English medium are excluded from ranking.
+              </Alert>
+            )}
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1}>
             Marks Schedule — {currentTerm.term} {currentTerm.year}
           </Typography>
 
@@ -958,6 +999,12 @@ export default function ClassReport() {
                   >
                     Name
                   </TableCell>
+
+                  {usesSeparateMediumRanking(classTeacherClass.grade) && (
+                    <TableCell sx={{ color: "white", fontWeight: 700, textAlign: "center" }}>
+                      Medium
+                    </TableCell>
+                  )}
 
                   {classSubjects.map((subjectInfo) => (
                     <TableCell
@@ -1036,6 +1083,12 @@ export default function ClassReport() {
                         {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
                       </TableCell>
 
+                      {usesSeparateMediumRanking(classTeacherClass.grade) && (
+                        <TableCell sx={{ textAlign: "center" }}>
+                          {student.rankingMedium || "Unassigned"}
+                        </TableCell>
+                      )}
+
                       {classSubjects.map((subjectInfo) => {
                         const mark = student.marksBySubject[subjectInfo.subjectName];
                         const letterInfo =
@@ -1106,7 +1159,7 @@ export default function ClassReport() {
             </Table>
           </Paper>
 
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
             Class Summary
           </Typography>
 
@@ -1137,7 +1190,7 @@ export default function ClassReport() {
                 icon: "👥",
               },
             ].map((card) => (
-              <Grid item xs={6} sm={3} key={card.label}>
+              <Grid size={{ xs: 6, sm: 3 }} key={card.label}>
                 <Card sx={{ bgcolor: card.color, boxShadow: 1 }}>
                   <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                     <Typography variant="caption" color="text.secondary">
@@ -1152,7 +1205,7 @@ export default function ClassReport() {
             ))}
           </Grid>
 
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1}>
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1}>
             Subject Analysis
           </Typography>
 
@@ -1283,7 +1336,7 @@ export default function ClassReport() {
             </Table>
           </Paper>
 
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
             Optimi Student List
           </Typography>
 
@@ -1331,13 +1384,13 @@ export default function ClassReport() {
             )}
           </Paper>
 
-          <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={1.5}>
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
             Top Performers
           </Typography>
 
           <Grid container spacing={1.5} mb={3}>
             {rankedRows.slice(0, 5).map((student, idx) => (
-              <Grid item xs={12} sm={6} md={4} key={student.id}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={student.id}>
                 <Card
                   sx={{
                     bgcolor:

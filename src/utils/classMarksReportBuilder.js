@@ -24,6 +24,7 @@ import {
   buildALDisplayClassName,
   isALGrade,
 } from "../constants";
+import { getRankingMedium, usesSeparateMediumRanking } from "./academicMediumUtils";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
@@ -532,6 +533,7 @@ export function buildClassMarksReportData({
       studentIndexNo: getStudentIndexNo(student),
       studentName: getStudentDisplayName(student),
       student,
+      rankingMedium: getRankingMedium(student, studentEnrollments),
       enrollments: studentEnrollments,
       eligibleColumnKeys,
       reportEligibleColumnKeys,
@@ -556,7 +558,35 @@ export function buildClassMarksReportData({
     return nextRow;
   });
 
-  const rankedRows = assignRanks(rows).map((row, index) => ({
+  const separateMediumRanking = usesSeparateMediumRanking(grade);
+  const rankableRows = rows.filter(
+    (row) => !separateMediumRanking || Boolean(row.rankingMedium)
+  );
+  const rankedByStudentId = new Map(
+    assignRanks(rankableRows, {
+      getGroupKey: (row) => (separateMediumRanking ? row.rankingMedium : "__all__"),
+    }).map((row) => [
+      normalizeText(row.student?.id),
+      row,
+    ])
+  );
+  const rankedRows = rows
+    .map((row) => ({
+      ...row,
+      rank: rankedByStudentId.get(normalizeText(row.student?.id))?.rank ?? null,
+    }))
+    .sort((a, b) => {
+      const mediumDiff = separateMediumRanking
+        ? String(a.rankingMedium || "Unassigned").localeCompare(
+            String(b.rankingMedium || "Unassigned")
+          )
+        : 0;
+      if (mediumDiff !== 0) return mediumDiff;
+      if (a.rank === null) return 1;
+      if (b.rank === null) return -1;
+      return a.rank - b.rank;
+    })
+    .map((row, index) => ({
     ...row,
     rowNo: index + 1,
   }));
@@ -592,6 +622,7 @@ export function buildClassMarksReportData({
     groupStats,
     optimiStudents,
     hasSeparateOverallTotal,
+    separateMediumRanking,
     rankBasis: isALGrade(grade) ? "main_3_subjects" : "overall",
   };
 }

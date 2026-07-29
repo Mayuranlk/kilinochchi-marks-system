@@ -156,22 +156,22 @@ export default function ElectionLiveResults() {
           {error ? <Alert severity="warning">{error}</Alert> : null}
 
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard title="Registered Voters" value={totals.registeredVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard title="Voters Voted" value={totals.votedVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard title="Votes Cast" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Including rejected votes" />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard title="Valid Votes" value={totals.validVotes} icon={<LeaderboardRoundedIcon />} color="success" />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard title="Rejected Votes" value={totals.rejectedVotes} icon={<WarningAmberRoundedIcon />} color="warning" />
             </Grid>
-            <Grid item xs={12} sm={6} md={2}>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
               <StatCard
                 title={totals.leaders.length > 1 ? "Current Tie" : "Current Leader"}
                 value={
@@ -185,7 +185,7 @@ export default function ElectionLiveResults() {
           </Grid>
 
           <Grid container spacing={2}>
-            <Grid item xs={12} lg={5}>
+            <Grid size={{ xs: 12, lg: 5 }}>
               <Paper elevation={0} sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 2, height: "100%" }}>
                 <Typography variant="h5" sx={{ fontWeight: 900, mb: 2 }}>
                   Leading Candidates
@@ -225,7 +225,7 @@ export default function ElectionLiveResults() {
               </Paper>
             </Grid>
 
-            <Grid item xs={12} lg={7}>
+            <Grid size={{ xs: 12, lg: 7 }}>
               <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 2 }}>
                 <Table>
                   <TableHead>

@@ -13,8 +13,8 @@ const MobileListRow = ({
   sx = {},
 }) => {
   return (
-    <Card sx={{ borderRadius: 1, overflow: "hidden", boxShadow: "none", ...sx }}>
-      <Box sx={{ p: compact ? 1.1 : 1.35 }}>
+    <Card component="article" sx={{ borderRadius: 1.5, overflow: "hidden", ...sx }}>
+      <Box sx={{ p: compact ? 1.25 : 1.5 }}>
         <Stack spacing={compact ? 1 : 1.2}>
           <Stack
             direction="row"

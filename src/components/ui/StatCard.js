@@ -18,20 +18,19 @@ const StatCard = ({ title, value, icon, helperText, color = "primary", onClick, 
         height: "100%",
         cursor: onClick ? "pointer" : "default",
         borderColor: "divider",
-        boxShadow: "none",
-        transition: "border-color 160ms ease, background-color 160ms ease, transform 160ms ease",
+        transition: "border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease",
         "&:hover": onClick
           ? {
               borderColor: "primary.light",
-              backgroundColor: "rgba(37,99,235,0.025)",
-              transform: "translateY(-1px)",
+              boxShadow: 2,
+              transform: "translateY(-2px)",
             }
           : undefined,
         ...sx,
       }}
     >
-      <CardContent sx={{ p: { xs: 1.5, sm: 1.75 } }}>
-        <Stack spacing={1}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 1.875 }, "&:last-child": { pb: { xs: 1.5, sm: 1.875 } } }}>
+        <Stack spacing={1.15}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 700 }}>
               {title}
@@ -41,13 +40,11 @@ const StatCard = ({ title, value, icon, helperText, color = "primary", onClick, 
                 sx={(theme) => ({
                   height: 36,
                   width: 36,
-                  borderRadius: 1.5,
+                  borderRadius: 2,
                   display: "grid",
                   placeItems: "center",
                   color: theme.palette[color].main,
-                  bgcolor: theme.palette[color].light
-                    ? `${theme.palette[color].light}33`
-                    : `${theme.palette[color].main}14`,
+                  bgcolor: theme.palette[color].lighter || theme.palette[color].light,
                 })}
               >
                 {icon}

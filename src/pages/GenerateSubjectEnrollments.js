@@ -733,12 +733,12 @@ export default function GenerateSubjectEnrollments() {
           }}
         >
           <Stack spacing={1.25}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
               Enrollment Context
             </Typography>
 
             <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               fullWidth
               label="Academic Year"
@@ -748,7 +748,7 @@ export default function GenerateSubjectEnrollments() {
             />
           </Grid>
 
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <Autocomplete
               options={sortedStudents}
               value={selectedStudent}
@@ -782,7 +782,7 @@ export default function GenerateSubjectEnrollments() {
 
           <Grid container spacing={1.5}>
             {operationCards.map((card) => (
-              <Grid item xs={12} md={card.key === "cleanup_duplicates" ? 6 : 4} lg={card.key === "cleanup_duplicates" ? 4 : 4} key={card.key}>
+              <Grid size={{ xs: 12, md: card.key === "cleanup_duplicates" ? 6 : 4, lg: card.key === "cleanup_duplicates" ? 4 : 4 }} key={card.key}>
                 <MobileListRow
                   title={card.title}
                   right={
@@ -841,7 +841,7 @@ export default function GenerateSubjectEnrollments() {
         ) : (
           <Grid container spacing={2}>
             {quickStats.map((item) => (
-              <Grid item xs={6} md={3} key={item.title}>
+              <Grid size={{ xs: 6, md: 3 }} key={item.title}>
                 <SharedStatCard title={item.title} value={item.value} />
               </Grid>
             ))}
@@ -856,7 +856,7 @@ export default function GenerateSubjectEnrollments() {
 
         <Grid container spacing={2}>
           {summaryStats.map((item) => (
-            <Grid item xs={6} md={item.title.includes("Duplicate") ? 3 : 2} key={item.title}>
+            <Grid size={{ xs: 6, md: item.title.includes("Duplicate") ? 3 : 2 }} key={item.title}>
               <SharedStatCard title={item.title} value={item.value} />
             </Grid>
           ))}

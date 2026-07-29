@@ -17,11 +17,18 @@ import {
   AL_COMMON_SUBJECTS_ALL,
   AL_COMMON_SUBJECTS_GRADE_12_ONLY,
 } from "../constants";
+import { normalizeStudentName } from "../utils/studentNameUtils";
 
 const SUBJECTS_COLLECTION = "subjects";
 const STUDENTS_COLLECTION = "students";
 
 const BATCH_LIMIT = 400;
+const STUDENT_NAME_DEPENDENT_COLLECTIONS = [
+  "studentSubjectEnrollments",
+  "marks",
+  "studentFeeAccounts",
+  "lateArrivalRecords",
+];
 
 const RELIGION_ALIASES = {
   catholic: "Catholicism",
@@ -269,9 +276,30 @@ function getAestheticSubjects() {
 }
 
 function buildBasketSubjects(subjectNames, basketLabel, startOrder) {
+  const basketCStableCodes = {
+    "Information & Communication Technology (T)": "BKT_C_01",
+    "Agriculture & Food Technology": "BKT_C_02",
+    "Home Economics": "BKT_C_03",
+    "Health & Physical Education": "BKT_C_04",
+    "Communication & Media Studies": "BKT_C_05",
+    "Design & Construction Technology": "BKT_C_06",
+    "Design & Mechanical Technology": "BKT_C_07",
+    "Design, Electrical & Electronic Technology": "BKT_C_08",
+    "Information & Communication Technology (E)": "BKT_C_09",
+  };
+
   return subjectNames.map((name, index) => ({
-    code: `BKT_${basketLabel}_${String(index + 1).padStart(2, "0")}`,
+    code:
+      basketLabel === "C" && basketCStableCodes[name]
+        ? basketCStableCodes[name]
+        : `BKT_${basketLabel}_${String(index + 1).padStart(2, "0")}`,
     name,
+    ...(name === "Information & Communication Technology (T)"
+      ? { teachingMedium: "Tamil", medium: "Tamil" }
+      : {}),
+    ...(name === "Information & Communication Technology (E)"
+      ? { teachingMedium: "English", medium: "English" }
+      : {}),
     category: "basket",
     basketGroup: `BASKET_${basketLabel}`,
     basketLabel,
@@ -395,6 +423,151 @@ async function commitInChunks(ops) {
     chunk.forEach((op) => op(batch));
     await batch.commit();
   }
+}
+
+function getCanonicalStudentName(student = {}) {
+  const candidates = [student.fullName, student.name]
+    .map((value) => ({ raw: normalizeText(value), clean: normalizeStudentName(value) }))
+    .filter((item) => item.clean);
+
+  // Prefer a field that is already clean if one of the two compatibility
+  // fields was damaged independently. Otherwise normalize the preferred field.
+  return (
+    candidates.find((item) => item.raw === item.clean)?.clean ||
+    candidates[0]?.clean ||
+    ""
+  );
+}
+
+function studentClassLabel(student = {}) {
+  const grade = parseGrade(student.grade);
+  const section = normalizeSection(student.section || student.className);
+  return grade && section ? `${grade}${section}` : "Unassigned";
+}
+
+async function buildStudentNameRepairPlan() {
+  const [studentSnap, ...dependentSnaps] = await Promise.all([
+    getDocs(collection(db, STUDENTS_COLLECTION)),
+    ...STUDENT_NAME_DEPENDENT_COLLECTIONS.map((collectionName) =>
+      getDocs(collection(db, collectionName))
+    ),
+  ]);
+
+  const students = studentSnap.docs.map((snapshot) => ({
+    id: snapshot.id,
+    ...snapshot.data(),
+  }));
+  const canonicalNameByStudentId = new Map();
+  const studentChanges = [];
+
+  students.forEach((student) => {
+    const canonicalName = getCanonicalStudentName(student);
+    if (!canonicalName) return;
+
+    canonicalNameByStudentId.set(student.id, canonicalName);
+    const currentName = normalizeText(student.name);
+    const currentFullName = normalizeText(student.fullName);
+    const nameChanged = currentName && currentName !== canonicalName;
+    const fullNameChanged = currentFullName && currentFullName !== canonicalName;
+    const corruptionChanged =
+      normalizeStudentName(currentName) !== currentName ||
+      normalizeStudentName(currentFullName) !== currentFullName;
+
+    if (!nameChanged && !fullNameChanged && !corruptionChanged) return;
+
+    studentChanges.push({
+      collectionName: STUDENTS_COLLECTION,
+      id: student.id,
+      studentId: student.id,
+      admissionNo: normalizeText(
+        student.admissionNo || student.admissionNumber || student.indexNo
+      ),
+      className: studentClassLabel(student),
+      before: currentFullName || currentName,
+      after: canonicalName,
+      patch: {
+        name: canonicalName,
+        fullName: canonicalName,
+        nameNormalizationBackup: student.nameNormalizationBackup || {
+          name: currentName,
+          fullName: currentFullName,
+        },
+      },
+    });
+  });
+
+  const dependentChanges = [];
+  dependentSnaps.forEach((snapshot, index) => {
+    const collectionName = STUDENT_NAME_DEPENDENT_COLLECTIONS[index];
+
+    snapshot.docs.forEach((documentSnapshot) => {
+      const data = documentSnapshot.data();
+      const studentId = normalizeText(data.studentId);
+      const currentName = normalizeText(data.studentName);
+      const canonicalName =
+        canonicalNameByStudentId.get(studentId) || normalizeStudentName(currentName);
+
+      if (!canonicalName || currentName === canonicalName) return;
+
+      dependentChanges.push({
+        collectionName,
+        id: documentSnapshot.id,
+        studentId,
+        before: currentName,
+        after: canonicalName,
+        patch: { studentName: canonicalName },
+      });
+    });
+  });
+
+  const byClass = studentChanges.reduce((counts, item) => {
+    counts[item.className] = (counts[item.className] || 0) + 1;
+    return counts;
+  }, {});
+
+  return {
+    studentsScanned: students.length,
+    affectedStudents: studentChanges.length,
+    dependentDocuments: dependentChanges.length,
+    documentsScanned:
+      students.length + dependentSnaps.reduce((total, snapshot) => total + snapshot.size, 0),
+    byClass,
+    samples: studentChanges.slice(0, 20).map(({ patch, ...item }) => item),
+    changes: [...studentChanges, ...dependentChanges],
+  };
+}
+
+export async function scanStudentNameIssues() {
+  const { changes, ...summary } = await buildStudentNameRepairPlan();
+  return summary;
+}
+
+export async function repairStudentNames(profile) {
+  const plan = await buildStudentNameRepairPlan();
+  const timestamp = nowIso();
+  const actorId = profile?.uid || "";
+  const actorName = profile?.name || profile?.displayName || profile?.email || "";
+
+  const operations = plan.changes.map((change) => (batch) => {
+    batch.update(doc(db, change.collectionName, change.id), {
+      ...change.patch,
+      nameNormalizedAt: timestamp,
+      nameNormalizedById: actorId,
+      nameNormalizedByName: actorName,
+      updatedAt: timestamp,
+    });
+  });
+
+  await commitInChunks(operations);
+
+  return {
+    studentsScanned: plan.studentsScanned,
+    affectedStudents: plan.affectedStudents,
+    dependentDocuments: plan.dependentDocuments,
+    documentsUpdated: operations.length,
+    byClass: plan.byClass,
+    samples: plan.samples,
+  };
 }
 
 export async function createDefaultSubjects(profile) {

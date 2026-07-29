@@ -160,7 +160,8 @@ export const BASKET_B = [
 ];
 
 export const BASKET_C = [
-  "Information & Communication Technology",
+  "Information & Communication Technology (T)",
+  "Information & Communication Technology (E)",
   "Agriculture & Food Technology",
   "Home Economics",
   "Health & Physical Education",
@@ -719,6 +720,7 @@ export const getBasketForSubjectName = (subjectName) => {
   if (BASKET_A.some((s) => normalizeLoose(s) === key)) return "A";
   if (BASKET_B.some((s) => normalizeLoose(s) === key)) return "B";
   if (BASKET_C.some((s) => normalizeLoose(s) === key)) return "C";
+  if (key === normalizeLoose("Information & Communication Technology")) return "C";
 
   return "";
 };

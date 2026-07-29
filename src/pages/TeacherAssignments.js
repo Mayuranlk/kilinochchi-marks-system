@@ -28,6 +28,7 @@ import {
   Grid,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -50,6 +51,12 @@ import {
   buildALClassName,
   buildALDisplayClassName,
 } from "../constants";
+import {
+  TEACHING_MEDIUMS,
+  getAcademicMedium,
+  isMediumSplitSubject,
+  normalizeAcademicMedium,
+} from "../utils/academicMediumUtils";
 import {
   ActionBar,
   PageContainer,
@@ -285,6 +292,7 @@ export default function TeacherAssignments() {
   const [selectedSections, setSelectedSections] = useState([]);
   const [selectedStreams, setSelectedStreams] = useState([]);
   const [selectedSubjectKeys, setSelectedSubjectKeys] = useState([]);
+  const [selectedTeachingMedium, setSelectedTeachingMedium] = useState("");
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [expandedTeacherId, setExpandedTeacherId] = useState("");
   const [clearingTeacherId, setClearingTeacherId] = useState("");
@@ -457,6 +465,16 @@ export default function TeacherAssignments() {
     );
   }, [availableSubjects, selectedSubjectKeys]);
 
+  const hasMediumSplitSubjects = useMemo(
+    () =>
+      selectedSubjectRows.some((subject) =>
+        subjectFilterGrades.some((grade) =>
+          isMediumSplitSubject(getSubjectName(subject), grade)
+        )
+      ),
+    [selectedSubjectRows, subjectFilterGrades]
+  );
+
   const previewCombos = useMemo(() => {
     const combos = [];
 
@@ -485,6 +503,9 @@ export default function TeacherAssignments() {
             subjectName: getSubjectName(subject),
             subjectCode: getSubjectCode(subject),
             subjectNumber: getSubjectNumber(subject),
+            medium: isMediumSplitSubject(getSubjectName(subject), grade)
+              ? normalizeAcademicMedium(selectedTeachingMedium)
+              : "",
           });
         });
       });
@@ -530,6 +551,9 @@ export default function TeacherAssignments() {
               subjectName: getSubjectName(subject),
               subjectCode: getSubjectCode(subject),
               subjectNumber: getSubjectNumber(subject),
+              medium: isMediumSplitSubject(getSubjectName(subject), grade)
+                ? normalizeAcademicMedium(selectedTeachingMedium)
+                : "",
             });
           });
         });
@@ -544,6 +568,7 @@ export default function TeacherAssignments() {
     selectedSections,
     selectedStreams,
     selectedSubjectRows,
+    selectedTeachingMedium,
     usingExactClasses,
   ]);
 
@@ -678,6 +703,11 @@ export default function TeacherAssignments() {
       return;
     }
 
+    if (hasMediumSplitSubjects && !normalizeAcademicMedium(selectedTeachingMedium)) {
+      setError("Select Tamil or English teaching medium for Mathematics and Science.");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -697,6 +727,10 @@ export default function TeacherAssignments() {
             const existingStream = safeString(assignment.stream);
             if (existingStream !== safeString(combo.stream)) return false;
           }
+
+          const existingMedium = getAcademicMedium(assignment);
+          const comboMedium = normalizeAcademicMedium(combo.medium);
+          if (comboMedium && existingMedium && existingMedium !== comboMedium) return false;
 
           const existingSubjectId = safeString(assignment.subjectId);
           const existingSubjectName = safeString(
@@ -720,13 +754,13 @@ export default function TeacherAssignments() {
 
         if (safeString(existing.teacherId) === selectedTeacher) {
           alreadyAssignedToSameTeacher.push(
-            `${combo.subjectName} - ${combo.displayClassName}`
+            `${combo.subjectName} - ${combo.displayClassName}${combo.medium ? ` - ${combo.medium} Medium` : ""}`
           );
           return;
         }
 
         conflicts.push(
-          `${combo.subjectName} - ${combo.displayClassName} already assigned to ${safeString(existing.teacherName) || "another teacher"}`
+          `${combo.subjectName} - ${combo.displayClassName}${combo.medium ? ` - ${combo.medium} Medium` : ""} already assigned to ${safeString(existing.teacherName) || "another teacher"}`
         );
       });
 
@@ -768,6 +802,8 @@ export default function TeacherAssignments() {
             subject: safeString(row.subjectName),
             subjectCode: safeString(row.subjectCode),
             subjectNumber: safeString(row.subjectNumber),
+            medium: normalizeAcademicMedium(row.medium),
+            teachingMedium: normalizeAcademicMedium(row.medium),
 
             status: "active",
             createdAt: serverTimestamp(),
@@ -785,6 +821,7 @@ export default function TeacherAssignments() {
       setSelectedSections([]);
       setSelectedStreams([]);
       setSelectedSubjectKeys([]);
+      setSelectedTeachingMedium("");
 
       await fetchAll();
     } catch (err) {
@@ -888,6 +925,8 @@ export default function TeacherAssignments() {
           assignment.subject,
           assignment.subjectNumber,
           assignment.subjectCode,
+          assignment.medium,
+          assignment.teachingMedium,
         ]
           .map(lower)
           .join(" ")
@@ -940,7 +979,7 @@ export default function TeacherAssignments() {
             }}
           >
             <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -953,16 +992,16 @@ export default function TeacherAssignments() {
           </Paper>
         ) : (
           <Grid container spacing={1.5}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Assignments" value={stats.total} icon={<AssignmentIndIcon />} color="primary" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Teachers" value={stats.teachers} icon={<CheckCircleIcon />} color="success" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Active Subjects" value={stats.subjects} icon={<AssignmentIndIcon />} color="secondary" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Preview Rows" value={stats.preview} icon={<SaveIcon />} color="warning" />
             </Grid>
           </Grid>
@@ -983,7 +1022,7 @@ export default function TeacherAssignments() {
           boxShadow: "0 2px 12px rgba(26,35,126,0.07)",
         }}
       >
-        <Typography variant="subtitle1" fontWeight={700} color="#1a237e" mb={2.5}>
+        <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={2.5}>
           New Assignment
         </Typography>
 
@@ -998,7 +1037,7 @@ export default function TeacherAssignments() {
         )}
 
         <Box mb={2.5}>
-          <Typography variant="body2" fontWeight={700} color="#1a237e" mb={1}>
+          <Typography variant="body2" fontWeight={700} color="primary.main" mb={1}>
             Step 1 - Select Teacher
           </Typography>
 
@@ -1050,7 +1089,7 @@ export default function TeacherAssignments() {
         <Box mb={2}>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
             <Box>
-              <Typography variant="body2" fontWeight={700} color="#1a237e">
+              <Typography variant="body2" fontWeight={700} color="primary.main">
                 Quick Pick - Exact Classes
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -1107,7 +1146,7 @@ export default function TeacherAssignments() {
         </Box>
 
         <Grid container spacing={{ xs: 1.25, sm: 2 }}>
-          <Grid item xs={12} sm={6} lg={3}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <Box
               sx={{
                 ...selectionPanelSx,
@@ -1116,7 +1155,7 @@ export default function TeacherAssignments() {
               }}
             >
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography variant="body2" fontWeight={700} color="#1a237e">
+                <Typography variant="body2" fontWeight={700} color="primary.main">
                   Step 2 - Grade
                 </Typography>
                 <Button
@@ -1148,8 +1187,8 @@ export default function TeacherAssignments() {
                           size="small"
                           sx={{
                             py: 0.3,
-                            color: "#1a237e",
-                            "&.Mui-checked": { color: "#1a237e" },
+                            color: "primary.main",
+                            "&.Mui-checked": { color: "primary.main" },
                           }}
                         />
                       }
@@ -1170,7 +1209,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={6} lg={3}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <Box
               sx={{
                 ...selectionPanelSx,
@@ -1237,7 +1276,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} sm={6} lg={3}>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
             <Box
               sx={{
                 ...selectionPanelSx,
@@ -1299,7 +1338,7 @@ export default function TeacherAssignments() {
             </Box>
           </Grid>
 
-          <Grid item xs={12} lg={3}>
+          <Grid size={{ xs: 12, lg: 3 }}>
             <Box
               sx={{
                 ...selectionPanelSx,
@@ -1385,6 +1424,40 @@ export default function TeacherAssignments() {
           </Grid>
         </Grid>
 
+        {hasMediumSplitSubjects && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              alignItems={{ xs: "stretch", sm: "center" }}
+            >
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="body2" fontWeight={700}>
+                  Mathematics / Science teaching group
+                </Typography>
+                <Typography variant="caption">
+                  This medium is used only for the selected Mathematics and Science assignments.
+                </Typography>
+              </Box>
+              <TextField
+                select
+                required
+                size="small"
+                label="Teaching Medium"
+                value={selectedTeachingMedium}
+                onChange={(event) => setSelectedTeachingMedium(event.target.value)}
+                sx={{ minWidth: 210 }}
+              >
+                {TEACHING_MEDIUMS.map((medium) => (
+                  <MenuItem key={medium} value={medium}>
+                    {medium} Medium
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </Alert>
+        )}
+
         <ActionBar sticky sx={{ mt: 1, pb: { xs: 0.5, sm: 0 } }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <StatusChip status="active" label={`${previewCount} preview`} />
@@ -1410,7 +1483,7 @@ export default function TeacherAssignments() {
                   display: { xs: "none", sm: "block" },
                 }}
               >
-                <Typography variant="body2" fontWeight={700} color="#1a237e">
+                <Typography variant="body2" fontWeight={700} color="primary.main">
                   Will create {previewCount} assignment{previewCount !== 1 ? "s" : ""}
                 </Typography>
               </Box>
@@ -1444,7 +1517,7 @@ export default function TeacherAssignments() {
             mb={1.5}
           >
             <Box>
-              <Typography variant="subtitle1" fontWeight={700} color="#1a237e">
+              <Typography variant="subtitle1" fontWeight={700} color="primary.main">
                 Current Assignments
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -1605,9 +1678,10 @@ export default function TeacherAssignments() {
                               gap: 1,
                               alignItems: "start",
                               p: 1,
-                              border: "1px solid #edf0f7",
+                              border: "1px solid",
+                              borderColor: "divider",
                               borderRadius: 1,
-                              bgcolor: "#fafbff",
+                              bgcolor: "background.default",
                             }}
                           >
                             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -1629,15 +1703,25 @@ export default function TeacherAssignments() {
                                     maxWidth: { xs: "100%", sm: 360 },
                                     minHeight: 40,
                                     pl: 1,
-                                    border: "1px solid #e3e7f3",
+                                    border: "1px solid",
+                                    borderColor: "divider",
                                     borderRadius: 1,
-                                    bgcolor: "white",
+                                    bgcolor: "background.paper",
                                   }}
                                 >
                                   <Box sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography variant="caption" fontWeight={700} noWrap>
                                       {assignment.subjectName || assignment.subject}
                                     </Typography>
+                                    {getAcademicMedium(assignment) && (
+                                      <Typography
+                                        variant="caption"
+                                        color="primary"
+                                        sx={{ ml: 0.5, fontWeight: 700 }}
+                                      >
+                                        · {getAcademicMedium(assignment)} Medium
+                                      </Typography>
+                                    )}
                                     {safeString(assignment.subjectNumber) && (
                                       <Typography
                                         variant="caption"

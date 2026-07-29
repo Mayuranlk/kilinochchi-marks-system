@@ -39,9 +39,10 @@ const ROWS_PER_PAGE = 40;
 
 const sectionCardSx = {
   borderRadius: 3,
-  border: "1px solid #e8eaf6",
-  boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
-  backgroundColor: "white",
+  border: "1px solid",
+  borderColor: "divider",
+  boxShadow: 1,
+  backgroundColor: "background.paper",
 };
 
 const tableStyle = {
@@ -1144,9 +1145,9 @@ export default function SBAForm() {
 
         <Paper sx={{ ...sectionCardSx, p: 2.25 }}>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
+            <Grid size={{ xs: 12, md: 3 }}>
               <Stack spacing={0.75}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
                   Select SBA Context
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -1156,7 +1157,7 @@ export default function SBAForm() {
               </Stack>
             </Grid>
 
-            <Grid item xs={12} sm={4} md={3}>
+            <Grid size={{ xs: 12, sm: 4, md: 3 }}>
               <FormControl fullWidth size="small" disabled={bootLoading}>
                 <InputLabel id="sba-term-label">Academic Term</InputLabel>
                 <Select
@@ -1174,7 +1175,7 @@ export default function SBAForm() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={4} md={3}>
+            <Grid size={{ xs: 12, sm: 4, md: 3 }}>
               <FormControl fullWidth size="small" disabled={bootLoading}>
                 <InputLabel id="sba-class-label">Class</InputLabel>
                 <Select
@@ -1192,7 +1193,7 @@ export default function SBAForm() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={4} md={3}>
+            <Grid size={{ xs: 12, sm: 4, md: 3 }}>
               <FormControl
                 fullWidth
                 size="small"

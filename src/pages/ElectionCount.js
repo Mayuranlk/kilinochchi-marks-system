@@ -697,22 +697,22 @@ export default function ElectionCount() {
         </Alert>
 
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard title="Registered Voters" value={totals.registeredVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard title="Voters Voted" value={totals.votedVoters} icon={<HowToVoteRoundedIcon />} helperText="Manual entry" />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard title="Votes Cast" value={totals.totalVotes} icon={<HowToVoteRoundedIcon />} helperText="Valid and rejected votes" />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard title="Valid Votes" value={totals.validVotes} icon={<AddCircleRoundedIcon />} color="success" />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard title="Rejected Votes" value={totals.rejectedVotes} icon={<WarningAmberRoundedIcon />} color="warning" />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <StatCard
               title={totals.leaders.length > 1 ? "Current Tie" : "Current Leader"}
               value={
@@ -740,7 +740,7 @@ export default function ElectionCount() {
         {tab === 0 ? (
           <>
           <Grid container spacing={2}>
-            <Grid item xs={12} lg={7}>
+            <Grid size={{ xs: 12, lg: 7 }}>
               <Card>
                 <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                   <Stack spacing={2.25}>
@@ -775,12 +775,12 @@ export default function ElectionCount() {
                     </Box>
 
                     <Grid container spacing={1.25}>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Button fullWidth variant="contained" startIcon={<AddCircleRoundedIcon />} onClick={() => inputRef.current?.focus()}>
                           Ready
                         </Button>
                       </Grid>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Button
                           fullWidth
                           variant="outlined"
@@ -799,7 +799,7 @@ export default function ElectionCount() {
                           Rejected Vote
                         </Button>
                       </Grid>
-                      <Grid item xs={12} sm={4}>
+                      <Grid size={{ xs: 12, sm: 4 }}>
                         <Button fullWidth variant="outlined" startIcon={<UndoRoundedIcon />} onClick={handleUndo}>
                           Undo Last
                         </Button>
@@ -823,7 +823,7 @@ export default function ElectionCount() {
               </Card>
             </Grid>
 
-            <Grid item xs={12} lg={5}>
+            <Grid size={{ xs: 12, lg: 5 }}>
               <Card>
                 <CardContent sx={{ p: 2.25 }}>
                   <Typography variant="h6" sx={{ mb: 1.5 }}>
@@ -865,7 +865,7 @@ export default function ElectionCount() {
 
         {tab === 1 ? (
           <Grid container spacing={2}>
-            <Grid item xs={12} lg={8}>
+            <Grid size={{ xs: 12, lg: 8 }}>
               <Card>
                 <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                   <Stack spacing={1.75}>
@@ -923,7 +923,7 @@ export default function ElectionCount() {
               </Card>
             </Grid>
 
-            <Grid item xs={12} lg={4}>
+            <Grid size={{ xs: 12, lg: 4 }}>
               <Stack spacing={2}>
                 <Card>
                   <CardContent sx={{ p: 2.25 }}>
@@ -968,19 +968,19 @@ export default function ElectionCount() {
                         inputProps={{ inputMode: "numeric" }}
                       />
                       <Grid container spacing={1}>
-                        <Grid item xs={6}>
+                        <Grid size={{ xs: 6 }}>
                           <StatCard title="Registered" value={manualPreview.registeredVoters} />
                         </Grid>
-                        <Grid item xs={6}>
+                        <Grid size={{ xs: 6 }}>
                           <StatCard title="Voted" value={manualPreview.votedVoters} />
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <StatCard title="Valid" value={manualPreview.validVotes} color="success" />
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <StatCard title="Rejected" value={manualPreview.rejectedVotes} color="warning" />
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <StatCard title="Total" value={manualPreview.totalVotes} />
                         </Grid>
                       </Grid>
@@ -1050,19 +1050,19 @@ export default function ElectionCount() {
               <Box className="election-report-print">
                 <OfficialHeader compact />
                 <Grid container spacing={2} sx={{ mt: 0.5, mb: 2 }}>
-                  <Grid item xs={12} sm={6} md={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                     <StatCard title="Registered Voters" value={totals.registeredVoters} />
                   </Grid>
-                  <Grid item xs={12} sm={6} md={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                     <StatCard title="Voters Voted" value={totals.votedVoters} />
                   </Grid>
-                  <Grid item xs={12} sm={6} md={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                     <StatCard title="Votes Cast" value={totals.totalVotes} />
                   </Grid>
-                  <Grid item xs={12} sm={6} md={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                     <StatCard title="Valid Votes" value={totals.validVotes} color="success" />
                   </Grid>
-                  <Grid item xs={12} sm={6} md={2}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                     <StatCard title="Rejected Votes" value={totals.rejectedVotes} color="warning" />
                   </Grid>
                 </Grid>
@@ -1107,19 +1107,19 @@ export default function ElectionCount() {
                     Official Notice Board Result Sheet
                   </Typography>
                   <Grid container spacing={2} sx={{ my: 2 }}>
-                    <Grid item xs={12} sm={6} md={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                       <StatCard title="Registered Voters" value={totals.registeredVoters} />
                     </Grid>
-                    <Grid item xs={12} sm={6} md={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                       <StatCard title="Voters Voted" value={totals.votedVoters} />
                     </Grid>
-                    <Grid item xs={12} sm={6} md={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                       <StatCard title="Valid Votes" value={totals.validVotes} color="success" />
                     </Grid>
-                    <Grid item xs={12} sm={6} md={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                       <StatCard title="Rejected Votes" value={totals.rejectedVotes} color="warning" />
                     </Grid>
-                    <Grid item xs={12} sm={6} md={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 2 }}>
                       <StatCard title="Votes Cast" value={totals.totalVotes} />
                     </Grid>
                   </Grid>
@@ -1132,7 +1132,7 @@ export default function ElectionCount() {
 
         {tab === 5 ? (
           <Grid container spacing={2}>
-            <Grid item xs={12} md={7}>
+            <Grid size={{ xs: 12, md: 7 }}>
               <Card>
                 <CardContent sx={{ p: 2.25 }}>
                   <Stack spacing={1.5}>
@@ -1154,7 +1154,7 @@ export default function ElectionCount() {
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={12} md={5}>
+            <Grid size={{ xs: 12, md: 5 }}>
               <Card>
                 <CardContent sx={{ p: 2.25 }}>
                   <Stack spacing={1.5}>

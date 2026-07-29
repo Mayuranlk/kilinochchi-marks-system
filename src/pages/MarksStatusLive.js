@@ -426,7 +426,7 @@ export default function MarksStatusLive() {
   }, [rows]);
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f8fafc" }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       {loading ? <LinearProgress /> : null}
 
       <Box sx={{ px: { xs: 1, sm: 2.5, md: 4 }, py: { xs: 1.25, md: 2.5 }, maxWidth: 980, mx: "auto" }}>
@@ -436,8 +436,9 @@ export default function MarksStatusLive() {
             sx={{
               p: { xs: 1.5, md: 2.25 },
               borderRadius: 1,
-              border: "1px solid #e2e8f0",
-              bgcolor: "white",
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
             }}
           >
             <Stack
@@ -451,7 +452,13 @@ export default function MarksStatusLive() {
                   component="img"
                   src="/kcc-logo.png"
                   alt="Kilinochchi Central College"
-                  sx={{ width: { xs: 46, md: 62 }, height: { xs: 46, md: 62 }, objectFit: "contain", flexShrink: 0 }}
+                  sx={(theme) => ({
+                    width: { xs: 46, md: 62 },
+                    height: { xs: 46, md: 62 },
+                    objectFit: "contain",
+                    flexShrink: 0,
+                    filter: theme.custom.colorMode === "light" ? "none" : "invert(1) grayscale(1) brightness(1.7)",
+                  })}
                 />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
@@ -473,7 +480,7 @@ export default function MarksStatusLive() {
 
           {error ? <Alert severity="warning">{error}</Alert> : null}
 
-          <Paper elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid #e2e8f0", bgcolor: "white" }}>
+          <Paper elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
             <Stack spacing={1.1}>
               <Stack direction="row" spacing={1} alignItems="center">
                 <PublicRoundedIcon color="primary" fontSize="small" />
@@ -541,7 +548,7 @@ export default function MarksStatusLive() {
                     sx={{
                       border: "1px solid #e2e8f0",
                       borderRadius: "8px !important",
-                      bgcolor: "white",
+                      bgcolor: "background.paper",
                       boxShadow: "none",
                       overflow: "hidden",
                       "&:before": { display: "none" },

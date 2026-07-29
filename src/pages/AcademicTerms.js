@@ -326,7 +326,7 @@ export default function AcademicTerms() {
       {isMobile ? (
         <Box
           sx={{
-            bgcolor: "white",
+            bgcolor: "background.paper",
             borderRadius: 3,
             p: 1.5,
             mb: 2,
@@ -334,7 +334,7 @@ export default function AcademicTerms() {
             boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
           }}
         >
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e", mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main", mb: 1 }}>
             Quick Summary
           </Typography>
           <Box display="flex" gap={1} flexWrap="wrap">
@@ -345,13 +345,13 @@ export default function AcademicTerms() {
         </Box>
       ) : (
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Total Terms" value={stats.total} icon={<CalendarMonthIcon />} color="primary" />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Active Terms" value={stats.active} icon={<CheckCircleIcon />} color={stats.active === 1 ? "success" : "warning"} />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Academic Years" value={stats.years} icon={<WarningIcon />} color="secondary" />
           </Grid>
         </Grid>
@@ -417,7 +417,7 @@ export default function AcademicTerms() {
       ) : isMobile ? (
         <Grid container spacing={1.25}>
           {terms.map((termDoc) => (
-            <Grid item xs={12} key={termDoc.id}>
+            <Grid size={{ xs: 12 }} key={termDoc.id}>
               <MobileListRow
                 compact
                 title={`${termDoc.term} - ${termDoc.year}`}
@@ -488,7 +488,7 @@ export default function AcademicTerms() {
       ) : (
         <Grid container spacing={2}>
           {terms.map((termDoc) => (
-            <Grid item xs={12} sm={6} md={4} key={termDoc.id}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={termDoc.id}>
               <Card
                 sx={{
                   borderRadius: 3,
@@ -503,7 +503,7 @@ export default function AcademicTerms() {
                 <CardContent>
                   <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                     <Box>
-                      <Typography variant="h6" fontWeight={700} color="#1a237e">
+                      <Typography variant="h6" fontWeight={700} color="primary.main">
                         {termDoc.term}
                       </Typography>
                       <Chip
@@ -619,7 +619,7 @@ export default function AcademicTerms() {
           )}
 
           <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 select
@@ -635,7 +635,7 @@ export default function AcademicTerms() {
               </TextField>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Year"
@@ -646,7 +646,7 @@ export default function AcademicTerms() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Start Date (optional)"
@@ -657,7 +657,7 @@ export default function AcademicTerms() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="End Date (optional)"

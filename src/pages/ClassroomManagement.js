@@ -620,7 +620,7 @@ export default function ClassroomManagement() {
     >
       <Paper
         sx={{
-          bgcolor: "white",
+          bgcolor: "background.paper",
           borderRadius: 3,
           p: { xs: 2, sm: 2.5 },
           mb: 2,
@@ -639,7 +639,7 @@ export default function ClassroomManagement() {
           gap={1.5}
         >
           <Box>
-            <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+            <Typography variant="subtitle1" fontWeight={800} color="primary.main">
               Classroom Tools
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={0.4}>
@@ -659,13 +659,13 @@ export default function ClassroomManagement() {
         </Paper>
       ) : (
         <Grid container spacing={1.5} sx={{ mb: 2 }}>
-          <Grid item xs={6} md={4}>
+          <Grid size={{ xs: 6, md: 4 }}>
             <StatCard title="Total Classrooms" value={classrooms.length} icon={<SchoolIcon />} color="primary" />
           </Grid>
-          <Grid item xs={6} md={4}>
+          <Grid size={{ xs: 6, md: 4 }}>
             <StatCard title="Grades Covered" value={Object.keys(groupedByGrade).length} icon={<AutoAwesomeIcon />} color="success" />
           </Grid>
-          <Grid item xs={6} md={4}>
+          <Grid size={{ xs: 6, md: 4 }}>
             <StatCard title="With Teacher" value={classroomCountWithTeacher} icon={<PersonIcon />} color="warning" />
           </Grid>
         </Grid>
@@ -717,7 +717,7 @@ export default function ClassroomManagement() {
                   <CardContent sx={{ pb: 0 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                       <Box>
-                        <Typography variant="subtitle2" fontWeight={800} color="#1a237e">
+                        <Typography variant="subtitle2" fontWeight={800} color="primary.main">
                           {getClassLabel(classroom)}
                         </Typography>
 
@@ -787,8 +787,8 @@ export default function ClassroomManagement() {
               {Object.entries(groupedByGrade).map(([grade, rows]) => (
                 <Box key={grade} mb={3}>
                   <Box display="flex" alignItems="center" gap={1} mb={1}>
-                    <SchoolIcon sx={{ color: "#1a237e", fontSize: 20 }} />
-                    <Typography variant="subtitle1" fontWeight={800} color="#1a237e">
+                    <SchoolIcon sx={{ color: "primary.main", fontSize: 20 }} />
+                    <Typography variant="subtitle1" fontWeight={800} color="primary.main">
                       Grade {grade}
                     </Typography>
                     <Chip
@@ -955,7 +955,7 @@ export default function ClassroomManagement() {
           )}
 
           <Grid container spacing={2} mt={0.5}>
-            <Grid item xs={12} sm={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth required>
                 <InputLabel>Grade</InputLabel>
                 <Select
@@ -989,7 +989,7 @@ export default function ClassroomManagement() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth required>
                 <InputLabel>Section</InputLabel>
                 <Select
@@ -1021,7 +1021,7 @@ export default function ClassroomManagement() {
               </Typography>
             </Grid>
 
-            <Grid item xs={12} sm={4}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <FormControl fullWidth>
                 <InputLabel>Year</InputLabel>
                 <Select
@@ -1040,7 +1040,7 @@ export default function ClassroomManagement() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth disabled={!isALGrade(form.grade)}>
                 <InputLabel>Stream</InputLabel>
                 <Select
@@ -1073,7 +1073,7 @@ export default function ClassroomManagement() {
               </Typography>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Stream Code"
@@ -1082,7 +1082,7 @@ export default function ClassroomManagement() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Full Class Name"
@@ -1094,7 +1094,7 @@ export default function ClassroomManagement() {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Button
                 fullWidth
                 variant="outlined"
@@ -1124,7 +1124,7 @@ export default function ClassroomManagement() {
               </Typography>
             </Grid>
 
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <Divider>
                 <Typography variant="caption" color="text.secondary">
                   Assignment
@@ -1132,7 +1132,7 @@ export default function ClassroomManagement() {
               </Divider>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Class Teacher</InputLabel>
                 <Select
@@ -1156,7 +1156,7 @@ export default function ClassroomManagement() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 fullWidth
                 label="Notes (optional)"

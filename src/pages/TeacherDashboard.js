@@ -25,12 +25,13 @@ import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import HourglassBottomRoundedIcon from "@mui/icons-material/HourglassBottomRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import {
   EmptyState,
@@ -52,6 +53,16 @@ import {
   buildALClassName,
   buildALDisplayClassName,
 } from "../constants";
+import {
+  getAcademicMedium,
+  matchesAcademicMedium,
+} from "../utils/academicMediumUtils";
+import {
+  DEFAULT_MARKS_ENTRY_SETTINGS,
+  getTeacherMarksEntryLockReason,
+  isTeacherMarksEntryLocked,
+  normalizeMarksEntrySettings,
+} from "../utils/marksEntryAccess";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -74,6 +85,8 @@ const isActiveTerm = (term) => {
   if (typeof raw === "boolean") return raw;
   return normalize(raw) === "active" || normalize(raw) === "true";
 };
+
+const isActiveStatus = (value) => normalize(value || "active") === "active";
 
 const parseGrade = (value) => {
   const match = String(value ?? "").match(/\d+/);
@@ -274,8 +287,10 @@ const isCompletedForSubject = (
     const sameSubject = matchesSubject(enrollment, subjectRow);
     const sameYear =
       normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) === targetYear;
+    const sameMedium = matchesAcademicMedium(enrollment, subjectRow.medium);
+    const activeEnrollment = isActiveStatus(enrollment.status);
 
-    return sameClass && sameSubject && sameYear;
+    return activeEnrollment && sameClass && sameSubject && sameMedium && sameYear;
   });
 
   const subjectStudents = dedupeBy(
@@ -317,9 +332,10 @@ const isCompletedForSubject = (
 
 const sectionCardSx = {
   borderRadius: 3,
-  border: "1px solid #e8eaf6",
-  boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
-  backgroundColor: "white",
+  border: "1px solid",
+  borderColor: "divider",
+  boxShadow: 1,
+  backgroundColor: "background.paper",
 };
 
 const buildTeacherDashboardData = ({
@@ -359,15 +375,16 @@ const buildTeacherDashboardData = ({
 
   const myAssignments = assignments.filter(
     (assignment) =>
-      normalize(assignment.teacherId) === normalize(user.uid) ||
-      normalize(assignment.teacherEmail) === normalize(user.email)
+      isActiveStatus(assignment.status) &&
+      (normalize(assignment.teacherId) === normalize(user.uid) ||
+        normalize(assignment.teacherEmail) === normalize(user.email))
   );
 
   const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
     const classIdentity = normalize(getClassDisplayName(assignment));
     const subjectIdentity = getSubjectIdentity(assignment);
     const stream = normalize(getResolvedStream(assignment));
-    return `${classIdentity}__${subjectIdentity}__${stream}`;
+    return `${classIdentity}__${subjectIdentity}__${stream}__${normalize(getAcademicMedium(assignment))}`;
   });
 
   const dedupedSubjectRowsMap = new Map();
@@ -380,6 +397,7 @@ const buildTeacherDashboardData = ({
     const subjectId = pick(assignment.subjectId, "");
     const subjectNumber = pick(assignment.subjectNumber, "");
     const stream = normalizeText(assignment.stream);
+    const medium = getAcademicMedium(assignment);
 
     if (!subjectName && !subjectId && !subjectNumber) return;
 
@@ -392,6 +410,7 @@ const buildTeacherDashboardData = ({
             subjectName,
             subjectId,
             subjectNumber,
+            medium,
           },
           targetTerm
         )
@@ -409,7 +428,7 @@ const buildTeacherDashboardData = ({
       subjectId,
       subjectName,
       subjectNumber,
-    })}__${normalize(stream)}`;
+    })}__${normalize(stream)}__${normalize(medium)}`;
 
     if (!dedupedSubjectRowsMap.has(rowKey)) {
       dedupedSubjectRowsMap.set(rowKey, {
@@ -421,6 +440,7 @@ const buildTeacherDashboardData = ({
         subjectName,
         subjectId,
         subjectNumber,
+        medium,
         total: progressInfo.total,
         done: progressInfo.doneCount,
         pending: progressInfo.pending,
@@ -458,6 +478,7 @@ const buildTeacherDashboardData = ({
     const classStudentsRaw = progressReady
       ? enrollments.filter(
           (enrollment) =>
+            isActiveStatus(enrollment.status) &&
             matchesClassContext(enrollment, classContext) &&
             normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
               normalizeAcademicYear(targetTerm.year)
@@ -478,8 +499,15 @@ const buildTeacherDashboardData = ({
     const dedupedClassSubjects = new Map();
 
     dedupeBy(
-      assignments.filter((assignment) => matchesClassContext(assignment, classContext)),
-      (assignment) => `${getSubjectIdentity(assignment)}__${normalize(getResolvedStream(assignment))}`
+      assignments.filter(
+        (assignment) =>
+          isActiveStatus(assignment.status) &&
+          matchesClassContext(assignment, classContext)
+      ),
+      (assignment) =>
+        `${getSubjectIdentity(assignment)}__${normalize(getResolvedStream(assignment))}__${normalize(
+          getAcademicMedium(assignment)
+        )}`
     ).forEach((assignment) => {
       const teacherUser =
         users.find(
@@ -491,6 +519,7 @@ const buildTeacherDashboardData = ({
       const subjectName = pick(assignment.subjectName, assignment.subject, "");
       const subjectId = pick(assignment.subjectId, "");
       const subjectNumber = pick(assignment.subjectNumber, "");
+      const medium = getAcademicMedium(assignment);
 
       if (!subjectName && !subjectId && !subjectNumber) return;
 
@@ -503,6 +532,7 @@ const buildTeacherDashboardData = ({
               subjectName,
               subjectId,
               subjectNumber,
+              medium,
             },
             targetTerm
           )
@@ -522,13 +552,14 @@ const buildTeacherDashboardData = ({
 
       const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
         getResolvedStream(assignment)
-      )}`;
+      )}__${normalize(medium)}`;
 
       if (!dedupedClassSubjects.has(rowKey)) {
         dedupedClassSubjects.set(rowKey, {
           subjectName,
           subjectId,
           subjectNumber,
+          medium,
           teacherName: pick(
             teacherUser?.name,
             teacherUser?.fullName,
@@ -604,7 +635,11 @@ export default function TeacherDashboard() {
   const [progressLoading, setProgressLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
   const lastLoadedTermKey = useRef("");
+
+  const marksEntryDisabled = isTeacherMarksEntryLocked(marksEntrySettings);
+  const marksEntryDisabledReason = getTeacherMarksEntryLockReason(marksEntrySettings);
 
   const currentTerm = useMemo(
     () => terms.find((term) => buildTermKey(term) === selectedTermKey) || terms.find(isActiveTerm) || null,
@@ -721,10 +756,56 @@ export default function TeacherDashboard() {
   }, []);
 
   useEffect(() => {
+    return onSnapshot(
+      doc(db, "systemSettings", "marksEntry"),
+      (snapshot) =>
+        setMarksEntrySettings(
+          snapshot.exists()
+            ? normalizeMarksEntrySettings(snapshot.data())
+            : DEFAULT_MARKS_ENTRY_SETTINGS
+        ),
+      (settingsError) =>
+        console.error("Teacher marks entry access sync error:", settingsError)
+    );
+  }, []);
+
+  useEffect(() => {
     if (selectedTermKey) {
       if (selectedTermKey === lastLoadedTermKey.current) return;
       loadDashboard(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTermKey]);
+
+  useEffect(() => {
+    let initialSnapshots = 0;
+    let refreshTimer = null;
+
+    const scheduleRefresh = () => {
+      initialSnapshots += 1;
+      if (initialSnapshots <= 2) return;
+
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => loadDashboard(true), 300);
+    };
+
+    const unsubscribeEnrollments = onSnapshot(
+      collection(db, "studentSubjectEnrollments"),
+      scheduleRefresh,
+      (snapshotError) => console.error("Dashboard enrollment sync error:", snapshotError)
+    );
+    const unsubscribeMarks = onSnapshot(
+      collection(db, "marks"),
+      scheduleRefresh,
+      (snapshotError) => console.error("Dashboard marks sync error:", snapshotError)
+    );
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribeEnrollments();
+      unsubscribeMarks();
+    };
+    // Re-subscribe when the selected term changes so refresh uses the current term.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTermKey]);
 
@@ -823,6 +904,7 @@ export default function TeacherDashboard() {
       params.set("stream", row.stream || "");
       params.set("subjectName", row.subjectName || "");
       params.set("subjectId", row.subjectId || "");
+      params.set("medium", row.medium || "");
 
       if (selectedTermKey) params.set("termKey", selectedTermKey);
 
@@ -871,6 +953,14 @@ export default function TeacherDashboard() {
     >
       <Stack spacing={2.25}>
         {error ? <Alert severity="error">{error}</Alert> : null}
+        {marksEntryDisabled ? (
+          <Alert severity="warning" icon={<LockRoundedIcon />}>
+            <Typography component="span" sx={{ fontWeight: 900 }}>
+              Marks Entry Disabled.
+            </Typography>{" "}
+            {marksEntryDisabledReason} You can continue using all other dashboard features.
+          </Alert>
+        ) : null}
         {progressLoading ? (
           <Paper sx={{ ...sectionCardSx, p: 1.25 }}>
             <Stack direction="row" spacing={1.25} alignItems="center">
@@ -886,17 +976,18 @@ export default function TeacherDashboard() {
           sx={{
             ...sectionCardSx,
             p: { xs: 1.5, sm: 2 },
-            borderColor: "#dbeafe",
-            background:
-              "linear-gradient(135deg, rgba(239,246,255,0.98) 0%, rgba(255,255,255,1) 64%)",
+            borderColor: "primary.light",
+            backgroundColor: "background.paper",
+            backgroundImage: (theme) =>
+              `linear-gradient(135deg, ${theme.palette.primary.main}14 0%, transparent 64%)`,
           }}
         >
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={5}>
+            <Grid size={{ xs: 12, md: 5 }}>
               <Stack spacing={0.75}>
                 <Typography
                   variant={isMobile ? "h6" : "subtitle1"}
-                  sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}
+                  sx={{ fontWeight: 900, color: "text.primary", lineHeight: 1.15 }}
                 >
                   Today&apos;s Work
                 </Typography>
@@ -906,7 +997,7 @@ export default function TeacherDashboard() {
               </Stack>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <FormControl fullWidth size="small">
                 <InputLabel id="teacher-dashboard-term-label">Academic Term</InputLabel>
                 <Select
@@ -924,7 +1015,7 @@ export default function TeacherDashboard() {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12} sm={6} md={4}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
               <Stack
                 direction="row"
                 spacing={1}
@@ -944,7 +1035,7 @@ export default function TeacherDashboard() {
         {isMobile ? (
           <Paper sx={{ ...sectionCardSx, p: 1.5 }}>
             <Stack spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1a237e" }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -974,7 +1065,7 @@ export default function TeacherDashboard() {
           </Paper>
         ) : (
           <Grid container spacing={1.5}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Assigned Classes"
                 value={new Set(subjectRows.map((row) => row.fullClassName)).size}
@@ -982,7 +1073,7 @@ export default function TeacherDashboard() {
                 color="primary"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Assigned Subjects"
                 value={subjectRows.length}
@@ -990,7 +1081,7 @@ export default function TeacherDashboard() {
                 color="secondary"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Completed"
                 value={progressLoading ? "..." : subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
@@ -998,7 +1089,7 @@ export default function TeacherDashboard() {
                 color="success"
               />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Pending"
                 value={progressLoading ? "..." : subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
@@ -1019,7 +1110,7 @@ export default function TeacherDashboard() {
                 spacing={1}
               >
                 <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
                     Class Monitoring
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -1104,7 +1195,7 @@ export default function TeacherDashboard() {
                 </Stack>
               ) : (
                 <Grid container spacing={1.25}>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Students"
                       value={progressLoading ? "..." : classTeacherData.totalStudents}
@@ -1113,7 +1204,7 @@ export default function TeacherDashboard() {
                       sx={{ boxShadow: "none" }}
                     />
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Subjects"
                       value={classTeacherData.totalSubjects}
@@ -1122,7 +1213,7 @@ export default function TeacherDashboard() {
                       sx={{ boxShadow: "none" }}
                     />
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Completed"
                       value={progressLoading ? "..." : classTeacherData.completed}
@@ -1131,7 +1222,7 @@ export default function TeacherDashboard() {
                       sx={{ boxShadow: "none" }}
                     />
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Pending"
                       value={progressLoading ? "..." : classTeacherData.pending}
@@ -1163,9 +1254,9 @@ export default function TeacherDashboard() {
                   classTeacherData.subjects.map((subject) =>
                     isMobile ? (
                       <MobileListRow
-                        key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
+                        key={`${subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}__${subject.medium || "all"}`}
                         compact
-                        title={subject.subjectName}
+                        title={`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`}
                         subtitle={
                           subject.progressLoading
                             ? "Progress syncing"
@@ -1226,6 +1317,7 @@ export default function TeacherDashboard() {
                                     stream: classTeacherData.stream,
                                     subjectName: subject.subjectName,
                                     subjectId: subject.subjectId,
+                                    medium: subject.medium,
                                   })
                                 }
                                 fullWidth
@@ -1236,22 +1328,18 @@ export default function TeacherDashboard() {
                           </Stack>
                         }
                         sx={{
-                          bgcolor: subject.completed
-                            ? "rgba(34,197,94,0.06)"
-                            : "rgba(239,68,68,0.04)",
+                          bgcolor: subject.completed ? "success.lighter" : "error.lighter",
                         }}
                       />
                     ) : (
                       <Box
-                        key={subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}
+                        key={`${subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}__${subject.medium || "all"}`}
                         sx={{
                           p: 1.5,
                           borderRadius: 3,
                           border: "1px solid",
                           borderColor: "divider",
-                          bgcolor: subject.completed
-                            ? "rgba(34,197,94,0.06)"
-                            : "rgba(239,68,68,0.04)",
+                          bgcolor: subject.completed ? "success.lighter" : "error.lighter",
                         }}
                       >
                         <Stack spacing={1}>
@@ -1271,6 +1359,14 @@ export default function TeacherDashboard() {
                                     size="small"
                                     variant="outlined"
                                     label={`No. ${subject.subjectNumber}`}
+                                  />
+                                ) : null}
+                                {subject.medium ? (
+                                  <Chip
+                                    size="small"
+                                    color="primary"
+                                    variant="outlined"
+                                    label={`${subject.medium} Medium`}
                                   />
                                 ) : null}
                               </Stack>
@@ -1332,6 +1428,7 @@ export default function TeacherDashboard() {
                                   stream: classTeacherData.stream,
                                   subjectName: subject.subjectName,
                                   subjectId: subject.subjectId,
+                                  medium: subject.medium,
                                 })
                               }
                               sx={{ alignSelf: "flex-start" }}
@@ -1358,7 +1455,7 @@ export default function TeacherDashboard() {
               spacing={1}
             >
               <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#1a237e" }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
                   My Subject Work
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -1390,10 +1487,10 @@ export default function TeacherDashboard() {
             ) : (
               <Grid container spacing={1.5}>
                 {subjectRows.map((row, i) => (
-                  <Grid item xs={12} md={6} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${i}`}>
+                  <Grid size={{ xs: 12, md: 6 }} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${row.medium}_${i}`}>
                     <MobileListRow
                       compact={isMobile}
-                      title={`${row.displayClassName} - ${row.subjectName}`}
+                      title={`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`}
                       right={
                         <StatusChip
                           status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
@@ -1407,6 +1504,9 @@ export default function TeacherDashboard() {
                           ) : null}
                           {row.subjectNumber ? (
                             <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                          ) : null}
+                          {row.medium ? (
+                            <Chip size="small" color="primary" variant="outlined" label={`${row.medium} Medium`} />
                           ) : null}
                         </Stack>
                       }

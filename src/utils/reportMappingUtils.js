@@ -4,6 +4,7 @@ import {
   RELIGION_REPORT_MAP,
   flattenSchemaColumns,
 } from "./reportSchemas";
+import { normalizeStudentName } from "./studentNameUtils";
 
 export function normalizeText(value) {
   return String(value || "")
@@ -16,7 +17,7 @@ export function normalizeText(value) {
 }
 
 export function getStudentDisplayName(student = {}) {
-  return student.fullName || student.name || "";
+  return normalizeStudentName(student.fullName || student.name || "");
 }
 
 export function getStudentIndexNo(student = {}) {

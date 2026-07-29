@@ -152,6 +152,12 @@ const ROUTE_META = [
       "Upload marks in bulk and validate imported academic marks records.",
   },
   {
+    match: /^\/backup-restore\/?$/,
+    title: "Backup & Restore | Kilinochchi Marks System",
+    description:
+      "Administrative full-data backup and validated restore workspace for the Kilinochchi marks system.",
+  },
+  {
     match: /^\/election-count\/?$/,
     title: "Election Count | Kilinochchi Marks System",
     description:

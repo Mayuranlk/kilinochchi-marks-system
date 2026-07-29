@@ -18,10 +18,13 @@ import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
+import SpellcheckIcon from "@mui/icons-material/Spellcheck";
 import { useAuth } from "../context/AuthContext";
 import {
   restoreOfficialSubjects,
   fixStudentData,
+  repairStudentNames,
+  scanStudentNameIssues,
 } from "../services/setupDefaultsService";
 import { PageContainer } from "../components/ui";
 
@@ -32,8 +35,8 @@ function StatCard({ title, value, color = "text.primary" }) {
       sx={{
         height: "100%",
         borderRadius: 3,
-        borderColor: "#e8eaf6",
-        boxShadow: "0 1px 4px rgba(26,35,126,0.05)",
+        borderColor: "divider",
+        boxShadow: 1,
       }}
     >
       <CardContent>
@@ -63,8 +66,8 @@ function ActionCard({
       variant="outlined"
       sx={{
         borderRadius: 3,
-        borderColor: "#e8eaf6",
-        boxShadow: "0 2px 8px rgba(26,35,126,0.05)",
+        borderColor: "divider",
+        boxShadow: 1,
       }}
     >
       <CardContent>
@@ -103,9 +106,13 @@ export default function SetupSchoolDefaults() {
 
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [scanningNames, setScanningNames] = useState(false);
+  const [repairingNames, setRepairingNames] = useState(false);
 
   const [subjectResult, setSubjectResult] = useState(null);
   const [studentResult, setStudentResult] = useState(null);
+  const [nameRepairPreview, setNameRepairPreview] = useState(null);
+  const [nameRepairResult, setNameRepairResult] = useState(null);
 
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -146,6 +153,55 @@ export default function SetupSchoolDefaults() {
     }
   }
 
+  async function handleScanStudentNames() {
+    setSuccess("");
+    setError("");
+    setNameRepairResult(null);
+    setScanningNames(true);
+
+    try {
+      const result = await scanStudentNameIssues();
+      setNameRepairPreview(result);
+      setSuccess(
+        result.affectedStudents
+          ? `Name scan complete. ${result.affectedStudents} student record(s) need normalization. Review the preview before applying.`
+          : "Name scan complete. No corrupted student names were found."
+      );
+    } catch (err) {
+      setError("Failed to scan student names: " + (err.message || "Unknown error"));
+    } finally {
+      setScanningNames(false);
+    }
+  }
+
+  async function handleRepairStudentNames() {
+    if (!nameRepairPreview?.affectedStudents && !nameRepairPreview?.dependentDocuments) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Normalize ${nameRepairPreview.affectedStudents} student name(s) and synchronize ${nameRepairPreview.dependentDocuments} related document(s)? Original master names will be retained in a backup field.`
+    );
+    if (!confirmed) return;
+
+    setSuccess("");
+    setError("");
+    setRepairingNames(true);
+
+    try {
+      const result = await repairStudentNames(profile);
+      setNameRepairResult(result);
+      setNameRepairPreview(null);
+      setSuccess(
+        `Student name normalization complete. ${result.affectedStudents} student record(s) and ${result.dependentDocuments} related document(s) updated.`
+      );
+    } catch (err) {
+      setError("Failed to normalize student names: " + (err.message || "Unknown error"));
+    } finally {
+      setRepairingNames(false);
+    }
+  }
+
   if (!isAdmin) {
     return (
       <PageContainer title="School Setup">
@@ -159,17 +215,18 @@ export default function SetupSchoolDefaults() {
       <Stack spacing={3}>
         <Box
           sx={{
-            bgcolor: "white",
+            bgcolor: "background.paper",
             borderRadius: 3,
             p: { xs: 2, md: 3 },
-            border: "1px solid #e8eaf6",
-            boxShadow: "0 2px 8px rgba(26,35,126,0.06)",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: 1,
           }}
         >
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap">
-              <SchoolIcon sx={{ color: "#1a237e" }} />
-              <Typography variant="h5" fontWeight={800} color="#1a237e">
+              <SchoolIcon sx={{ color: "primary.main" }} />
+              <Typography variant="h5" fontWeight={800} color="primary.main">
                 School Setup
               </Typography>
               <Chip label="Setup Only" color="primary" size="small" />
@@ -208,7 +265,7 @@ export default function SetupSchoolDefaults() {
         )}
 
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard
               title="Default Subjects Run"
               value={subjectResult ? "Done" : "Pending"}
@@ -216,7 +273,7 @@ export default function SetupSchoolDefaults() {
             />
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard
               title="Student Schema Fix Run"
               value={studentResult ? "Done" : "Pending"}
@@ -224,7 +281,7 @@ export default function SetupSchoolDefaults() {
             />
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <StatCard title="Enrollment Authority" value="studentSubjectEnrollments" />
           </Grid>
         </Grid>
@@ -247,13 +304,13 @@ export default function SetupSchoolDefaults() {
 
           {subjectResult && (
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Created" value={subjectResult.created} color="success.main" />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Refreshed" value={subjectResult.restored} />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Templates" value={subjectResult.totalDefaults} />
               </Grid>
             </Grid>
@@ -278,26 +335,117 @@ export default function SetupSchoolDefaults() {
 
           {studentResult && (
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Updated" value={studentResult.updated} color="secondary.main" />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Unchanged" value={studentResult.unchanged} />
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid size={{ xs: 12, sm: 4 }}>
                 <StatCard title="Total" value={studentResult.total} />
               </Grid>
             </Grid>
           )}
         </ActionCard>
 
+        <ActionCard
+          icon={<SpellcheckIcon />}
+          title="Normalize Student Names"
+          description="Scans the entire school for damaged Excel-imported names, hidden characters and inconsistent stored name copies. It preserves Tamil and English Unicode, letter case and legitimate ampersands."
+          buttonText="Scan Student Names"
+          onClick={handleScanStudentNames}
+          loading={scanningNames}
+          color="primary"
+        >
+          <Alert severity="info">
+            This repairs stored text, not just the display font. Names matching patterns such as
+            <strong> &amp;&amp;R&amp;A&amp;M&amp;A...</strong> are safely converted to normal text,
+            then synchronized to marks, subject enrollments, student accounts and late-arrival records.
+          </Alert>
+
+          {(nameRepairPreview || nameRepairResult) && (
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <StatCard
+                  title="Students Scanned"
+                  value={(nameRepairPreview || nameRepairResult).studentsScanned}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <StatCard
+                  title="Names Found"
+                  value={(nameRepairPreview || nameRepairResult).affectedStudents}
+                  color={(nameRepairPreview || nameRepairResult).affectedStudents ? "warning.main" : "success.main"}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <StatCard
+                  title="10C Names Found"
+                  value={(nameRepairPreview || nameRepairResult).byClass?.["10C"] || 0}
+                  color={(nameRepairPreview || nameRepairResult).byClass?.["10C"] ? "warning.main" : "success.main"}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <StatCard
+                  title="Related Records"
+                  value={(nameRepairPreview || nameRepairResult).dependentDocuments}
+                />
+              </Grid>
+            </Grid>
+          )}
+
+          {nameRepairPreview?.samples?.length > 0 && (
+            <Box
+              sx={{
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 2,
+                p: 2,
+                bgcolor: "action.hover",
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                Preview - no data has been changed yet
+              </Typography>
+              <Stack spacing={0.75}>
+                {nameRepairPreview.samples.slice(0, 10).map((item) => (
+                  <Typography key={item.id} variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                    <strong>{item.className} | {item.admissionNo || item.id}:</strong>{" "}
+                    {item.before || "(empty)"} -&gt; <strong>{item.after}</strong>
+                  </Typography>
+                ))}
+              </Stack>
+            </Box>
+          )}
+
+          {nameRepairPreview &&
+            (nameRepairPreview.affectedStudents > 0 ||
+              nameRepairPreview.dependentDocuments > 0) && (
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  startIcon={repairingNames ? null : <SpellcheckIcon />}
+                  disabled={repairingNames}
+                  onClick={handleRepairStudentNames}
+                  sx={{ alignSelf: "flex-start", fontWeight: 800 }}
+                >
+                  {repairingNames ? <CircularProgress size={20} color="inherit" /> : "Apply School-wide Name Repair"}
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  A copy of each original master name is retained in the student document.
+                </Typography>
+              </Stack>
+            )}
+        </ActionCard>
+
         <Card
           variant="outlined"
           sx={{
-            borderColor: "#c5cae9",
-            bgcolor: "#fafbff",
+            borderColor: "divider",
+            bgcolor: "background.paper",
             borderRadius: 3,
-            boxShadow: "0 1px 6px rgba(26,35,126,0.04)",
+            boxShadow: 1,
           }}
         >
           <CardContent>

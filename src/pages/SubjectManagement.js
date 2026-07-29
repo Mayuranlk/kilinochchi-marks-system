@@ -902,28 +902,28 @@ export default function SubjectManagement() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={2} mb={3}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <SubjectStatsCard
             title="Total Subjects"
             value={stats.total}
             icon={<SchoolIcon color="primary" />}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <SubjectStatsCard
             title="Active"
             value={stats.active}
             icon={<Chip size="small" color="success" label="ACTIVE" />}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <SubjectStatsCard
             title="Inactive"
             value={stats.inactive}
             icon={<Chip size="small" label="INACTIVE" />}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <SubjectStatsCard
             title="Categories"
             value={stats.categories}
@@ -934,7 +934,7 @@ export default function SubjectManagement() {
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               fullWidth
               label="Search subjects"
@@ -944,7 +944,7 @@ export default function SubjectManagement() {
             />
           </Grid>
 
-          <Grid item xs={12} sm={4} md={2.5}>
+          <Grid size={{ xs: 12, sm: 4, md: 2.5 }}>
             <FormControl fullWidth>
               <InputLabel>Category</InputLabel>
               <Select
@@ -962,7 +962,7 @@ export default function SubjectManagement() {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={4} md={2.5}>
+          <Grid size={{ xs: 12, sm: 4, md: 2.5 }}>
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
               <Select
@@ -977,7 +977,7 @@ export default function SubjectManagement() {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={4} md={3}>
+          <Grid size={{ xs: 12, sm: 4, md: 3 }}>
             <FormControl fullWidth>
               <InputLabel>Grade</InputLabel>
               <Select
@@ -1223,7 +1223,7 @@ export default function SubjectManagement() {
         <DialogContent dividers>
           <Stack spacing={3}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <TextField
                   fullWidth
                   label="Subject Code"
@@ -1234,7 +1234,7 @@ export default function SubjectManagement() {
                 />
               </Grid>
 
-              <Grid item xs={12} md={3}>
+              <Grid size={{ xs: 12, md: 3 }}>
                 <TextField
                   fullWidth
                   label="Subject Number"
@@ -1246,7 +1246,7 @@ export default function SubjectManagement() {
                 />
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <TextField
                   fullWidth
                   label="Subject Name"
@@ -1257,7 +1257,7 @@ export default function SubjectManagement() {
                 />
               </Grid>
 
-              <Grid item xs={12} md={2}>
+              <Grid size={{ xs: 12, md: 2 }}>
                 <Button
                   fullWidth
                   variant="outlined"
@@ -1268,7 +1268,7 @@ export default function SubjectManagement() {
                 </Button>
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <TextField
                   fullWidth
                   label="Short Name"
@@ -1277,7 +1277,7 @@ export default function SubjectManagement() {
                 />
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth error={!!formErrors.category}>
                   <InputLabel>Category</InputLabel>
                   <Select
@@ -1299,7 +1299,7 @@ export default function SubjectManagement() {
                 )}
               </Grid>
 
-              <Grid item xs={12} md={4}>
+              <Grid size={{ xs: 12, md: 4 }}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -1322,7 +1322,7 @@ export default function SubjectManagement() {
               </Typography>
 
               <Grid container spacing={2}>
-                <Grid item xs={12} md={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <FormControl fullWidth>
                     <InputLabel>Grade Mode</InputLabel>
                     <Select
@@ -1338,7 +1338,7 @@ export default function SubjectManagement() {
                 </Grid>
 
                 {form.gradeMode === "single" && (
-                  <Grid item xs={12} md={4}>
+                  <Grid size={{ xs: 12, md: 4 }}>
                     <FormControl fullWidth error={!!formErrors.grade}>
                       <InputLabel>Grade</InputLabel>
                       <Select
@@ -1363,7 +1363,7 @@ export default function SubjectManagement() {
 
                 {form.gradeMode === "range" && (
                   <>
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                       <FormControl fullWidth error={!!formErrors.minGrade}>
                         <InputLabel>Min Grade</InputLabel>
                         <Select
@@ -1385,7 +1385,7 @@ export default function SubjectManagement() {
                       )}
                     </Grid>
 
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                       <FormControl fullWidth error={!!formErrors.maxGrade}>
                         <InputLabel>Max Grade</InputLabel>
                         <Select
@@ -1410,7 +1410,7 @@ export default function SubjectManagement() {
                 )}
 
                 {form.gradeMode === "multi" && (
-                  <Grid item xs={12} md={8}>
+                  <Grid size={{ xs: 12, md: 8 }}>
                     <FormControl fullWidth error={!!formErrors.grades}>
                       <InputLabel>Grades</InputLabel>
                       <Select
@@ -1448,7 +1448,7 @@ export default function SubjectManagement() {
                   </Typography>
 
                   <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <FormControl fullWidth error={!!formErrors.religion}>
                         <InputLabel>Religion</InputLabel>
                         <Select
@@ -1470,7 +1470,7 @@ export default function SubjectManagement() {
                       )}
                     </Grid>
 
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <TextField
                         fullWidth
                         label="Religion Group"
@@ -1493,7 +1493,7 @@ export default function SubjectManagement() {
                   </Typography>
 
                   <Grid container spacing={2}>
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                       <FormControl fullWidth error={!!formErrors.basketGroup}>
                         <InputLabel>Basket Group</InputLabel>
                         <Select
@@ -1529,7 +1529,7 @@ export default function SubjectManagement() {
                   </Typography>
 
                   <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <FormControl fullWidth error={!!formErrors.stream}>
                         <InputLabel>Primary Stream</InputLabel>
                         <Select
@@ -1552,7 +1552,7 @@ export default function SubjectManagement() {
                       )}
                     </Grid>
 
-                    <Grid item xs={12} md={6}>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <FormControl fullWidth>
                         <InputLabel>Additional Streams</InputLabel>
                         <Select
@@ -1583,7 +1583,7 @@ export default function SubjectManagement() {
               </Typography>
 
               <Grid container spacing={2}>
-                <Grid item xs={12} md={8}>
+                <Grid size={{ xs: 12, md: 8 }}>
                   <TextField
                     fullWidth
                     multiline
@@ -1594,7 +1594,7 @@ export default function SubjectManagement() {
                   />
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Stack spacing={2}>
                     <TextField
                       fullWidth

@@ -316,7 +316,7 @@ export default function ClassDataManagement() {
               </Typography>
 
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, sm: 4 }}>
                   <TextField
                     fullWidth
                     label="Academic Year"
@@ -325,7 +325,7 @@ export default function ClassDataManagement() {
                   />
                 </Grid>
 
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, sm: 4 }}>
                   <FormControl fullWidth>
                     <InputLabel>Grade</InputLabel>
                     <Select
@@ -346,7 +346,7 @@ export default function ClassDataManagement() {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} sm={4}>
+                <Grid size={{ xs: 12, sm: 4 }}>
                   <FormControl fullWidth>
                     <InputLabel>Section</InputLabel>
                     <Select
@@ -410,7 +410,7 @@ export default function ClassDataManagement() {
                 </Box>
 
                 <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={2.4}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1}>
@@ -426,7 +426,7 @@ export default function ClassDataManagement() {
                     </Card>
                   </Grid>
 
-                  <Grid item xs={12} sm={6} md={2.4}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1}>
@@ -442,7 +442,7 @@ export default function ClassDataManagement() {
                     </Card>
                   </Grid>
 
-                  <Grid item xs={12} sm={6} md={2.4}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1}>
@@ -458,7 +458,7 @@ export default function ClassDataManagement() {
                     </Card>
                   </Grid>
 
-                  <Grid item xs={12} sm={6} md={2.4}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1}>
@@ -474,7 +474,7 @@ export default function ClassDataManagement() {
                     </Card>
                   </Grid>
 
-                  <Grid item xs={12} sm={6} md={2.4}>
+                  <Grid size={{ xs: 12, sm: 6, md: 2.4 }}>
                     <Card variant="outlined">
                       <CardContent>
                         <Stack spacing={1}>
@@ -497,7 +497,7 @@ export default function ClassDataManagement() {
 
         {previewData ? (
           <Grid container spacing={3}>
-            <Grid item xs={12} lg={7}>
+            <Grid size={{ xs: 12, lg: 7 }}>
               <Card>
                 <CardContent>
                   <Stack spacing={2}>
@@ -600,7 +600,7 @@ export default function ClassDataManagement() {
               </Card>
             </Grid>
 
-            <Grid item xs={12} lg={5}>
+            <Grid size={{ xs: 12, lg: 5 }}>
               <Card
                 sx={{
                   border: "1px solid",
