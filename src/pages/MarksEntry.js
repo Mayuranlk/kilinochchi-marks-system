@@ -42,16 +42,17 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDocs,
-  orderBy,
   onSnapshot,
-  query,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
 import { useLocation } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import {
+  getCollectionRows,
+  updateCachedCollection,
+} from "../services/firestoreReadCache";
 import {
   ActionBar,
   EmptyState,
@@ -78,6 +79,7 @@ import {
   isTeacherMarksEntryLocked,
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
+import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -365,7 +367,7 @@ const mobileStickyOffset = 76;
 
 export default function MarksEntry() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
-  const { isAdmin } = useAuth();
+  const { isAdmin, profile: authProfile } = useAuth();
   const location = useLocation();
   const markInputRefs = useRef({});
   const appliedNavigationSelectionRef = useRef("");
@@ -383,6 +385,8 @@ export default function MarksEntry() {
   const [terms, setTerms] = useState([]);
   const [practiceExams, setPracticeExams] = useState([]);
   const [marksDocs, setMarksDocs] = useState([]);
+  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [adminStudents, setAdminStudents] = useState([]);
   const [deleteStudent, setDeleteStudent] = useState(null);
   const [entrySettings, setEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
@@ -739,7 +743,7 @@ export default function MarksEntry() {
     }
   }, []);
 
-  const loadBase = useCallback(async () => {
+  const loadBase = useCallback(async (forceRefresh = false) => {
     try {
       setError("");
       setSuccess("");
@@ -748,30 +752,17 @@ export default function MarksEntry() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [usersSnap, teacherAssignmentsSnap, academicTermsSnap, practiceExamSnap, marksSnap, studentsSnap] =
+      const [allAssignments, allTerms, loadedPracticeExams, allMarks, students, enrollments] =
         await Promise.all([
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "teacherAssignments")),
-          getDocs(
-            query(collection(db, "academicTerms"), orderBy("year", "desc"))
-          ).catch(() => getDocs(collection(db, "academicTerms"))),
-          getDocs(collection(db, "practiceExams")).catch(() => ({ docs: [] })),
-          getDocs(collection(db, "marks")),
-          isAdmin
-            ? getDocs(collection(db, "students"))
-            : Promise.resolve({ docs: [] }),
+          getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+          getCollectionRows(db, "academicTerms", { forceRefresh }),
+          getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "students", { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
         ]);
 
-      const allUsers = usersSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      const profile =
-        allUsers.find(
-          (u) => normalize(pick(u.uid, u.userId)) === normalize(currentUser.uid)
-        ) ||
-        allUsers.find((u) => normalize(u.email) === normalize(currentUser.email)) || {
+      const profile = authProfile || {
           id: currentUser.uid,
           uid: currentUser.uid,
           email: currentUser.email || "",
@@ -781,23 +772,13 @@ export default function MarksEntry() {
 
       setTeacherProfile(profile);
 
-      const allAssignments = teacherAssignmentsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
       const scopedAssignments = isAdmin
         ? allAssignments
         : allAssignments.filter((item) => isSameTeacher(item, currentUser));
 
       setTeacherAssignments(scopedAssignments);
 
-      const allTerms = academicTermsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      const sortedTerms = allTerms.sort((a, b) => {
+      const sortedTerms = [...allTerms].sort((a, b) => {
         const yearDiff =
           Number(pick(b.year, b.academicYear, 0)) -
           Number(pick(a.year, a.academicYear, 0));
@@ -811,7 +792,9 @@ export default function MarksEntry() {
       });
 
       setTerms(sortedTerms);
-      setPracticeExams(practiceExamSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+      setPracticeExams(loadedPracticeExams);
+      setAllStudents(students);
+      setAllEnrollments(enrollments);
 
       const activeTermDoc = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       const activeLegacyInfo = getLegacyPracticeTermInfo(activeTermDoc);
@@ -825,20 +808,15 @@ export default function MarksEntry() {
             ) || activeTermDoc
           : activeTermDoc;
 
-      if (!selectedTermKey && defaultTerm) {
-        setSelectedTermKey(buildTermKey(defaultTerm));
+      if (defaultTerm) {
+        setSelectedTermKey((previous) => previous || buildTermKey(defaultTerm));
       }
 
-      const allMarks = marksSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
       setMarksDocs(allMarks);
 
       if (isAdmin) {
         setAdminStudents(
-          studentsSnap.docs
-            .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          [...students]
             .sort((a, b) =>
               String(pick(a.name, a.fullName, "")).localeCompare(
                 String(pick(b.name, b.fullName, "")),
@@ -849,12 +827,12 @@ export default function MarksEntry() {
         );
       }
 
-      if (!selectedClass && scopedAssignments.length > 0) {
+      if (scopedAssignments.length > 0) {
         const defaultClass =
           getComparableALClassName(scopedAssignments[0]) ||
           getClassIdentity(scopedAssignments[0]) ||
           getClassFallback(scopedAssignments[0]);
-        setSelectedClass(defaultClass);
+        setSelectedClass((previous) => previous || defaultClass);
       }
     } catch (err) {
       console.error(err);
@@ -862,7 +840,7 @@ export default function MarksEntry() {
     } finally {
       setBootLoading(false);
     }
-  }, [isAdmin, selectedClass, selectedTermKey]);
+  }, [authProfile, isAdmin]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -875,21 +853,6 @@ export default function MarksEntry() {
         setDrafts({});
         return;
       }
-
-      const [enrollmentsSnap, studentSnap] = await Promise.all([
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "students")),
-      ]);
-
-      const allEnrollments = enrollmentsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      const allStudents = studentSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
 
       const studentMap = new Map(
         allStudents.map((student) => [String(student.id), student])
@@ -1138,7 +1101,7 @@ export default function MarksEntry() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, marksDocs, selectedClass, selectedSubject, selectedClassRow, selectedAssessmentId, selectedAssessment]);
+  }, [activeTerm, allEnrollments, allStudents, marksDocs, selectedClass, selectedSubject, selectedClassRow, selectedAssessmentId, selectedAssessment]);
 
   useEffect(() => {
     loadBase();
@@ -1307,30 +1270,6 @@ export default function MarksEntry() {
     loadStudents();
   }, [loadStudents]);
 
-  useEffect(() => {
-    if (bootLoading) return undefined;
-
-    let initialSnapshot = true;
-    let refreshTimer = null;
-    const unsubscribe = onSnapshot(
-      collection(db, "studentSubjectEnrollments"),
-      () => {
-        if (initialSnapshot) {
-          initialSnapshot = false;
-          return;
-        }
-        if (refreshTimer) clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(() => loadStudents(), 250);
-      },
-      (snapshotError) => console.error("Marks entry enrollment sync error:", snapshotError)
-    );
-
-    return () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      unsubscribe();
-    };
-  }, [bootLoading, loadStudents]);
-
   const setRowValue = (rowKey, updates) => {
     setDrafts((prev) => ({
       ...prev,
@@ -1389,6 +1328,9 @@ export default function MarksEntry() {
       await deleteDoc(doc(db, "marks", mark.id));
 
       setMarksDocs((prev) => prev.filter((item) => item.id !== mark.id));
+      updateCachedCollection("marks", (previous) =>
+        previous.filter((item) => item.id !== mark.id)
+      );
       const loadedRow = studentRows.find((item) => item.existingDocId === mark.id);
       if (loadedRow) {
         setDrafts((prev) => ({
@@ -1440,6 +1382,7 @@ export default function MarksEntry() {
       }
 
       const batch = writeBatch(db);
+      const savedMarks = [];
       const currentUser = auth.currentUser;
       const teacherName = pick(
         teacherProfile?.fullName,
@@ -1491,22 +1434,37 @@ export default function MarksEntry() {
           teacherName,
           updatedAt: serverTimestamp(),
         };
+        Object.assign(payload, buildCanonicalMarkFields(payload));
 
         if (row.existingDocId) {
           batch.set(doc(db, "marks", row.existingDocId), payload, { merge: true });
+          savedMarks.push({ id: row.existingDocId, ...payload });
         } else {
           const newRef = doc(collection(db, "marks"));
           batch.set(newRef, {
             ...payload,
             createdAt: serverTimestamp(),
           });
+          savedMarks.push({ id: newRef.id, ...payload });
         }
       }
 
       await batch.commit();
+      const savedByStudent = new Map(savedMarks.map((mark) => [String(mark.studentId), mark]));
+      const mergeSavedMarks = (previous) => {
+        const byId = new Map(previous.map((mark) => [mark.id, mark]));
+        savedMarks.forEach((mark) => byId.set(mark.id, { ...byId.get(mark.id), ...mark }));
+        return Array.from(byId.values());
+      };
+      setMarksDocs(mergeSavedMarks);
+      updateCachedCollection("marks", mergeSavedMarks);
+      setStudentRows((previous) =>
+        previous.map((row) => {
+          const saved = savedByStudent.get(String(row.studentId));
+          return saved ? { ...row, existingDocId: saved.id, isDirty: false } : row;
+        })
+      );
       setSuccess("Marks saved successfully.");
-      await loadBase();
-      await loadStudents();
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to save marks.");
@@ -1549,8 +1507,7 @@ export default function MarksEntry() {
           variant="outlined"
           startIcon={loadingRows ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
           onClick={() => {
-            loadBase();
-            loadStudents();
+            loadBase(true);
           }}
         >
           Refresh

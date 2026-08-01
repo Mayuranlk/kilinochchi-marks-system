@@ -1,0 +1,9 @@
+{
+  "SubjectAnalysis": { "status": "blocked", "evidence": "" },
+  "MarksStatusLive": { "status": "blocked", "evidence": "" },
+  "ClassReport": { "status": "blocked", "evidence": "" },
+  "ClassMarksReports": { "status": "blocked", "evidence": "" },
+  "ClassCompletionReport": { "status": "blocked", "evidence": "" },
+  "StudentsBySubject": { "status": "blocked", "evidence": "" },
+  "TeacherMarkSheets": { "status": "blocked", "evidence": "" }
+}

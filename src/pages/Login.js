@@ -67,7 +67,13 @@ export default function Login() {
         return;
       }
 
-      if (role === "teacher" || profile.isSubjectTeacher === true) {
+      if (
+        role === "teacher" ||
+        role === "it_teacher" ||
+        profile.isSubjectTeacher === true ||
+        profile.isITTeacher === true ||
+        profile.canAccessAllReports === true
+      ) {
         navigate("/teacher", { replace: true });
         return;
       }

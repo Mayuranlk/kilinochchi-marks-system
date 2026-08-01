@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import {
   Alert,
@@ -281,30 +281,17 @@ export default function TeacherMarkSheets() {
     loadData();
   }, []);
 
-  async function loadData() {
+  async function loadData(forceRefresh = false) {
     setLoading(true);
     setError("");
 
     try {
-      const [studentSnap, enrollmentSnap, termSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "academicTerms")),
+      const [loadedStudents, enrollmentRows, loadedTerms] = await Promise.all([
+        getCollectionRows(db, "students", { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
-
-      const loadedStudents = studentSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      const loadedEnrollments = enrollmentSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((row) => isEnrollmentActive(row));
-
-      const loadedTerms = termSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
+      const loadedEnrollments = enrollmentRows.filter((row) => isEnrollmentActive(row));
 
       const activeTerm = loadedTerms.find((t) => t.isActive === true) || null;
 
@@ -945,7 +932,7 @@ export default function TeacherMarkSheets() {
                 <Button
                   variant="outlined"
                   startIcon={<RefreshIcon />}
-                  onClick={loadData}
+                  onClick={() => loadData(true)}
                   disabled={loading || generating}
                 >
                   Refresh

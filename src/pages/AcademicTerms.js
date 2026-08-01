@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   collection,
-  getDocs,
   addDoc,
   deleteDoc,
   doc,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import {
   Box,
   Typography,
@@ -137,9 +137,9 @@ export default function AcademicTerms() {
     setError("");
 
     try {
-      const snap = await getDocs(collection(db, "academicTerms"));
+      const rows = await getCollectionRows(db, "academicTerms");
       const data = sortTerms(
-        snap.docs.map((d) => normalizeTermDoc(d.data(), d.id))
+        rows.map(({ id, ...term }) => normalizeTermDoc(term, id))
       );
       setTerms(data);
     } catch (err) {
@@ -244,6 +244,7 @@ export default function AcademicTerms() {
         setSuccess("Academic term added successfully.");
       }
 
+      invalidateCollectionRows("academicTerms");
       closeDialog();
       await fetchTerms();
     } catch (err) {
@@ -272,6 +273,7 @@ export default function AcademicTerms() {
 
       await Promise.all(updates);
 
+      invalidateCollectionRows("academicTerms");
       setSuccess(`${termToActivate.term} ${termToActivate.year} is now active.`);
       await fetchTerms();
     } catch (err) {
@@ -298,6 +300,7 @@ export default function AcademicTerms() {
 
     try {
       await deleteDoc(doc(db, "academicTerms", termId));
+      invalidateCollectionRows("academicTerms");
       setSuccess("Academic term deleted.");
       await fetchTerms();
     } catch (err) {

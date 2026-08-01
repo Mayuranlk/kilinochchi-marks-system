@@ -18,10 +18,10 @@ import {
   Typography,
   useTheme,
 } from "@mui/material";
-import { collection, getDocs } from "firebase/firestore";
 import { saveAs } from "file-saver";
 import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import { db } from "../../firebase";
+import { getCollectionRows } from "../../services/firestoreReadCache";
 import { useAuth } from "../../context/AuthContext";
 import { PageContainer } from "../../components/ui";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
@@ -522,44 +522,19 @@ export default function ClassMarksReports() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadBaseData() {
+  async function loadBaseData(forceRefresh = false) {
     try {
       setLoading(true);
       setError("");
 
-      const [studentsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap] =
+      const [studentsData, enrollmentsData, marksData, classroomsData, termsData] =
         await Promise.all([
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "classrooms")),
-          getDocs(collection(db, "academicTerms")),
+          getCollectionRows(db, "students", { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "classrooms", { forceRefresh }),
+          getCollectionRows(db, "academicTerms", { forceRefresh }),
         ]);
-
-      const studentsData = studentsSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const enrollmentsData = enrollmentsSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const marksData = marksSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const classroomsData = classroomsSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const termsData = termsSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
 
       setStudents(studentsData);
       setEnrollments(enrollmentsData);
@@ -766,7 +741,7 @@ export default function ClassMarksReports() {
                 </Alert>
               )}
 
-              <Button variant="outlined" onClick={loadBaseData} disabled={loading || bulkLoading}>
+              <Button variant="outlined" onClick={() => loadBaseData(true)} disabled={loading || bulkLoading}>
                 Reload Data
               </Button>
 

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -32,6 +31,7 @@ import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   deleteStudentsAndRelated,
   getStudentsByClassForSelection,
@@ -130,9 +130,9 @@ export default function ClassDataManagement() {
 
     async function loadClassrooms() {
       try {
-        const snap = await getDocs(collection(db, "classrooms"));
+        const rows = await getCollectionRows(db, "classrooms");
         if (mounted) {
-          setClassrooms(snap.docs.map((item) => ({ id: item.id, ...item.data() })));
+          setClassrooms(rows);
         }
       } catch (err) {
         console.error("Failed to load classrooms:", err);

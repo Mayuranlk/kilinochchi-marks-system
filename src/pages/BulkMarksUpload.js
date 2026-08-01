@@ -34,7 +34,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import {
   collection,
   doc,
-  getDocs,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
@@ -54,6 +53,12 @@ import {
   StatCard,
   StatusChip,
 } from "../components/ui";
+import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
+import { buildMarksByStudentId } from "../utils/subjectAnalysisIndex";
+import {
+  getCollectionRows,
+  invalidateCollectionRows,
+} from "../services/firestoreReadCache";
 
 const TEMPLATE_HEADERS = [
   "studentId",
@@ -1129,24 +1134,17 @@ export default function BulkMarksUpload() {
     setError("");
 
     try {
-      const [studentSnap, enrollmentSnap, termSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "academicTerms")),
+      const [studentRows, enrollmentRows, terms] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "studentSubjectEnrollments"),
+        getCollectionRows(db, "academicTerms"),
       ]);
 
-      const students = studentSnap.docs
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      const students = studentRows
         .filter((student) => isActiveStatus(student?.status || "active"));
 
-      const enrollments = enrollmentSnap.docs
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      const enrollments = enrollmentRows
         .filter((enrollment) => isActiveStatus(enrollment?.status || "active"));
-
-      const terms = termSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
 
       setAllStudents(students);
       setAllEnrollments(enrollments);
@@ -1526,11 +1524,8 @@ export default function BulkMarksUpload() {
     setSuccess("");
 
     try {
-      const marksSnap = await getDocs(collection(db, "marks"));
-      const existingMarks = marksSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+      const existingMarks = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const existingMarksByStudent = buildMarksByStudentId(existingMarks);
       const currentUser = auth.currentUser;
       const teacherName = currentUser?.displayName || currentUser?.email || "Bulk Upload";
 
@@ -1539,7 +1534,7 @@ export default function BulkMarksUpload() {
         const chunk = validRows.slice(i, i + MAX_BATCH_WRITES);
 
         chunk.forEach((row) => {
-          const existing = existingMarks.find((markDoc) => {
+          const existing = (existingMarksByStudent.get(normalizeText(row.studentId)) || []).find((markDoc) => {
             const sameStudent = normalizeText(markDoc.studentId) === normalizeText(row.studentId);
             const sameClass =
               normalizeLower(
@@ -1603,6 +1598,7 @@ export default function BulkMarksUpload() {
             uploadSource: uploadedFormat || "bulkUpload",
             updatedAt: serverTimestamp(),
           };
+          Object.assign(payload, buildCanonicalMarkFields(payload));
 
           if (existing?.id) {
             batch.set(doc(db, "marks", existing.id), payload, { merge: true });
@@ -1623,6 +1619,7 @@ export default function BulkMarksUpload() {
       setRawUploadedRows([]);
       setUploadedFileName("");
       setUploadedFormat("");
+      invalidateCollectionRows("marks");
     } catch (err) {
       console.error("Bulk save error:", err);
       setError(err.message || "Failed to save uploaded marks.");
@@ -1647,9 +1644,8 @@ export default function BulkMarksUpload() {
     setSuccess("");
 
     try {
-      const marksSnap = await getDocs(collection(db, "marks"));
-      const matchingDocs = marksSnap.docs.filter((docSnap) => {
-        const markDoc = docSnap.data();
+      const marksRows = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const matchingDocs = marksRows.filter((markDoc) => {
         const markClass = markDoc.alClassName || markDoc.fullClassName || markDoc.className || "";
         const markTerm = markDoc.termName || markDoc.term || "";
         const markYear = String(markDoc.academicYear || markDoc.year || "");
@@ -1689,6 +1685,7 @@ export default function BulkMarksUpload() {
       setRawUploadedRows([]);
       setUploadedFileName("");
       setUploadedFormat("");
+      invalidateCollectionRows("marks");
     } catch (err) {
       console.error("Bulk delete marks error:", err);
       setError(err.message || "Failed to delete selected marks.");

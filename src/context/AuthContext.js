@@ -2,8 +2,9 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, getDocFromCache } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { clearFirestoreReadCache } from "../services/firestoreReadCache";
 
 const AuthContext = createContext(null);
 
@@ -37,10 +38,18 @@ export function AuthProvider({ children }) {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
+    let callbackVersion = 0;
+    let lastUid;
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      const version = ++callbackVersion;
       setLoading(true);
 
       try {
+        const nextUid = firebaseUser?.uid || null;
+        if (lastUid !== nextUid) {
+          clearFirestoreReadCache();
+          lastUid = nextUid;
+        }
         setUser(firebaseUser);
 
         if (!firebaseUser) {
@@ -49,7 +58,18 @@ export function AuthProvider({ children }) {
         }
 
         const userRef = doc(db, "users", firebaseUser.uid);
-        const snap = await getDoc(userRef);
+        // Render from the already-persisted profile immediately when possible,
+        // then revalidate in the background. A cache miss still uses the server
+        // before protected routes are shown.
+        let snap;
+        let loadedFromCache = true;
+        try {
+          snap = await getDocFromCache(userRef);
+        } catch {
+          loadedFromCache = false;
+          snap = await getDoc(userRef);
+        }
+        if (version !== callbackVersion) return;
 
         if (snap.exists()) {
           setProfile({
@@ -66,16 +86,42 @@ export function AuthProvider({ children }) {
             role: null,
           });
         }
-      } catch (error) {
-        console.error("AuthContext profile load error:", error);
-        setProfile(null);
-      } finally {
+
         setLoading(false);
         setAuthReady(true);
+
+        // Cached roles only affect navigation; Firestore Rules remain the
+        // authority. Refresh the profile without putting the whole app back
+        // behind the startup loader.
+        if (loadedFromCache) {
+          getDoc(userRef)
+            .then((freshSnap) => {
+              if (version !== callbackVersion) return;
+              if (!freshSnap.exists()) return;
+              setProfile({
+                id: freshSnap.id,
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || "",
+                ...freshSnap.data(),
+              });
+            })
+            .catch((error) => console.error("AuthContext profile refresh error:", error));
+        }
+      } catch (error) {
+        console.error("AuthContext profile load error:", error);
+        if (version === callbackVersion) setProfile(null);
+      } finally {
+        if (version === callbackVersion) {
+          setLoading(false);
+          setAuthReady(true);
+        }
       }
     });
 
-    return () => unsub();
+    return () => {
+      callbackVersion += 1;
+      unsub();
+    };
   }, []);
 
   const logout = () => signOut(auth);

@@ -26,6 +26,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { invalidateCollectionRows } from "../services/firestoreReadCache";
 import {
   ActionBar,
   MobileListRow,
@@ -353,6 +354,9 @@ async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
 
   await commitDeleteOperations(enrollmentRefsToDelete);
   await commitDeleteOperations(markRefsToDelete);
+  if (enrollmentRefsToDelete.length || markRefsToDelete.length) {
+    invalidateCollectionRows("studentSubjectEnrollments", "marks");
+  }
 
   const totalProcessed = targetEnrollments.length + targetMarks.length;
 

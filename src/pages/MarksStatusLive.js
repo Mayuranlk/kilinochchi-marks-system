@@ -19,9 +19,8 @@ import {
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import { alpha, useTheme } from "@mui/material/styles";
-import { collection, onSnapshot } from "firebase/firestore";
-
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   filterStudentsForClass,
   matchesReportClass,
@@ -332,44 +331,35 @@ export default function MarksStatusLive() {
   const [lastUpdated, setLastUpdated] = useState("");
 
   useEffect(() => {
-    const collections = {
-      students: "students",
-      enrollments: "studentSubjectEnrollments",
-      marks: "marks",
-      classrooms: "classrooms",
-      terms: "academicTerms",
-      assignments: "teacherAssignments",
+    let active = true;
+
+    async function loadStatusData() {
+      try {
+        const [students, enrollments, marks, classrooms, terms, assignments] = await Promise.all([
+          getCollectionRows(db, "students"),
+          getCollectionRows(db, "studentSubjectEnrollments"),
+          getCollectionRows(db, "marks"),
+          getCollectionRows(db, "classrooms"),
+          getCollectionRows(db, "academicTerms"),
+          getCollectionRows(db, "teacherAssignments"),
+        ]);
+        if (!active) return;
+        setData({ students, enrollments, marks, classrooms, terms, assignments });
+        setLastUpdated(new Date().toLocaleString());
+        setError("");
+      } catch (err) {
+        if (!active) return;
+        console.error("Marks status load error:", err);
+        setError("Could not load marks status. Check Firestore read access for this page.");
+      } finally {
+        if (active) setLoadingCollections(new Set());
+      }
+    }
+
+    loadStatusData();
+    return () => {
+      active = false;
     };
-
-    const unsubscribers = Object.entries(collections).map(([stateKey, collectionName]) =>
-      onSnapshot(
-        collection(db, collectionName),
-        (snapshot) => {
-          setData((prev) => ({
-            ...prev,
-            [stateKey]: snapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
-          }));
-          setLoadingCollections((prev) => {
-            const next = new Set(prev);
-            next.delete(collectionName);
-            return next;
-          });
-          setLastUpdated(new Date().toLocaleString());
-          setError("");
-        },
-        (err) => {
-          console.error("Marks status live sync error:", err);
-          setError("Could not load live marks status. Check Firestore read access for this public page.");
-          setLoadingCollections((prev) => {
-            const next = new Set(prev);
-            next.delete(collectionName);
-            return next;
-          });
-        }
-      )
-    );
-
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   useEffect(() => {

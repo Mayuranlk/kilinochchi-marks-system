@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   Alert,
   Avatar,
@@ -141,23 +141,16 @@ export default function ClassTeacherAssignments() {
       setLoadError("");
 
       try {
-        const [classSnap, teacherSnap] = await Promise.all([
-          getDocs(collection(db, "classrooms")),
-          getDocs(collection(db, "users")),
+        const [classSource, teacherSource] = await Promise.all([
+          getCollectionRows(db, "classrooms"),
+          getCollectionRows(db, "users"),
         ]);
 
         const classroomRows = sortClassrooms(
-          classSnap.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-          }))
+          classSource
         );
 
-        const teacherRows = teacherSnap.docs
-          .map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-          }))
+        const teacherRows = teacherSource
           .filter(
             (row) => lower(row.role) === "teacher" && isActiveTeacher(row)
           )

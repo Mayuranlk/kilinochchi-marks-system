@@ -6,6 +6,7 @@ import {
   addDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { invalidateCollectionRows } from "./firestoreReadCache";
 
 const DELETE_BATCH_SIZE = 350;
 
@@ -361,6 +362,8 @@ export async function deleteStudentsAndRelated({
     createdAt: serverTimestamp(),
   });
 
+  invalidateCollectionRows("students", "studentSubjectEnrollments", "marks", "auditLogs");
+
   return {
     deletedStudents,
     deletedEnrollments,
@@ -417,6 +420,15 @@ export async function resetClassData({
     deletedClassrooms,
     createdAt: serverTimestamp(),
   });
+
+  invalidateCollectionRows(
+    "students",
+    "studentSubjectEnrollments",
+    "marks",
+    "teacherAssignments",
+    "classrooms",
+    "auditLogs"
+  );
 
   return {
     className: preview.className,

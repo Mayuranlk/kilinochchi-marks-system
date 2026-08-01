@@ -56,11 +56,11 @@ const PrefectLogin = lazy(() => import("./pages/PrefectLogin"));
 const PrefectDashboard = lazy(() => import("./pages/PrefectDashboard"));
 const AcademicDataHealth = lazy(() => import("./pages/AcademicDataHealth"));
 
-function LoadingScreen() {
+function LoadingScreen({ workspace = false }) {
   return (
     <Box
       sx={{
-        minHeight: "100vh",
+        minHeight: workspace ? { xs: 360, md: 480 } : "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -92,7 +92,7 @@ function LoadingScreen() {
                 Kilinochchi Marks
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Preparing your workspace...
+                {workspace ? "Loading page..." : "Preparing your workspace..."}
               </Typography>
             </Box>
           </Stack>
@@ -108,7 +108,7 @@ function LoadingScreen() {
 }
 
 function LazyRoute({ children }) {
-  return <Suspense fallback={<LoadingScreen />}>{children}</Suspense>;
+  return <Suspense fallback={<LoadingScreen workspace />}>{children}</Suspense>;
 }
 
 function PrivateRoute({ children }) {

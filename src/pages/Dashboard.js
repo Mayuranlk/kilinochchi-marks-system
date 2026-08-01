@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -41,6 +41,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { auth, db } from "../firebase";
+import { getCollectionCount, getCollectionRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
   LoadingState,
@@ -250,24 +251,21 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [studentsSnap, usersSnap, marksSnap, subjectsSnap, enrollmentsSnap, marksEntrySettingsSnap] =
+        const [loadedStudents, loadedUsers, loadedMarksCount, loadedSubjectsCount, loadedEnrollmentsCount, marksEntrySettingsSnap] =
           await Promise.all([
-            getDocs(collection(db, "students")),
-            getDocs(collection(db, "users")),
-            getDocs(collection(db, "marks")),
-            getDocs(collection(db, "subjects")),
-            getDocs(collection(db, "studentSubjectEnrollments")),
+            getCollectionRows(db, "students"),
+            getCollectionRows(db, "users"),
+            getCollectionCount(db, "marks"),
+            getCollectionCount(db, "subjects"),
+            getCollectionCount(db, "studentSubjectEnrollments"),
             getDoc(doc(db, "systemSettings", "marksEntry")),
           ]);
 
-        const loadedStudents = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        const loadedUsers = usersSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
         setStudents(sortStudents(loadedStudents));
         setTeachers(loadedUsers.filter((user) => normalizeLower(user.role) === "teacher"));
-        setMarksCount(marksSnap.size);
-        setSubjectsCount(subjectsSnap.size);
-        setEnrollmentsCount(enrollmentsSnap.size);
+        setMarksCount(loadedMarksCount);
+        setSubjectsCount(loadedSubjectsCount);
+        setEnrollmentsCount(loadedEnrollmentsCount);
         setMarksEntrySettings(
           marksEntrySettingsSnap.exists()
             ? normalizeMarksEntrySettings(marksEntrySettingsSnap.data())
@@ -275,7 +273,7 @@ export default function Dashboard() {
         );
       } catch (error) {
         console.error("Dashboard load error:", error);
-        setLoadError("Failed to load dashboard data.");
+        setLoadError(`Failed to load dashboard data: ${error.message || "Unknown Firestore error"}`);
       } finally {
         setLoading(false);
       }

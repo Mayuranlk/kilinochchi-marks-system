@@ -9,6 +9,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import firebaseApp, { db } from "../firebase";
+import { clearFirestoreReadCache } from "./firestoreReadCache";
 
 export const BACKUP_FORMAT = "kilinochchi-marks-system-backup";
 export const BACKUP_VERSION = 1;
@@ -260,5 +261,6 @@ export async function restoreSystemBackup(backup, { onProgress } = {}) {
     onProgress?.({ restoredCount, documentCount: validation.documentCount });
   }
 
+  clearFirestoreReadCache();
   return { ...validation, restoredCount };
 }

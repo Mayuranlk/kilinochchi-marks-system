@@ -37,6 +37,8 @@ import { addDoc, collection, doc, getDocs, query, serverTimestamp, where, writeB
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { invalidateCollectionRows } from "../services/firestoreReadCache";
+import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
 import { ACADEMIC_YEARS, GRADES } from "../constants";
 import PageContainer from "../components/ui/PageContainer";
 import StatCard from "../components/ui/StatCard";
@@ -128,6 +130,12 @@ const commitStudentUpdates = async ({ plan, academicYear, performedBy }) => {
           section: student.newSection,
           className: student.newSection,
           fullClassName: student.newClassName,
+          ...buildCanonicalStudentFields({
+            academicYear,
+            grade: plan.grade,
+            section: student.newSection,
+            fullClassName: student.newClassName,
+          }),
           previousSection: student.oldSection,
           previousClassName: student.oldClassName,
           classShuffle: {
@@ -145,6 +153,7 @@ const commitStudentUpdates = async ({ plan, academicYear, performedBy }) => {
     });
     await batch.commit();
   }
+  invalidateCollectionRows("students");
 };
 
 const serializePlan = (plan) => ({

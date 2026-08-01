@@ -6,6 +6,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { invalidateCollectionRows } from "./firestoreReadCache";
 import {
   RELIGIONS,
   AESTHETIC_SUBJECTS,
@@ -559,6 +560,7 @@ export async function repairStudentNames(profile) {
   });
 
   await commitInChunks(operations);
+  invalidateCollectionRows(...new Set(plan.changes.map((change) => change.collectionName)));
 
   return {
     studentsScanned: plan.studentsScanned,
@@ -627,6 +629,7 @@ export async function createDefaultSubjects(profile) {
     created += 1;
   }
 
+  if (created) invalidateCollectionRows(SUBJECTS_COLLECTION);
   return { created, skipped, totalDefaults: defaults.length };
 }
 
@@ -712,6 +715,7 @@ export async function restoreOfficialSubjects(profile) {
     created += 1;
   }
 
+  if (created || restored) invalidateCollectionRows(SUBJECTS_COLLECTION);
   return { created, restored, totalDefaults: defaults.length };
 }
 
@@ -853,6 +857,7 @@ export async function fixStudentData(profile) {
   }
 
   await commitInChunks(ops);
+  if (updated) invalidateCollectionRows(STUDENTS_COLLECTION);
 
   return { updated, unchanged, total: students.length };
 }

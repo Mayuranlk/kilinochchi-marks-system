@@ -1,5 +1,7 @@
 # Getting Started with Create React App
 
+Firestore schema compatibility, read-cost fixes, real-time listener policy, and production verification guidance are documented in [FIRESTORE_PERFORMANCE.md](./FIRESTORE_PERFORMANCE.md).
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts

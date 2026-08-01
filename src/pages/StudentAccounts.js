@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import {
   Alert,
   AppBar,
@@ -48,6 +48,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import { EmptyState, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
@@ -355,12 +356,12 @@ export default function StudentAccounts() {
   const load = async () => {
     setLoading(true);
     try {
-      const [studentSnap, accountSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "studentFeeAccounts")),
+      const [studentRows, accountRows] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "studentFeeAccounts"),
       ]);
-      setStudents(studentSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setAccounts(accountSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setStudents(studentRows);
+      setAccounts(accountRows);
     } catch (error) {
       console.error(error);
       setMessage({ severity: "error", text: "Could not load accounts. Check Firestore permissions for students and studentFeeAccounts." });
@@ -474,6 +475,8 @@ export default function StudentAccounts() {
       },
       { merge: true }
     );
+    // A following reload must not reuse the pre-write session snapshot.
+    invalidateCollectionRows("studentFeeAccounts");
   };
 
   const openPayment = (row, fee) => {

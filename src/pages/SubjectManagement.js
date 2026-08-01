@@ -38,8 +38,9 @@ import EditIcon from "@mui/icons-material/Edit";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SchoolIcon from "@mui/icons-material/School";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import { MobileListRow, PageContainer, ResponsiveTableWrapper } from "../components/ui";
 import { restoreOfficialSubjects } from "../services/setupDefaultsService";
@@ -579,11 +580,7 @@ export default function SubjectManagement() {
     setError("");
 
     try {
-      const snap = await getDocs(collection(db, SUBJECT_COLLECTION));
-      const rows = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
+      const rows = await getCollectionRows(db, SUBJECT_COLLECTION);
 
       setSubjects(sortByName(rows));
     } catch (err) {
@@ -773,6 +770,8 @@ export default function SubjectManagement() {
         setSuccess("Subject created successfully.");
       }
 
+      invalidateCollectionRows("subjects");
+
       closeDialog();
       await loadSubjects();
     } catch (err) {
@@ -801,6 +800,7 @@ export default function SubjectManagement() {
         updatedById: profile?.uid || "",
         updatedByName: profile?.name || profile?.displayName || profile?.email || "",
       });
+      invalidateCollectionRows("subjects");
 
       setSuccess(`${getSubjectName(subject)} marked as ${nextStatus}.`);
       await loadSubjects();

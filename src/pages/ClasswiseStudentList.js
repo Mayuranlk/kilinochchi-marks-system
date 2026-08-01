@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -28,6 +27,7 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import { isALGrade } from "../constants";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
@@ -309,20 +309,10 @@ export default function ClasswiseStudentList() {
       setLoading(true);
       setError("");
 
-      const [studentSnap, classroomSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "classrooms")),
+      const [loadedStudents, loadedClassrooms] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "classrooms"),
       ]);
-
-      const loadedStudents = studentSnap.docs.map((item) => ({
-        id: item.id,
-        ...item.data(),
-      }));
-
-      const loadedClassrooms = classroomSnap.docs.map((item) => ({
-        id: item.id,
-        ...item.data(),
-      }));
 
       setStudents(loadedStudents);
       setClassrooms(loadedClassrooms);

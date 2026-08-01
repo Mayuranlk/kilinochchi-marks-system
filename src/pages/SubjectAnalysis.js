@@ -30,13 +30,13 @@ import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import SubjectRoundedIcon from "@mui/icons-material/SubjectRounded";
 import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
-import { collection, getDocs } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { saveAs } from "file-saver";
 
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   buildALClassName,
   buildALDisplayClassName,
@@ -44,6 +44,7 @@ import {
   isALGrade,
 } from "../constants";
 import { AL_GRADE_BANDS, OL_GRADE_BANDS } from "../utils/gradeUtils";
+import { buildMarksByStudentId } from "../utils/subjectAnalysisIndex";
 import {
   EmptyState,
   PageContainer,
@@ -1566,7 +1567,7 @@ function finishStats(stats) {
   };
 }
 
-function findMatchingMark(marks, enrollment, termName, year, assessmentId = "__TERM__") {
+function findMatchingMark(marksByStudentId, enrollment, termName, year, assessmentId = "__TERM__") {
   const studentId = clean(enrollment.studentId);
   const subjectId = getSubjectId(enrollment);
   const subjectName = normalize(getSubjectName(enrollment));
@@ -1574,8 +1575,7 @@ function findMatchingMark(marks, enrollment, termName, year, assessmentId = "__T
   const legacyPracticeTermName = getLegacyPracticeTermNameFromAssessmentId(assessmentId);
   const targetTermName = legacyPracticeTermName || termName;
 
-  return marks.find((mark) => {
-    if (clean(mark.studentId) !== studentId) return false;
+  return (marksByStudentId.get(studentId) || []).find((mark) => {
     if (clean(mark.termName || mark.term) !== clean(targetTermName)) return false;
     if (getAcademicYear(mark) && Number(getAcademicYear(mark)) !== Number(year)) return false;
     if (getMarkClassName(mark) && getMarkClassName(mark) !== className) return false;
@@ -1595,12 +1595,17 @@ function findMatchingMark(marks, enrollment, termName, year, assessmentId = "__T
 }
 
 function buildRecords({ enrollments, studentsById, marks, termName, year, assessmentId = "__TERM__" }) {
+  // Index once instead of scanning every mark for every enrollment. This keeps
+  // all legacy matching rules intact while reducing the dominant calculation
+  // from O(enrollments * marks) to O(marks + relevant student marks).
+  const marksByStudentId = buildMarksByStudentId(marks);
+
   return enrollments
     .filter((enrollment) => isActive(enrollment))
     .filter((enrollment) => !getAcademicYear(enrollment) || Number(getAcademicYear(enrollment)) === Number(year))
     .map((enrollment) => {
       const student = studentsById.get(clean(enrollment.studentId)) || {};
-      const markDoc = findMatchingMark(marks, enrollment, termName, year, assessmentId);
+      const markDoc = findMatchingMark(marksByStudentId, enrollment, termName, year, assessmentId);
       const grade = parseGrade(enrollment.grade || student.grade || enrollment.className);
       const section = normalizeSection(enrollment.section || student.section || enrollment.className);
       const className = getEnrollmentClassName(enrollment) || buildClassName(grade, section);
@@ -2074,29 +2079,24 @@ export default function SubjectAnalysis() {
   const [printTarget, setPrintTarget] = useState("");
   const [printSize, setPrintSize] = useState("A4 landscape");
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError("");
 
-      const [studentsSnap, subjectsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap, practiceExamSnap] =
+      const [nextStudents, subjectRows, enrollmentRows, nextMarks, nextClassrooms, nextTerms, nextPracticeExams] =
         await Promise.all([
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "subjects")),
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "classrooms")),
-          getDocs(collection(db, "academicTerms")),
-          getDocs(collection(db, "practiceExams")).catch(() => ({ docs: [] })),
+          getCollectionRows(db, "students", { forceRefresh }),
+          getCollectionRows(db, "subjects", { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "classrooms", { forceRefresh }),
+          getCollectionRows(db, "academicTerms", { forceRefresh }),
+          getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
         ]);
 
-      const nextStudents = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const nextSubjects = subjectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter(isActive);
-      const nextEnrollments = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter(isActive);
-      const nextMarks = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const nextClassrooms = classroomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const nextTerms = termsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const nextPracticeExams = practiceExamSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const nextSubjects = subjectRows.filter(isActive);
+      const nextEnrollments = enrollmentRows.filter(isActive);
 
       setStudents(nextStudents);
       setSubjects(nextSubjects);
@@ -2534,7 +2534,7 @@ export default function SubjectAnalysis() {
       subtitle="Grade, class, mark range, and A3 grading reports from allocated student subjects."
       actions={
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={loadData} disabled={loading}>
+          <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => loadData(true)} disabled={loading}>
             Reload
           </Button>
         </Stack>

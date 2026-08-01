@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -26,6 +26,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -69,13 +70,13 @@ export default function PracticeExams() {
     try {
       setLoading(true);
       setError("");
-      const [examSnap, subjectSnap] = await Promise.all([
-        getDocs(collection(db, "practiceExams")),
-        getDocs(collection(db, "subjects")),
+      const [examRows, subjectRows] = await Promise.all([
+        getCollectionRows(db, "practiceExams"),
+        getCollectionRows(db, "subjects"),
       ]);
 
-      setExams(examSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setSubjects(subjectSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setExams(examRows);
+      setSubjects(subjectRows);
     } catch (err) {
       console.error("Practice exams load failed:", err);
       setError(err.message || "Failed to load practice exams.");
@@ -172,6 +173,7 @@ export default function PracticeExams() {
         });
         setSuccess("Practice exam added.");
       }
+      invalidateCollectionRows("practiceExams");
 
       setOpen(false);
       await loadData();
@@ -187,6 +189,7 @@ export default function PracticeExams() {
 
     try {
       await deleteDoc(doc(db, "practiceExams", exam.id));
+      invalidateCollectionRows("practiceExams");
       setSuccess("Practice exam deleted.");
       await loadData();
     } catch (err) {

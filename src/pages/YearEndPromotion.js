@@ -7,6 +7,8 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { GRADES } from "../constants";
+import { invalidateCollectionRows } from "../services/firestoreReadCache";
+import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
 import {
   Box,
   Typography,
@@ -263,7 +265,12 @@ export default function YearEndPromotion() {
   setSuccess("");
 
   try {
-    const batch = writeBatch(db);
+    // One promoted student can update several enrollment documents. Collect
+    // operations first and commit below Firestore's 500-write batch limit.
+    const updates = [];
+    const batch = {
+      update: (ref, data) => updates.push({ ref, data }),
+    };
 
     let promoted = 0;
     let detained = 0;
@@ -298,6 +305,12 @@ export default function YearEndPromotion() {
           previousGrade: currentGrade,
           previousYear: fromYear,
           updatedAt: new Date().toISOString(),
+          ...buildCanonicalStudentFields({
+            academicYear: toYear,
+            grade: nextGrade,
+            section: currentSection,
+            stream: transitionType === "al" ? streams[student.id] : student.stream,
+          }),
           ...(transitionType === "al" && {
             stream: normalizeText(streams[student.id]),
           }),
@@ -328,6 +341,12 @@ export default function YearEndPromotion() {
           promotionStatus: "detained",
           previousYear: fromYear,
           updatedAt: new Date().toISOString(),
+          ...buildCanonicalStudentFields({
+            academicYear: toYear,
+            grade: currentGrade,
+            section: currentSection,
+            stream: student.stream,
+          }),
         });
 
         detained++;
@@ -341,6 +360,12 @@ export default function YearEndPromotion() {
           academicYear: toYear,
           year: toYear,
           updatedAt: new Date().toISOString(),
+          ...buildCanonicalStudentFields({
+            academicYear: toYear,
+            grade: currentGrade,
+            section: currentSection,
+            stream: student.stream,
+          }),
         });
 
         currentEnrollments.forEach((enrollment) => {
@@ -356,7 +381,14 @@ export default function YearEndPromotion() {
       }
     }
 
-    await batch.commit();
+    for (let start = 0; start < updates.length; start += 400) {
+      const commitBatch = writeBatch(db);
+      updates.slice(start, start + 400).forEach(({ ref, data }) => {
+        commitBatch.update(ref, data);
+      });
+      await commitBatch.commit();
+    }
+    invalidateCollectionRows("students", "studentSubjectEnrollments");
 
     setSuccess(
       `✅ Promotion complete! ${promoted} promoted` +

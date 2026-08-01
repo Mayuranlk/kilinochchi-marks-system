@@ -5,9 +5,9 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { GRADES } from "../constants";
 import {
   AL_STREAM_OPTIONS,
@@ -247,14 +247,14 @@ export default function ClassroomManagement() {
     setError("");
 
     try {
-      const [classSnap, usersSnap, teachersSnap] = await Promise.all([
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "teachers")),
+      const [classRows, userRows, teacherRows] = await Promise.all([
+        getCollectionRows(db, "classrooms"),
+        getCollectionRows(db, "users"),
+        getCollectionRows(db, "teachers"),
       ]);
 
-      const normalizedClassrooms = classSnap.docs
-        .map((d) => normalizeClassroom(d.id, d.data()))
+      const normalizedClassrooms = classRows
+        .map(({ id, ...data }) => normalizeClassroom(id, data))
         .sort((a, b) => {
           if (a.grade !== b.grade) return a.grade - b.grade;
           if (a.stream !== b.stream) return a.stream.localeCompare(b.stream);
@@ -262,12 +262,12 @@ export default function ClassroomManagement() {
           return b.year - a.year;
         });
 
-      const userTeachers = usersSnap.docs
-        .map((d) => normalizeTeacher(d.id, d.data(), "users"))
+      const userTeachers = userRows
+        .map(({ id, ...data }) => normalizeTeacher(id, data, "users"))
         .filter((t) => t.role === "teacher" || t.raw?.designation === "teacher");
 
-      const directTeachers = teachersSnap.docs.map((d) =>
-        normalizeTeacher(d.id, d.data(), "teachers")
+      const directTeachers = teacherRows.map(({ id, ...data }) =>
+        normalizeTeacher(id, data, "teachers")
       );
 
       const dedupedTeachers = [];
@@ -445,6 +445,7 @@ export default function ClassroomManagement() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      invalidateCollectionRows("classrooms");
 
       setForm((prev) => ({
         ...prev,
@@ -541,6 +542,7 @@ export default function ClassroomManagement() {
         });
         setSuccess("Classroom added successfully.");
       }
+      invalidateCollectionRows("classrooms");
 
       setOpen(false);
       resetFormState();
@@ -582,6 +584,7 @@ export default function ClassroomManagement() {
 
     try {
       await deleteDoc(doc(db, "classrooms", id));
+      invalidateCollectionRows("classrooms");
       setSuccess("Classroom deleted.");
       await fetchData();
     } catch (err) {

@@ -20,6 +20,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { getCollectionRows } from "../services/firestoreReadCache";
 
 const REASONS = [
   "Transport delay", "Overslept", "Medical reason", "Family reason",
@@ -135,11 +136,11 @@ export default function PrefectDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [studentSnap, recordSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
+      const [studentRows, recordSnap] = await Promise.all([
+        getCollectionRows(db, "students"),
         getDocs(query(collection(db, "lateArrivalRecords"), orderBy("arrivalTime", "desc"))),
       ]);
-      setStudents(studentSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setStudents(studentRows);
       setRecords(recordSnap.docs.map((item) => ({ id: item.id, ...item.data() })));
     } catch (error) {
       console.error(error);

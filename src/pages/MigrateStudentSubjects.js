@@ -22,6 +22,7 @@ import {
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { db } from "../firebase";
+import { invalidateCollectionRows } from "../services/firestoreReadCache";
 import { PageContainer } from "../components/ui";
 
 const OLD_FIELDS = [
@@ -104,6 +105,7 @@ export default function MigrateStudentSubjects() {
         await batch.commit();
       }
 
+      invalidateCollectionRows("students");
       setSuccess("Legacy subject fields removed successfully.");
       await loadData();
     } catch (err) {

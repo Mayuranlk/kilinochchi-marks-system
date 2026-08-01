@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { GRADES, RELIGIONS } from "../constants";
 import { getOlGradeLetter } from "../utils/gradeUtils";
 import { useNavigate } from "react-router-dom";
@@ -360,23 +360,19 @@ export default function StudentsBySubject() {
     setLoadError("");
 
     try {
-      const [studentSnap, enrollmentSnap, marksSnap, termSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "marks")),
-        getDocs(collection(db, "academicTerms")),
+      const [studentRows, enrollmentRows, marksData, termsData] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "studentSubjectEnrollments"),
+        getCollectionRows(db, "marks"),
+        getCollectionRows(db, "academicTerms"),
       ]);
 
-      const studentsData = studentSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+      const studentsData = studentRows
         .filter((student) => isActiveStatus(student?.status || "active"));
 
-      const enrollmentsData = enrollmentSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+      const enrollmentsData = enrollmentRows
         .filter((enrollment) => isEnrollmentActive(enrollment));
 
-      const marksData = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const termsData = termSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
       setAllStudents(studentsData);
       setAllEnrollments(enrollmentsData);
@@ -670,25 +666,30 @@ export default function StudentsBySubject() {
     });
   }, [students, search]);
 
-  const marksOnly = students.filter((student) => student.mark !== null);
+  const { avgMark, passedCount, failedCount } = useMemo(() => {
+    if (mode !== "marks") {
+      return { avgMark: null, passedCount: 0, failedCount: 0 };
+    }
 
-  const avgMark =
-    mode === "marks" && marksOnly.length > 0
-      ? (
-          marksOnly.reduce((sum, student) => sum + (student.mark || 0), 0) /
-          marksOnly.length
-        ).toFixed(1)
-      : null;
+    let markCount = 0;
+    let markTotal = 0;
+    let passed = 0;
+    let failed = 0;
 
-  const passedCount =
-    mode === "marks"
-      ? students.filter((student) => (student.mark ?? -1) >= 35).length
-      : 0;
+    students.forEach((student) => {
+      if (student.mark === null) return;
+      markCount += 1;
+      markTotal += student.mark || 0;
+      if ((student.mark ?? -1) >= 35) passed += 1;
+      if ((student.mark ?? 999) < 35) failed += 1;
+    });
 
-  const failedCount =
-    mode === "marks"
-      ? students.filter((student) => (student.mark ?? 999) < 35).length
-      : 0;
+    return {
+      avgMark: markCount > 0 ? (markTotal / markCount).toFixed(1) : null,
+      passedCount: passed,
+      failedCount: failed,
+    };
+  }, [mode, students]);
 
   const selectedSubjectLabel = buildSubjectDisplayName(
     selectedSubjectName,

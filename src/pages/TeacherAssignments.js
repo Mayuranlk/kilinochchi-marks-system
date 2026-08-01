@@ -11,6 +11,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import {
   Accordion,
   AccordionDetails,
@@ -305,11 +306,11 @@ export default function TeacherAssignments() {
     setError("");
 
     try {
-      const [teacherSnap, subjectSnap, assignmentSnap, classroomSnap] = await Promise.all([
+      const [teacherSnap, subjectSource, assignmentRows, classroomRows] = await Promise.all([
         getDocs(query(collection(db, "users"), where("role", "==", "teacher"))),
-        getDocs(collection(db, "subjects")),
-        getDocs(collection(db, "teacherAssignments")),
-        getDocs(collection(db, "classrooms")),
+        getCollectionRows(db, "subjects"),
+        getCollectionRows(db, "teacherAssignments"),
+        getCollectionRows(db, "classrooms"),
       ]);
 
       const teacherRows = teacherSnap.docs
@@ -317,20 +318,9 @@ export default function TeacherAssignments() {
         .filter((row) => isTeacherActive(row))
         .sort((a, b) => safeString(a.name).localeCompare(safeString(b.name)));
 
-      const subjectRows = subjectSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+      const subjectRows = subjectSource
         .filter((row) => isActiveSubject(row))
         .sort((a, b) => getSubjectName(a).localeCompare(getSubjectName(b)));
-
-      const assignmentRows = assignmentSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-
-      const classroomRows = classroomSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
 
       setTeachers(teacherRows);
       setSubjects(subjectRows);
@@ -811,6 +801,7 @@ export default function TeacherAssignments() {
           })
         )
       );
+      invalidateCollectionRows("teacherAssignments");
 
       setSuccess(
         `${rowsToCreate.length} assignment${rowsToCreate.length === 1 ? "" : "s"} added for ${safeString(selectedTeacherRow?.name)}.`
@@ -838,6 +829,7 @@ export default function TeacherAssignments() {
 
     try {
       await deleteDoc(doc(db, "teacherAssignments", id));
+      invalidateCollectionRows("teacherAssignments");
       await fetchAll();
     } catch (err) {
       console.error("TeacherAssignments delete error:", err);
@@ -865,6 +857,7 @@ export default function TeacherAssignments() {
         batch.delete(doc(db, "teacherAssignments", assignment.id));
       });
       await batch.commit();
+      invalidateCollectionRows("teacherAssignments");
 
       setSuccess(
         `Cleared ${teacherAssignments.length} assignment${teacherAssignments.length === 1 ? "" : "s"} for ${teacherName}.`

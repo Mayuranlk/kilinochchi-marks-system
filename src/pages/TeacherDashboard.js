@@ -31,8 +31,9 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
-import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
   MobileListRow,
@@ -646,7 +647,21 @@ export default function TeacherDashboard() {
     [terms, selectedTermKey]
   );
 
-  const loadDashboard = async (silent = false) => {
+  const subjectProgressSummary = useMemo(
+    () =>
+      subjectRows.reduce(
+        (summary, row) => {
+          summary.assignedClasses.add(row.fullClassName);
+          if (row.pending === 0 && row.total > 0) summary.completed += 1;
+          if (row.pending > 0 || row.total === 0) summary.pending += 1;
+          return summary;
+        },
+        { assignedClasses: new Set(), completed: 0, pending: 0 }
+      ),
+    [subjectRows]
+  );
+
+  const loadDashboard = async (silent = false, forceRefresh = false) => {
     try {
       setError("");
       if (silent) setRefreshing(true);
@@ -655,17 +670,12 @@ export default function TeacherDashboard() {
       const user = auth.currentUser;
       if (!user) throw new Error("User is not logged in.");
 
-      const [usersSnap, assignmentsSnap, classroomsSnap, termsSnap] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "teacherAssignments")),
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "academicTerms")),
+      const [users, assignments, classrooms, loadedTerms] = await Promise.all([
+        getCollectionRows(db, "users", { forceRefresh }),
+        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+        getCollectionRows(db, "classrooms", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
-
-      const users = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const assignments = assignmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const classrooms = classroomsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const loadedTerms = termsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
       setClassrooms(classrooms);
 
@@ -709,13 +719,10 @@ export default function TeacherDashboard() {
       setProgressLoading(true);
 
       try {
-        const [enrollmentsSnap, marksSnap] = await Promise.all([
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "marks")),
+        const [loadedEnrollments, loadedMarks] = await Promise.all([
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
         ]);
-
-        const loadedEnrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const loadedMarks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
         setEnrollments(loadedEnrollments);
         setMarks(loadedMarks);
@@ -777,43 +784,10 @@ export default function TeacherDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTermKey]);
 
-  useEffect(() => {
-    let initialSnapshots = 0;
-    let refreshTimer = null;
-
-    const scheduleRefresh = () => {
-      initialSnapshots += 1;
-      if (initialSnapshots <= 2) return;
-
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => loadDashboard(true), 300);
-    };
-
-    const unsubscribeEnrollments = onSnapshot(
-      collection(db, "studentSubjectEnrollments"),
-      scheduleRefresh,
-      (snapshotError) => console.error("Dashboard enrollment sync error:", snapshotError)
-    );
-    const unsubscribeMarks = onSnapshot(
-      collection(db, "marks"),
-      scheduleRefresh,
-      (snapshotError) => console.error("Dashboard marks sync error:", snapshotError)
-    );
-
-    return () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      unsubscribeEnrollments();
-      unsubscribeMarks();
-    };
-    // Re-subscribe when the selected term changes so refresh uses the current term.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTermKey]);
-
   const ensureStudentsLoaded = useCallback(async () => {
     if (students.length > 0) return students;
 
-    const studentsSnap = await getDocs(collection(db, "students"));
-    const studentsData = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const studentsData = await getCollectionRows(db, "students");
     setStudents(studentsData);
     return studentsData;
   }, [students]);
@@ -944,7 +918,7 @@ export default function TeacherDashboard() {
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
-          onClick={() => loadDashboard(true)}
+          onClick={() => loadDashboard(true, true)}
           fullWidth={isMobile}
         >
           Refresh
@@ -1041,7 +1015,7 @@ export default function TeacherDashboard() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <StatusChip
                   status="active"
-                  label={`${new Set(subjectRows.map((row) => row.fullClassName)).size} classes`}
+                  label={`${subjectProgressSummary.assignedClasses.size} classes`}
                 />
                 <StatusChip status="saved" label={`${subjectRows.length} subjects`} />
                 <StatusChip
@@ -1049,7 +1023,7 @@ export default function TeacherDashboard() {
                   label={
                     progressLoading
                       ? "syncing"
-                      : `${subjectRows.filter((row) => row.pending === 0 && row.total > 0).length} completed`
+                      : `${subjectProgressSummary.completed} completed`
                   }
                 />
                 <StatusChip
@@ -1057,7 +1031,7 @@ export default function TeacherDashboard() {
                   label={
                     progressLoading
                       ? "syncing"
-                      : `${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} pending`
+                      : `${subjectProgressSummary.pending} pending`
                   }
                 />
               </Stack>
@@ -1068,7 +1042,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Assigned Classes"
-                value={new Set(subjectRows.map((row) => row.fullClassName)).size}
+                value={subjectProgressSummary.assignedClasses.size}
                 icon={<ClassRoundedIcon />}
                 color="primary"
               />
@@ -1084,7 +1058,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Completed"
-                value={progressLoading ? "..." : subjectRows.filter((row) => row.pending === 0 && row.total > 0).length}
+                value={progressLoading ? "..." : subjectProgressSummary.completed}
                 icon={<CheckCircleRoundedIcon />}
                 color="success"
               />
@@ -1092,7 +1066,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Pending"
-                value={progressLoading ? "..." : subjectRows.filter((row) => row.pending > 0 || row.total === 0).length}
+                value={progressLoading ? "..." : subjectProgressSummary.pending}
                 icon={<HourglassBottomRoundedIcon />}
                 color="warning"
               />
@@ -1474,7 +1448,7 @@ export default function TeacherDashboard() {
                   label={
                     progressLoading
                       ? "Stats syncing"
-                      : `${subjectRows.filter((row) => row.pending > 0 || row.total === 0).length} Pending`
+                      : `${subjectProgressSummary.pending} Pending`
                   }
                   color="warning"
                   variant="outlined"

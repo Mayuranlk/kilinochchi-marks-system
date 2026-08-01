@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -25,6 +25,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { SCHOOL_NAME } from "../constants";
 import { useAuth } from "../context/AuthContext";
 import { getOlGradeBand } from "../utils/gradeUtils";
@@ -225,29 +226,28 @@ export default function ReportCard() {
       setLoadError("");
 
       try {
-        const [studentSnap, marksSnap, termsSnap, enrollmentsSnap] = await Promise.all([
+        const [studentSnap, marksSnap, loadedTerms, enrollmentsSnap] = await Promise.all([
           getDoc(doc(db, "students", studentId)),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "academicTerms")),
-          getDocs(collection(db, "studentSubjectEnrollments")),
+          getDocs(query(collection(db, "marks"), where("studentId", "==", studentId))),
+          getCollectionRows(db, "academicTerms"),
+          getDocs(
+            query(
+              collection(db, "studentSubjectEnrollments"),
+              where("studentId", "==", studentId)
+            )
+          ),
         ]);
 
         const loadedStudent = studentSnap.exists()
           ? { id: studentSnap.id, ...studentSnap.data() }
           : null;
 
-        const loadedMarks = marksSnap.docs
-          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-          .filter((mark) => safeText(mark.studentId) === safeText(studentId));
+        const loadedMarks = marksSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
-        const loadedTerms = termsSnap.docs.map((docSnap) => ({
+        const loadedEnrollments = enrollmentsSnap.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         }));
-
-        const loadedEnrollments = enrollmentsSnap.docs
-          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-          .filter((row) => safeText(row.studentId) === safeText(studentId));
 
         setStudent(loadedStudent);
         setAllMarks(loadedMarks);

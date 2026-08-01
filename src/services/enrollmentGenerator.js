@@ -7,6 +7,8 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
+import { buildCanonicalEnrollmentFields } from "../utils/firestoreCanonical";
+import { invalidateCollectionRows } from "./firestoreReadCache";
 import { db } from "../firebase";
 import {
   COMPULSORY_CORE_6_9,
@@ -706,7 +708,7 @@ function enrollmentPayload(student, subject, academicYear) {
   const section = getStudentSection(student);
   const fullClass = getStudentFullClass(student);
 
-  return {
+  const payload = {
     studentId: student.id,
     studentName: getStudentName(student),
     admissionNo:
@@ -739,6 +741,10 @@ function enrollmentPayload(student, subject, academicYear) {
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  };
+  return {
+    ...payload,
+    ...buildCanonicalEnrollmentFields(payload),
   };
 }
 
@@ -834,6 +840,7 @@ async function commitOperations(operations) {
     chunk.forEach((fn) => fn(batch));
     await batch.commit();
   }
+  if (operations.length) invalidateCollectionRows(ENROLLMENTS_COLLECTION);
 }
 
 /* -------------------------------------------------------------------------- */

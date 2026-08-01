@@ -155,7 +155,7 @@ export default function Layout() {
     };
   }, []);
 
-  const adminMenuSections = [
+  const adminMenuSections = useMemo(() => [
     {
       section: "Overview",
       items: [{ label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" }],
@@ -221,7 +221,7 @@ export default function Layout() {
       section: "Special Events",
       items: [{ label: "Election Count", icon: <HowToVoteRoundedIcon />, path: "/election-count", badge: "LIVE" }],
     },
-  ];
+  ], []);
 
   const teacherMenu = useMemo(() => {
     const items = [
@@ -263,24 +263,36 @@ export default function Layout() {
     return items;
   }, [isTeacher, isClassTeacher]);
 
-  const menuItems = isAdmin
-    ? adminMenuSections.flatMap((section) => section.items)
-    : isSectionalHead
-    ? sectionalHeadMenu
-    : teacherMenu;
+  const menuItems = useMemo(
+    () =>
+      isAdmin
+        ? adminMenuSections.flatMap((section) => section.items)
+        : isSectionalHead
+        ? sectionalHeadMenu
+        : teacherMenu,
+    [adminMenuSections, isAdmin, isSectionalHead, sectionalHeadMenu, teacherMenu]
+  );
 
-  const searchableItems = isAdmin
-    ? adminMenuSections.flatMap((section) =>
-        section.items.map((item) => ({ ...item, section: section.section }))
-      )
-    : menuItems.map((item) => ({
-        ...item,
-        section: isSectionalHead ? "Sectional Head" : "Teacher Workspace",
-      }));
+  const searchableItems = useMemo(
+    () =>
+      isAdmin
+        ? adminMenuSections.flatMap((section) =>
+            section.items.map((item) => ({ ...item, section: section.section }))
+          )
+        : menuItems.map((item) => ({
+            ...item,
+            section: isSectionalHead ? "Sectional Head" : "Teacher Workspace",
+          })),
+    [adminMenuSections, isAdmin, isSectionalHead, menuItems]
+  );
 
-  const activeItem = [...searchableItems]
-    .sort((first, second) => second.path.length - first.path.length)
-    .find((item) => pathMatches(location.pathname, item.path));
+  const activeItem = useMemo(
+    () =>
+      [...searchableItems]
+        .sort((first, second) => second.path.length - first.path.length)
+        .find((item) => pathMatches(location.pathname, item.path)),
+    [location.pathname, searchableItems]
+  );
   const currentPageTitle = activeItem?.label || titleFromPath(location.pathname);
   const currentPageSection = activeItem?.section || "School Workspace";
   const activePath = activeItem?.path;

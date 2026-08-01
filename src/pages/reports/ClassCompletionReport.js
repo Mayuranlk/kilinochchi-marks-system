@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
@@ -32,6 +31,7 @@ import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 
 import { db } from "../../firebase";
+import { getCollectionRows } from "../../services/firestoreReadCache";
 import { useAuth } from "../../context/AuthContext";
 import { PageContainer, ResponsiveTableWrapper } from "../../components/ui";
 import {
@@ -669,24 +669,18 @@ export default function ClassCompletionReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadData() {
+  async function loadData(forceRefresh = false) {
     try {
       setLoading(true);
       setError("");
 
-      const [studentsSnap, enrollmentsSnap, marksSnap, classroomsSnap, termsSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "marks")),
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "academicTerms")),
+      const [studentsData, enrollmentsData, marksData, classroomsData, termsData] = await Promise.all([
+        getCollectionRows(db, "students", { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, "marks", { forceRefresh }),
+        getCollectionRows(db, "classrooms", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
-
-      const studentsData = studentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const enrollmentsData = enrollmentsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const marksData = marksSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const classroomsData = classroomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const termsData = termsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
       setStudents(studentsData);
       setEnrollments(enrollmentsData);
@@ -880,7 +874,7 @@ export default function ClassCompletionReport() {
                   <Button
                     variant="outlined"
                     startIcon={<RefreshRoundedIcon />}
-                    onClick={loadData}
+                    onClick={() => loadData(true)}
                     disabled={loading}
                     fullWidth
                   >

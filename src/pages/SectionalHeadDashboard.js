@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import {
   Alert,
   Box,
@@ -25,6 +24,7 @@ import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
@@ -74,19 +74,19 @@ export default function SectionalHeadDashboard() {
         setLoading(true);
         setError("");
 
-        const [studentSnap, classroomSnap, enrollmentSnap, markSnap, termSnap] = await Promise.all([
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "classrooms")),
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "marks")),
-          getDocs(collection(db, "academicTerms")),
+        const [studentRows, classroomRows, enrollmentRows, markRows, termRows] = await Promise.all([
+          getCollectionRows(db, "students"),
+          getCollectionRows(db, "classrooms"),
+          getCollectionRows(db, "studentSubjectEnrollments"),
+          getCollectionRows(db, "marks"),
+          getCollectionRows(db, "academicTerms"),
         ]);
 
-        setStudents(studentSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        setClassrooms(classroomSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        setEnrollments(enrollmentSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        setMarks(markSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-        setTerms(termSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        setStudents(studentRows);
+        setClassrooms(classroomRows);
+        setEnrollments(enrollmentRows);
+        setMarks(markRows);
+        setTerms(termRows);
       } catch (err) {
         console.error("Sectional head dashboard load failed:", err);
         setError(err.message || "Failed to load sectional head dashboard.");

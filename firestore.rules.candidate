@@ -1,0 +1,101 @@
+rules_version = '2';
+
+// REVIEW-ONLY CANDIDATE. This file is deliberately not referenced by
+// firebase.json and was not deployed. The production rules were absent from
+// the supplied repository, so they must be exported and reconciled before this
+// candidate can become firestore.rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return signedIn() ? profile().get('role', '') : '';
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    function isAcademicStaff() {
+      return role() in ['admin', 'teacher', 'it_teacher', 'sectional_head'];
+    }
+
+    function validMark(data) {
+      return data.studentId is string
+        && data.subjectId is string
+        && data.academicYearKey is string
+        && data.termKey is string
+        && data.classKey is string
+        && data.subjectKey is string
+        && data.assessmentKey is string
+        && data.absent is bool
+        && (data.absent || data.mark == null || data.mark is number);
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if signedIn() && (isAcademicStaff() || role() == 'account');
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /classrooms/{classroomId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /academicTerms/{termId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /practiceExams/{examId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /teacherAssignments/{assignmentId} {
+      allow read: if signedIn() && isAcademicStaff();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /studentSubjectEnrollments/{enrollmentId} {
+      allow read: if signedIn() && isAcademicStaff();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /marks/{markId} {
+      allow read: if signedIn() && isAcademicStaff();
+      allow create, update: if signedIn() && isAcademicStaff() && validMark(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /systemSettings/{settingId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /studentFeeAccounts/{accountId} {
+      allow read, create, update: if signedIn() && role() in ['admin', 'account'];
+      allow delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

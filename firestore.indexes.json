@@ -1,0 +1,63 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "marks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "academicYearKey", "order": "ASCENDING" },
+        { "fieldPath": "termKey", "order": "ASCENDING" },
+        { "fieldPath": "classKey", "order": "ASCENDING" },
+        { "fieldPath": "assessmentKey", "order": "ASCENDING" },
+        { "fieldPath": "subjectKey", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "academicYearKey", "order": "DESCENDING" },
+        { "fieldPath": "termKey", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "studentSubjectEnrollments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "academicYearKey", "order": "ASCENDING" },
+        { "fieldPath": "classKey", "order": "ASCENDING" },
+        { "fieldPath": "subjectKey", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "studentSubjectEnrollments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "studentId", "order": "ASCENDING" },
+        { "fieldPath": "academicYearKey", "order": "DESCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "academicYearKey", "order": "ASCENDING" },
+        { "fieldPath": "classKey", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "admissionNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "teacherAssignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teacherId", "order": "ASCENDING" },
+        { "fieldPath": "academicYearKey", "order": "DESCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

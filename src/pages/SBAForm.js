@@ -22,9 +22,9 @@ import AutoStoriesRoundedIcon from "@mui/icons-material/AutoStoriesRounded";
 import ClassRoundedIcon from "@mui/icons-material/ClassRounded";
 import SchoolRoundedIcon from "@mui/icons-material/SchoolRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { EmptyState, PageContainer } from "../components/ui";
 import {
   buildALClassName,
@@ -475,6 +475,8 @@ export default function SBAForm() {
 
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
   const [selectedTermKey, setSelectedTermKey] = useState("");
@@ -628,7 +630,7 @@ export default function SBAForm() {
     [activeTerm, selectedClass, selectedClassRow, selectedSubject]
   );
 
-  const loadBase = useCallback(async () => {
+  const loadBase = useCallback(async (forceRefresh = false) => {
     try {
       setBootLoading(true);
       setError("");
@@ -636,28 +638,18 @@ export default function SBAForm() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [teacherAssignmentsSnap, academicTermsSnap] = await Promise.all([
-        getDocs(collection(db, "teacherAssignments")),
-        getDocs(
-          query(collection(db, "academicTerms"), orderBy("year", "desc"))
-        ).catch(() => getDocs(collection(db, "academicTerms"))),
+      const [allAssignments, allTerms, enrollments, students] = await Promise.all([
+        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, "students", { forceRefresh }),
       ]);
-
-      const allAssignments = teacherAssignmentsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
 
       const scopedAssignments = isAdmin
         ? allAssignments
         : allAssignments.filter((item) => isSameTeacher(item, currentUser));
 
-      const allTerms = academicTermsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      const sortedTerms = allTerms.sort((a, b) => {
+      const sortedTerms = [...allTerms].sort((a, b) => {
         const yearDiff =
           Number(pick(b.year, b.academicYear, 0)) -
           Number(pick(a.year, a.academicYear, 0));
@@ -672,18 +664,20 @@ export default function SBAForm() {
 
       setTeacherAssignments(scopedAssignments);
       setTerms(sortedTerms);
+      setAllEnrollments(enrollments);
+      setAllStudents(students);
 
       const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       if (defaultTerm) {
         setSelectedTermKey((prev) => prev || buildTermKey(defaultTerm));
       }
 
-      if (!selectedClass && scopedAssignments.length > 0) {
+      if (scopedAssignments.length > 0) {
         const defaultClass =
           getComparableALClassName(scopedAssignments[0]) ||
           getClassIdentity(scopedAssignments[0]) ||
           getClassFallback(scopedAssignments[0]);
-        setSelectedClass(defaultClass);
+        setSelectedClass((previous) => previous || defaultClass);
       }
     } catch (err) {
       console.error("SBA load error:", err);
@@ -691,7 +685,7 @@ export default function SBAForm() {
     } finally {
       setBootLoading(false);
     }
-  }, [isAdmin, selectedClass]);
+  }, [isAdmin]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -702,21 +696,6 @@ export default function SBAForm() {
         setStudentRows([]);
         return;
       }
-
-      const [enrollmentsSnap, studentSnap] = await Promise.all([
-        getDocs(collection(db, "studentSubjectEnrollments")),
-        getDocs(collection(db, "students")),
-      ]);
-
-      const allEnrollments = enrollmentsSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      const allStudents = studentSnap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
 
       const studentMap = new Map(allStudents.map((student) => [String(student.id), student]));
 
@@ -821,7 +800,7 @@ export default function SBAForm() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, selectedClass, selectedClassRow, selectedSubject]);
+  }, [activeTerm, allEnrollments, allStudents, selectedClass, selectedClassRow, selectedSubject]);
 
   useEffect(() => {
     loadBase();
@@ -1105,7 +1084,7 @@ export default function SBAForm() {
           <Button
             variant="outlined"
             startIcon={<RefreshRoundedIcon />}
-            onClick={loadBase}
+            onClick={() => loadBase(true)}
             disabled={bootLoading || loadingRows}
             fullWidth={isMobile}
           >

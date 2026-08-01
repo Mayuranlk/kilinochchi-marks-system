@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -31,6 +30,7 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
 import { SCHOOL_NAME, SCHOOL_SUBTITLE, buildALClassName, isALGrade } from "../constants";
 import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
@@ -365,25 +365,22 @@ export default function ClassReport() {
       setLoadError("");
 
       try {
-        const [termSnap, studentSnap, markSnap, classroomSnap, enrollmentSnap] =
+        const [allTerms, studentRows, markRows, classroomRows, enrollmentRows] =
           await Promise.all([
-            getDocs(collection(db, "academicTerms")),
-            getDocs(collection(db, "students")),
-            getDocs(collection(db, "marks")),
-            getDocs(collection(db, "classrooms")),
-            getDocs(collection(db, "studentSubjectEnrollments")),
+            getCollectionRows(db, "academicTerms"),
+            getCollectionRows(db, "students"),
+            getCollectionRows(db, "marks"),
+            getCollectionRows(db, "classrooms"),
+            getCollectionRows(db, "studentSubjectEnrollments"),
           ]);
 
-        const allTerms = termSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const sortedTerms = [...allTerms].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
         const active = allTerms.find((term) => term.isActive === true) || null;
 
         setTerms(sortedTerms);
         setActiveTerm(active);
 
-        const classrooms = classroomSnap.docs.map((doc) =>
-          normalizeClassroom({ id: doc.id, ...doc.data() })
-        );
+        const classrooms = classroomRows.map(normalizeClassroom);
 
         const matchedClassroom =
           classrooms.find((room) => teacherMatchesProfile(room, profile)) || null;
@@ -399,21 +396,17 @@ export default function ClassReport() {
 
         const className = matchedClassroom.className;
 
-        const allStudents = studentSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter(isStudentActive);
+        const allStudents = studentRows.filter(isStudentActive);
 
         const classStudents = allStudents
           .filter((student) => getStudentClassName(student) === className)
           .sort((a, b) => getStudentName(a).localeCompare(getStudentName(b)));
 
-        const classEnrollments = enrollmentSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
+        const classEnrollments = enrollmentRows
           .filter(isEnrollmentActive)
           .filter((enrollment) => getEnrollmentClassName(enrollment) === className);
 
-        const classMarks = markSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
+        const classMarks = markRows
           .filter((mark) => getMarkClassName(mark) === className);
 
         setStudents(classStudents);

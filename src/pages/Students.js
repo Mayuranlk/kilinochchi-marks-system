@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   collection,
   addDoc,
@@ -9,6 +10,10 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import {
+  getCollectionRows,
+  invalidateCollectionRows,
+} from "../services/firestoreReadCache";
 import {
   Alert,
   Avatar,
@@ -40,6 +45,7 @@ import {
   TableBody,
   TableCell,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Tooltip,
@@ -86,6 +92,7 @@ import {
 } from "../utils/academicMediumUtils";
 import { regenerateSingleStudent } from "../services/enrollmentGenerator";
 import { normalizeStudentName } from "../utils/studentNameUtils";
+import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
@@ -343,8 +350,115 @@ const initials = (name = "") =>
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0])
-    .join("")
-    .toUpperCase();
+  .join("")
+  .toUpperCase();
+
+const StudentTableRow = React.memo(function StudentTableRow({ student: s, index, onEdit, onInactivate }) {
+  return (
+    <TableRow hover>
+      <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>{index + 1}</TableCell>
+      <TableCell>
+        <Box display="flex" alignItems="center" gap={1}>
+          <Avatar
+            sx={{
+              width: 30,
+              height: 30,
+              bgcolor: "primary.main",
+              fontSize: 11,
+              fontWeight: 800,
+            }}
+          >
+            {initials(getStudentName(s))}
+          </Avatar>
+          <Box>
+            <Typography variant="body2" fontWeight={700}>
+              {getStudentName(s)}
+            </Typography>
+            {s.gender && (
+              <Typography variant="caption" color="text.secondary">
+                {s.gender}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Typography variant="caption" fontWeight={700} color="primary.main" display="block">
+          {s.admissionNo || "-"}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          StudentID: {getEmisStudentId(s) || "-"}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Chip
+          label={`G${s.grade}-${s.section || s.className}`}
+          size="small"
+          color="primary"
+          sx={{ fontWeight: 700, fontSize: 12 }}
+        />
+      </TableCell>
+      <TableCell>
+        <Chip
+          label={s.status || "Unknown"}
+          size="small"
+          color={statusColor(s.status)}
+          sx={{ fontWeight: 600 }}
+        />
+      </TableCell>
+      <TableCell>
+        <Typography variant="caption" color="text.secondary" display="block">
+          {s.religion || "-"}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          {s.stream || "-"}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" display="block">
+          {s.alClassName || "-"}
+        </Typography>
+      </TableCell>
+      <TableCell>
+        <Box display="flex" gap={0.5} flexWrap="wrap">
+          {(s.aestheticChoice || s.aesthetic) && (
+            <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
+          )}
+          {(s.basketAChoice || s.basket1) && (
+            <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
+          )}
+          {(s.basketBChoice || s.basket2) && (
+            <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
+          )}
+          {(s.basketCChoice || s.basket3) && (
+            <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
+          )}
+          {Array.isArray(s.alSubjectChoices) &&
+            s.alSubjectChoices.map((item, itemIdx) => (
+              <Chip key={`${s.id}-al-${itemIdx}`} size="small" label={item} color="success" />
+            ))}
+        </Box>
+      </TableCell>
+      <TableCell>
+        <Tooltip title="Edit">
+          <IconButton size="small" color="primary" onClick={() => onEdit(s)}>
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Mark as Left">
+          <span>
+            <IconButton
+              size="small"
+              color="warning"
+              onClick={() => onInactivate(s)}
+              disabled={s.status === "Left"}
+            >
+              <BlockIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 const getStudentName = (student) =>
   normalizeStudentName(student.name || student.fullName || "");
@@ -580,6 +694,9 @@ const commitBatchOperations = async (operations = [], batchSize = 450) => {
   }
 };
 
+const DEFAULT_STUDENT_ROWS_PER_PAGE = 50;
+const STUDENT_ROWS_PER_PAGE_OPTIONS = [25, 50, 100];
+
 export default function Students() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -603,6 +720,9 @@ export default function Students() {
   const [filterGrade, setFilterGrade] = useState("");
   const [filterSection, setFilterSection] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_STUDENT_ROWS_PER_PAGE);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(0);
@@ -696,7 +816,7 @@ export default function Students() {
    * Legacy fallback: students imported before A/L streams were modeled may only
    * have Grade + Section. New A/L classroom filters carry Stream + Section.
    */
-  const studentMatchesClassFilter = (student, classFilter) => {
+  const studentMatchesClassFilter = useCallback((student, classFilter) => {
     if (!classFilter) return true;
     const [gradePart, middlePart, sectionPart] = String(classFilter).split("__");
     const studentGrade = normalizeGradeValue(student.grade);
@@ -712,7 +832,7 @@ export default function Students() {
     }
 
     return getStudentClassFilterValue(student) === classFilter;
-  };
+  }, []);
 
   const activeSubjects = useMemo(() => subjects.filter(isActiveSubject), [subjects]);
 
@@ -882,26 +1002,20 @@ export default function Students() {
   }, [form.grade, form.stream, aestheticOptions, basketOptions, alOptionalChoiceOptions]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
     setFilterSection("");
   }, [filterGrade]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [studSnap, classSnap, subjectSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "subjects")),
+      const [studentRows, classroomRows, subjectRows] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "classrooms"),
+        getCollectionRows(db, "subjects"),
       ]);
 
-      const loadedStudents = studSnap.docs.map((d) => {
-        const raw = d.data();
+      const loadedStudents = studentRows.map((raw) => {
         return {
-          id: d.id,
           ...raw,
           name: raw.name || raw.fullName || "",
           fullName: raw.fullName || raw.name || "",
@@ -929,21 +1043,24 @@ export default function Students() {
         };
       });
 
-      const loadedSubjects = subjectSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        grades: Array.isArray(d.data().grades) ? d.data().grades.map(Number) : [],
+      const loadedSubjects = subjectRows.map((subject) => ({
+        ...subject,
+        grades: Array.isArray(subject.grades) ? subject.grades.map(Number) : [],
       }));
 
       setStudents(sortStudentsClientSide(loadedStudents));
-      setClassrooms(classSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setClassrooms(classroomRows);
       setSubjects(loadedSubjects);
     } catch (err) {
       setError("Failed to load data: " + err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const isValidClassroom = (grade, section, stream = "") => {
     if (!grade || !section) return false;
@@ -1022,7 +1139,7 @@ export default function Students() {
       emisStudentId: cleaned.emisStudentId,
     });
 
-    return {
+    const payload = {
       name: normalizeStudentName(cleaned.name),
       fullName: normalizeStudentName(cleaned.name),
       admissionNo: identity.admissionNo,
@@ -1054,6 +1171,10 @@ export default function Students() {
         : [],
       medium: normalizeText(cleaned.medium),
       updatedAt: new Date().toISOString(),
+    };
+    return {
+      ...payload,
+      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
     };
   };
 
@@ -1216,34 +1337,99 @@ export default function Students() {
     return "";
   };
 
-  const filtered = students.filter((s) => {
+  const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    const studentName = getStudentName(s).toLowerCase();
+    return students.filter((s) => {
+      const studentName = getStudentName(s).toLowerCase();
 
-    const matchSearch =
-      !q ||
-      studentName.includes(q) ||
-      normalizeText(s.admissionNo).toLowerCase().includes(q) ||
-      getEmisStudentId(s).toLowerCase().includes(q) ||
-      normalizeText(s.religion).toLowerCase().includes(q) ||
-      normalizeText(s.stream).toLowerCase().includes(q) ||
-      normalizeText(s.alClassName).toLowerCase().includes(q);
+      const matchSearch =
+        !q ||
+        studentName.includes(q) ||
+        normalizeText(s.admissionNo).toLowerCase().includes(q) ||
+        getEmisStudentId(s).toLowerCase().includes(q) ||
+        normalizeText(s.religion).toLowerCase().includes(q) ||
+        normalizeText(s.stream).toLowerCase().includes(q) ||
+        normalizeText(s.alClassName).toLowerCase().includes(q);
 
-    const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
-    const matchSection = studentMatchesClassFilter(s, filterSection);
-    const matchStatus = !filterStatus || s.status === filterStatus;
+      const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
+      const matchSection = studentMatchesClassFilter(s, filterSection);
+      const matchStatus = !filterStatus || s.status === filterStatus;
 
-    return matchSearch && matchGrade && matchSection && matchStatus;
-  });
+      return matchSearch && matchGrade && matchSection && matchStatus;
+    });
+  }, [filterGrade, filterSection, filterStatus, search, studentMatchesClassFilter, students]);
 
-  const activeCount = students.filter((s) => s.status === "Active").length;
-  const leftCount = students.filter((s) => s.status === "Left").length;
-  const quickStats = [
-    { label: `Active: ${activeCount}`, status: "saved" },
-    { label: `Left: ${leftCount}`, status: "pending" },
-    { label: `Total: ${students.length}`, status: "active" },
-    { label: `Showing: ${filtered.length}`, status: "draft" },
-  ];
+  const { activeCount, leftCount } = useMemo(
+    () =>
+      students.reduce(
+        (counts, student) => {
+          if (student.status === "Active") counts.activeCount += 1;
+          if (student.status === "Left") counts.leftCount += 1;
+          return counts;
+        },
+        { activeCount: 0, leftCount: 0 }
+      ),
+    [students]
+  );
+  const quickStats = useMemo(
+    () => [
+      { label: `Active: ${activeCount}`, status: "saved" },
+      { label: `Left: ${leftCount}`, status: "pending" },
+      { label: `Total: ${students.length}`, status: "active" },
+      { label: `Showing: ${filtered.length}`, status: "draft" },
+    ],
+    [activeCount, filtered.length, leftCount, students.length]
+  );
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
+  const visiblePage = Math.min(page, pageCount - 1);
+
+  useEffect(() => {
+    setPage(0);
+  }, [filterGrade, filterSection, filterStatus, search]);
+
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+
+  useEffect(() => {
+    const handleBeforePrint = () => flushSync(() => setIsPrinting(true));
+    const handleAfterPrint = () => setIsPrinting(false);
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+  }, []);
+
+  const renderedStudentRows = useMemo(() => {
+    if (isPrinting) {
+      return { rows: filtered, startIndex: 0 };
+    }
+    const startIndex = visiblePage * rowsPerPage;
+    return {
+      rows: filtered.slice(startIndex, startIndex + rowsPerPage),
+      startIndex,
+    };
+  }, [filtered, isPrinting, rowsPerPage, visiblePage]);
+
+  const visibleStudentRange = useMemo(() => {
+    if (filtered.length === 0) return { from: 0, to: 0 };
+    return {
+      from: renderedStudentRows.startIndex + 1,
+      to: renderedStudentRows.startIndex + renderedStudentRows.rows.length,
+    };
+  }, [filtered.length, renderedStudentRows]);
+
+  const handlePageChange = useCallback((event, nextPage) => {
+    setPage(nextPage);
+  }, []);
+
+  const handleRowsPerPageChange = useCallback((event) => {
+    setRowsPerPage(Number(event.target.value));
+    setPage(0);
+  }, []);
 
   const handleSave = async () => {
     const validationError = validateForm();
@@ -1278,6 +1464,7 @@ export default function Students() {
         });
       }
 
+      invalidateCollectionRows("students", "studentSubjectEnrollments");
       setOpen(false);
       setForm(emptyForm);
       setEditId(null);
@@ -1299,7 +1486,7 @@ export default function Students() {
     }
   };
 
-  const handleEdit = (s) => {
+  const handleEdit = useCallback((s) => {
     const choiceNumbers = Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers : [];
     const choiceNames =
       Array.isArray(s.alSubjectChoices) && s.alSubjectChoices.length > 0
@@ -1339,9 +1526,9 @@ export default function Students() {
     setError("");
     setSuccess("");
     setOpen(true);
-  };
+  }, [cleanFormByGrade, deriveALChoiceNamesFromNumbers]);
 
-  const handleInactivate = async (student) => {
+  const handleInactivate = useCallback(async (student) => {
     if (!window.confirm(`Set student "${getStudentName(student)}" as Left?`)) return;
 
     try {
@@ -1353,6 +1540,7 @@ export default function Students() {
         academicYear: currentAcademicYear(),
         studentId: student.id,
       });
+      invalidateCollectionRows("students", "studentSubjectEnrollments");
       setSuccess(
         `Student status updated to Left. Active subject enrollments removed: ${result.deactivated || 0}.`
       );
@@ -1360,7 +1548,7 @@ export default function Students() {
     } catch (err) {
       setError("Status update failed: " + err.message);
     }
-  };
+  }, [fetchData]);
 
   const mapExcelRowToStudent = (row) => {
     const al1Number = normalizeALSubjectNumber(row["AL Subject No 1"] || row["A/L Subject No 1"] || row["AL No 1"]);
@@ -1526,7 +1714,7 @@ export default function Students() {
       emisStudentId: cleaned.emisStudentId,
     });
 
-    return {
+    const payload = {
       name: normalizeStudentName(cleaned.name),
       fullName: normalizeStudentName(cleaned.name),
       admissionNo: identity.admissionNo,
@@ -1558,6 +1746,10 @@ export default function Students() {
         : [],
       medium: normalizeText(cleaned.medium),
       updatedAt: new Date().toISOString(),
+    };
+    return {
+      ...payload,
+      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
     };
   };
 
@@ -1633,6 +1825,7 @@ export default function Students() {
       if (validRows.length === 0) setBulkProgress(100);
 
       setBulkResults({ successCount, failCount, errors });
+      if (successCount > 0) invalidateCollectionRows("students");
       await fetchData();
     } catch (err) {
       setError("Bulk upload failed: " + err.message);
@@ -1829,6 +2022,7 @@ export default function Students() {
       });
 
       if (updatedCount > 0) {
+        invalidateCollectionRows("students", "studentSubjectEnrollments", "marks");
         setSuccess(
           `Fixed identity for ${updatedCount} student${updatedCount === 1 ? "" : "s"}. Patched ${enrollmentPatchCount} enrollment record${enrollmentPatchCount === 1 ? "" : "s"} and ${markPatchCount} mark record${markPatchCount === 1 ? "" : "s"} without changing mark values.`
         );
@@ -2264,7 +2458,7 @@ export default function Students() {
         />
       ) : isMobile ? (
         <Stack spacing={1.25}>
-          {filtered.map((s) => (
+          {renderedStudentRows.rows.map((s) => (
             <Card
               key={s.id}
               sx={{
@@ -2358,7 +2552,10 @@ export default function Students() {
             overflow: "hidden",
           }}
         >
-          <ResponsiveTableWrapper minWidth={1180}>
+          <ResponsiveTableWrapper
+            minWidth={1180}
+            label="Students table"
+          >
             <Table size="small">
             <TableHead>
               <TableRow>
@@ -2379,121 +2576,62 @@ export default function Students() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filtered.map((s, idx) => (
-                <TableRow key={s.id} hover>
-                  <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>
-                    {idx + 1}
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <Avatar
-                        sx={{
-                          width: 30,
-                          height: 30,
-                          bgcolor: "primary.main",
-                          fontSize: 11,
-                          fontWeight: 800,
-                        }}
-                      >
-                        {initials(getStudentName(s))}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body2" fontWeight={700}>
-                          {getStudentName(s)}
-                        </Typography>
-                        {s.gender && (
-                          <Typography variant="caption" color="text.secondary">
-                            {s.gender}
-                          </Typography>
-                        )}
-                      </Box>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" fontWeight={700} color="primary.main" display="block">
-                      {s.admissionNo || "-"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      StudentID: {getEmisStudentId(s) || "-"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={`G${s.grade}-${s.section || s.className}`}
-                      size="small"
-                      color="primary"
-                      sx={{ fontWeight: 700, fontSize: 12 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={s.status || "Unknown"}
-                      size="small"
-                      color={statusColor(s.status)}
-                      sx={{ fontWeight: 600 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {s.religion || "-"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {s.stream || "-"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {s.alClassName || "-"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box display="flex" gap={0.5} flexWrap="wrap">
-                      {(s.aestheticChoice || s.aesthetic) && (
-                        <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
-                      )}
-                      {(s.basketAChoice || s.basket1) && (
-                        <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
-                      )}
-                      {(s.basketBChoice || s.basket2) && (
-                        <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
-                      )}
-                      {(s.basketCChoice || s.basket3) && (
-                        <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
-                      )}
-                      {Array.isArray(s.alSubjectChoices) &&
-                        s.alSubjectChoices.map((item, itemIdx) => (
-                          <Chip
-                            key={`${s.id}-al-${itemIdx}`}
-                            size="small"
-                            label={item}
-                            color="success"
-                          />
-                        ))}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title="Edit">
-                      <IconButton size="small" color="primary" onClick={() => handleEdit(s)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Mark as Left">
-                      <span>
-                        <IconButton
-                          size="small"
-                          color="warning"
-                          onClick={() => handleInactivate(s)}
-                          disabled={s.status === "Left"}
-                        >
-                          <BlockIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
+              {renderedStudentRows.rows.map((s, idx) => (
+                <StudentTableRow
+                  key={s.id}
+                  student={s}
+                  index={renderedStudentRows.startIndex + idx}
+                  onEdit={handleEdit}
+                  onInactivate={handleInactivate}
+                />
               ))}
             </TableBody>
             </Table>
           </ResponsiveTableWrapper>
         </Paper>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            p: 0,
+            m: -1,
+            overflow: "hidden",
+            clip: "rect(0 0 0 0)",
+            whiteSpace: "nowrap",
+            border: 0,
+          }}
+        >
+          Showing students {visibleStudentRange.from} to {visibleStudentRange.to} of {filtered.length} filtered results.
+        </Box>
+      )}
+
+      {!loading && !isPrinting && filtered.length > STUDENT_ROWS_PER_PAGE_OPTIONS[0] && (
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={visiblePage}
+          onPageChange={handlePageChange}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleRowsPerPageChange}
+          rowsPerPageOptions={STUDENT_ROWS_PER_PAGE_OPTIONS}
+          labelRowsPerPage="Students per page"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} students`}
+          getItemAriaLabel={(type) => {
+            if (type === "first") return "Go to first students page";
+            if (type === "last") return "Go to last students page";
+            if (type === "next") return "Go to next students page";
+            return "Go to previous students page";
+          }}
+          showFirstButton
+          showLastButton
+          sx={{ borderTop: "1px solid", borderColor: "divider" }}
+        />
       )}
 
       <Dialog

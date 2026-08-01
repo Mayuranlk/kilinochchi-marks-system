@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  collection,
-  getDocs,
   deleteDoc,
   doc,
   setDoc,
@@ -18,8 +16,8 @@ import {
   updatePassword,
 } from "firebase/auth";
 import { deleteApp, initializeApp } from "firebase/app";
-import { db } from "../firebase";
-import firebaseApp from "../firebase";
+import firebaseApp, { connectAuthToConfiguredEmulator, db } from "../firebase";
+import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { GRADES } from "../constants";
 import * as XLSX from "xlsx";
 import {
@@ -121,7 +119,7 @@ async function createStaffAuthUser(email, password) {
     firebaseApp.options,
     `staff-create-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = connectAuthToConfiguredEmulator(getAuth(secondaryApp));
 
   try {
     const credential = await createUserWithEmailAndPassword(
@@ -141,7 +139,7 @@ async function withStaffAuthUser(email, password, action) {
     firebaseApp.options,
     `staff-security-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
-  const secondaryAuth = getAuth(secondaryApp);
+  const secondaryAuth = connectAuthToConfiguredEmulator(getAuth(secondaryApp));
 
   try {
     const credential = await signInWithEmailAndPassword(
@@ -329,23 +327,28 @@ export default function AdminTeachers() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (forceRefresh = false) => {
     setLoading(true);
     setError("");
 
     try {
-      const [userSnap, classroomSnap] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "classrooms")),
+      if (forceRefresh) {
+        invalidateCollectionRows("users");
+        invalidateCollectionRows("classrooms");
+        invalidateCollectionRows("teacherAssignments");
+      }
+      const [userRows, classroomDataRows] = await Promise.all([
+        getCollectionRows(db, "users", { forceRefresh }),
+        getCollectionRows(db, "classrooms", { forceRefresh }),
       ]);
 
-      const teacherRows = userSnap.docs
-        .map((d) => normalizeTeacher(d.id, d.data()))
+      const teacherRows = userRows
+        .map((row) => normalizeTeacher(row.id, row))
         .filter((user) => ["teacher", "it_teacher", "sectional_head", "account"].includes(normalizeLower(user.role)))
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      const classroomRows = classroomSnap.docs
-        .map((d) => normalizeClassroom(d.id, d.data()))
+      const classroomRows = classroomDataRows
+        .map((row) => normalizeClassroom(row.id, row))
         .sort((a, b) => a.grade - b.grade || a.section.localeCompare(b.section));
 
       setTeachers(teacherRows);
@@ -473,15 +476,15 @@ export default function AdminTeachers() {
   };
 
   const deleteTeacherAssignments = async (teacherId) => {
-    const assignmentSnap = await getDocs(collection(db, "teacherAssignments"));
-    const matchingDocs = assignmentSnap.docs.filter(
-      (assignmentDoc) =>
-        normalizeText(assignmentDoc.data()?.teacherId) === normalizeText(teacherId)
+    const assignmentRows = await getCollectionRows(db, "teacherAssignments", { forceRefresh: true });
+    const matchingDocs = assignmentRows.filter(
+      (assignment) =>
+        normalizeText(assignment.teacherId) === normalizeText(teacherId)
     );
 
     await Promise.all(
-      matchingDocs.map((assignmentDoc) =>
-        deleteDoc(doc(db, "teacherAssignments", assignmentDoc.id))
+      matchingDocs.map((assignment) =>
+        deleteDoc(doc(db, "teacherAssignments", assignment.id))
       )
     );
 
@@ -570,7 +573,7 @@ export default function AdminTeachers() {
       setLoginMessage(staffLoginMessage);
       setOpen(false);
       setForm(empty);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(
         err.message.includes("email-already-in-use")
@@ -630,7 +633,7 @@ export default function AdminTeachers() {
 
       setSuccess("Teacher updated.");
       setEditOpen(false);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -669,7 +672,7 @@ export default function AdminTeachers() {
 
       setTransferOpen(false);
       setTransferForm({ date: "", reason: "", school: "" });
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -720,7 +723,7 @@ export default function AdminTeachers() {
       );
 
       setClassTeacherOpen(false);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -738,7 +741,7 @@ export default function AdminTeachers() {
     try {
       await clearClassTeacherFromClassroom(currentClassroom);
       setSuccess(`${teacher.name} removed as Class Teacher.`);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     }
@@ -755,7 +758,7 @@ export default function AdminTeachers() {
       });
 
       setSuccess(`${teacher.name} restored as active.`);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     }
@@ -837,8 +840,8 @@ export default function AdminTeachers() {
 
         try {
           const [assignmentSnap, classroomSnap] = await Promise.all([
-            getDocs(collection(db, "teacherAssignments")),
-            getDocs(collection(db, "classrooms")),
+            getCollectionRows(db, "teacherAssignments", { forceRefresh: true }),
+            getCollectionRows(db, "classrooms", { forceRefresh: true }),
           ]);
           const batch = writeBatch(db);
           batch.update(doc(db, "users", selectedTeacher.id), {
@@ -846,8 +849,8 @@ export default function AdminTeachers() {
             updatedAt: new Date().toISOString(),
           });
 
-          assignmentSnap.docs.forEach((assignmentDoc) => {
-            const data = assignmentDoc.data();
+          assignmentSnap.forEach((assignmentDoc) => {
+            const data = assignmentDoc;
             const sameTeacher =
               normalizeText(data.teacherId || data.teacherUid) === normalizeText(selectedTeacher.id) ||
               normalizeLower(data.teacherEmail) === oldEmail;
@@ -859,8 +862,8 @@ export default function AdminTeachers() {
             }
           });
 
-          classroomSnap.docs.forEach((classroomDoc) => {
-            const data = classroomDoc.data();
+          classroomSnap.forEach((classroomDoc) => {
+            const data = classroomDoc;
             const sameTeacher =
               normalizeText(data.classTeacherId || data.classTeacherUid) === normalizeText(selectedTeacher.id) ||
               normalizeLower(data.classTeacherEmail) === oldEmail;
@@ -890,7 +893,7 @@ export default function AdminTeachers() {
         currentPassword: "",
         newEmail,
       }));
-      await fetchData();
+      await fetchData(true);
     } catch (changeError) {
       console.error("Staff email update error:", changeError);
       setError(
@@ -988,7 +991,7 @@ export default function AdminTeachers() {
       await deleteDoc(doc(db, "users", teacherId));
 
       setSuccess(`${teacher.name} deleted.`);
-      await fetchData();
+      await fetchData(true);
     } catch (err) {
       setError(err.message);
     }
@@ -1195,7 +1198,7 @@ export default function AdminTeachers() {
     }
 
     setBulkUploading(false);
-    await fetchData();
+    await fetchData(true);
   };
 
   const classTeacherCount = classrooms.filter(

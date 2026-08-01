@@ -32,8 +32,8 @@ import MenuBookIcon from "@mui/icons-material/MenuBook";
 import PersonIcon from "@mui/icons-material/Person";
 import TagIcon from "@mui/icons-material/Tag";
 import { useTheme } from "@mui/material/styles";
-import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   PageContainer,
   ResponsiveTableWrapper,
@@ -183,24 +183,17 @@ export default function StudentSubjectEnrollments() {
       setError("");
 
       try {
-        const [enrollmentSnap, studentSnap, subjectSnap] = await Promise.all([
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "students")),
-          getDocs(collection(db, "subjects")),
+        const [enrollmentRows, studentRows, subjectRows] = await Promise.all([
+          getCollectionRows(db, "studentSubjectEnrollments"),
+          getCollectionRows(db, "students"),
+          getCollectionRows(db, "subjects"),
         ]);
 
-        const studentMap = new Map();
-        studentSnap.forEach((docSnap) => {
-          studentMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-        });
+        const studentMap = new Map(studentRows.map((student) => [student.id, student]));
 
-        const subjectMap = new Map();
-        subjectSnap.forEach((docSnap) => {
-          subjectMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-        });
+        const subjectMap = new Map(subjectRows.map((subject) => [subject.id, subject]));
 
-        const normalizedRows = enrollmentSnap.docs.map((docSnap) => {
-          const enrollment = { id: docSnap.id, ...docSnap.data() };
+        const normalizedRows = enrollmentRows.map((enrollment) => {
 
           const student = studentMap.get(enrollment.studentId) || {};
           const subject = subjectMap.get(enrollment.subjectId) || {};
