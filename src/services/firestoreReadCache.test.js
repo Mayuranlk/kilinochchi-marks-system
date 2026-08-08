@@ -103,6 +103,44 @@ describe("firestoreReadCache", () => {
     expect(getDocs).not.toHaveBeenCalled();
   });
 
+  test("deduplicates concurrent aggregation counts including forced refreshes", async () => {
+    let resolveCount;
+    getCountFromServer.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCount = resolve;
+      })
+    );
+
+    const first = getCollectionCount({}, "marks", { forceRefresh: true });
+    const second = getCollectionCount({}, "marks", { forceRefresh: true });
+    expect(getCountFromServer).toHaveBeenCalledTimes(1);
+
+    resolveCount({ data: () => ({ count: 42 }) });
+    await expect(first).resolves.toBe(42);
+    await expect(second).resolves.toBe(42);
+  });
+
+  test("an invalidated in-flight aggregation cannot repopulate stale count cache", async () => {
+    let resolveOldCount;
+    getCountFromServer
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOldCount = resolve;
+        })
+      )
+      .mockResolvedValueOnce({ data: () => ({ count: 2 }) });
+
+    const oldCount = getCollectionCount({}, "marks");
+    invalidateCollectionRows("marks");
+    const newCount = getCollectionCount({}, "marks");
+
+    resolveOldCount({ data: () => ({ count: 99 }) });
+    await expect(oldCount).resolves.toBe(99);
+    await expect(newCount).resolves.toBe(2);
+    await expect(getCollectionCount({}, "marks")).resolves.toBe(2);
+    expect(getCountFromServer).toHaveBeenCalledTimes(2);
+  });
+
   test("falls back to a compatible collection read when aggregation is denied", async () => {
     getCountFromServer.mockRejectedValue(new Error("permission-denied"));
     getDocs.mockResolvedValue(snapshot([{ id: "s1" }, { id: "s2" }]));

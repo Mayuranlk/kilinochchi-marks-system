@@ -13,7 +13,7 @@ async function signInAsAdmin(page) {
 
 async function openStudents(page) {
   await page.goto("/students");
-  await expect(page.getByRole("heading", { name: "Students", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Students", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByLabel("Loading content")).toHaveCount(0);
 }
 

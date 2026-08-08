@@ -53,6 +53,14 @@ const LEGACY_ALIASES = {
   enrollmentKey: ["studentId", "academicYear", "year", "subjectId", "subjectName"],
 };
 
+// Only aliases that encode the same semantic representation are safe to
+// compare directly. IDs, codes, names, full class labels, and sections are
+// intentionally heterogeneous inputs to the canonical precedence rules.
+const COMPARABLE_AMBIGUITY_ALIASES = {
+  academicYearKey: ["academicYear", "year"],
+  termKey: ["term", "termName"],
+};
+
 const AUDIT_FIELDS = new Set([
   "schemaVersion", "academicYearKey", "termKey", "gradeNumber", "classKey", "subjectKey",
   "assessmentKey", "markKey", "enrollmentKey", "studentId", "subjectId", "classId",
@@ -87,6 +95,14 @@ function expectedType(field) {
   return "string";
 }
 
+function comparableDerivedValue(field, value) {
+  if (value === undefined || value === null || value === "") return false;
+  if (field === "markKey" || field === "enrollmentKey") {
+    return !String(value).split("__").some((part) => part === "");
+  }
+  return true;
+}
+
 function canonicalFor(collectionName, row) {
   const academic = canonical.buildCanonicalAcademicFields(row);
   if (collectionName === "students") return canonical.buildCanonicalStudentFields(row);
@@ -107,8 +123,7 @@ function normalizeAlias(field, value) {
 
 function findAmbiguities(row) {
   const ambiguous = [];
-  for (const [field, aliases] of Object.entries(LEGACY_ALIASES)) {
-    if (!["academicYearKey", "termKey", "gradeNumber", "classKey", "subjectKey", "assessmentKey"].includes(field)) continue;
+  for (const [field, aliases] of Object.entries(COMPARABLE_AMBIGUITY_ALIASES)) {
     const values = aliases
       .filter((alias) => row[alias] !== undefined && row[alias] !== null && !blank(row[alias]))
       .map((alias) => normalizeAlias(field, row[alias]))
@@ -157,11 +172,18 @@ function analyzeCanonicalCoverage(collectionDocuments) {
       totalDocuments: rows.length,
       canonicalReadyDocuments: 0,
       incompleteDocuments: 0,
+      coverageStates: {
+        canonicalReady: 0,
+        partiallyCanonical: 0,
+        legacyOnly: 0,
+        malformed: 0,
+      },
       coveragePercentage: 0,
       missingCanonicalFields: {},
       nullFields: {},
       blankFields: {},
       invalidFieldTypes: {},
+      conflictingCanonicalFields: {},
       mixedFieldTypes: {},
       legacyAliasUsage: {},
       unresolvedReferences: {},
@@ -175,11 +197,14 @@ function analyzeCanonicalCoverage(collectionDocuments) {
       fieldTypes: {},
     };
     const identities = new Map();
+    const rowSafety = [];
 
     for (const row of rows) {
       const derived = canonicalFor(collectionName, row);
       const unsafeReasons = new Set();
       let ready = true;
+      let malformed = false;
+      let presentCanonicalFields = 0;
 
       for (const field of spec.required) {
         const value = row[field];
@@ -187,14 +212,28 @@ function analyzeCanonicalCoverage(collectionDocuments) {
           increment(summary.missingCanonicalFields, field);
           ready = false;
         } else if (value === null) {
+          presentCanonicalFields += 1;
           increment(summary.nullFields, field);
           ready = false;
+          malformed = true;
         } else if (blank(value)) {
+          presentCanonicalFields += 1;
           increment(summary.blankFields, field);
           ready = false;
+          malformed = true;
         } else if (valueType(value) !== expectedType(field)) {
+          presentCanonicalFields += 1;
           increment(summary.invalidFieldTypes, field);
           ready = false;
+          malformed = true;
+        } else {
+          presentCanonicalFields += 1;
+          const expected = derived[field];
+          if (comparableDerivedValue(field, expected) && value !== expected) {
+            increment(summary.conflictingCanonicalFields, field);
+            ready = false;
+            malformed = true;
+          }
         }
         if (!summary.fieldTypes[field]) summary.fieldTypes[field] = {};
         increment(summary.fieldTypes[field], valueType(value));
@@ -249,11 +288,12 @@ function analyzeCanonicalCoverage(collectionDocuments) {
 
       if (ready) summary.canonicalReadyDocuments += 1;
       else summary.incompleteDocuments += 1;
+      if (ready) summary.coverageStates.canonicalReady += 1;
+      else if (malformed) summary.coverageStates.malformed += 1;
+      else if (presentCanonicalFields === 0) summary.coverageStates.legacyOnly += 1;
+      else summary.coverageStates.partiallyCanonical += 1;
       if (!ready) unsafeReasons.add("canonical_fields_incomplete");
-      if (unsafeReasons.size) {
-        summary.recordsUnsafeForAutomaticMigration += 1;
-        unsafeReasons.forEach((reason) => increment(summary.unsafeReasonCounts, reason));
-      }
+      rowSafety.push({ identity, unsafeReasons });
     }
 
     for (const [identity, count] of identities.entries()) {
@@ -262,6 +302,15 @@ function analyzeCanonicalCoverage(collectionDocuments) {
       summary.duplicateCanonicalIdentities.documents += count;
       if (summary.duplicateCanonicalIdentities.identityHashes.length < 25) {
         summary.duplicateCanonicalIdentities.identityHashes.push({ identityHash: hashIdentity(identity), count });
+      }
+    }
+    for (const row of rowSafety) {
+      if (row.identity && identities.get(row.identity) > 1) {
+        row.unsafeReasons.add("duplicate_logical_identity");
+      }
+      if (row.unsafeReasons.size) {
+        summary.recordsUnsafeForAutomaticMigration += 1;
+        row.unsafeReasons.forEach((reason) => increment(summary.unsafeReasonCounts, reason));
       }
     }
     for (const [field, types] of Object.entries(summary.fieldTypes)) {

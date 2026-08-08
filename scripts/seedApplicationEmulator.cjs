@@ -37,6 +37,12 @@ const USERS = {
   unknown: { uid: "app-unknown", email: "unknown@app-emulator.test", role: "unknown", name: "Synthetic Unknown User" },
 };
 
+const MISSING_PROFILE_USER = {
+  uid: "app-missing-profile",
+  email: "missing-profile@app-emulator.test",
+  name: "Synthetic Missing Profile User",
+};
+
 function canonicalMark(studentId, value, suffix) {
   return {
     schemaVersion: 2,
@@ -71,19 +77,19 @@ function canonicalMark(studentId, value, suffix) {
   };
 }
 
-async function seedAuth(auth) {
-  for (const profile of Object.values(USERS)) {
+async function seedAuth(auth, password = PASSWORD) {
+  for (const profile of [...Object.values(USERS), MISSING_PROFILE_USER]) {
     try {
       await auth.createUser({
         uid: profile.uid,
         email: profile.email,
         emailVerified: true,
-        password: PASSWORD,
+        password,
         displayName: profile.name,
       });
     } catch (error) {
       if (error.code !== "auth/uid-already-exists" && error.code !== "auth/email-already-exists") throw error;
-      await auth.updateUser(profile.uid, { password: PASSWORD, displayName: profile.name });
+      await auth.updateUser(profile.uid, { password, displayName: profile.name });
     }
   }
 }
@@ -193,9 +199,11 @@ async function main() {
   process.stdout.write(`${JSON.stringify({ projectId: PROJECT_ID, users: Object.keys(USERS).length, students: STUDENT_COUNT, documents: count, syntheticOnly: true })}\n`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
 
-module.exports = { PROJECT_ID, USERS, PASSWORD };
+module.exports = { PROJECT_ID, USERS, MISSING_PROFILE_USER, PASSWORD, seedAuth, seedFirestore };

@@ -36,6 +36,7 @@
     "audit:compare-rules": "node scripts/compareFirestoreRules.js",
     "audit:estimate-reads": "node scripts/estimateCanonicalAuditReads.js",
     "audit:validate-rules-review": "node scripts/validateFirestoreRulesReview.js",
+    "verify:phase2-local-gates": "node scripts/verifyPhase2LocalGates.js",
     "test:firestore-rules": "firebase emulators:exec --only firestore --project demo-kilinochchi-rules --config firebase.emulator.rules.json --non-interactive \"node --test --test-concurrency=1 scripts/tests/firestoreRulesEmulator.test.cjs\"",
     "seed:firebase-emulators": "node scripts/seedApplicationEmulator.cjs",
     "build:app-emulator": "node scripts/buildApplicationEmulator.cjs",

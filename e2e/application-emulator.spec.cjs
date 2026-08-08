@@ -1,7 +1,8 @@
 const fs = require("node:fs");
 const { test, expect } = require("@playwright/test");
 
-const PASSWORD = "EmulatorOnly!123";
+const PASSWORD = process.env.STAGING_TEST_PASSWORD || "EmulatorOnly!123";
+const EXPECTED_PROJECT_ID = process.env.EXPECTED_FIREBASE_PROJECT_ID || "demo-kilinochchi-rules";
 const ACCOUNTS = {
   admin: { email: "admin@app-emulator.test", login: "/login", landing: "/" },
   teacher: { email: "teacher@app-emulator.test", login: "/login", landing: "/teacher" },
@@ -10,7 +11,14 @@ const ACCOUNTS = {
   account: { email: "account@app-emulator.test", login: "/accounts-login", landing: "/accounts" },
   prefect: { email: "prefect@app-emulator.test", login: "/prefect-login", landing: "/prefect" },
   unknown: { email: "unknown@app-emulator.test", login: "/login", landing: "/login" },
+  missingProfile: { email: "missing-profile@app-emulator.test", login: "/login", landing: "/login" },
 };
+
+test.beforeEach(async ({ context }) => {
+  // Playwright creates a fresh context per test; explicitly clear cookies as a
+  // second guard so no authenticated role can cross a suite boundary.
+  await context.clearCookies();
+});
 
 function monitorSecurityFailures(page) {
   const failures = [];
@@ -217,6 +225,13 @@ test("unknown and unauthenticated sessions are rejected by application and Rules
   await expect(page.getByText(/role is not configured correctly/)).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
 
+  // Missing profile is a distinct fixture from an existing unsupported role.
+  await page.locator('input[type="email"]').fill(ACCOUNTS.missingProfile.email);
+  await page.locator('input[type="password"]').fill(PASSWORD);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await expect(page.getByText(/role is not configured correctly/)).toBeVisible();
+  await expect(page).toHaveURL(/\/login$/);
+
   await page.context().clearCookies();
   await page.evaluate(() => localStorage.clear());
   await page.goto("/marks-status-live");
@@ -235,7 +250,7 @@ test("admin completes backup download, validation, upload, and restore through t
   const downloadPath = await download.path();
   expect(downloadPath).toBeTruthy();
   const payload = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
-  expect(payload.projectId).toBe("demo-kilinochchi-rules");
+  expect(payload.projectId).toBe(EXPECTED_PROJECT_ID);
   expect(Object.keys(payload.collections)).toHaveLength(17);
   expect(payload.summary.documentCount).toBeGreaterThan(0);
   await expect(page.getByText(/Backup downloaded successfully/)).toBeVisible();

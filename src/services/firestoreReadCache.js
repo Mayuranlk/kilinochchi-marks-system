@@ -6,6 +6,7 @@ import { collection, getCountFromServer, getDocs } from "firebase/firestore";
 const collectionCache = new Map();
 const pendingReads = new Map();
 const countCache = new Map();
+const pendingCountReads = new Map();
 const collectionGenerations = new Map();
 let cacheEpoch = 0;
 
@@ -73,22 +74,45 @@ export async function getCollectionCount(
     return cachedCount.count;
   }
 
-  try {
-    const snapshot = await getCountFromServer(collection(db, collectionName));
-    const count = snapshot.data().count;
-    countCache.set(collectionName, { loadedAt: Date.now(), count });
-    return count;
-  } catch (error) {
-    // Some existing Firestore Rules deployments allow the collection reads
-    // used by this app but reject aggregation queries. Preserve compatibility
-    // instead of failing the entire dashboard.
-    console.warn(
-      `Count aggregation failed for ${collectionName}; using collection fallback.`,
-      error
-    );
-    const rows = await getCollectionRows(db, collectionName, { maxAgeMs, forceRefresh });
-    return rows.length;
+  if (pendingCountReads.has(collectionName)) {
+    return pendingCountReads.get(collectionName);
   }
+
+  const generation = collectionGenerations.get(collectionName) || 0;
+  const epoch = cacheEpoch;
+  const read = getCountFromServer(collection(db, collectionName))
+    .then((snapshot) => {
+      const count = snapshot.data().count;
+      // A write or authentication change may invalidate this count while the
+      // aggregation is in flight. Return it to its original caller, but never
+      // allow it to repopulate the shared cache after that boundary.
+      if (
+        epoch === cacheEpoch &&
+        generation === (collectionGenerations.get(collectionName) || 0)
+      ) {
+        countCache.set(collectionName, { loadedAt: Date.now(), count });
+      }
+      return count;
+    })
+    .catch(async (error) => {
+      // Some existing Firestore Rules deployments allow the collection reads
+      // used by this app but reject aggregation queries. Preserve compatibility
+      // instead of failing the entire dashboard.
+      console.warn(
+        `Count aggregation failed for ${collectionName}; using collection fallback.`,
+        error
+      );
+      const rows = await getCollectionRows(db, collectionName, { maxAgeMs, forceRefresh });
+      return rows.length;
+    })
+    .finally(() => {
+      if (pendingCountReads.get(collectionName) === read) {
+        pendingCountReads.delete(collectionName);
+      }
+    });
+
+  pendingCountReads.set(collectionName, read);
+  return read;
 }
 
 export function invalidateCollectionRows(...collectionNames) {
@@ -100,6 +124,7 @@ export function invalidateCollectionRows(...collectionNames) {
     collectionCache.delete(collectionName);
     countCache.delete(collectionName);
     pendingReads.delete(collectionName);
+    pendingCountReads.delete(collectionName);
   });
 }
 
@@ -117,5 +142,6 @@ export function clearFirestoreReadCache() {
   collectionCache.clear();
   pendingReads.clear();
   countCache.clear();
+  pendingCountReads.clear();
   collectionGenerations.clear();
 }

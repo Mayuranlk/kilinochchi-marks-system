@@ -4,7 +4,7 @@
 const path = require("path");
 const { COLLECTION_SPECS, READ_COLLECTIONS, analyzeCanonicalCoverage, sanitizeAuditRow } = require("./lib/canonicalAuditUtils");
 const { readCheckpoint, writeCheckpoint } = require("./lib/auditCheckpoint");
-const { initializeAuditFirestore, readCollectionInPages } = require("./lib/firestoreAuditReader");
+const { initializeAuditFirestore, initializeFirebaseCliReadOnlyFirestore, readCollectionInPages } = require("./lib/firestoreAuditReader");
 const { writeJsonReport, writeMarkdownReport } = require("./lib/auditReportWriter");
 
 function parseArguments(argv) {
@@ -18,9 +18,11 @@ function parseArguments(argv) {
     resume: false,
     allowProductionRead: false,
     confirmProject: "",
+    project: "",
     emulatorHost: "",
     startCursor: "",
     help: false,
+    firebaseCliAuth: false,
   };
 
   const valueFor = (index, flag) => {
@@ -33,7 +35,9 @@ function parseArguments(argv) {
     if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--allow-production-read") options.allowProductionRead = true;
     else if (arg === "--resume") options.resume = true;
+    else if (arg === "--firebase-cli-auth") options.firebaseCliAuth = true;
     else if (arg === "--confirm-project") options.confirmProject = valueFor(index++, arg);
+    else if (arg === "--project") options.project = valueFor(index++, arg);
     else if (arg === "--collections") options.collections = valueFor(index++, arg).split(",").map((v) => v.trim()).filter(Boolean);
     else if (arg === "--batch-size") options.batchSize = Number(valueFor(index++, arg));
     else if (arg === "--maximum-documents") options.maximumDocuments = Number(valueFor(index++, arg));
@@ -62,6 +66,11 @@ function validateOptions(options) {
   if (!options.emulatorHost && !options.allowProductionRead) {
     throw new Error("Production reads are disabled by default. Use --emulator or explicitly add --allow-production-read.");
   }
+  if (!options.emulatorHost && !options.project) throw new Error("--project is required in production mode.");
+  if (!options.emulatorHost && options.project !== options.confirmProject) {
+    throw new Error("--project must exactly match --confirm-project in production mode.");
+  }
+  if (options.emulatorHost && options.firebaseCliAuth) throw new Error("--firebase-cli-auth cannot be used with --emulator.");
   if (options.startCursor && options.collections.length !== 1 && !options.startCursor.includes(":")) {
     throw new Error("A raw --start-cursor can only be used with one collection; otherwise use collection:documentId.");
   }
@@ -80,7 +89,7 @@ function usage() {
   return `Canonical Firestore coverage auditor (read-only)\n\n` +
     `Emulator:\n  node scripts/auditCanonicalCoverage.js --emulator --confirm-project demo-kilinochchi\n\n` +
     `Production (requires ADC and two explicit confirmations):\n` +
-    `  node scripts/auditCanonicalCoverage.js --allow-production-read --confirm-project <firebase-project-id>\n\n` +
+    `  node scripts/auditCanonicalCoverage.js --allow-production-read --firebase-cli-auth --project <firebase-project-id> --confirm-project <firebase-project-id>\n\n` +
     `Options: --collections a,b --batch-size 250 --maximum-documents 10000\n` +
     `         --start-cursor [collection:]documentId --checkpoint file --resume\n` +
     `         --json file --markdown file\n\nNo write API is imported by this program.`;
@@ -96,7 +105,10 @@ async function main(argv = process.argv.slice(2)) {
 
   const mode = options.emulatorHost ? `emulator:${options.emulatorHost}` : "production-read-approved";
   process.stdout.write(`READ-ONLY canonical audit: project=${options.confirmProject}, mode=${mode}\n`);
-  const db = initializeAuditFirestore({ projectId: options.confirmProject, emulatorHost: options.emulatorHost });
+  const db = options.firebaseCliAuth
+    ? await initializeFirebaseCliReadOnlyFirestore({ projectId: options.confirmProject })
+    : initializeAuditFirestore({ projectId: options.confirmProject, emulatorHost: options.emulatorHost });
+  if (db.auditIdentity) process.stdout.write(`Authenticated read identity: ${db.auditIdentity}\n`);
   const checkpoint = options.resume
     ? readCheckpoint(options.checkpoint)
     : { version: 1, projectId: options.confirmProject, mode, collections: {} };
