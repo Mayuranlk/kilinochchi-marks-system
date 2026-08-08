@@ -205,6 +205,7 @@ export default function Layout() {
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "NEW" },
+        { label: "Text Book Request", icon: <MenuBookRoundedIcon />, path: "/text-book-request", badge: "NEW" },
         { label: "Live Marks Status", icon: <FactCheckRoundedIcon />, path: "/marks-status-live", badge: "PUBLIC" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "NEW" },
       ],
@@ -234,6 +235,7 @@ export default function Layout() {
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "IT" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "IT" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "IT" },
+        { label: "Text Book Request", icon: <MenuBookRoundedIcon />, path: "/text-book-request", badge: "IT" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "IT" }
       );
     }

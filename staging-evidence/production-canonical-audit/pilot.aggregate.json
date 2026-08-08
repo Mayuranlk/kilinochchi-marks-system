@@ -1,0 +1,492 @@
+{
+  "reportVersion": 1,
+  "generatedAt": "2026-08-08T08:19:36.402Z",
+  "projectId": "kilinochchi-marks",
+  "mode": "production-read-approved",
+  "interrupted": false,
+  "partial": true,
+  "collections": {
+    "students": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "gradeNumber": 1,
+        "classKey": 1
+      },
+      "unresolvedReferences": {},
+      "ambiguousNormalization": {},
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "gradeNumber": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "studentSubjectEnrollments": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "subjectKey": 1,
+        "enrollmentKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "subjectKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {
+        "subjectId": 1
+      },
+      "ambiguousNormalization": {
+        "classKey": 1,
+        "subjectKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "unresolved_subject_reference": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "gradeNumber": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        },
+        "subjectKey": {
+          "undefined": 1
+        },
+        "enrollmentKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "marks": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "termKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "subjectKey": 1,
+        "assessmentKey": 1,
+        "markKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "academicYearKey": 1,
+        "termKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "subjectKey": 1,
+        "assessmentKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {
+        "studentId": 1,
+        "subjectId": 1
+      },
+      "ambiguousNormalization": {
+        "classKey": 1,
+        "subjectKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "unresolved_student_reference": 1,
+        "unresolved_subject_reference": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "generatedDocumentIds": 1,
+      "invalidNumericMarks": 0,
+      "attendanceInconsistencies": 0,
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "termKey": {
+          "undefined": 1
+        },
+        "gradeNumber": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        },
+        "subjectKey": {
+          "undefined": 1
+        },
+        "assessmentKey": {
+          "undefined": 1
+        },
+        "markKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "classrooms": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {},
+      "ambiguousNormalization": {
+        "classKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "gradeNumber": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "subjects": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "subjectKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "subjectKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {},
+      "ambiguousNormalization": {
+        "subjectKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "subjectKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "academicTerms": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "termKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "academicYearKey": 1,
+        "termKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {},
+      "ambiguousNormalization": {},
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "termKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "teacherAssignments": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "classKey": 1,
+        "subjectKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "gradeNumber": 1,
+        "classKey": 1,
+        "subjectKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {
+        "subjectId": 1
+      },
+      "ambiguousNormalization": {
+        "classKey": 1,
+        "subjectKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "unresolved_subject_reference": 1,
+        "incomplete_logical_identity": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        },
+        "subjectKey": {
+          "undefined": 1
+        }
+      }
+    },
+    "classTeacherAssignments": {
+      "totalDocuments": 1,
+      "canonicalReadyDocuments": 0,
+      "incompleteDocuments": 1,
+      "coverageStates": {
+        "canonicalReady": 0,
+        "partiallyCanonical": 0,
+        "legacyOnly": 1,
+        "malformed": 0
+      },
+      "coveragePercentage": 0,
+      "missingCanonicalFields": {
+        "schemaVersion": 1,
+        "academicYearKey": 1,
+        "classKey": 1
+      },
+      "nullFields": {},
+      "blankFields": {},
+      "invalidFieldTypes": {},
+      "conflictingCanonicalFields": {},
+      "mixedFieldTypes": {},
+      "legacyAliasUsage": {
+        "academicYearKey": 1,
+        "gradeNumber": 1,
+        "classKey": 1,
+        "markKey": 1,
+        "enrollmentKey": 1
+      },
+      "unresolvedReferences": {},
+      "ambiguousNormalization": {
+        "classKey": 1
+      },
+      "duplicateCanonicalIdentities": {
+        "groups": 0,
+        "documents": 0,
+        "identityHashes": []
+      },
+      "recordsUnsafeForAutomaticMigration": 1,
+      "unsafeReasonCounts": {
+        "ambiguous_normalization": 1,
+        "canonical_fields_incomplete": 1
+      },
+      "fieldTypes": {
+        "schemaVersion": {
+          "undefined": 1
+        },
+        "academicYearKey": {
+          "undefined": 1
+        },
+        "classKey": {
+          "undefined": 1
+        }
+      }
+    }
+  }
+}

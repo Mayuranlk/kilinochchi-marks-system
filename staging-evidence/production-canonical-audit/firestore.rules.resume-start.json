@@ -1,0 +1,9 @@
+{
+  "projectId": "kilinochchi-marks",
+  "authenticatedAccount": "techzlkpro@gmail.com",
+  "releaseName": "projects/kilinochchi-marks/releases/cloud.firestore",
+  "rulesetName": "projects/kilinochchi-marks/rulesets/437fedc1-4675-45e6-85d9-83c88f381c33",
+  "retrievedAt": "2026-08-08T08:38:04.606Z",
+  "sourceFileName": "firestore.rules.proposed.review",
+  "output": "staging-evidence\\production-canonical-audit\\firestore.rules.resume-start"
+}

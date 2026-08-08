@@ -1,0 +1,98 @@
+{
+  "projectId": "kilinochchi-marks-staging",
+  "checkedAt": "2026-08-08T06:11:03.296Z",
+  "boundedTimeoutMs": 60000,
+  "retryIntervalMs": 750,
+  "results": [
+    {
+      "logicalName": "admin",
+      "email": "admin@app-emulator.test",
+      "uid": "G5tYK8iQyYcJwfBubZKTSJ9Mzfm2",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "admin",
+      "elapsedMs": 889
+    },
+    {
+      "logicalName": "teacher",
+      "email": "teacher@app-emulator.test",
+      "uid": "Im8sz7gQkHbNCRxa6b0roKzEB903",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "teacher",
+      "elapsedMs": 1314
+    },
+    {
+      "logicalName": "it",
+      "email": "it@app-emulator.test",
+      "uid": "XOxSA3dv8dPXDyXSnt37BRklpCg1",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "it_teacher",
+      "elapsedMs": 833
+    },
+    {
+      "logicalName": "sectional",
+      "email": "sectional@app-emulator.test",
+      "uid": "jzE5T59fskeZkAb4lKhRVXHKzUw2",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "sectional_head",
+      "elapsedMs": 1231
+    },
+    {
+      "logicalName": "account",
+      "email": "account@app-emulator.test",
+      "uid": "bir7ejfOOtZQejEnqQvi9gwbyt43",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "account",
+      "elapsedMs": 1133
+    },
+    {
+      "logicalName": "prefect",
+      "email": "prefect@app-emulator.test",
+      "uid": "vJyxADWXxMOsFRZHL8jw324zb6f1",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "prefect",
+      "elapsedMs": 1033
+    },
+    {
+      "logicalName": "capabilityTeacher",
+      "email": "capability-teacher@app-emulator.test",
+      "uid": "UAK7RKM2fkM3jQ0UgwrDjk9qfNe2",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "support",
+      "elapsedMs": 1072
+    },
+    {
+      "logicalName": "unknown",
+      "email": "unknown@app-emulator.test",
+      "uid": "NDDk37ibx5ScUG03GI5R3735BbA2",
+      "authReady": true,
+      "profileExpected": true,
+      "profileStatus": 200,
+      "role": "unknown",
+      "elapsedMs": 1008
+    },
+    {
+      "logicalName": "missingProfile",
+      "email": "missing-profile@app-emulator.test",
+      "uid": "dzN0jGyPEygXGmVNKKJl1h6U6RA3",
+      "authReady": true,
+      "profileExpected": false,
+      "profileStatus": 404,
+      "role": null,
+      "elapsedMs": 1251
+    }
+  ]
+}

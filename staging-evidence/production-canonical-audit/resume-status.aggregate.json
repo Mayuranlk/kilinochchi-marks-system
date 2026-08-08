@@ -1,0 +1,39 @@
+{
+  "reportVersion": 1,
+  "timestampUtc": "2026-08-08T08:39:30.0388890Z",
+  "projectId": "kilinochchi-marks",
+  "projectNumber": "499271151802",
+  "databaseId": "(default)",
+  "region": "asia-southeast1",
+  "rulesSha256": "EB6518F273C2F037BE80AAD8A65E53043893EDA09587C6E442BFFE9623FFE969",
+  "probe": {
+    "collection": "marks",
+    "position": "strictly after saved cursor",
+    "requestAttempts": 1,
+    "successfulDocumentsReturned": 0,
+    "result": "transport-level Firestore request failure",
+    "checkpointChanged": false
+  },
+  "checkpoint": {
+    "sha256AfterProbe": "91CCA3F4AB9D7BC6914C2FA0C46DE6FEB698999D6009167C92F6E2EB7CCC10B8",
+    "students": { "documents": 941, "complete": true },
+    "studentSubjectEnrollments": { "documents": 10125, "complete": true },
+    "marks": { "documents": 9025, "complete": false, "cursorPresent": true }
+  },
+  "remaining": {
+    "marks": 7591,
+    "supportingDocuments": 827,
+    "total": 8418
+  },
+  "mutations": {
+    "productionWrites": 0,
+    "authChanges": 0,
+    "rulesDeployments": 0,
+    "indexDeployments": 0,
+    "otherFirebaseDeployments": 0,
+    "migrations": 0,
+    "featureActivations": 0
+  },
+  "personalDataCommitted": false,
+  "decision": "NOT READY — PRODUCTION CANONICAL AUDIT STILL INCOMPLETE"
+}

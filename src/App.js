@@ -44,6 +44,7 @@ const ReportCard = lazy(() => import("./pages/ReportCard"));
 const ClassReport = lazy(() => import("./pages/ClassReport"));
 const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports"));
 const ClassCompletionReport = lazy(() => import("./pages/reports/ClassCompletionReport"));
+const TextBookRequestReport = lazy(() => import("./pages/reports/TextBookRequestReport"));
 const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
@@ -514,6 +515,16 @@ export default function App() {
                   <ReportAccessRoute>
                     <LazyRoute>
                       <ClassCompletionReport />
+                    </LazyRoute>
+                  </ReportAccessRoute>
+                }
+              />
+              <Route
+                path="text-book-request"
+                element={
+                  <ReportAccessRoute>
+                    <LazyRoute>
+                      <TextBookRequestReport />
                     </LazyRoute>
                   </ReportAccessRoute>
                 }

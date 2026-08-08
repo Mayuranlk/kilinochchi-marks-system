@@ -27,16 +27,20 @@ import { PageContainer } from "../../components/ui";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
 import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
 import {
+  createColorClassMarksPdfFile,
   createClassMarksPdfFile,
   exportAllClassesReportsZip,
   exportClassMarksExcel,
   exportClassMarksEmisExcel,
   exportClassMarksPdf,
+  exportColorClassMarksExcel,
+  exportColorClassMarksPdf,
   exportGradeElevenOlResultSheetsZip,
   getClassMarksSchedulePreviewLayout,
   isClassMarksEmisExportSupported,
   printGradeElevenOlResultSheets,
 } from "../../utils/classMarksExportUtils";
+import { getMarkColorStyle, MARK_COLOR_BANDS } from "../../utils/markColorBands";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -89,7 +93,7 @@ function createPreviewCellStyle({ theme, compact = false, header = false, align 
   };
 }
 
-function SchedulePreview({ reportData }) {
+function SchedulePreview({ reportData, colorSchedule = false }) {
   const theme = useTheme();
   const { schema, rows, className, year, termName } = reportData;
   const flatColumns = flattenSchemaColumns(schema);
@@ -119,7 +123,7 @@ function SchedulePreview({ reportData }) {
     <Card sx={{ borderRadius: 3 }}>
       <CardContent>
         <Typography variant="h6" fontWeight={700} gutterBottom>
-          KN/Kilinochchi Central College - Mark Schedule
+          KN/Kilinochchi Central College - {colorSchedule ? "Color Mark Schedule" : "Mark Schedule"}
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
@@ -206,13 +210,19 @@ function SchedulePreview({ reportData }) {
                   {flatColumns.map((column) => {
                     const mark = row.marksByColumn[column.key];
                     const isHighest =
+                      !colorSchedule &&
                       Number.isFinite(Number(mark)) &&
                       mark === reportData.highestMarksByColumn?.[column.key];
+                    const colorStyle =
+                      colorSchedule && !row.absencesByColumn[column.key]
+                        ? getMarkColorStyle(mark)
+                        : null;
                     return (
                       <td
                         key={column.key}
                         style={{
                           ...bodyCellStyle,
+                          ...(colorStyle || {}),
                           ...(isHighest
                             ? {
                                 background: theme.palette.warning.lighter,
@@ -243,9 +253,32 @@ function SchedulePreview({ reportData }) {
             </tbody>
           </table>
         </Box>
-        <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
-          Highest marks in each subject are highlighted in yellow.
-        </Typography>
+        {colorSchedule ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.25 }}>
+            {MARK_COLOR_BANDS.map((band) => (
+              <Box
+                key={band.key}
+                sx={{
+                  px: 1,
+                  py: 0.4,
+                  borderRadius: 1,
+                  bgcolor: band.background,
+                  color: band.textColor,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {band.label}: {band.colorName}
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
+            Highest marks in each subject are highlighted in yellow.
+          </Typography>
+        )}
         {showOverallTotal && (
           <Typography variant="caption" sx={{ display: "block", mt: 0.75, fontWeight: 700 }}>
             A/L rank uses main 3 subjects. Overall total includes held general subjects.
@@ -405,11 +438,13 @@ function AnalysisPreview({ reportData }) {
   );
 }
 
-async function shareClassMarksPdf(reportData) {
-  const { blob, fileName, file } = createClassMarksPdfFile(reportData);
+async function shareClassMarksPdf(reportData, colorSchedule = false) {
+  const { blob, fileName, file } = colorSchedule
+    ? createColorClassMarksPdfFile(reportData)
+    : createClassMarksPdfFile(reportData);
   const text = [
     "Kilinochchi Central College",
-    "Class Marks Report",
+    colorSchedule ? "Color Mark Schedule" : "Class Marks Report",
     `Class: ${reportData.className}`,
     `Term: ${reportData.termName} | Year: ${reportData.year}`,
   ].join("\n");
@@ -446,6 +481,8 @@ export default function ClassMarksReports() {
   const [loading, setLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [error, setError] = useState("");
+  const [reportMode, setReportMode] = useState("standard");
+  const colorSchedule = reportMode === "color";
 
   const [students, setStudents] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
@@ -659,10 +696,45 @@ export default function ClassMarksReports() {
 
     try {
       setError("");
-      await shareClassMarksPdf(reportData);
+      await shareClassMarksPdf(reportData, colorSchedule);
     } catch (err) {
       console.error("Class marks PDF share failed:", err);
       setError(err.message || "Failed to share class marks PDF.");
+    }
+  }
+
+  function handleExportPdf() {
+    if (!reportData) return;
+
+    try {
+      setError("");
+      if (colorSchedule) {
+        exportColorClassMarksPdf(reportData);
+      } else {
+        exportClassMarksPdf(reportData);
+      }
+    } catch (err) {
+      console.error("Class marks PDF export failed:", err);
+      setError(err.message || "Failed to export class marks PDF.");
+    }
+  }
+
+  async function handleExportExcel() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      if (colorSchedule) {
+        await exportColorClassMarksExcel(reportData);
+      } else {
+        exportClassMarksExcel(reportData);
+      }
+    } catch (err) {
+      console.error("Class marks Excel export failed:", err);
+      setError(err.message || "Failed to export class marks Excel.");
+    } finally {
+      setBulkLoading(false);
     }
   }
 
@@ -731,6 +803,32 @@ export default function ClassMarksReports() {
             </Grid>
 
             <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "stretch", sm: "center" }}
+              sx={{ mt: 2 }}
+            >
+              <Typography variant="body2" fontWeight={700} sx={{ mr: 0.5 }}>
+                Report type
+              </Typography>
+              <Button
+                size="small"
+                variant={reportMode === "standard" ? "contained" : "outlined"}
+                onClick={() => setReportMode("standard")}
+              >
+                Mark Schedule
+              </Button>
+              <Button
+                size="small"
+                variant={reportMode === "color" ? "contained" : "outlined"}
+                color="success"
+                onClick={() => setReportMode("color")}
+              >
+                Color Mark Schedule
+              </Button>
+            </Stack>
+
+            <Stack
               direction={{ xs: "column", md: "row" }}
               spacing={2}
               sx={{ mt: 2, flexWrap: "wrap" }}
@@ -747,12 +845,10 @@ export default function ClassMarksReports() {
 
               <Button
                 variant="contained"
-                onClick={() => {
-                  if (reportData) exportClassMarksPdf(reportData);
-                }}
+                onClick={handleExportPdf}
                 disabled={!reportData || loading || bulkLoading}
               >
-                Download PDF
+                {colorSchedule ? "Download Color PDF" : "Download PDF"}
               </Button>
 
               <Button
@@ -768,12 +864,10 @@ export default function ClassMarksReports() {
               <Button
                 variant="contained"
                 color="success"
-                onClick={() => {
-                  if (reportData) exportClassMarksExcel(reportData);
-                }}
+                onClick={handleExportExcel}
                 disabled={!reportData || loading || bulkLoading}
               >
-                Download Excel
+                {colorSchedule ? "Download Color Excel" : "Download Excel"}
               </Button>
 
               {reportData && isClassMarksEmisExportSupported(reportData) && (
@@ -839,7 +933,7 @@ export default function ClassMarksReports() {
 
         {!loading && !error && reportData && (
           <>
-            <SchedulePreview reportData={reportData} />
+            <SchedulePreview reportData={reportData} colorSchedule={colorSchedule} />
             <Divider />
             <AnalysisPreview reportData={reportData} />
           </>

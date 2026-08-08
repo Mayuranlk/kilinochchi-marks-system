@@ -1,0 +1,5 @@
+{
+  "firestore": {
+    "rules": "firestore.rules.before-2026-08-08"
+  }
+}

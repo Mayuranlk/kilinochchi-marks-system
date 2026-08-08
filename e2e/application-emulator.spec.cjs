@@ -90,6 +90,7 @@ test("admin can load every protected administration route under proposed Rules",
     ["/teacher-mark-sheets", "Teacher Mark Sheets"],
     ["/class-marks-reports", "Class Marks Reports"],
     ["/class-completion-report", "Class Completion Report"],
+    ["/text-book-request", "Text Book Request"],
     ["/subject-analysis", "Subject Analysis"],
     ["/report/student-001", "Synthetic Student One"],
     ["/promotion", "Year End Promotion"],
@@ -156,6 +157,7 @@ test("IT teacher can load actual report routes", async ({ page }) => {
     ["/teacher-mark-sheets", "Teacher Mark Sheets"],
     ["/class-marks-reports", "Class Marks Reports"],
     ["/class-completion-report", "Class Completion Report"],
+    ["/text-book-request", "Text Book Request"],
     ["/subject-analysis", "Subject Analysis"],
   ]) await visit(page, monitor, path, title);
 });

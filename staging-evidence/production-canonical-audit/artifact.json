@@ -1,0 +1,169 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Production Canonical Data Read-Only Audit",
+    "description": "Migration-readiness evidence for the Kilinochchi Marks Management System, with an explicit partial-audit limitation.",
+    "generatedAt": "2026-08-08T08:27:23.647Z",
+    "cards": [],
+    "charts": [
+      {
+        "id": "audit_progress_chart",
+        "title": "Production documents audited by collection",
+        "subtitle": "Exact audited counts; Marks and supporting collections remain incomplete after a production read-quota response.",
+        "type": "bar",
+        "dataset": "audit_progress",
+        "sourceId": "partial_aggregate",
+        "valueFormat": "number",
+        "encodings": {
+          "x": { "field": "collection", "type": "nominal", "label": "Collection" },
+          "y": { "field": "documentsAudited", "type": "quantitative", "label": "Documents audited" },
+          "tooltip": [
+            { "field": "documentsTotal", "type": "quantitative", "label": "Production total", "format": "number" },
+            { "field": "documentsRemaining", "type": "quantitative", "label": "Remaining", "format": "number" },
+            { "field": "coverageStatus", "type": "nominal", "label": "Audit status" }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "coverage_table",
+        "title": "Canonical coverage evidence",
+        "subtitle": "Exact results for completed collections and explicitly partial results for Marks.",
+        "dataset": "coverage_evidence",
+        "sourceId": "partial_aggregate",
+        "defaultSort": { "field": "documentsAudited", "direction": "desc" },
+        "columns": [
+          { "field": "collection", "label": "Collection", "type": "text" },
+          { "field": "auditStatus", "label": "Audit status", "type": "text" },
+          { "field": "documentsAudited", "label": "Audited", "format": "number" },
+          { "field": "canonicalReady", "label": "Canonical-ready", "format": "number" },
+          { "field": "legacyOnly", "label": "Legacy-only", "format": "number" },
+          { "field": "unsafeForAutomaticBackfill", "label": "Unsafe", "format": "number" }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "partial_aggregate",
+        "label": "Aggregate-only canonical audit checkpoint summary",
+        "path": "staging-evidence/production-canonical-audit/partial.aggregate.json"
+      },
+      {
+        "id": "rules_evidence",
+        "label": "Retrieved production Rules at audit start",
+        "path": "staging-evidence/production-canonical-audit/firestore.rules.audit-start.json"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Production Canonical Data Read-Only Audit"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "partial_aggregate",
+        "body": "## Technical summary\n\n**Decision: not ready for additive production backfill approval.** Students and Student Subject Enrollments were audited completely and contain no canonical-ready documents: all 941 Students and all 10,125 Enrollments are legacy-only and lack every required canonical field. The Marks scan was interrupted by a sustained production read-quota response after 9,025 of 16,616 documents; every audited Mark was also legacy-only. Because 7,591 Marks and 827 supporting documents remain unread, production-wide duplicate, ambiguity, referential-integrity, and automatic-backfill safety conclusions are not yet valid."
+      },
+      {
+        "id": "definitions",
+        "type": "markdown",
+        "body": "## Scope and classification definitions\n\nThe audit derives required fields and normalization rules from the repository's canonical utilities and active write paths. **Canonical-ready** means every required canonical field is present and valid. **Partially canonical** means at least one, but not all, required fields are present. **Legacy-only** means none are present. **Malformed** means canonical fields are present but null, blank, invalidly typed, or conflicting. **Unsafe for automatic backfill** includes incomplete canonical state, malformed values, ambiguous normalization, unresolved references, or duplicate logical identity. No document bodies or personal data are included in this report."
+      },
+      {
+        "id": "progress_finding",
+        "type": "markdown",
+        "sourceId": "partial_aggregate",
+        "body": "## Two core collections are exact; the production audit is not complete\n\nStudents and Enrollments reached their exact aggregate production totals. Marks reached 54.3% of its exact production count before the API returned sustained HTTP 429 responses. The supporting collections were not scanned, so the chart shows zero audited documents for them rather than implying zero production documents."
+      },
+      { "id": "progress_chart", "type": "chart", "chartId": "audit_progress_chart" },
+      {
+        "id": "coverage_finding",
+        "type": "markdown",
+        "sourceId": "partial_aggregate",
+        "body": "## Completed collections have zero canonical coverage\n\nThe completed collections establish an exact result: Students are 0 of 941 canonical-ready and Enrollments are 0 of 10,125 canonical-ready. All documents in both collections lack their full required canonical field sets. The partial Marks evidence is consistent—0 of 9,025 audited Marks are canonical-ready—but it must not be extrapolated to the 7,591 unread Marks. No malformed canonical fields or duplicate canonical identities were found in the scanned rows; that does not clear the unread population or cross-collection reference checks."
+      },
+      { "id": "coverage_table_block", "type": "table", "tableId": "coverage_table" },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "## Methodology and controls\n\nThe run recorded branch and commit state, re-ran the Phase 2 local gates, verified project `kilinochchi-marks` and project number `499271151802`, and matched the retrieved active Rules to the approved production hash. Exact collection counts were obtained with read-only aggregation queries. A purpose-built adapter exposed only Firestore `runQuery` and `runAggregationQuery`; it contained no write method. The resumable per-document checkpoint remains outside the repository, while committed evidence is aggregate-only and excludes personal data. Production mutations, Auth changes, deployments, migrations, and feature activations were all zero."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## Limitations and uncertainty\n\nA sustained HTTP 429 response stopped the scan. Remaining scope is 7,591 Marks plus 827 supporting documents across Classrooms, Subjects, Academic Terms, and Teacher Assignments. Until those reads complete, exact production-wide duplicate logical identities, ambiguous normalization, unresolved references, and unsafe-backfill counts cannot be reported. The temporary checkpoint contains sanitized audit fields needed to resume but is still treated as sensitive operational data and must not be committed."
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "body": "## Recommended next steps\n\n1. Keep canonical-only reads, pagination, summaries, deterministic Mark IDs, and all migration tools disabled.\n2. After the production read quota resets, resume from the retained cursor and read only the remaining 8,418 documents.\n3. Regenerate the aggregate-only report and reconcile audited totals to the exact count preflight.\n4. Require zero unresolved high-risk anomalies—or an approved manual exception plan—before considering a separate additive-backfill authorization.\n5. Do not approve or execute a production backfill from this partial result."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further questions\n\nThe resumed audit must determine whether unread Marks contain any canonical fields, whether logical identities duplicate across the full collections, whether legacy values normalize uniquely, and whether every reference resolves against the supporting collections. Those answers can materially change the migration plan and batch-safety controls."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-08T08:27:23.647Z",
+    "status": "partial",
+    "datasets": {
+      "audit_progress": [
+        { "collection": "Students", "documentsAudited": 941, "documentsTotal": 941, "documentsRemaining": 0, "coverageStatus": "Complete" },
+        { "collection": "Enrollments", "documentsAudited": 10125, "documentsTotal": 10125, "documentsRemaining": 0, "coverageStatus": "Complete" },
+        { "collection": "Marks", "documentsAudited": 9025, "documentsTotal": 16616, "documentsRemaining": 7591, "coverageStatus": "Partial" },
+        { "collection": "Classrooms", "documentsAudited": 0, "documentsTotal": 39, "documentsRemaining": 39, "coverageStatus": "Not scanned" },
+        { "collection": "Subjects", "documentsAudited": 0, "documentsTotal": 68, "documentsRemaining": 68, "coverageStatus": "Not scanned" },
+        { "collection": "Academic Terms", "documentsAudited": 0, "documentsTotal": 2, "documentsRemaining": 2, "coverageStatus": "Not scanned" },
+        { "collection": "Teacher Assignments", "documentsAudited": 0, "documentsTotal": 718, "documentsRemaining": 718, "coverageStatus": "Not scanned" }
+      ],
+      "coverage_evidence": [
+        { "collection": "Students", "auditStatus": "Complete", "documentsAudited": 941, "canonicalReady": 0, "legacyOnly": 941, "malformed": 0, "unsafeForAutomaticBackfill": 941 },
+        { "collection": "Student Subject Enrollments", "auditStatus": "Complete", "documentsAudited": 10125, "canonicalReady": 0, "legacyOnly": 10125, "malformed": 0, "unsafeForAutomaticBackfill": 10125 },
+        { "collection": "Marks", "auditStatus": "Partial — 54.3%", "documentsAudited": 9025, "canonicalReady": 0, "legacyOnly": 9025, "malformed": 0, "unsafeForAutomaticBackfill": 9025 }
+      ]
+    },
+    "accessIssues": [
+      {
+        "id": "production_read_quota",
+        "dataset": "production_canonical_audit",
+        "message": "Sustained HTTP 429 responses interrupted the read-only audit after 20,091 of 28,509 production documents in the complete scan."
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "partial_aggregate",
+      "query": {
+        "engine": "Firestore REST read-only audit adapter",
+        "sql": "SELECT *\nFROM (VALUES\n  ('Students', 941, 941, 0, 'Complete', 0, 941, 0, 941),\n  ('Student Subject Enrollments', 10125, 10125, 0, 'Complete', 0, 10125, 0, 10125),\n  ('Marks', 9025, 16616, 7591, 'Partial', 0, 9025, 0, 9025),\n  ('Classrooms', 0, 39, 39, 'Not scanned', NULL, NULL, NULL, NULL),\n  ('Subjects', 0, 68, 68, 'Not scanned', NULL, NULL, NULL, NULL),\n  ('Academic Terms', 0, 2, 2, 'Not scanned', NULL, NULL, NULL, NULL),\n  ('Teacher Assignments', 0, 718, 718, 'Not scanned', NULL, NULL, NULL, NULL)\n) AS reviewed(\n  collection, documents_audited, documents_total, documents_remaining,\n  audit_status, canonical_ready, legacy_only, malformed, unsafe_for_automatic_backfill\n)",
+        "description": "Aggregate-only offline summary of the resumable production read checkpoint.",
+        "executed_at": "2026-08-08T08:27:23.647Z",
+        "language": "JavaScript",
+        "tables_used": ["students", "studentSubjectEnrollments", "marks", "classrooms", "subjects", "academicTerms", "teacherAssignments"],
+        "filters": ["projectId = kilinochchi-marks", "database = (default)", "read-only methods only", "no personal data in report output", "Marks scan interrupted at 9,025 documents"],
+        "metric_definitions": {
+          "canonicalReady": "Count of audited documents with every source-derived required canonical field present and valid.",
+          "legacyOnly": "Count of audited documents with none of the required canonical fields present.",
+          "unsafeForAutomaticBackfill": "Count of audited documents with at least one incomplete, malformed, ambiguous, unresolved-reference, or duplicate-identity safety reason."
+        }
+      }
+    },
+    {
+      "id": "rules_evidence",
+      "query": {
+        "engine": "Firebase Rules API read-only retrieval",
+        "description": "Retrieved active production Firestore Rules and verified approved source hash at audit start.",
+        "executed_at": "2026-08-08T08:15:00.000Z",
+        "language": "Firestore Security Rules"
+      }
+    }
+  ]
+}

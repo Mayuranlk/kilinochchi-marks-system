@@ -1,0 +1,5 @@
+{
+  "firestore": {
+    "rules": "firestore.rules.before-clean-rerun-20260808T060000Z"
+  }
+}

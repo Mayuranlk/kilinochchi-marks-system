@@ -74,6 +74,12 @@ const ROUTE_META = [
       "Sectional head dashboard for tracking assigned grade reports, completion, and class performance.",
   },
   {
+    match: /^\/text-book-request\/?$/,
+    title: "Text Book Request | Kilinochchi Marks System",
+    description:
+      "Calculate textbook requirements from active students and subject enrollments by school, grade, and class.",
+  },
+  {
     match: /^\/class-completion-report\/?$/,
     title: "Class Completion Report | Kilinochchi Marks System",
     description:

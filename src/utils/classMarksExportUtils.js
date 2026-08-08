@@ -15,6 +15,7 @@ import {
   resolveReligionColumnFromStudent,
 } from "./reportMappingUtils";
 import { getOlGradeLetter } from "./gradeUtils";
+import { getMarkColorBand } from "./markColorBands";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
 const OL_TITLE = "G.C.E O/L Examination";
@@ -571,7 +572,7 @@ function getAnalysisTableSettings(reportData) {
   };
 }
 
-function buildPdfDoc(reportData) {
+function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
   const doc = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -584,7 +585,7 @@ function buildPdfDoc(reportData) {
   const subjectColumnEnd = subjectColumnStart + flatColumns.length - 1;
   const scheduleSettings = getScheduleTableSettings(reportData);
 
-  drawHeader(doc, "Mark Schedule", reportData);
+  drawHeader(doc, colorSchedule ? "Color Mark Schedule" : "Mark Schedule", reportData);
 
   autoTable(doc, {
     startY: scheduleSettings.startY,
@@ -640,8 +641,18 @@ function buildPdfDoc(reportData) {
         const column = flatColumns[columnIndex];
         const markValue = Number(data.cell.raw);
         const highest = reportData.highestMarksByColumn?.[column.key];
+        const colorBand = colorSchedule ? getMarkColorBand(data.cell.raw) : null;
 
-        if (Number.isFinite(markValue) && highest !== null && markValue === highest) {
+        if (colorBand) {
+          data.cell.styles.fillColor = [...colorBand.pdfFillColor];
+          data.cell.styles.textColor = colorBand.key === "excellent" ? 255 : 20;
+          data.cell.styles.fontStyle = "bold";
+        } else if (
+          !colorSchedule &&
+          Number.isFinite(markValue) &&
+          highest !== null &&
+          markValue === highest
+        ) {
           data.cell.styles.fillColor = [255, 249, 196];
           data.cell.styles.fontStyle = "bold";
         }
@@ -653,7 +664,9 @@ function buildPdfDoc(reportData) {
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.text(
-    "Highest marks are highlighted in yellow in the Mark Schedule.",
+    colorSchedule
+      ? "Mark colors: 0-40 Red | 41-54 Light Orange | 55-64 Yellow | 65-74 Light Green | 75-100 Dark Green."
+      : "Highest marks are highlighted in yellow in the Mark Schedule.",
     scheduleSettings.marginLeft,
     scheduleNoteY
   );
@@ -788,6 +801,11 @@ export function exportClassMarksPdf(reportData) {
   doc.save(fileName);
 }
 
+export function exportColorClassMarksPdf(reportData) {
+  const { doc, fileName } = createColorClassMarksPdfDoc(reportData);
+  doc.save(fileName);
+}
+
 export function createClassMarksPdfDoc(reportData) {
   const doc = buildPdfDoc(reportData);
   const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
@@ -796,8 +814,26 @@ export function createClassMarksPdfDoc(reportData) {
   return { doc, fileName };
 }
 
+export function createColorClassMarksPdfDoc(reportData) {
+  const doc = buildPdfDoc(reportData, { colorSchedule: true });
+  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_Color_Marks_Report.pdf`;
+  return { doc, fileName };
+}
+
 export function createClassMarksPdfFile(reportData) {
   const { doc, fileName } = createClassMarksPdfDoc(reportData);
+  const blob = doc.output("blob");
+  return {
+    blob,
+    fileName,
+    file: new File([blob], fileName, { type: "application/pdf" }),
+  };
+}
+
+export function createColorClassMarksPdfFile(reportData) {
+  const { doc, fileName } = createColorClassMarksPdfDoc(reportData);
   const blob = doc.output("blob");
   return {
     blob,
@@ -855,7 +891,7 @@ export async function exportGradeElevenOlResultSheetsZip(reportData) {
   saveAs(zipBlob, zipName);
 }
 
-function makeScheduleSheetRows(reportData) {
+function makeScheduleSheetRows(reportData, scheduleTitle = "Mark Schedule") {
   const flatColumns = flattenSchemaColumns(reportData.schema);
   const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
@@ -890,7 +926,7 @@ function makeScheduleSheetRows(reportData) {
   ]);
 
   return [
-    [`${SCHOOL_NAME} - Mark Schedule`],
+    [`${SCHOOL_NAME} - ${scheduleTitle}`],
     [
       `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(
         reportData.termName
@@ -1207,6 +1243,94 @@ export function exportClassMarksExcel(reportData) {
   )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.xlsx`;
 
   XLSX.writeFile(workbook, fileName);
+}
+
+function applyColorScheduleSheetStyles(worksheet, reportData) {
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const subjectColumnStart = reportData.separateMediumRanking ? 5 : 4;
+  const firstStudentRow = 4;
+
+  reportData.rows.forEach((row, rowOffset) => {
+    flatColumns.forEach((column, columnOffset) => {
+      if (row.absencesByColumn?.[column.key]) return;
+
+      const band = getMarkColorBand(row.marksByColumn?.[column.key]);
+      if (!band) return;
+
+      const address = XLSX.utils.encode_cell({
+        r: firstStudentRow + rowOffset,
+        c: subjectColumnStart + columnOffset,
+      });
+      const cell = worksheet[address];
+      if (!cell) return;
+
+      cell.s = {
+        ...(cell.s || {}),
+        fill: {
+          patternType: "solid",
+          fgColor: { rgb: band.excelFillColor },
+          bgColor: { rgb: band.excelFillColor },
+        },
+        font: {
+          ...(cell.s?.font || {}),
+          bold: true,
+          color: { rgb: band.excelTextColor },
+        },
+        alignment: {
+          horizontal: "center",
+          vertical: "center",
+        },
+      };
+    });
+  });
+}
+
+export async function createColorClassMarksWorkbook(reportData) {
+  const StyledXLSX = await import("xlsx-js-style");
+  const workbook = StyledXLSX.utils.book_new();
+  const flatColumns = flattenSchemaColumns(reportData.schema);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
+
+  const scheduleSheet = StyledXLSX.utils.aoa_to_sheet(
+    makeScheduleSheetRows(reportData, "Color Mark Schedule")
+  );
+  setExcelCols(
+    scheduleSheet,
+    4 + flatColumns.length + (showOverallTotal ? 5 : 3),
+    [
+      6,
+      16,
+      16,
+      28,
+      ...flatColumns.map(() => 12),
+      10,
+      10,
+      ...(showOverallTotal ? [12, 12] : []),
+      8,
+    ]
+  );
+  applyColorScheduleSheetStyles(scheduleSheet, reportData);
+
+  const analysisSheet = StyledXLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));
+  setExcelCols(analysisSheet, 1 + flatColumns.length, [22, ...flatColumns.map(() => 12)]);
+
+  const optimiSheet = StyledXLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
+  setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
+
+  StyledXLSX.utils.book_append_sheet(workbook, scheduleSheet, "Color Mark Schedule");
+  StyledXLSX.utils.book_append_sheet(workbook, analysisSheet, "Mark Analysis");
+  StyledXLSX.utils.book_append_sheet(workbook, optimiSheet, "Optimi Students");
+
+  return { workbook, StyledXLSX };
+}
+
+export async function exportColorClassMarksExcel(reportData) {
+  const { workbook, StyledXLSX } = await createColorClassMarksWorkbook(reportData);
+  const fileName = `${sanitizeFilenamePart(reportData.className)}_${sanitizeFilenamePart(
+    reportData.year
+  )}_${sanitizeFilenamePart(reportData.termName)}_Color_Marks_Report.xlsx`;
+
+  StyledXLSX.writeFile(workbook, fileName);
 }
 
 export function exportClassMarksEmisExcel(reportData) {
