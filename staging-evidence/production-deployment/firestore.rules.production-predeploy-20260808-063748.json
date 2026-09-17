@@ -1,0 +1,9 @@
+{
+  "projectId": "kilinochchi-marks",
+  "authenticatedAccount": "techzlkpro@gmail.com",
+  "releaseName": "projects/kilinochchi-marks/releases/cloud.firestore",
+  "rulesetName": "projects/kilinochchi-marks/rulesets/d98a04f8-7720-4214-8c7d-359a152bcd5b",
+  "retrievedAt": "2026-08-08T06:37:57.995Z",
+  "sourceFileName": "firestore.rules",
+  "output": "staging-evidence\\production-deployment\\firestore.rules.production-predeploy-20260808-063748"
+}

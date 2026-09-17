@@ -1,0 +1,5 @@
+{
+  "firestore": {
+    "rules": "firestore.rules.production-before-20260808-062700"
+  }
+}

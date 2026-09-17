@@ -1,0 +1,71 @@
+{
+  "name": "kilinochchi_marks_system",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.9",
+    "@mui/material": "^7.3.9",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^13.5.0",
+    "file-saver": "^2.0.5",
+    "firebase": "^12.11.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "jszip": "^3.10.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2",
+    "react-scripts": "5.0.1",
+    "react-to-print": "^3.3.0",
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "node -e \"process.env.CI=''; require('react-scripts/scripts/build')\"",
+    "test": "react-scripts test",
+    "test:audit-tools": "node --test scripts/tests/*.test.js",
+    "audit:canonical": "node scripts/auditCanonicalCoverage.js",
+    "audit:canonical:help": "node scripts/auditCanonicalCoverage.js --help",
+    "audit:plan-backfill": "node scripts/planCanonicalBackfill.js",
+    "audit:query-readiness": "node scripts/evaluateQueryReadiness.js",
+    "audit:compare-rules": "node scripts/compareFirestoreRules.js",
+    "audit:estimate-reads": "node scripts/estimateCanonicalAuditReads.js",
+    "audit:validate-rules-review": "node scripts/validateFirestoreRulesReview.js",
+    "verify:phase2-local-gates": "node scripts/verifyPhase2LocalGates.js",
+    "test:firestore-rules": "firebase emulators:exec --only firestore --project demo-kilinochchi-rules --config firebase.emulator.rules.json --non-interactive \"node --test --test-concurrency=1 scripts/tests/firestoreRulesEmulator.test.cjs\"",
+    "seed:firebase-emulators": "node scripts/seedApplicationEmulator.cjs",
+    "build:app-emulator": "node scripts/buildApplicationEmulator.cjs",
+    "test:app-emulator": "npm run build:app-emulator && firebase emulators:exec --only auth,firestore --project demo-kilinochchi-rules --config firebase.emulator.rules.json --non-interactive \"node scripts/runApplicationEmulatorTests.cjs\"",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.62.1",
+    "firebase-admin": "^13.4.0",
+    "firebase-tools": "^15.25.1"
+  }
+}

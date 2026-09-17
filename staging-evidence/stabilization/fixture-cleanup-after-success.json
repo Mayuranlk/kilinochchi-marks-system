@@ -1,0 +1,402 @@
+{
+  "projectId": "kilinochchi-marks-staging",
+  "authenticatedAccount": "techzlkpro@gmail.com",
+  "mode": "execute",
+  "generatedAt": "2026-08-08T06:16:09.839Z",
+  "exactAllowlistOnly": true,
+  "authFixtures": [
+    {
+      "type": "auth",
+      "logicalName": "admin",
+      "email": "admin@app-emulator.test",
+      "uid": "G5tYK8iQyYcJwfBubZKTSJ9Mzfm2",
+      "expectedRole": "admin",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "teacher",
+      "email": "teacher@app-emulator.test",
+      "uid": "Im8sz7gQkHbNCRxa6b0roKzEB903",
+      "expectedRole": "teacher",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "it",
+      "email": "it@app-emulator.test",
+      "uid": "XOxSA3dv8dPXDyXSnt37BRklpCg1",
+      "expectedRole": "it_teacher",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "sectional",
+      "email": "sectional@app-emulator.test",
+      "uid": "jzE5T59fskeZkAb4lKhRVXHKzUw2",
+      "expectedRole": "sectional_head",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "account",
+      "email": "account@app-emulator.test",
+      "uid": "bir7ejfOOtZQejEnqQvi9gwbyt43",
+      "expectedRole": "account",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "prefect",
+      "email": "prefect@app-emulator.test",
+      "uid": "vJyxADWXxMOsFRZHL8jw324zb6f1",
+      "expectedRole": "prefect",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "capabilityTeacher",
+      "email": "capability-teacher@app-emulator.test",
+      "uid": "UAK7RKM2fkM3jQ0UgwrDjk9qfNe2",
+      "expectedRole": "support",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "unknown",
+      "email": "unknown@app-emulator.test",
+      "uid": "NDDk37ibx5ScUG03GI5R3735BbA2",
+      "expectedRole": "unknown",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "missingProfile",
+      "email": "missing-profile@app-emulator.test",
+      "uid": "dzN0jGyPEygXGmVNKKJl1h6U6RA3",
+      "expectedRole": null,
+      "expectedProfile": false,
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "auth",
+      "logicalName": "browserTeacher",
+      "email": "browser-teacher@app-emulator.test",
+      "uid": "dPt6BZPXKcUu6Aoki3AW3BFPDI63",
+      "expectedRole": "teacher",
+      "expectedProfile": true,
+      "exists": true,
+      "action": "clean"
+    }
+  ],
+  "documents": [
+    {
+      "type": "firestore",
+      "logicalName": "students_student-001",
+      "documentPath": "students/student-001",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "students_student-002",
+      "documentPath": "students/student-002",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "classrooms_class-10-a",
+      "documentPath": "classrooms/class-10-a",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "subjects_subject-mathematics",
+      "documentPath": "subjects/subject-mathematics",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "subjects_subject-tamil",
+      "documentPath": "subjects/subject-tamil",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "academicTerms_term-2026-1",
+      "documentPath": "academicTerms/term-2026-1",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "practiceExams_practice-2026-1",
+      "documentPath": "practiceExams/practice-2026-1",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "teacherAssignments_assignment-teacher-maths-10a",
+      "documentPath": "teacherAssignments/assignment-teacher-maths-10a",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "teacherAssignments_assignment-it-maths-10a",
+      "documentPath": "teacherAssignments/assignment-it-maths-10a",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "studentSubjectEnrollments_enrollment-001-maths",
+      "documentPath": "studentSubjectEnrollments/enrollment-001-maths",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "studentSubjectEnrollments_enrollment-002-maths",
+      "documentPath": "studentSubjectEnrollments/enrollment-002-maths",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "marks_mark-synthetic-001",
+      "documentPath": "marks/mark-synthetic-001",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "marks_mark-synthetic-002",
+      "documentPath": "marks/mark-synthetic-002",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "systemSettings_marksEntry",
+      "documentPath": "systemSettings/marksEntry",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "studentFeeAccounts_2026_student-001",
+      "documentPath": "studentFeeAccounts/2026_student-001",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "lateArrivalRecords_2026-07-31_student-001",
+      "documentPath": "lateArrivalRecords/2026-07-31_student-001",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "lateArrivalRecords_2026-08-08_student-002",
+      "documentPath": "lateArrivalRecords/2026-08-08_student-002",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "elections_student-parliament-2026",
+      "documentPath": "elections/student-parliament-2026",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "auditLogs_audit-seed",
+      "documentPath": "auditLogs/audit-seed",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "auditLogs_seed-complete",
+      "documentPath": "auditLogs/seed-complete",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "auditLogs_phase2-staging-admin-probe",
+      "documentPath": "auditLogs/phase2-staging-admin-probe",
+      "exists": false,
+      "action": "create-on-reseed"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "classShufflePlans_shuffle-seed",
+      "documentPath": "classShufflePlans/shuffle-seed",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "promotionHistory_promotion-seed",
+      "documentPath": "promotionHistory/promotion-seed",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "teachers_legacy-teacher-seed",
+      "documentPath": "teachers/legacy-teacher-seed",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_G5tYK8iQyYcJwfBubZKTSJ9Mzfm2",
+      "documentPath": "users/G5tYK8iQyYcJwfBubZKTSJ9Mzfm2",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_Im8sz7gQkHbNCRxa6b0roKzEB903",
+      "documentPath": "users/Im8sz7gQkHbNCRxa6b0roKzEB903",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_XOxSA3dv8dPXDyXSnt37BRklpCg1",
+      "documentPath": "users/XOxSA3dv8dPXDyXSnt37BRklpCg1",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_jzE5T59fskeZkAb4lKhRVXHKzUw2",
+      "documentPath": "users/jzE5T59fskeZkAb4lKhRVXHKzUw2",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_bir7ejfOOtZQejEnqQvi9gwbyt43",
+      "documentPath": "users/bir7ejfOOtZQejEnqQvi9gwbyt43",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_vJyxADWXxMOsFRZHL8jw324zb6f1",
+      "documentPath": "users/vJyxADWXxMOsFRZHL8jw324zb6f1",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_UAK7RKM2fkM3jQ0UgwrDjk9qfNe2",
+      "documentPath": "users/UAK7RKM2fkM3jQ0UgwrDjk9qfNe2",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_NDDk37ibx5ScUG03GI5R3735BbA2",
+      "documentPath": "users/NDDk37ibx5ScUG03GI5R3735BbA2",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_dzN0jGyPEygXGmVNKKJl1h6U6RA3",
+      "documentPath": "users/dzN0jGyPEygXGmVNKKJl1h6U6RA3",
+      "exists": false,
+      "action": "create-on-reseed"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "users_dPt6BZPXKcUu6Aoki3AW3BFPDI63",
+      "documentPath": "users/dPt6BZPXKcUu6Aoki3AW3BFPDI63",
+      "exists": true,
+      "action": "clean"
+    },
+    {
+      "type": "firestore",
+      "logicalName": "teachers_dPt6BZPXKcUu6Aoki3AW3BFPDI63",
+      "documentPath": "teachers/dPt6BZPXKcUu6Aoki3AW3BFPDI63",
+      "exists": false,
+      "action": "create-on-reseed"
+    }
+  ],
+  "deletedDocuments": [
+    "students/student-001",
+    "students/student-002",
+    "classrooms/class-10-a",
+    "subjects/subject-mathematics",
+    "subjects/subject-tamil",
+    "academicTerms/term-2026-1",
+    "practiceExams/practice-2026-1",
+    "teacherAssignments/assignment-teacher-maths-10a",
+    "teacherAssignments/assignment-it-maths-10a",
+    "studentSubjectEnrollments/enrollment-001-maths",
+    "studentSubjectEnrollments/enrollment-002-maths",
+    "marks/mark-synthetic-001",
+    "marks/mark-synthetic-002",
+    "systemSettings/marksEntry",
+    "studentFeeAccounts/2026_student-001",
+    "lateArrivalRecords/2026-07-31_student-001",
+    "lateArrivalRecords/2026-08-08_student-002",
+    "elections/student-parliament-2026",
+    "auditLogs/audit-seed",
+    "auditLogs/seed-complete",
+    "classShufflePlans/shuffle-seed",
+    "promotionHistory/promotion-seed",
+    "teachers/legacy-teacher-seed",
+    "users/G5tYK8iQyYcJwfBubZKTSJ9Mzfm2",
+    "users/Im8sz7gQkHbNCRxa6b0roKzEB903",
+    "users/XOxSA3dv8dPXDyXSnt37BRklpCg1",
+    "users/jzE5T59fskeZkAb4lKhRVXHKzUw2",
+    "users/bir7ejfOOtZQejEnqQvi9gwbyt43",
+    "users/vJyxADWXxMOsFRZHL8jw324zb6f1",
+    "users/UAK7RKM2fkM3jQ0UgwrDjk9qfNe2",
+    "users/NDDk37ibx5ScUG03GI5R3735BbA2",
+    "users/dPt6BZPXKcUu6Aoki3AW3BFPDI63"
+  ],
+  "deletedAuthUsers": [
+    "admin",
+    "teacher",
+    "it",
+    "sectional",
+    "account",
+    "prefect",
+    "capabilityTeacher",
+    "unknown",
+    "missingProfile",
+    "browserTeacher"
+  ]
+}

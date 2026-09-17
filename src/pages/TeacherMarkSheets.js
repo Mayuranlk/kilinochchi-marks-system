@@ -1,0 +1,1049 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
+import { useAuth } from "../context/AuthContext";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import PrintIcon from "@mui/icons-material/Print";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import DescriptionIcon from "@mui/icons-material/Description";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import {
+  buildALDisplayClassName,
+  buildALClassName,
+  isALGrade,
+} from "../constants";
+import {
+  getAcademicMedium,
+  isMediumSplitSubject,
+} from "../utils/academicMediumUtils";
+import { PageContainer } from "../components/ui";
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                   */
+/* -------------------------------------------------------------------------- */
+
+const SCHOOL_NAME = "KN/Kilinochchi Central College";
+const ROWS_PER_PANEL = 30;
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function normalizeAcademicYear(value) {
+  const raw = normalizeText(value);
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : String(new Date().getFullYear());
+}
+
+function buildFullClassName(grade, section) {
+  const g = parseGrade(grade);
+  const s = normalizeSection(section);
+  return g && s ? `${g}${s}` : "";
+}
+
+function pickValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function normalizeImportedStudentName(value) {
+  const wordBoundary = "\uE000";
+  let text = normalizeText(value).replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
+  const ampersandCount = (text.match(/&/g) || []).length;
+
+  if (ampersandCount >= 3) {
+    text = text.replace(/&{2,}/g, wordBoundary).replace(/&/g, "");
+  }
+
+  text = text.replace(/\s{2,}/g, wordBoundary);
+
+  return text
+    .split(wordBoundary)
+    .map((part) =>
+      part.replace(
+        /(?:\b[A-Za-z][^\p{L}\p{N}]+){2,}[A-Za-z]\b/gu,
+        (letterRun) => letterRun.replace(/[^\p{L}\p{N}]+/gu, "")
+      )
+    )
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ");
+}
+
+function getStudentName(student) {
+  return normalizeImportedStudentName(
+    student?.name || student?.fullName || "Unnamed Student"
+  );
+}
+
+function getStudentIndexNo(student) {
+  return normalizeText(
+    student?.indexNo ||
+      student?.indexNumber ||
+      student?.admissionNo ||
+      student?.admNo ||
+      ""
+  );
+}
+
+function getEnrollmentGrade(enrollment, student = {}) {
+  return parseGrade(pickValue(enrollment?.grade, student?.grade, enrollment?.className));
+}
+
+function getEnrollmentSection(enrollment, student = {}) {
+  return normalizeSection(
+    pickValue(enrollment?.section, student?.section, student?.className, enrollment?.className, "")
+  );
+}
+
+function getEnrollmentStream(enrollment, student = {}) {
+  return normalizeText(pickValue(enrollment?.stream, student?.stream, ""));
+}
+
+function getEnrollmentClassName(enrollment, student = {}) {
+  const grade = getEnrollmentGrade(enrollment, student);
+  const section = getEnrollmentSection(enrollment, student);
+  const stream = getEnrollmentStream(enrollment, student);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
+  const explicitALClassName = normalizeText(
+    pickValue(enrollment?.fullClassName, enrollment?.alClassName, "")
+  );
+  if (explicitALClassName) return explicitALClassName;
+
+  const rawClassName = normalizeText(enrollment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(grade, section || rawClassName);
+}
+
+function getEnrollmentSubjectId(enrollment) {
+  return normalizeText(enrollment?.subjectId || "");
+}
+
+function getEnrollmentSubjectName(enrollment) {
+  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
+}
+
+function getEnrollmentSubjectNumber(enrollment) {
+  return normalizeText(enrollment?.subjectNumber || enrollment?.subjectNo || "");
+}
+
+// Subject documents can be recreated over time, leaving valid enrollments with
+// different subjectIds for the same subject. Mark sheets must group by the
+// canonical subject identity shown to users, rather than fragmenting by doc ID.
+function getEnrollmentSubjectKey(enrollment) {
+  const subjectNumber = getEnrollmentSubjectNumber(enrollment);
+  if (subjectNumber) return `number:${normalizeLower(subjectNumber)}`;
+
+  const subjectName = getEnrollmentSubjectName(enrollment);
+  if (subjectName) {
+    return `name:${normalizeLower(subjectName)
+      .normalize("NFKC")
+      .replace(/[\s._\-/&()]+/g, "")}`;
+  }
+
+  const subjectId = getEnrollmentSubjectId(enrollment);
+  return subjectId ? `id:${normalizeLower(subjectId)}` : "";
+}
+
+function getEnrollmentAcademicYear(enrollment) {
+  return normalizeAcademicYear(enrollment?.academicYear || enrollment?.year);
+}
+
+function isEnrollmentActive(enrollment) {
+  const status = normalizeLower(enrollment?.status || "active");
+  return ["", "active", "current", "promoted"].includes(status);
+}
+
+function getTermLabel(term) {
+  return normalizeText(term?.term || term?.termName || term?.name || "");
+}
+
+function sortStudentsForSheet(rows) {
+  return [...rows].sort((a, b) => {
+    const aIndex = getStudentIndexNo(a.student);
+    const bIndex = getStudentIndexNo(b.student);
+
+    if (aIndex && bIndex) {
+      const byIndex = aIndex.localeCompare(bIndex, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (byIndex !== 0) return byIndex;
+    }
+
+    return getStudentName(a.student).localeCompare(getStudentName(b.student), undefined, {
+      sensitivity: "base",
+    });
+  });
+}
+
+function chunkArray(items, size) {
+  const result = [];
+  for (let i = 0; i < items.length; i += size) {
+    result.push(items.slice(i, i + size));
+  }
+  return result;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildPanelPairs(sheetData) {
+  const panels = [];
+
+  sheetData.forEach((sheet) => {
+    const chunks = chunkArray(sheet.rows, ROWS_PER_PANEL);
+
+    chunks.forEach((chunk, index) => {
+      panels.push({
+        ...sheet,
+        rows: chunk,
+        subjectName:
+          chunks.length > 1
+            ? `${sheet.subjectName} (${index + 1}/${chunks.length})`
+            : sheet.subjectName,
+      });
+    });
+  });
+
+  return chunkArray(panels, 2);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export default function TeacherMarkSheets() {
+  const { canAccessAllReports, profile } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+
+  const [students, setStudents] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [terms, setTerms] = useState([]);
+
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
+  const [selectedTerm, setSelectedTerm] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("__ALL__");
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData(forceRefresh = false) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [loadedStudents, enrollmentRows, loadedTerms] = await Promise.all([
+        getCollectionRows(db, "students", { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
+      ]);
+      const loadedEnrollments = enrollmentRows.filter((row) => isEnrollmentActive(row));
+
+      const activeTerm = loadedTerms.find((t) => t.isActive === true) || null;
+
+      setStudents(loadedStudents);
+      setEnrollments(loadedEnrollments);
+      setTerms(loadedTerms);
+
+      if (activeTerm) {
+        setSelectedYear(normalizeAcademicYear(activeTerm.year));
+        setSelectedTerm(getTermLabel(activeTerm));
+      } else {
+        const enrollmentYears = loadedEnrollments
+          .map((e) => getEnrollmentAcademicYear(e))
+          .filter(Boolean);
+
+        if (enrollmentYears.length) {
+          const latest = [...new Set(enrollmentYears)].sort((a, b) => Number(b) - Number(a))[0];
+          setSelectedYear(latest);
+        }
+      }
+    } catch (err) {
+      console.error("TeacherMarkSheets load error:", err);
+      setError("Failed to load students, enrollments, or terms.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const studentMap = useMemo(() => {
+    return new Map(students.map((student) => [normalizeText(student.id), student]));
+  }, [students]);
+
+  const availableYears = useMemo(() => {
+    const years = [
+      ...terms.map((t) => normalizeAcademicYear(t.year)),
+      ...enrollments.map((e) => getEnrollmentAcademicYear(e)),
+      String(new Date().getFullYear()),
+    ].filter(Boolean);
+
+    return [...new Set(years)].sort((a, b) => Number(b) - Number(a));
+  }, [terms, enrollments]);
+
+  const availableTerms = useMemo(() => {
+    const termValues = terms
+      .filter((t) => !selectedYear || normalizeAcademicYear(t.year) === selectedYear)
+      .map((t) => getTermLabel(t))
+      .filter(Boolean);
+
+    return [...new Set(termValues)];
+  }, [terms, selectedYear]);
+
+  const filteredEnrollmentsByYear = useMemo(() => {
+    return enrollments.filter((e) => {
+      const year = getEnrollmentAcademicYear(e);
+      return !selectedYear || !year || year === selectedYear;
+    });
+  }, [enrollments, selectedYear]);
+
+  const classOptions = useMemo(() => {
+    const classes = filteredEnrollmentsByYear
+      .map((e) => getEnrollmentClassName(e, studentMap.get(normalizeText(e.studentId))))
+      .filter(Boolean);
+
+    return [...new Set(classes)].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+    );
+  }, [filteredEnrollmentsByYear, studentMap]);
+
+  const subjectOptions = useMemo(() => {
+    const rows = filteredEnrollmentsByYear.filter((e) => {
+      const student = studentMap.get(normalizeText(e.studentId));
+      const sameClass =
+        !selectedClass || getEnrollmentClassName(e, student) === selectedClass;
+      return sameClass;
+    });
+
+    const map = new Map();
+
+    rows.forEach((row) => {
+      const subjectId = getEnrollmentSubjectId(row);
+      const subjectName = getEnrollmentSubjectName(row);
+      const key = getEnrollmentSubjectKey(row);
+      if (!key || !subjectName) return;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          subjectId,
+          subjectName,
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.subjectName.localeCompare(b.subjectName, undefined, { sensitivity: "base" })
+    );
+  }, [filteredEnrollmentsByYear, selectedClass, studentMap]);
+
+  useEffect(() => {
+    if (selectedClass && !classOptions.includes(selectedClass)) {
+      setSelectedClass("");
+      setSelectedSubject("__ALL__");
+    }
+  }, [classOptions, selectedClass]);
+
+  useEffect(() => {
+    if (
+      selectedSubject !== "__ALL__" &&
+      !subjectOptions.some((s) => s.key === selectedSubject)
+    ) {
+      setSelectedSubject("__ALL__");
+    }
+  }, [subjectOptions, selectedSubject]);
+
+  const sheetData = useMemo(() => {
+    const rows = filteredEnrollmentsByYear.filter((enrollment) => {
+      const student = studentMap.get(normalizeText(enrollment.studentId));
+      const sameClass =
+        !selectedClass || getEnrollmentClassName(enrollment, student) === selectedClass;
+
+      const subjectKey =
+        getEnrollmentSubjectKey(enrollment);
+
+      const sameSubject =
+        selectedSubject === "__ALL__" || selectedSubject === subjectKey;
+
+      return sameClass && sameSubject;
+    });
+
+    const grouped = new Map();
+
+    rows.forEach((enrollment) => {
+      const student = studentMap.get(normalizeText(enrollment.studentId));
+      if (!student) return;
+
+      const className = getEnrollmentClassName(enrollment, student);
+      const subjectId = getEnrollmentSubjectId(enrollment);
+      const subjectName = getEnrollmentSubjectName(enrollment);
+      const grade = getEnrollmentGrade(enrollment, student);
+      const mediumSplit = isMediumSplitSubject(subjectName, grade);
+      const medium = mediumSplit
+        ? getAcademicMedium(enrollment, student)
+        : "";
+      if (mediumSplit && !medium) return;
+      const key = `${className}__${getEnrollmentSubjectKey(enrollment)}__${medium || "all"}`;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          className,
+          subjectId,
+          subjectName,
+          medium,
+          rows: [],
+        });
+      }
+
+      const sheet = grouped.get(key);
+      const studentKey = normalizeText(enrollment.studentId) || normalizeText(student.id);
+      if (!sheet.rows.some((row) =>
+        (normalizeText(row.enrollment.studentId) || normalizeText(row.student.id)) === studentKey
+      )) {
+        sheet.rows.push({ enrollment, student });
+      }
+    });
+
+    return Array.from(grouped.values())
+      .map((sheet) => ({
+        ...sheet,
+        rows: sortStudentsForSheet(sheet.rows),
+      }))
+      .sort((a, b) => {
+        const byClass = a.className.localeCompare(b.className, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        if (byClass !== 0) return byClass;
+        return a.subjectName.localeCompare(b.subjectName, undefined, {
+          sensitivity: "base",
+        });
+      });
+  }, [filteredEnrollmentsByYear, selectedClass, selectedSubject, studentMap]);
+
+  const pagePairs = useMemo(() => buildPanelPairs(sheetData), [sheetData]);
+
+  const summaryText = useMemo(() => {
+    const subjects = sheetData.length;
+    const rowsCount = sheetData.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+    const pages = pagePairs.length;
+
+    return `${subjects} subject sheet${subjects !== 1 ? "s" : ""} · ${rowsCount} total row${
+      rowsCount !== 1 ? "s" : ""
+    } · ${pages} page${pages !== 1 ? "s" : ""}`;
+  }, [sheetData, pagePairs]);
+
+  function buildSheetTableRows(sheet) {
+    return sheet.rows.map((row, index) => [
+      index + 1,
+      getStudentIndexNo(row.student),
+      getStudentName(row.student),
+      "",
+      "",
+    ]);
+  }
+
+  function drawSheetToPdf(doc, sheet, x, y, width, blockHeight) {
+    const centerX = x + width / 2;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.2);
+    doc.text(SCHOOL_NAME, centerX, y, { align: "center" });
+
+    doc.setFontSize(8.8);
+    doc.text(`Teacher Mark Sheet - ${selectedYear}`, centerX, y + 4.8, {
+      align: "center",
+    });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(
+      `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}${
+        sheet.medium ? ` - ${sheet.medium} Medium` : ""
+      }`,
+      centerX,
+      y + 9.6,
+      { align: "center" }
+    );
+
+    autoTable(doc, {
+      startY: y + 14,
+      margin: {
+        left: x,
+        right: doc.internal.pageSize.getWidth() - (x + width),
+      },
+      head: [["No", "Index No", "Student Name", "Marks", "Absent"]],
+      body: buildSheetTableRows(sheet),
+      theme: "grid",
+      styles: {
+        fontSize: 6.9,
+        cellPadding: 1.15,
+        lineColor: [80, 80, 80],
+        lineWidth: 0.1,
+        valign: "middle",
+        textColor: [0, 0, 0],
+      },
+      headStyles: {
+        fillColor: [245, 245, 245],
+        textColor: [0, 0, 0],
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        0: { cellWidth: 9, halign: "center" },
+        1: { cellWidth: 21, halign: "center" },
+        2: { cellWidth: width - 9 - 21 - 17 - 13, halign: "left" },
+        3: { cellWidth: 17, halign: "center" },
+        4: { cellWidth: 13, halign: "center" },
+      },
+      tableWidth: width,
+      pageBreak: "avoid",
+    });
+
+    const finalY = doc.lastAutoTable?.finalY || y + 25;
+    const footerY = Math.min(finalY + 6, y + blockHeight - 6);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.6);
+    doc.text("Date: ____________", x, footerY);
+    doc.text("Teacher Signature: ____________", x + width - 40, footerY);
+  }
+
+  async function handleDownloadPdf() {
+    if (!selectedClass || !sheetData.length) {
+      setError("Please select a class with enrolled subjects.");
+      return;
+    }
+
+    setGenerating(true);
+    setError("");
+
+    try {
+      const doc = new jsPDF("p", "mm", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      const outerMargin = 10;
+      const gutter = 6;
+      const panelWidth = (pageWidth - outerMargin * 2 - gutter) / 2;
+
+      const leftX = outerMargin;
+      const rightX = outerMargin + panelWidth + gutter;
+      const panelY = 14;
+      const panelHeight = 265;
+
+      pagePairs.forEach((pair, pageIndex) => {
+        if (pageIndex > 0) doc.addPage();
+
+        drawSheetToPdf(doc, pair[0], leftX, panelY, panelWidth, panelHeight);
+
+        if (pair[1]) {
+          drawSheetToPdf(doc, pair[1], rightX, panelY, panelWidth, panelHeight);
+        }
+
+        doc.setDrawColor(120, 120, 120);
+        doc.setLineWidth(0.15);
+        doc.line(
+          outerMargin + panelWidth + gutter / 2,
+          10,
+          outerMargin + panelWidth + gutter / 2,
+          287
+        );
+      });
+
+      const fileName = `TeacherMarkSheets_${selectedClass}_${selectedTerm || "Term"}_${selectedYear}.pdf`;
+      doc.save(fileName);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      setError("Failed to generate PDF.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function renderPrintableSheet(sheet) {
+    const rowsHtml = buildSheetTableRows(sheet)
+      .map(
+        (row) => `
+          <tr>
+            <td class="center">${escapeHtml(row[0])}</td>
+            <td class="center">${escapeHtml(row[1])}</td>
+            <td>${escapeHtml(row[2])}</td>
+            <td></td>
+            <td></td>
+          </tr>
+        `
+      )
+      .join("");
+
+    return `
+      <div class="sheet-block">
+        <div class="header">
+          <div class="school">${escapeHtml(SCHOOL_NAME)}</div>
+          <div class="title">Teacher Mark Sheet - ${escapeHtml(selectedYear)}</div>
+          <div class="meta">Class ${escapeHtml(sheet.className)} - ${escapeHtml(
+      selectedTerm || "Term"
+    )} - ${escapeHtml(sheet.subjectName)}${
+      sheet.medium ? ` - ${escapeHtml(sheet.medium)} Medium` : ""
+    }</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th class="no">No</th>
+              <th class="index">Index No</th>
+              <th class="name">Student Name</th>
+              <th class="marks">Marks</th>
+              <th class="absent">Absent</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div>Date: ____________</div>
+          <div>Teacher Signature: ____________</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildPrintableHtml() {
+    const pagesHtml = pagePairs
+      .map(
+        (pair) => `
+          <div class="page">
+            <div class="columns">
+              <div class="panel">
+                ${renderPrintableSheet(pair[0])}
+              </div>
+              <div class="panel">
+                ${pair[1] ? renderPrintableSheet(pair[1]) : ""}
+              </div>
+            </div>
+          </div>
+        `
+      )
+      .join("");
+
+    return `
+      <html>
+        <head>
+          <title>Teacher Mark Sheets</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body {
+              font-family: Arial, sans-serif;
+              color: #000;
+              margin: 0;
+              padding: 0;
+            }
+            .page {
+              page-break-after: always;
+              min-height: 277mm;
+              width: 100%;
+              box-sizing: border-box;
+            }
+            .page:last-child {
+              page-break-after: auto;
+            }
+            .columns {
+              display: flex;
+              flex-direction: row;
+              gap: 6mm;
+              width: 100%;
+              min-height: 277mm;
+            }
+            .panel {
+              width: calc(50% - 3mm);
+              box-sizing: border-box;
+              min-height: 277mm;
+              border-right: 1px solid #777;
+              padding-right: 2mm;
+            }
+            .panel:last-child {
+              border-right: none;
+              padding-right: 0;
+              padding-left: 2mm;
+            }
+            .sheet-block {
+              width: 100%;
+              box-sizing: border-box;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 6px;
+            }
+            .school {
+              font-size: 14px;
+              font-weight: 700;
+            }
+            .title {
+              font-size: 13px;
+              font-weight: 700;
+              margin-top: 2px;
+            }
+            .meta {
+              font-size: 11px;
+              margin-top: 4px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 8px;
+            }
+            th, td {
+              border: 1px solid #333;
+              padding: 3px 4px;
+              font-size: 10px;
+            }
+            th {
+              background: #f2f2f2;
+            }
+            td {
+              height: 18px;
+            }
+            .center {
+              text-align: center;
+            }
+            .no { width: 8%; }
+            .index { width: 18%; }
+            .name { width: 44%; }
+            .marks { width: 16%; }
+            .absent { width: 14%; }
+            .footer {
+              margin-top: 10px;
+              display: flex;
+              justify-content: space-between;
+              font-size: 11px;
+            }
+          </style>
+        </head>
+        <body>
+          ${pagesHtml}
+        </body>
+      </html>
+    `;
+  }
+
+  function handlePrint() {
+    if (!selectedClass || !sheetData.length) {
+      setError("Please select a class with enrolled subjects.");
+      return;
+    }
+
+    setError("");
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setError("Unable to open print window.");
+      return;
+    }
+
+    printWindow.document.write(buildPrintableHtml());
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  }
+
+  if (!canAccessAllReports) {
+    return (
+      <PageContainer title="Teacher Mark Sheets">
+        <Alert severity="error">Only admin or IT teacher accounts can generate teacher mark sheets.</Alert>
+      </PageContainer>
+    );
+  }
+
+  return (
+    <PageContainer>
+      <Stack spacing={3}>
+        <Box>
+          <Stack direction="row" spacing={1.2} alignItems="center" mb={1}>
+            <DescriptionIcon sx={{ color: "primary.main" }} />
+            <Typography variant={isMobile ? "h5" : "h4"} fontWeight={800} color="primary.main">
+              Teacher Mark Sheets
+            </Typography>
+          </Stack>
+
+          <Typography variant="body2" color="text.secondary">
+            Generate printable and downloadable PDF mark sheets using A4 portrait
+            two-column subject layout.
+          </Typography>
+        </Box>
+
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <Alert severity="info">
+          This page uses <strong>studentSubjectEnrollments</strong> so each sheet includes
+          only students enrolled in that subject.
+        </Alert>
+
+        <Card
+          sx={{
+            borderRadius: 3,
+            border: "1px solid #e8eaf6",
+            boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+          }}
+        >
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Academic Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Academic Year"
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                  >
+                    {availableYears.map((year) => (
+                      <MenuItem key={year} value={year}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Term</InputLabel>
+                  <Select
+                    value={selectedTerm}
+                    label="Term"
+                    onChange={(e) => setSelectedTerm(e.target.value)}
+                  >
+                    {availableTerms.map((term) => (
+                      <MenuItem key={term} value={term}>
+                        {term}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Class</InputLabel>
+                  <Select
+                    value={selectedClass}
+                    label="Class"
+                    onChange={(e) => {
+                      setSelectedClass(e.target.value);
+                      setSelectedSubject("__ALL__");
+                    }}
+                  >
+                    {classOptions.map((className) => (
+                      <MenuItem key={className} value={className}>
+                        {className}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth disabled={!selectedClass}>
+                  <InputLabel>Subject</InputLabel>
+                  <Select
+                    value={selectedSubject}
+                    label="Subject"
+                    onChange={(e) => setSelectedSubject(e.target.value)}
+                  >
+                    <MenuItem value="__ALL__">All Subjects</MenuItem>
+                    {subjectOptions.map((subject) => (
+                      <MenuItem key={subject.key} value={subject.key}>
+                        {subject.subjectName}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              mt={3}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", sm: "center" }}
+            >
+              <Typography variant="body2" color="text.secondary">
+                {summaryText}
+              </Typography>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <Button
+                  variant="outlined"
+                  startIcon={<RefreshIcon />}
+                  onClick={() => loadData(true)}
+                  disabled={loading || generating}
+                >
+                  Refresh
+                </Button>
+
+                <Button
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  onClick={handlePrint}
+                  disabled={loading || generating || !selectedClass || !sheetData.length}
+                >
+                  Print
+                </Button>
+
+                <Button
+                  variant="contained"
+                  startIcon={
+                    generating ? (
+                      <CircularProgress size={18} color="inherit" />
+                    ) : (
+                      <PictureAsPdfIcon />
+                    )
+                  }
+                  onClick={handleDownloadPdf}
+                  disabled={loading || generating || !selectedClass || !sheetData.length}
+                  sx={{ bgcolor: "#1a237e" }}
+                >
+                  {generating ? "Generating PDF..." : "Download PDF"}
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {loading ? (
+          <Paper sx={{ p: 4, textAlign: "center" }}>
+            <CircularProgress />
+          </Paper>
+        ) : !selectedClass ? (
+          <Paper sx={{ p: 4, textAlign: "center" }}>
+            <Typography color="text.secondary">
+              Select year, term, class, and subject to generate teacher mark sheets.
+            </Typography>
+          </Paper>
+        ) : sheetData.length === 0 ? (
+          <Alert severity="warning">
+            No enrolled students found for the selected filters.
+          </Alert>
+        ) : (
+          <Grid container spacing={2}>
+            {sheetData.map((sheet) => {
+              const panels = Math.ceil(sheet.rows.length / ROWS_PER_PANEL);
+
+              return (
+                <Grid size={{ xs: 12, md: 6 }}
+                  key={`${sheet.className}_${sheet.subjectId || sheet.subjectName}_${sheet.medium || "all"}`}
+                >
+                  <Paper
+                    sx={{
+                      p: 2,
+                      borderRadius: 3,
+                      border: "1px solid #e8eaf6",
+                      boxShadow: "0 2px 8px rgba(26,35,126,0.05)",
+                      height: "100%",
+                    }}
+                  >
+                    <Typography variant="subtitle1" fontWeight={700} color="primary.main">
+                      {sheet.subjectName}{sheet.medium ? ` - ${sheet.medium} Medium` : ""}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" mb={1}>
+                      Class {sheet.className} · {selectedTerm || "Term"} · {selectedYear}
+                    </Typography>
+                    <Typography variant="body2">
+                      Students: <strong>{sheet.rows.length}</strong>
+                    </Typography>
+                    <Typography variant="body2">
+                      Panels needed: <strong>{panels}</strong>
+                    </Typography>
+                  </Paper>
+                </Grid>
+              );
+            })}
+          </Grid>
+        )}
+
+        <Paper
+          sx={{
+            p: 2,
+            borderRadius: 3,
+            border: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+          }}
+        >
+          <Typography variant="subtitle2" fontWeight={700} mb={1}>
+            Output Format
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Layout: A4 portrait with two vertical subject panels per page
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Columns: No, Index No, Student Name, Marks, Absent
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Footer: Date, Teacher Signature
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Generated by: {profile?.name || profile?.email || "Admin"}
+          </Typography>
+        </Paper>
+      </Stack>
+    </PageContainer>
+  );
+}

@@ -1,0 +1,2667 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tabs,
+  Typography,
+  useMediaQuery,
+} from "@mui/material";
+import DownloadIcon from "@mui/icons-material/Download";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
+import SchoolIcon from "@mui/icons-material/School";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import PreviewIcon from "@mui/icons-material/Preview";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import {
+  collection,
+  doc,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
+import * as XLSX from "xlsx";
+import { auth, db } from "../firebase";
+import {
+  AL_SUBJECTS_BY_NAME,
+  AL_SUBJECTS_BY_NUMBER,
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+} from "../constants";
+import {
+  MobileListRow,
+  PageContainer,
+  ResponsiveTableWrapper,
+  StatCard,
+  StatusChip,
+} from "../components/ui";
+import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
+import { buildMarksByStudentId } from "../utils/subjectAnalysisIndex";
+import {
+  getCollectionRows,
+  invalidateCollectionRows,
+} from "../services/firestoreReadCache";
+
+const TEMPLATE_HEADERS = [
+  "studentId",
+  "indexNo",
+  "studentName",
+  "marks",
+  "absent",
+  "subjectId",
+  "subjectName",
+  "className",
+  "term",
+  "academicYear",
+];
+
+const MAX_BATCH_WRITES = 450;
+
+const UPLOAD_MODES = {
+  SUBJECT_TEMPLATE: "subjectTemplate",
+  LOWER_CLASS_SHEET: "lowerClassSheet",
+  WHOLE_GRADE_SHEET: "wholeGradeSheet",
+  OL_CLASS_SHEET: "olClassSheet",
+};
+
+const SUBJECT_ALIASES = {
+  maths: "Mathematics",
+  mathematics: "Mathematics",
+  pts: "PTS",
+  ict: "ICT",
+  civics: "Civics",
+  citiedugove: "Civics",
+  civiceducation: "Civics",
+  health: "Health & Physical Education",
+  healthphysicaleducation: "Health & Physical Education",
+  hindu: "Hinduism",
+  saivam: "Hinduism",
+  hinduism: "Hinduism",
+  rc: "Catholicism",
+  catholic: "Catholicism",
+  catholisim: "Catholicism",
+  catholicism: "Catholicism",
+  nrc: "Christianity",
+  christian: "Christianity",
+  christianity: "Christianity",
+  islam: "Islam",
+  art: "Art",
+  dance: "Dancing",
+  dancing: "Dancing",
+  drama: "Drama & Theatre",
+  dramatheatre: "Drama & Theatre",
+  dramaandtheatre: "Drama & Theatre",
+  music: "Music",
+  firstlanguage: "Tamil",
+  firstlang: "Tamil",
+};
+
+const LOWER_CLASS_IDENTITY_ALIASES = [
+  "no",
+  "schoolid",
+  "emisstudentid",
+  "emisid",
+  "studentid",
+  "studentidno",
+  "indexno",
+  "admissionno",
+  "admno",
+  "name",
+  "studentname",
+  "studentsname",
+  "student",
+  "grade",
+  "grdivision",
+  "division",
+  "classname",
+  "term",
+  "academic year",
+  "academicyear",
+];
+
+const LOWER_CLASS_GROUP_HEADERS = ["religion", "basketi", "basket1", "basket"];
+
+const SPECIAL_SUBJECT_ROLES = {
+  religion: "religion",
+  aesthetic: "aesthetic",
+  secondlanguage: "secondLanguage",
+  citiedugove: "civics",
+  civiceducation: "civics",
+  civics: "civics",
+  basket1: "basketA",
+  basket2: "basketB",
+  basket3: "basketC",
+};
+
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function normalizeLoose(value) {
+  return normalizeLower(value).replace(/[^a-z0-9]/g, "");
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function normalizeUploadedTerm(value) {
+  const loose = normalizeLoose(value);
+  if (loose === "firstterm" || loose === "term1") return "Term 1";
+  if (loose === "secondterm" || loose === "term2") return "Term 2";
+  if (loose === "thirdterm" || loose === "term3") return "Term 3";
+  return normalizeText(value);
+}
+
+function buildFullClassName(grade, section) {
+  const g = parseGrade(grade);
+  const s = normalizeSection(section);
+  return g && s ? `${g}${s}` : "";
+}
+
+function pickValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function getStudentName(student) {
+  return normalizeText(student?.name || student?.fullName || "Unnamed Student");
+}
+
+function getStudentIndexNo(student) {
+  return normalizeText(
+    student?.indexNo ||
+      student?.indexNumber ||
+      student?.admissionNo ||
+      student?.admissionNumber ||
+      student?.admNo ||
+      ""
+  );
+}
+
+function getEnrollmentGrade(enrollment, student = {}) {
+  return parseGrade(pickValue(enrollment?.grade, student?.grade, enrollment?.className));
+}
+
+function getEnrollmentSection(enrollment, student = {}) {
+  return normalizeSection(
+    pickValue(enrollment?.section, student?.section, student?.className, enrollment?.className, "")
+  );
+}
+
+function getEnrollmentStream(enrollment, student = {}) {
+  return normalizeText(pickValue(enrollment?.stream, student?.stream, ""));
+}
+
+function getEnrollmentClassName(enrollment, student = {}) {
+  const grade = getEnrollmentGrade(enrollment, student);
+  const section = getEnrollmentSection(enrollment, student);
+  const stream = getEnrollmentStream(enrollment, student);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALDisplayClassName(grade, stream, section) || buildALClassName(grade, stream, section);
+  }
+
+  const explicitALClassName = normalizeText(
+    pickValue(enrollment?.fullClassName, enrollment?.alClassName, "")
+  );
+  if (explicitALClassName) return explicitALClassName;
+
+  const rawClass = normalizeText(enrollment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClass)) return rawClass.toUpperCase();
+
+  return buildFullClassName(grade, section || rawClass);
+}
+
+function getEnrollmentSubjectName(enrollment) {
+  return normalizeText(enrollment?.subjectName || enrollment?.subject || "");
+}
+
+function getEnrollmentSubjectId(enrollment) {
+  return normalizeText(enrollment?.subjectId || "");
+}
+
+function getEnrollmentSubjectNumber(enrollment) {
+  return normalizeText(enrollment?.subjectNumber || "");
+}
+
+function getEnrollmentAcademicYear(enrollment) {
+  return String(enrollment?.academicYear || enrollment?.year || "");
+}
+
+function isActiveStatus(value) {
+  return normalizeLower(value || "active") === "active";
+}
+
+function getCurrentYear() {
+  return String(new Date().getFullYear());
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function uniqueNumberSortedDesc(values) {
+  return [...new Set(values.filter((v) => Number.isFinite(Number(v))).map(Number))].sort(
+    (a, b) => b - a
+  );
+}
+
+function groupByClassAndSubject(enrollments) {
+  const map = new Map();
+
+  for (const enrollment of enrollments) {
+    const className = getEnrollmentClassName(enrollment);
+    const subjectName = getEnrollmentSubjectName(enrollment);
+    const subjectId = getEnrollmentSubjectId(enrollment);
+    const year = getEnrollmentAcademicYear(enrollment);
+
+    if (!className || !subjectName) continue;
+
+    const key = `${className}__${subjectName}__${year}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        className,
+        subjectName,
+        subjectId,
+        academicYear: year,
+        count: 0,
+      });
+    }
+
+    map.get(key).count += 1;
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const classDiff = a.className.localeCompare(b.className);
+    if (classDiff !== 0) return classDiff;
+    return a.subjectName.localeCompare(b.subjectName);
+  });
+}
+
+function autoSizeColumns(rows) {
+  return TEMPLATE_HEADERS.map((header) => {
+    const maxRowLength = rows.reduce((max, row) => {
+      const value = row[header] == null ? "" : String(row[header]);
+      return Math.max(max, value.length);
+    }, header.length);
+
+    const width = Math.min(Math.max(maxRowLength + 2, 12), 32);
+
+    return {
+      wch: width,
+      hidden: ["studentId", "subjectId", "subjectName", "className", "term", "academicYear"].includes(
+        header
+      ),
+    };
+  });
+}
+
+function buildTemplateFileName({ className, subjectName, term, academicYear }) {
+  const clean = (value) =>
+    normalizeText(value)
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  return `${clean(className)} - ${clean(subjectName)} - ${clean(term)} - ${clean(
+    academicYear
+  )}.xlsx`;
+}
+
+function buildTemplateRows({
+  selectedEnrollments,
+  studentsById,
+  className,
+  subjectId,
+  subjectName,
+  term,
+  academicYear,
+}) {
+  const seenStudentIds = new Set();
+
+  return selectedEnrollments
+    .map((enrollment) => {
+      const studentId = normalizeText(enrollment.studentId);
+      if (!studentId || seenStudentIds.has(studentId)) return null;
+
+      seenStudentIds.add(studentId);
+
+      const student = studentsById.get(studentId) || null;
+
+      return {
+        studentId,
+        indexNo: getStudentIndexNo(student),
+        studentName:
+          getStudentName(student) ||
+          normalizeText(enrollment.studentName || "Unnamed Student"),
+        marks: "",
+        absent: "",
+        subjectId,
+        subjectName,
+        className,
+        term,
+        academicYear,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const indexDiff = normalizeText(a.indexNo).localeCompare(normalizeText(b.indexNo), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (indexDiff !== 0) return indexDiff;
+
+      return a.studentName.localeCompare(b.studentName);
+    });
+}
+
+function createWorkbook({
+  rows,
+  className,
+  subjectName,
+  term,
+  academicYear,
+}) {
+  const worksheet = XLSX.utils.json_to_sheet(rows, {
+    header: TEMPLATE_HEADERS,
+  });
+
+  worksheet["!cols"] = autoSizeColumns(rows);
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  worksheet["!autofilter"] = {
+    ref: "A1:J1",
+  };
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "MarksTemplate");
+
+  const infoRows = [
+    ["Bulk Marks Upload Template"],
+    [`Class: ${className}`],
+    [`Subject: ${subjectName}`],
+    [`Term: ${term}`],
+    [`Academic Year: ${academicYear}`],
+    [""],
+    ["Instructions"],
+    ["1. Enter marks in the 'marks' column only."],
+    ["2. Enter TRUE in 'absent' only if the student was absent."],
+    ["3. Leave marks empty for absent students."],
+    ["4. Do not delete hidden columns. They are required for upload."],
+  ];
+
+  const infoSheet = XLSX.utils.aoa_to_sheet(infoRows);
+  infoSheet["!cols"] = [{ wch: 80 }];
+  XLSX.utils.book_append_sheet(workbook, infoSheet, "Instructions");
+
+  return workbook;
+}
+
+function getClassSheetSubjects(classEnrollments, studentsById) {
+  const subjectsByKey = new Map();
+
+  classEnrollments.forEach((enrollment) => {
+    const student = studentsById.get(normalizeText(enrollment.studentId)) || {};
+    const subjectName = getEnrollmentSubjectName(enrollment);
+    if (!subjectName) return;
+
+    const subjectKey = [
+      getEnrollmentSubjectId(enrollment),
+      getEnrollmentSubjectNumber(enrollment),
+      normalizeLoose(subjectName),
+    ].find(Boolean);
+
+    if (!subjectsByKey.has(subjectKey)) {
+      subjectsByKey.set(subjectKey, {
+        subjectName,
+        subjectId: getEnrollmentSubjectId(enrollment),
+        subjectNumber: getEnrollmentSubjectNumber(enrollment),
+        order: subjectsByKey.size,
+      });
+    }
+
+    if (Number(student.grade) >= 6 && Number(student.grade) <= 9) {
+      subjectsByKey.get(subjectKey).grade = Number(student.grade);
+    }
+  });
+
+  return Array.from(subjectsByKey.values()).sort((a, b) => {
+    const numberDiff = normalizeText(a.subjectNumber).localeCompare(
+      normalizeText(b.subjectNumber),
+      undefined,
+      { numeric: true, sensitivity: "base" }
+    );
+    return numberDiff || a.subjectName.localeCompare(b.subjectName);
+  });
+}
+
+export function buildClassSheetRows({ classEnrollments, studentsById, className, term, academicYear, includeClass = false }) {
+  const subjects = getClassSheetSubjects(classEnrollments, studentsById);
+  const enrollmentsByStudent = new Map();
+
+  classEnrollments.forEach((enrollment) => {
+    const studentId = normalizeText(enrollment.studentId);
+    if (!studentId) return;
+    const existing = enrollmentsByStudent.get(studentId) || [];
+    existing.push(enrollment);
+    enrollmentsByStudent.set(studentId, existing);
+  });
+
+  const headers = [
+    "Student ID",
+    "Index No",
+    "Name",
+    ...(includeClass ? ["Class"] : []),
+    ...subjects.map((subject) => subject.subjectName),
+  ];
+  const rows = Array.from(enrollmentsByStudent.entries()).map(([studentId, studentEnrollments]) => {
+    const student = studentsById.get(studentId) || {};
+    const firstEnrollment = studentEnrollments[0] || {};
+    const rowClass = getEnrollmentClassName(firstEnrollment, student);
+    return [
+      studentId,
+      getStudentIndexNo(student),
+      getStudentName(student),
+      ...(includeClass ? [rowClass] : []),
+      ...subjects.map(() => ""),
+    ];
+  });
+
+  return {
+    headers,
+    rows: rows.sort((left, right) =>
+      String(left[1] || "").localeCompare(String(right[1] || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    ),
+    subjects,
+    className,
+    term,
+    academicYear,
+  };
+}
+
+function createClassSheetWorkbook({ classEnrollments, studentsById, className, term, academicYear, includeClass = false }) {
+  const template = buildClassSheetRows({
+    classEnrollments,
+    studentsById,
+    className,
+    term,
+    academicYear,
+    includeClass,
+  });
+  const worksheet = XLSX.utils.aoa_to_sheet([template.headers, ...template.rows]);
+  worksheet["!cols"] = template.headers.map((header, index) => ({
+    wch: index < 3 ? Math.max(header.length + 2, 18) : Math.min(Math.max(header.length + 2, 16), 32),
+  }));
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  worksheet["!autofilter"] = { ref: `A1:${XLSX.utils.encode_col(template.headers.length - 1)}${template.rows.length + 1}` };
+
+  const instructions = XLSX.utils.aoa_to_sheet([
+    ["Grade 6-9 Class Marks Upload"],
+    [`Class: ${className}`],
+    [`Term: ${term}`],
+    [`Academic Year: ${academicYear}`],
+    [""],
+    ["Enter marks under the actual enrolled subject columns."],
+    ["Keep Student ID unchanged. Student ID is used as the identity key."],
+    ...(includeClass ? ["Keep the Class column unchanged. It identifies each division."] : []),
+    ["Use AB, Absent, or A for absent students."],
+    ["Do not rename or delete the identity columns."],
+  ]);
+  instructions["!cols"] = [{ wch: 90 }];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Grade 6-9 Marks");
+  XLSX.utils.book_append_sheet(workbook, instructions, "Instructions");
+  return workbook;
+}
+
+function parseBooleanLike(value) {
+  const raw = normalizeLower(value);
+
+  if (raw === "") return { valid: true, value: null };
+  if (["true", "yes", "1"].includes(raw)) return { valid: true, value: true };
+  if (["false", "no", "0"].includes(raw)) return { valid: true, value: false };
+
+  if (typeof value === "boolean") {
+    return { valid: true, value };
+  }
+
+  return { valid: false, value: null };
+}
+
+export function parseMarksValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return { valid: true, value: null, absent: false };
+  }
+
+  if (["ab", "absent", "a"].includes(normalizeLower(value))) {
+    return { valid: true, value: null, absent: true };
+  }
+
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return { valid: false, value: null, absent: false };
+  }
+
+  return { valid: true, value: num, absent: false };
+}
+
+function parseTeacherSheetMarkValue(value) {
+  const raw = normalizeText(value);
+  if (!raw) return { valid: true, marks: null, absent: null };
+  if (["ab", "absent", "a"].includes(normalizeLower(raw))) {
+    return { valid: true, marks: null, absent: true };
+  }
+
+  const parsed = parseMarksValue(value);
+  if (!parsed.valid) return { valid: false, marks: null, absent: null };
+  return { valid: true, marks: parsed.value, absent: false };
+}
+
+function parsePercentageValue(value) {
+  const raw = normalizeText(value);
+  if (!raw) return { valid: true, value: null };
+
+  const parsed = Number(raw.replace("%", ""));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    return { valid: false, value: null };
+  }
+
+  return { valid: true, value: parsed };
+}
+
+function normalizeSubjectNumber(value) {
+  return normalizeText(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function canonicalSubjectName(value) {
+  const raw = normalizeText(value);
+  if (!raw) return "";
+  return SUBJECT_ALIASES[normalizeLoose(raw)] || raw;
+}
+
+function subjectNamesMatch(left, right) {
+  return normalizeLoose(canonicalSubjectName(left)) === normalizeLoose(canonicalSubjectName(right));
+}
+
+function getSpecialSubjectRole(value) {
+  return SPECIAL_SUBJECT_ROLES[normalizeLoose(value)] || "";
+}
+
+function getStudentSpecialSubjectValues(student = {}, role) {
+  if (role === "religion") {
+    return [student.religion, student.religionName];
+  }
+  if (role === "aesthetic") {
+    return [student.aestheticChoice, student.aesthetic, student.aestheticSubject];
+  }
+  if (role === "secondLanguage") {
+    return ["Sinhala"];
+  }
+  if (role === "civics") {
+    return ["Civics", "Civic Education"];
+  }
+  if (role === "basketA") {
+    return [student.basketAChoice, student.basket1];
+  }
+  if (role === "basketB") {
+    return [student.basketBChoice, student.basket2];
+  }
+  if (role === "basketC") {
+    return [student.basketCChoice, student.basket3];
+  }
+  return [];
+}
+
+function subjectMatchesCandidate(enrollment, candidate) {
+  const enrollmentName = getEnrollmentSubjectName(enrollment);
+  const candidateName = normalizeText(candidate);
+  if (!candidateName) return false;
+
+  if (subjectNamesMatch(enrollmentName, candidateName)) return true;
+
+  const enrollmentLoose = normalizeLoose(enrollmentName);
+  const candidateLoose = normalizeLoose(candidateName);
+  if (enrollmentLoose === "civiceducation" && candidateLoose === "civics") return true;
+  if (enrollmentLoose === "civics" && candidateLoose === "civiceducation") return true;
+  if (enrollmentLoose === "sinhal" && candidateLoose === "sinhala") return true;
+  return false;
+}
+
+function resolveALSubject(value) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const byNumber = AL_SUBJECTS_BY_NUMBER[normalizeSubjectNumber(raw)];
+  if (byNumber) return byNumber;
+
+  const byName = AL_SUBJECTS_BY_NAME[normalizeLower(raw)];
+  if (byName) return byName;
+
+  return null;
+}
+
+function getSubjectIdentityFromEnrollment(enrollment = {}) {
+  return {
+    subjectId: getEnrollmentSubjectId(enrollment),
+    subjectName: getEnrollmentSubjectName(enrollment),
+    subjectNumber: getEnrollmentSubjectNumber(enrollment),
+  };
+}
+
+function resolveSubjectFromEnrollments(value, enrollments = []) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+
+  const rawNumber = normalizeSubjectNumber(raw);
+  const rawLower = normalizeLower(raw);
+  const rawSubjectId = rawNumber.startsWith("AL_") ? rawNumber : `AL_${rawNumber}`;
+
+  const match = enrollments.find((enrollment) => {
+    const subject = getSubjectIdentityFromEnrollment(enrollment);
+    return (
+      normalizeSubjectNumber(subject.subjectNumber) === rawNumber ||
+      normalizeSubjectNumber(subject.subjectId) === rawNumber ||
+      normalizeSubjectNumber(subject.subjectId) === rawSubjectId ||
+      normalizeLower(subject.subjectName) === rawLower
+    );
+  });
+
+  return match ? getSubjectIdentityFromEnrollment(match) : null;
+}
+
+function getTeacherSheetColumnIndex(headers, aliases) {
+  const normalizedAliases = aliases.map(normalizeLoose);
+  return headers.findIndex((header) => normalizedAliases.includes(normalizeLoose(header)));
+}
+
+function getTeacherSheetSubjectPairs(headers) {
+  const pairs = [];
+
+  headers.forEach((header, index) => {
+    const loose = normalizeLoose(header);
+    const isSubjectColumn =
+      loose.includes("subject") && !loose.includes("stream") && !loose.includes("code");
+    if (!isSubjectColumn) return;
+
+    const marksIndex = headers.findIndex(
+      (candidate, candidateIndex) =>
+        candidateIndex > index && normalizeLoose(candidate) === "marks"
+    );
+
+    if (marksIndex > index) {
+      pairs.push({ subjectIndex: index, marksIndex });
+    }
+  });
+
+  return pairs;
+}
+
+function isTeacherMarksSheet(headers = []) {
+  const looseHeaders = headers.map(normalizeLoose);
+  return (
+    looseHeaders.includes("studentid") &&
+    looseHeaders.some((header) => ["alclassname", "alclass"].includes(header)) &&
+    getTeacherSheetSubjectPairs(headers).length > 0
+  );
+}
+
+function findLowerClassHeaderIndex(rows = []) {
+  return rows.findIndex((row) => {
+    const loose = row.map(normalizeLoose);
+    const hasStudentIdentity = loose.some((value) =>
+      ["schoolid", "emisstudentid", "emisid", "studentid", "student", "name", "studentname", "studentsname"].includes(value)
+    );
+    const hasGradeContext = loose.some((value) => ["grade", "grdivision", "division", "classname"].includes(value));
+    const hasTerm = loose.includes("term") || loose.includes("academicyear");
+    const hasSubject = loose.some(
+      (value) => SUBJECT_ALIASES[value] || getSpecialSubjectRole(value) || value === "tamil"
+    );
+    return hasStudentIdentity && (hasGradeContext || hasTerm) && hasSubject;
+  });
+}
+
+function isLowerClassSubheaderRow(row = []) {
+  const firstCellsEmpty = row.slice(0, 4).every((cell) => !normalizeText(cell));
+  const subjectCells = row.filter(
+    (cell) => SUBJECT_ALIASES[normalizeLoose(cell)] || getSpecialSubjectRole(cell)
+  );
+  return firstCellsEmpty && subjectCells.length > 0;
+}
+
+function getLowerClassColumnIndex(headers = [], aliases = []) {
+  const normalizedAliases = aliases.map(normalizeLoose);
+  return headers.findIndex((header) => normalizedAliases.includes(normalizeLoose(header)));
+}
+
+export function getLowerClassColumnPlan(rows = []) {
+  const headerIndex = findLowerClassHeaderIndex(rows);
+  if (headerIndex < 0) return null;
+
+  const headers = rows[headerIndex] || [];
+  const subheaders = isLowerClassSubheaderRow(rows[headerIndex + 1] || [])
+    ? rows[headerIndex + 1]
+    : [];
+  const dataStartIndex = headerIndex + (subheaders.length ? 2 : 1);
+  const maxColumns = Math.max(headers.length, subheaders.length);
+
+  let studentIdIndex = getLowerClassColumnIndex(headers, [
+    "Student ID",
+    "StudentID",
+    "EMIS Student ID",
+    "EMISStudentID",
+    "EMIS ID",
+    "SchoolID",
+  ]);
+  let indexNoIndex = getLowerClassColumnIndex(headers, [
+    "Index No",
+    "IndexNo",
+    "Admission No",
+    "AdmissionNo",
+    "Adm No",
+  ]);
+  const nameIndex = getLowerClassColumnIndex(headers, [
+    "Name",
+    "Student",
+    "Student Name",
+    "Students Name",
+  ]);
+  const classIndex = getLowerClassColumnIndex(headers, [
+    "Class",
+    "Division",
+    "GrDivision",
+    "Class Name",
+  ]);
+  const gradeIndex = getLowerClassColumnIndex(headers, ["Grade"]);
+  const termIndex = getLowerClassColumnIndex(headers, ["Term", "Academic Term"]);
+  const academicYearIndex = getLowerClassColumnIndex(headers, ["Academic Year", "Year"]);
+
+  if (indexNoIndex < 0 && normalizeLoose(headers[0]) === "no" && !normalizeText(headers[1])) {
+    indexNoIndex = 1;
+  }
+  const subjectColumns = [];
+  for (let index = 0; index < maxColumns; index += 1) {
+    if (
+      [
+        studentIdIndex,
+        indexNoIndex,
+        nameIndex,
+        classIndex,
+        gradeIndex,
+        termIndex,
+        academicYearIndex,
+      ].includes(index)
+    ) continue;
+
+    const headerLoose = normalizeLoose(headers[index]);
+    const subheader = normalizeText(subheaders[index]);
+    const header = normalizeText(headers[index]);
+    const rawSubject = subheader || header;
+    const rawLoose = normalizeLoose(rawSubject);
+
+    if (!rawSubject) continue;
+    if (LOWER_CLASS_IDENTITY_ALIASES.includes(rawLoose)) continue;
+    if (
+      LOWER_CLASS_GROUP_HEADERS.includes(rawLoose) &&
+      !subheader &&
+      !getSpecialSubjectRole(rawSubject)
+    ) continue;
+
+    const subjectName = canonicalSubjectName(rawSubject);
+    if (!subjectName) continue;
+
+    subjectColumns.push({
+      index,
+      rawSubject,
+      subjectName,
+      group: headerLoose !== rawLoose ? header : "",
+    });
+  }
+
+  return {
+    headerIndex,
+    dataStartIndex,
+    studentIdIndex,
+    indexNoIndex,
+    nameIndex,
+    classIndex,
+    gradeIndex,
+    termIndex,
+    academicYearIndex,
+    subjectColumns,
+  };
+}
+
+function isLowerClassMarksSheet(rows = []) {
+  const plan = getLowerClassColumnPlan(rows);
+  return Boolean(plan?.subjectColumns?.length && plan.nameIndex >= 0);
+}
+
+function getStudentLookupKeys(student = {}) {
+  return [
+    student.id,
+    student.studentId,
+    student.emisStudentId,
+    student.emisId,
+    student.schoolId,
+    student.schoolID,
+    student.externalStudentId,
+    student.indexNo,
+    student.indexNumber,
+    student.admissionNo,
+    student.admissionNumber,
+    student.admNo,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function buildStudentLookup(students = []) {
+  const lookup = new Map();
+  students.forEach((student) => {
+    getStudentLookupKeys(student).forEach((key) => {
+      if (!lookup.has(key)) lookup.set(key, student);
+    });
+  });
+  return lookup;
+}
+
+function subjectsMatch(left = {}, right = {}) {
+  return (
+    (normalizeText(left.subjectId) &&
+      normalizeText(left.subjectId) === normalizeText(right.subjectId)) ||
+    (normalizeSubjectNumber(left.subjectNumber) &&
+      normalizeSubjectNumber(left.subjectNumber) === normalizeSubjectNumber(right.subjectNumber)) ||
+    (normalizeLower(left.subjectName) &&
+      subjectNamesMatch(left.subjectName, right.subjectName))
+  );
+}
+
+export function resolveClassSheetSubject(value, enrollments = [], student = {}) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+  const canonicalName = canonicalSubjectName(raw);
+  const role = getSpecialSubjectRole(raw);
+
+  if (role) {
+    const candidates = getStudentSpecialSubjectValues(student, role);
+    const roleMatch = enrollments.find((enrollment) =>
+      candidates.some((candidate) => subjectMatchesCandidate(enrollment, candidate))
+    );
+    if (roleMatch) {
+      return {
+        ...getSubjectIdentityFromEnrollment(roleMatch),
+        canonicalName: getEnrollmentSubjectName(roleMatch),
+        role,
+      };
+    }
+  }
+
+  const match = enrollments.find((enrollment) =>
+    subjectNamesMatch(getEnrollmentSubjectName(enrollment), canonicalName)
+  );
+
+  if (!match) return null;
+
+  return {
+    ...getSubjectIdentityFromEnrollment(match),
+    canonicalName,
+  };
+}
+
+function buildEnrollmentKey({
+  studentId,
+  subjectId,
+  subjectName,
+  className,
+  academicYear,
+}) {
+  return [
+    normalizeText(studentId),
+    normalizeText(subjectId),
+    normalizeLower(subjectName),
+    normalizeText(className).toUpperCase(),
+    String(academicYear || ""),
+  ].join("__");
+}
+
+function validateUploadedRows({
+  rows,
+  studentsById,
+  validEnrollmentKeys,
+  selectedClass,
+  selectedSubject,
+  selectedSubjectId,
+  selectedTerm,
+  selectedYear,
+}) {
+  const validRows = [];
+  const invalidRows = [];
+  const seenStudentIds = new Set();
+
+  rows.forEach((rawRow, index) => {
+    const rowNumber = index + 2;
+
+    const studentId = normalizeText(rawRow.studentId);
+    const indexNo = normalizeText(rawRow.indexNo);
+    const studentName = normalizeText(rawRow.studentName);
+    const marksRaw = rawRow.marks;
+    const absentRaw = rawRow.absent;
+    const subjectId = normalizeText(rawRow.subjectId);
+    const subjectName = normalizeText(rawRow.subjectName);
+    const className = normalizeText(rawRow.className).toUpperCase();
+    const term = normalizeText(rawRow.term);
+    const academicYear = String(rawRow.academicYear ?? "").trim();
+
+    const reasons = [];
+
+    if (!studentId) reasons.push("Missing studentId");
+
+    const student = studentsById.get(studentId);
+    if (studentId && !student) reasons.push("studentId does not exist");
+
+    if (selectedSubjectId && subjectId !== selectedSubjectId) {
+      reasons.push("subjectId does not match selected subject");
+    }
+
+    if (subjectName !== selectedSubject) {
+      reasons.push("subjectName does not match selected subject");
+    }
+
+    if (className !== selectedClass.toUpperCase()) {
+      reasons.push("className does not match selected class");
+    }
+
+    if (term !== selectedTerm) {
+      reasons.push("term does not match selected term");
+    }
+
+    if (academicYear !== String(selectedYear)) {
+      reasons.push("academicYear does not match selected year");
+    }
+
+    const marksResult = parseMarksValue(marksRaw);
+    if (!marksResult.valid) {
+      reasons.push("marks must be numeric or empty");
+    }
+
+    const absentResult = parseBooleanLike(absentRaw);
+    if (!absentResult.valid) {
+      reasons.push("absent must be TRUE/FALSE or empty");
+    }
+
+    if (seenStudentIds.has(studentId)) {
+      reasons.push("duplicate studentId row in uploaded file");
+    }
+
+    const enrollmentKey = buildEnrollmentKey({
+      studentId,
+      subjectId,
+      subjectName,
+      className,
+      academicYear,
+    });
+
+    if (studentId && !validEnrollmentKeys.has(enrollmentKey)) {
+      reasons.push("student is not enrolled in this class/subject/year");
+    }
+
+    const uploadedAbsent = marksResult.absent === true || absentResult.value === true;
+
+    if (marksResult.value !== null && uploadedAbsent) {
+      reasons.push("cannot have both marks and absent=TRUE");
+    }
+
+    if (!reasons.length) {
+      seenStudentIds.add(studentId);
+
+      validRows.push({
+        rowNumber,
+        studentId,
+        indexNo,
+        studentName,
+        marks: marksResult.value,
+        absent: uploadedAbsent,
+        subjectId,
+        subjectName,
+        className,
+        term,
+        academicYear,
+      });
+    } else {
+      invalidRows.push({
+        rowNumber,
+        studentId,
+        indexNo,
+        studentName,
+        marks: marksRaw,
+        absent: absentRaw,
+        subjectName,
+        reasons,
+      });
+    }
+  });
+
+  return {
+    validRows,
+    invalidRows,
+  };
+}
+
+function validateTeacherMarksSheetRows({
+  rows,
+  studentsByUploadId,
+  selectedEnrollments,
+  selectedClass,
+  selectedTerm,
+  selectedYear,
+}) {
+  const validRows = [];
+  const invalidRows = [];
+  const seenKeys = new Set();
+  const headers = rows[0] || [];
+  const dataRows = rows.slice(1);
+  const subjectPairs = getTeacherSheetSubjectPairs(headers);
+
+  const studentIdIndex = getTeacherSheetColumnIndex(headers, ["StudentID", "Student ID"]);
+  const admissionNoIndex = getTeacherSheetColumnIndex(headers, ["Admission No", "AdmissionNo"]);
+  const nameIndex = getTeacherSheetColumnIndex(headers, ["Name", "Student Name"]);
+  const gradeIndex = getTeacherSheetColumnIndex(headers, ["Grade"]);
+  const sectionIndex = getTeacherSheetColumnIndex(headers, ["Section"]);
+  const streamIndex = getTeacherSheetColumnIndex(headers, ["Stream"]);
+  const attendanceIndex = getTeacherSheetColumnIndex(headers, [
+    "Attendance",
+    "Attendance %",
+    "Attendance Percent",
+    "Attendance Percentage",
+  ]);
+  const alClassNameIndex = getTeacherSheetColumnIndex(headers, [
+    "A/L Class Name",
+    "AL Class Name",
+    "A/L Class",
+  ]);
+
+  const enrollmentsByStudentId = selectedEnrollments.reduce((map, enrollment) => {
+    const studentId = normalizeText(enrollment.studentId);
+    if (!studentId) return map;
+    if (!map.has(studentId)) map.set(studentId, []);
+    map.get(studentId).push(enrollment);
+    return map;
+  }, new Map());
+
+  dataRows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const hasAnyValue = row.some((cell) => normalizeText(cell));
+    if (!hasAnyValue) return;
+
+    const uploadedStudentId = normalizeText(row[studentIdIndex]);
+    const student = studentsByUploadId.get(uploadedStudentId) || null;
+    const studentId = normalizeText(student?.id || uploadedStudentId);
+    const studentName = normalizeText(
+      pickValue(student?.name, student?.fullName, row[nameIndex], "Unnamed Student")
+    );
+    const indexNo = normalizeText(
+      pickValue(student?.indexNo, student?.indexNumber, row[admissionNoIndex], "")
+    );
+    const admissionNo = normalizeText(
+      pickValue(student?.admissionNo, student?.admissionNumber, row[admissionNoIndex], "")
+    );
+    const grade = parseGrade(pickValue(row[gradeIndex], student?.grade, ""));
+    const section = normalizeSection(pickValue(row[sectionIndex], student?.section, ""));
+    const stream = normalizeText(pickValue(row[streamIndex], student?.stream, ""));
+    const attendanceResult = parsePercentageValue(attendanceIndex >= 0 ? row[attendanceIndex] : "");
+    const sheetClassName = normalizeText(row[alClassNameIndex]);
+
+    subjectPairs.forEach(({ subjectIndex, marksIndex }) => {
+      const rawSubject = normalizeText(row[subjectIndex]);
+      const rawMarks = row[marksIndex];
+      const hasMarks = normalizeText(rawMarks) !== "";
+
+      if (!rawSubject && !hasMarks) return;
+      if (!hasMarks) return;
+
+      const reasons = [];
+      if (!uploadedStudentId) reasons.push("Missing StudentID");
+      if (uploadedStudentId && !student) reasons.push("StudentID does not exist");
+
+      if (sheetClassName && normalizeLower(sheetClassName) !== normalizeLower(selectedClass)) {
+        reasons.push("A/L Class Name does not match selected class");
+      }
+
+      const enrolledSubject = resolveSubjectFromEnrollments(
+        rawSubject,
+        student ? enrollmentsByStudentId.get(student.id) || [] : selectedEnrollments
+      );
+      const catalogSubject = resolveALSubject(rawSubject);
+      const subject = enrolledSubject || catalogSubject;
+      if (!subject) {
+        reasons.push(`Unknown A/L subject: ${rawSubject || "(blank)"}`);
+      }
+
+      const marksResult = parseTeacherSheetMarkValue(rawMarks);
+      if (!marksResult.valid) {
+        reasons.push("Marks must be numeric, AB, or empty");
+      }
+      if (!attendanceResult.valid) {
+        reasons.push("Attendance percentage must be between 0 and 100");
+      }
+
+      const matchingEnrollment =
+        subject && student
+          ? (enrollmentsByStudentId.get(student.id) || []).find((enrollment) =>
+              subjectsMatch(
+                getSubjectIdentityFromEnrollment(enrollment),
+                {
+                  subjectName: subject.subjectName,
+                  subjectNumber: subject.subjectNumber,
+                  subjectId: subject.subjectId || subject.subjectCode,
+                }
+              )
+            )
+          : null;
+
+      if (student && subject && !matchingEnrollment) {
+        reasons.push("student is not enrolled in this subject for the selected class/year");
+      }
+
+      const dedupeKey = `${studentId}__${subject?.subjectNumber || rawSubject}`;
+      if (seenKeys.has(dedupeKey)) {
+        reasons.push("duplicate student/subject mark in uploaded file");
+      }
+
+      const rowData = {
+        rowNumber,
+        studentId,
+        uploadedStudentId,
+        indexNo,
+        admissionNo,
+        studentName,
+        marks: marksResult.marks,
+        absent: marksResult.absent,
+        subjectId: normalizeText(matchingEnrollment?.subjectId || subject?.subjectId || subject?.subjectCode || ""),
+        subjectName: normalizeText(matchingEnrollment?.subjectName || subject?.subjectName || rawSubject),
+        subjectNumber: normalizeText(matchingEnrollment?.subjectNumber || subject?.subjectNumber || ""),
+        className: selectedClass,
+        fullClassName: selectedClass,
+        alClassName: selectedClass,
+        grade: grade || parseGrade(matchingEnrollment?.grade),
+        section: section || getEnrollmentSection(matchingEnrollment),
+        stream: stream || getEnrollmentStream(matchingEnrollment),
+        attendancePercentage: attendanceResult.value,
+        term: selectedTerm,
+        academicYear: String(selectedYear),
+        sourceFormat: "teacherSheet",
+      };
+
+      if (!reasons.length) {
+        seenKeys.add(dedupeKey);
+        validRows.push(rowData);
+      } else {
+        invalidRows.push({
+          ...rowData,
+          marks: rawMarks,
+          subjectName: subject?.subjectName || rawSubject,
+          reasons,
+        });
+      }
+    });
+  });
+
+  return { validRows, invalidRows };
+}
+
+function validateLowerClassSheetRows({
+  rows,
+  studentsByUploadId,
+  classEnrollments,
+  selectedClass,
+  selectedGrade,
+  wholeGrade = false,
+  selectedTerm,
+  selectedYear,
+}) {
+  const plan = getLowerClassColumnPlan(rows);
+  if (!plan) {
+    throw new Error("Could not find the lower-grade marks header row.");
+  }
+
+  const validRows = [];
+  const invalidRows = [];
+  const seenKeys = new Set();
+
+  const enrollmentsByStudentId = classEnrollments.reduce((map, enrollment) => {
+    const studentId = normalizeText(enrollment.studentId);
+    if (!studentId) return map;
+    if (!map.has(studentId)) map.set(studentId, []);
+    map.get(studentId).push(enrollment);
+    return map;
+  }, new Map());
+
+  rows.slice(plan.dataStartIndex).forEach((row, index) => {
+    const rowNumber = plan.dataStartIndex + index + 1;
+    const hasAnyValue = row.some((cell) => normalizeText(cell));
+    if (!hasAnyValue) return;
+
+    const uploadedStudentId = plan.studentIdIndex >= 0 ? normalizeText(row[plan.studentIdIndex]) : "";
+    const uploadedIndexNo = plan.indexNoIndex >= 0 ? normalizeText(row[plan.indexNoIndex]) : "";
+    const uploadedGrade = plan.gradeIndex >= 0 ? parseGrade(row[plan.gradeIndex]) : 0;
+    const uploadedDivision = plan.classIndex >= 0 ? normalizeText(row[plan.classIndex]) : "";
+    const uploadedTerm = plan.termIndex >= 0 ? normalizeUploadedTerm(row[plan.termIndex]) : "";
+    const uploadedYear = plan.academicYearIndex >= 0 ? normalizeText(row[plan.academicYearIndex]) : "";
+    const lookupKey = uploadedStudentId;
+    const student = studentsByUploadId.get(lookupKey) || null;
+    const studentId = normalizeText(student?.id || uploadedStudentId);
+    const studentEnrollments = student ? enrollmentsByStudentId.get(student.id) || [] : [];
+    const studentName = normalizeText(
+      pickValue(student?.name, student?.fullName, row[plan.nameIndex], "Unnamed Student")
+    );
+    const indexNo = normalizeText(
+      pickValue(student?.indexNo, student?.indexNumber, student?.admissionNo, uploadedIndexNo, "")
+    );
+    const admissionNo = normalizeText(
+      pickValue(student?.admissionNo, student?.admissionNumber, uploadedIndexNo, "")
+    );
+
+    plan.subjectColumns.forEach((column) => {
+      const rawMarks = row[column.index];
+      if (!normalizeText(rawMarks)) return;
+
+      const reasons = [];
+      if (!lookupKey) reasons.push("Missing StudentID/EMIS StudentID");
+      if (lookupKey && !student) reasons.push("StudentID/EMIS StudentID does not exist");
+      const expectedClassName = getEnrollmentClassName(studentEnrollments[0], student);
+      const rowClassName = wholeGrade
+        ? buildFullClassName(uploadedGrade || selectedGrade, uploadedDivision)
+        : selectedClass;
+      if (wholeGrade && !uploadedDivision) reasons.push("Missing GrDivision/Class");
+      if (
+        wholeGrade &&
+        rowClassName &&
+        expectedClassName &&
+        normalizeLower(rowClassName) !== normalizeLower(expectedClassName)
+      ) {
+        reasons.push("Class/Division does not match the student's class");
+      }
+      if (uploadedGrade && student && Number(uploadedGrade) !== Number(student.grade)) {
+        reasons.push("Grade does not match the student's grade");
+      }
+      if (uploadedTerm && normalizeUploadedTerm(uploadedTerm) !== normalizeUploadedTerm(selectedTerm)) {
+        reasons.push("Term does not match the selected term");
+      }
+      if (uploadedYear && uploadedYear !== String(selectedYear)) {
+        reasons.push("Academic year does not match the selected year");
+      }
+
+      const subject = resolveClassSheetSubject(
+        column.rawSubject,
+        studentEnrollments.length ? studentEnrollments : classEnrollments,
+        student || {}
+      );
+      if (!subject) {
+        reasons.push(`Unknown subject: ${column.rawSubject}`);
+      }
+
+      const matchingEnrollment =
+        subject && student
+          ? studentEnrollments.find((enrollment) =>
+              subjectsMatch(getSubjectIdentityFromEnrollment(enrollment), subject)
+            )
+          : null;
+
+      if (student && subject && !matchingEnrollment) {
+        reasons.push("student is not enrolled in this subject for the selected class/year");
+      }
+
+      const marksResult = parseTeacherSheetMarkValue(rawMarks);
+      if (!marksResult.valid) {
+        reasons.push("Marks must be numeric, AB, or empty");
+      }
+
+      const dedupeKey = `${studentId}__${subject?.subjectId || subject?.subjectName || column.rawSubject}`;
+      if (seenKeys.has(dedupeKey)) {
+        reasons.push("duplicate student/subject mark in uploaded file");
+      }
+
+      const rowData = {
+        rowNumber,
+        studentId,
+        uploadedStudentId: lookupKey,
+        indexNo,
+        admissionNo,
+        studentName,
+        marks: marksResult.marks,
+        absent: marksResult.absent,
+        subjectId: normalizeText(matchingEnrollment?.subjectId || subject?.subjectId || ""),
+        subjectName: normalizeText(matchingEnrollment?.subjectName || subject?.subjectName || column.subjectName),
+        subjectNumber: normalizeText(matchingEnrollment?.subjectNumber || subject?.subjectNumber || ""),
+        className: rowClassName,
+        fullClassName: rowClassName,
+        grade: parseGrade(matchingEnrollment?.grade || selectedGrade || selectedClass),
+        section: getEnrollmentSection(matchingEnrollment) || normalizeSection(rowClassName),
+        stream: getEnrollmentStream(matchingEnrollment),
+        term: selectedTerm,
+        academicYear: String(selectedYear),
+        sourceFormat: "lowerClassSheet",
+      };
+
+      if (!reasons.length) {
+        seenKeys.add(dedupeKey);
+        validRows.push(rowData);
+      } else {
+        invalidRows.push({
+          ...rowData,
+          marks: rawMarks,
+          subjectName: subject?.subjectName || column.subjectName,
+          reasons,
+        });
+      }
+    });
+  });
+
+  return { validRows, invalidRows };
+}
+
+export default function BulkMarksUpload() {
+  const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingMarks, setDeletingMarks] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [allStudents, setAllStudents] = useState([]);
+  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [allTerms, setAllTerms] = useState([]);
+
+  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedGrade, setSelectedGrade] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedTerm, setSelectedTerm] = useState("Term 1");
+  const [selectedYear, setSelectedYear] = useState(getCurrentYear());
+  const [uploadMode, setUploadMode] = useState(UPLOAD_MODES.SUBJECT_TEMPLATE);
+
+  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [validRows, setValidRows] = useState([]);
+  const [invalidRows, setInvalidRows] = useState([]);
+  const [rawUploadedRows, setRawUploadedRows] = useState([]);
+  const [showInvalidOnly, setShowInvalidOnly] = useState(false);
+  const [uploadedFormat, setUploadedFormat] = useState("");
+
+  useEffect(() => {
+    loadBaseData();
+  }, []);
+
+  async function loadBaseData() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const [studentRows, enrollmentRows, terms] = await Promise.all([
+        getCollectionRows(db, "students"),
+        getCollectionRows(db, "studentSubjectEnrollments"),
+        getCollectionRows(db, "academicTerms"),
+      ]);
+
+      const students = studentRows
+        .filter((student) => isActiveStatus(student?.status || "active"));
+
+      const enrollments = enrollmentRows
+        .filter((enrollment) => isActiveStatus(enrollment?.status || "active"));
+
+      setAllStudents(students);
+      setAllEnrollments(enrollments);
+      setAllTerms(terms);
+
+      const activeTerm = terms.find((term) => term.isActive === true);
+      if (activeTerm) {
+        setSelectedTerm(normalizeText(activeTerm.term) || "Term 1");
+        setSelectedYear(String(activeTerm.year || getCurrentYear()));
+      }
+    } catch (err) {
+      console.error("BulkMarksUpload load error:", err);
+      setError("Failed to load students, enrollments, or terms.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const studentsById = useMemo(() => {
+    return new Map(allStudents.map((student) => [normalizeText(student.id), student]));
+  }, [allStudents]);
+
+  const studentsByUploadId = useMemo(() => {
+    return buildStudentLookup(allStudents);
+  }, [allStudents]);
+
+  const availableYears = useMemo(() => {
+    const yearsFromTerms = allTerms.map((term) => Number(term.year));
+    const yearsFromEnrollments = allEnrollments.map((enrollment) =>
+      Number(getEnrollmentAcademicYear(enrollment))
+    );
+
+    const values = uniqueNumberSortedDesc([
+      Number(getCurrentYear()),
+      ...yearsFromTerms,
+      ...yearsFromEnrollments,
+    ]);
+
+    return values.length ? values : [Number(getCurrentYear())];
+  }, [allTerms, allEnrollments]);
+
+  const availableTerms = useMemo(() => {
+    const filtered = allTerms
+      .filter((term) => !selectedYear || String(term.year || term.academicYear || "") === String(selectedYear))
+      .map((term) => normalizeText(term.term || term.termName || term.name))
+      .filter(Boolean);
+
+    const uniqueTerms = uniqueSorted(filtered);
+
+    if (selectedTerm && !uniqueTerms.includes(selectedTerm)) {
+      return [selectedTerm, ...uniqueTerms];
+    }
+
+    return uniqueTerms;
+  }, [allTerms, selectedYear, selectedTerm]);
+
+  const availableClasses = useMemo(() => {
+    const filtered = allEnrollments.filter(
+      (enrollment) =>
+        !selectedYear ||
+        !getEnrollmentAcademicYear(enrollment) ||
+        getEnrollmentAcademicYear(enrollment) === String(selectedYear)
+    );
+
+    return uniqueSorted(
+      filtered.map((enrollment) =>
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId)))
+      )
+    );
+  }, [allEnrollments, selectedYear, studentsById]);
+
+  const availableGrades = useMemo(
+    () =>
+      uniqueNumberSortedDesc(
+        allEnrollments
+          .filter(
+            (enrollment) =>
+              !selectedYear ||
+              !getEnrollmentAcademicYear(enrollment) ||
+              getEnrollmentAcademicYear(enrollment) === String(selectedYear)
+          )
+          .map((enrollment) => getEnrollmentGrade(enrollment, studentsById.get(normalizeText(enrollment.studentId))))
+          .filter((grade) => grade >= 6 && grade <= 9)
+      ).sort((a, b) => a - b),
+    [allEnrollments, selectedYear, studentsById]
+  );
+
+  const gradeEnrollments = useMemo(
+    () =>
+      allEnrollments.filter((enrollment) => {
+        const sameYear =
+          !selectedYear ||
+          !getEnrollmentAcademicYear(enrollment) ||
+          getEnrollmentAcademicYear(enrollment) === String(selectedYear);
+        const grade = getEnrollmentGrade(
+          enrollment,
+          studentsById.get(normalizeText(enrollment.studentId))
+        );
+        return sameYear && Number(grade) === Number(selectedGrade);
+      }),
+    [allEnrollments, selectedGrade, selectedYear, studentsById]
+  );
+
+  const availableSubjects = useMemo(() => {
+    const filtered = allEnrollments.filter((enrollment) => {
+      const sameYear =
+        !selectedYear ||
+        !getEnrollmentAcademicYear(enrollment) ||
+        getEnrollmentAcademicYear(enrollment) === String(selectedYear);
+
+      const sameClass =
+        !selectedClass ||
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId))) ===
+          selectedClass;
+
+      return sameYear && sameClass;
+    });
+
+    return uniqueSorted(filtered.map((enrollment) => getEnrollmentSubjectName(enrollment)));
+  }, [allEnrollments, selectedYear, selectedClass, studentsById]);
+
+  const selectedEnrollments = useMemo(() => {
+    return allEnrollments.filter((enrollment) => {
+      const sameYear =
+        !selectedYear ||
+        !getEnrollmentAcademicYear(enrollment) ||
+        getEnrollmentAcademicYear(enrollment) === String(selectedYear);
+
+      const sameClass =
+        !selectedClass ||
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId))) ===
+          selectedClass;
+
+      const sameSubject =
+        !selectedSubject || getEnrollmentSubjectName(enrollment) === selectedSubject;
+
+      return sameYear && sameClass && sameSubject;
+    });
+  }, [allEnrollments, selectedYear, selectedClass, selectedSubject, studentsById]);
+
+  const classEnrollments = useMemo(() => {
+    return allEnrollments.filter((enrollment) => {
+      const sameYear =
+        !selectedYear ||
+        !getEnrollmentAcademicYear(enrollment) ||
+        getEnrollmentAcademicYear(enrollment) === String(selectedYear);
+
+      const sameClass =
+        !selectedClass ||
+        getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId))) ===
+          selectedClass;
+
+      return sameYear && sameClass;
+    });
+  }, [allEnrollments, selectedYear, selectedClass, studentsById]);
+
+  const selectedSubjectId = useMemo(() => {
+    const found = selectedEnrollments.find((enrollment) => getEnrollmentSubjectId(enrollment));
+    return found ? getEnrollmentSubjectId(found) : "";
+  }, [selectedEnrollments]);
+
+  const selectedSubjectNumber = useMemo(() => {
+    const found = selectedEnrollments.find((enrollment) => getEnrollmentSubjectNumber(enrollment));
+    return found ? getEnrollmentSubjectNumber(found) : "";
+  }, [selectedEnrollments]);
+
+  const validEnrollmentKeys = useMemo(() => {
+    const keys = new Set();
+
+    selectedEnrollments.forEach((enrollment) => {
+      keys.add(
+        buildEnrollmentKey({
+          studentId: enrollment.studentId,
+          subjectId: getEnrollmentSubjectId(enrollment),
+          subjectName: getEnrollmentSubjectName(enrollment),
+          className: getEnrollmentClassName(
+            enrollment,
+            studentsById.get(normalizeText(enrollment.studentId))
+          ),
+          academicYear: getEnrollmentAcademicYear(enrollment),
+        })
+      );
+    });
+
+    return keys;
+  }, [selectedEnrollments, studentsById]);
+
+  const previewRows = useMemo(() => {
+    if (!selectedClass || !selectedSubject || !selectedTerm || !selectedYear) return [];
+
+    return buildTemplateRows({
+      selectedEnrollments,
+      studentsById,
+      className: selectedClass,
+      subjectId: selectedSubjectId,
+      subjectName: selectedSubject,
+      term: selectedTerm,
+      academicYear: String(selectedYear),
+    });
+  }, [
+    selectedEnrollments,
+    studentsById,
+    selectedClass,
+    selectedSubjectId,
+    selectedSubject,
+    selectedTerm,
+    selectedYear,
+  ]);
+
+  const summaryOptions = useMemo(() => {
+    return groupByClassAndSubject(allEnrollments).filter((item) => {
+      if (selectedYear && item.academicYear && item.academicYear !== String(selectedYear)) {
+        return false;
+      }
+      return true;
+    });
+  }, [allEnrollments, selectedYear]);
+
+  useEffect(() => {
+    if (selectedClass && !availableClasses.includes(selectedClass)) {
+      setSelectedClass("");
+    }
+  }, [availableClasses, selectedClass]);
+
+  useEffect(() => {
+    if (selectedSubject && !availableSubjects.includes(selectedSubject)) {
+      setSelectedSubject("");
+    }
+  }, [availableSubjects, selectedSubject]);
+
+  useEffect(() => {
+    setUploadedFileName("");
+    setValidRows([]);
+    setInvalidRows([]);
+    setRawUploadedRows([]);
+    setUploadedFormat("");
+    setSuccess("");
+  }, [selectedClass, selectedSubject, selectedTerm, selectedYear, uploadMode]);
+
+  useEffect(() => {
+    if (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !availableGrades.includes(Number(selectedGrade))) {
+      setSelectedGrade(availableGrades[0] ? String(availableGrades[0]) : "");
+    }
+  }, [availableGrades, selectedGrade, uploadMode]);
+
+  useEffect(() => {
+    if (uploadMode !== UPLOAD_MODES.SUBJECT_TEMPLATE && selectedSubject) {
+      setSelectedSubject("");
+    }
+    if (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && selectedClass) {
+      setSelectedClass("");
+    }
+  }, [selectedClass, selectedSubject, uploadMode]);
+
+  async function handleDownloadTemplate() {
+    if (
+      (!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
+      (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+      !selectedTerm ||
+      !selectedYear
+    ) return;
+
+    if (uploadMode === UPLOAD_MODES.SUBJECT_TEMPLATE && (!selectedSubject || !previewRows.length)) {
+      setError("No enrolled students found for the selected class, subject, and year.");
+      return;
+    }
+
+    if (
+      [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode) &&
+      !(uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments.length : classEnrollments.length)
+    ) {
+      setError("No enrolled students found for the selected class and year.");
+      return;
+    }
+
+    setDownloading(true);
+    setError("");
+
+    try {
+      const workbook =
+        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+          ? createClassSheetWorkbook({
+              classEnrollments:
+                uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments : classEnrollments,
+              studentsById,
+              className: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${selectedGrade}` : selectedClass,
+              term: selectedTerm,
+              academicYear: String(selectedYear),
+              includeClass: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET,
+            })
+          : createWorkbook({
+              rows: previewRows,
+              className: selectedClass,
+              subjectName: selectedSubject,
+              term: selectedTerm,
+              academicYear: String(selectedYear),
+            });
+
+      const fileName =
+        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+          ? `${uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${selectedGrade}` : selectedClass} - Grade 6-9 Marks - ${selectedTerm} - ${selectedYear}.xlsx`
+          : buildTemplateFileName({
+              className: selectedClass,
+              subjectName: selectedSubject,
+              term: selectedTerm,
+              academicYear: String(selectedYear),
+            });
+
+      XLSX.writeFile(workbook, fileName);
+    } catch (err) {
+      console.error("Template download error:", err);
+      setError("Failed to generate Excel template.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleFileUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (
+      ((!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
+        (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+        !selectedTerm ||
+        !selectedYear)
+    ) {
+      setError("Select academic year, class or grade, and term before uploading.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+    setUploadedFileName(file.name);
+    setValidRows([]);
+    setInvalidRows([]);
+    setRawUploadedRows([]);
+    setUploadedFormat("");
+    setSuccess("");
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+
+      if (!worksheet) {
+        throw new Error("No worksheet found in uploaded file.");
+      }
+
+      const sheetRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: "",
+        raw: false,
+      });
+      const headers = sheetRows[0] || [];
+
+      if ([UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)) {
+        if (!isLowerClassMarksSheet(sheetRows)) {
+          throw new Error("This does not look like a Grade 6-9 class marks sheet.");
+        }
+
+        const result = validateLowerClassSheetRows({
+          rows: sheetRows,
+          studentsByUploadId,
+          classEnrollments:
+            uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments : classEnrollments,
+          selectedClass,
+          selectedGrade,
+          wholeGrade: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET,
+          selectedTerm,
+          selectedYear,
+        });
+
+        setUploadedFormat(
+          uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "wholeGradeSheet" : "lowerClassSheet"
+        );
+        setRawUploadedRows(
+          sheetRows.filter((row) => row.some((cell) => normalizeText(cell)))
+        );
+        setValidRows(result.validRows);
+        setInvalidRows(result.invalidRows);
+        return;
+      }
+
+      if (isTeacherMarksSheet(headers)) {
+        const result = validateTeacherMarksSheetRows({
+          rows: sheetRows,
+          studentsByUploadId,
+          selectedEnrollments: classEnrollments,
+          selectedClass,
+          selectedTerm,
+          selectedYear,
+        });
+
+        setUploadedFormat("teacherSheet");
+        setRawUploadedRows(sheetRows.slice(1).filter((row) => row.some((cell) => normalizeText(cell))));
+        setValidRows(result.validRows);
+        setInvalidRows(result.invalidRows);
+        return;
+      }
+
+      if (!selectedSubject) {
+        throw new Error("Select a subject before uploading the standard template.");
+      }
+
+      const rows = XLSX.utils.sheet_to_json(worksheet, {
+        defval: "",
+        raw: false,
+      });
+
+      if (!rows.length) {
+        throw new Error("Uploaded sheet is empty.");
+      }
+
+      const missingHeaders = TEMPLATE_HEADERS.filter((header) => !(header in rows[0]));
+      if (missingHeaders.length) {
+        throw new Error(`Missing required columns: ${missingHeaders.join(", ")}`);
+      }
+
+      setRawUploadedRows(rows);
+      setUploadedFormat("standardTemplate");
+
+      const result = validateUploadedRows({
+        rows,
+        studentsById,
+        validEnrollmentKeys,
+        selectedClass,
+        selectedSubject,
+        selectedSubjectId,
+        selectedTerm,
+        selectedYear,
+      });
+
+      setValidRows(result.validRows);
+      setInvalidRows(result.invalidRows);
+    } catch (err) {
+      console.error("Upload validation error:", err);
+      setError(err.message || "Failed to read and validate uploaded Excel file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSaveValidRows() {
+    if (!validRows.length) {
+      setError("No valid rows to save.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const existingMarks = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const existingMarksByStudent = buildMarksByStudentId(existingMarks);
+      const currentUser = auth.currentUser;
+      const teacherName = currentUser?.displayName || currentUser?.email || "Bulk Upload";
+
+      for (let i = 0; i < validRows.length; i += MAX_BATCH_WRITES) {
+        const batch = writeBatch(db);
+        const chunk = validRows.slice(i, i + MAX_BATCH_WRITES);
+
+        chunk.forEach((row) => {
+          const existing = (existingMarksByStudent.get(normalizeText(row.studentId)) || []).find((markDoc) => {
+            const sameStudent = normalizeText(markDoc.studentId) === normalizeText(row.studentId);
+            const sameClass =
+              normalizeLower(
+                markDoc.alClassName || markDoc.fullClassName || markDoc.className
+              ) === normalizeLower(row.fullClassName || row.className);
+            const sameTerm =
+              normalizeLower(markDoc.termName || markDoc.term) === normalizeLower(row.term);
+            const sameYear =
+              String(markDoc.academicYear || markDoc.year || "") ===
+              String(row.academicYear);
+            const sameAssessment = !normalizeText(markDoc.practiceExamId || markDoc.assessmentId);
+            const sameSubject = subjectsMatch(
+              {
+                subjectId: markDoc.subjectId,
+                subjectName: markDoc.subjectName || markDoc.subject,
+                subjectNumber: markDoc.subjectNumber,
+              },
+              {
+                subjectId: row.subjectId,
+                subjectName: row.subjectName,
+                subjectNumber: row.subjectNumber,
+              }
+            );
+
+            return sameStudent && sameClass && sameSubject && sameTerm && sameYear && sameAssessment;
+          });
+
+          const markValue = row.absent ? null : row.marks;
+          const payload = {
+            studentId: row.studentId,
+            studentName: row.studentName,
+            admissionNo: row.admissionNo || "",
+            indexNo: row.indexNo || "",
+            className: row.className || "",
+            fullClassName: row.fullClassName || row.className || "",
+            alClassName: row.alClassName || "",
+            grade: row.grade || "",
+            section: row.section || "",
+            stream: row.stream || "",
+            attendancePercentage: row.attendancePercentage ?? null,
+            subjectId: row.subjectId || "",
+            subjectName: row.subjectName,
+            subject: row.subjectName,
+            subjectNumber: row.subjectNumber || "",
+            term: row.term,
+            termName: row.term,
+            academicYear: row.academicYear,
+            year: row.academicYear,
+            assessmentType: "term",
+            assessmentId: "",
+            assessmentName: "",
+            practiceExamId: "",
+            practiceExamName: "",
+            mark: markValue,
+            marks: markValue,
+            score: markValue,
+            absent: Boolean(row.absent),
+            isAbsent: Boolean(row.absent),
+            teacherId: currentUser?.uid || "",
+            teacherName,
+            uploadSource: uploadedFormat || "bulkUpload",
+            updatedAt: serverTimestamp(),
+          };
+          Object.assign(payload, buildCanonicalMarkFields(payload));
+
+          if (existing?.id) {
+            batch.set(doc(db, "marks", existing.id), payload, { merge: true });
+          } else {
+            batch.set(doc(collection(db, "marks")), {
+              ...payload,
+              createdAt: serverTimestamp(),
+            });
+          }
+        });
+
+        await batch.commit();
+      }
+
+      setSuccess(`Saved ${validRows.length} mark row${validRows.length === 1 ? "" : "s"} successfully.`);
+      setValidRows([]);
+      setInvalidRows([]);
+      setRawUploadedRows([]);
+      setUploadedFileName("");
+      setUploadedFormat("");
+      invalidateCollectionRows("marks");
+    } catch (err) {
+      console.error("Bulk save error:", err);
+      setError(err.message || "Failed to save uploaded marks.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSelectedSubjectMarks() {
+    if (!selectedClass || !selectedSubject || !selectedTerm || !selectedYear) {
+      setError("Select year, class, subject, and term before deleting marks.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete all saved marks for ${selectedSubject} in ${selectedClass}, ${selectedTerm}, ${selectedYear}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingMarks(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const marksRows = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const matchingDocs = marksRows.filter((markDoc) => {
+        const markClass = markDoc.alClassName || markDoc.fullClassName || markDoc.className || "";
+        const markTerm = markDoc.termName || markDoc.term || "";
+        const markYear = String(markDoc.academicYear || markDoc.year || "");
+        const sameClass = normalizeLower(markClass) === normalizeLower(selectedClass);
+        const sameTerm = normalizeLower(markTerm) === normalizeLower(selectedTerm);
+        const sameYear = markYear === String(selectedYear);
+        const sameAssessment = !normalizeText(markDoc.practiceExamId || markDoc.assessmentId);
+        const sameSubject = subjectsMatch(
+          {
+            subjectId: markDoc.subjectId,
+            subjectName: markDoc.subjectName || markDoc.subject,
+            subjectNumber: markDoc.subjectNumber,
+          },
+          {
+            subjectId: selectedSubjectId,
+            subjectName: selectedSubject,
+            subjectNumber: selectedSubjectNumber,
+          }
+        );
+
+        return sameClass && sameTerm && sameYear && sameAssessment && sameSubject;
+      });
+
+      for (let i = 0; i < matchingDocs.length; i += MAX_BATCH_WRITES) {
+        const batch = writeBatch(db);
+        matchingDocs.slice(i, i + MAX_BATCH_WRITES).forEach((docSnap) => {
+          batch.delete(doc(db, "marks", docSnap.id));
+        });
+        await batch.commit();
+      }
+
+      setSuccess(
+        `Deleted ${matchingDocs.length} saved mark row${matchingDocs.length === 1 ? "" : "s"} for ${selectedSubject}. You can re-upload now.`
+      );
+      setValidRows([]);
+      setInvalidRows([]);
+      setRawUploadedRows([]);
+      setUploadedFileName("");
+      setUploadedFormat("");
+      invalidateCollectionRows("marks");
+    } catch (err) {
+      console.error("Bulk delete marks error:", err);
+      setError(err.message || "Failed to delete selected marks.");
+    } finally {
+      setDeletingMarks(false);
+    }
+  }
+
+  const canDownload =
+    (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? selectedGrade : selectedClass) &&
+    selectedTerm &&
+    selectedYear &&
+    (uploadMode === UPLOAD_MODES.LOWER_CLASS_SHEET
+      ? classEnrollments.length > 0
+      : selectedSubject && previewRows.length > 0) &&
+    !downloading;
+
+  const canDeleteSelectedMarks =
+    uploadMode === UPLOAD_MODES.SUBJECT_TEMPLATE &&
+    selectedClass &&
+    selectedSubject &&
+    selectedTerm &&
+    selectedYear &&
+    !loading &&
+    !uploading &&
+    !saving &&
+    !deletingMarks;
+
+  const quickStats = [
+    { title: "Template Rows", value: previewRows.length, color: "primary", status: "active" },
+    { title: "Uploaded Rows", value: validRows.length + invalidRows.length, color: "saved", status: "saved" },
+    { title: "Valid Rows", value: validRows.length, color: "success", status: "completed" },
+    { title: "Invalid Rows", value: invalidRows.length, color: "error", status: "pending" },
+  ];
+
+  return (
+    <PageContainer
+      title="Bulk Marks Upload"
+      subtitle="Download a marks template, upload the completed Excel file, and preview valid and invalid rows before saving."
+      maxWidth="xl"
+    >
+      <Stack spacing={3}>
+        <Alert severity="info">
+          {[UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode) ? (
+            <>
+              {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
+                ? "Whole-grade mode creates one workbook containing every division in the selected grade."
+                : "Grade 6-9 class mode creates one workbook with the enrolled students and actual subject columns."}
+            </>
+          ) : (
+            <>This uses <strong>studentSubjectEnrollments</strong> as the source of truth. Only enrolled students for the selected class, subject, and academic year are valid.</>
+          )}
+        </Alert>
+
+        <Paper variant="outlined" sx={{ borderRadius: 3 }}>
+          <Tabs
+            value={uploadMode}
+            onChange={(_, value) => setUploadMode(value)}
+            variant={isMobile ? "scrollable" : "standard"}
+            scrollButtons="auto"
+            sx={{ px: 1 }}
+          >
+            <Tab value={UPLOAD_MODES.SUBJECT_TEMPLATE} label="Single Subject / A-L" />
+            <Tab value={UPLOAD_MODES.LOWER_CLASS_SHEET} label="Grade 6-9 Bulk Class" />
+            <Tab value={UPLOAD_MODES.WHOLE_GRADE_SHEET} label="Whole Grade 6-9" />
+            <Tab value={UPLOAD_MODES.OL_CLASS_SHEET} label="Grade 10-11 Bulk" disabled />
+          </Tabs>
+        </Paper>
+
+        {error && (
+          <Alert severity="error" onClose={() => setError("")}>
+            {error}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" onClose={() => setSuccess("")}>
+            {success}
+          </Alert>
+        )}
+
+        {isMobile ? (
+          <Paper sx={{ p: 1.5, borderRadius: 3, border: "1px solid #e8eaf6" }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main" }}>
+                Quick Summary
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {quickStats.map((item) => (
+                  <StatusChip key={item.title} status={item.status} label={`${item.title}: ${item.value}`} />
+                ))}
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Grid container spacing={1.5}>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard title="Template Rows" value={previewRows.length} icon={<SchoolIcon />} color="primary" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard title="Uploaded Rows" value={validRows.length + invalidRows.length} icon={<PreviewIcon />} color="secondary" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard title="Valid Rows" value={validRows.length} icon={<CheckCircleIcon />} color="success" />
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <StatCard title="Invalid Rows" value={invalidRows.length} icon={<ErrorOutlineIcon />} color="error" />
+            </Grid>
+          </Grid>
+        )}
+
+        <Paper
+          sx={{
+            p: 2,
+            borderRadius: 3,
+            border: "1px solid #e8eaf6",
+            boxShadow: "0 2px 10px rgba(26,35,126,0.06)",
+            position: { xs: "sticky", md: "static" },
+            top: { xs: 76, md: "auto" },
+            zIndex: { xs: 2, md: "auto" },
+          }}
+        >
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "primary.main" }}>
+              Upload Context
+            </Typography>
+            <Grid container spacing={2} alignItems="flex-end">
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Academic Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Academic Year"
+                    onChange={(e) => setSelectedYear(String(e.target.value))}
+                    disabled={loading}
+                  >
+                    {availableYears.map((year) => (
+                      <MenuItem key={year} value={String(year)}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>{uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}</InputLabel>
+                  <Select
+                    value={uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? selectedGrade : selectedClass}
+                    label={uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}
+                    onChange={(e) =>
+                      uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
+                        ? setSelectedGrade(String(e.target.value))
+                        : setSelectedClass(e.target.value)
+                    }
+                    disabled={loading}
+                  >
+                    <MenuItem value="">
+                      {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Select grade..." : "Select class..."}
+                    </MenuItem>
+                    {(uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? availableGrades : availableClasses).map((value) => (
+                      <MenuItem key={value} value={String(value)}>
+                        {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${value}` : value}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              {uploadMode === UPLOAD_MODES.SUBJECT_TEMPLATE ? (
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Subject</InputLabel>
+                    <Select
+                      value={selectedSubject}
+                      label="Subject"
+                      onChange={(e) => setSelectedSubject(e.target.value)}
+                      disabled={loading || !selectedClass}
+                    >
+                      <MenuItem value="">Select subject...</MenuItem>
+                      {availableSubjects.map((subject) => (
+                        <MenuItem key={subject} value={subject}>
+                          {subject}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              ) : (
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <Paper variant="outlined" sx={{ px: 1.5, py: 1, height: "40px", display: "flex", alignItems: "center", bgcolor: "action.hover" }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Subjects: automatically included from class enrollments
+                    </Typography>
+                  </Paper>
+                </Grid>
+              )}
+
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Term</InputLabel>
+                  <Select
+                    value={selectedTerm}
+                    label="Term"
+                    onChange={(e) => setSelectedTerm(e.target.value)}
+                    disabled={loading}
+                  >
+                    {availableTerms.map((term) => (
+                      <MenuItem key={term} value={term}>
+                        {term}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Button
+                  variant="contained"
+                  startIcon={
+                    downloading ? <CircularProgress size={18} color="inherit" /> : <DownloadIcon />
+                  }
+                  onClick={handleDownloadTemplate}
+                  disabled={!canDownload}
+                  sx={{
+                    bgcolor: "#1a237e",
+                    fontWeight: 700,
+                    borderRadius: 2,
+                  }}
+                  fullWidth={isMobile}
+                >
+                  {downloading
+                    ? "Generating..."
+                    : uploadMode === UPLOAD_MODES.LOWER_CLASS_SHEET
+                    ? "Download Grade 6-9 Class Template"
+                    : "Download Single-Subject Template"}
+                </Button>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={
+                    uploading ? <CircularProgress size={18} color="inherit" /> : <UploadFileIcon />
+                  }
+                  disabled={
+                    loading ||
+                    uploading ||
+                    saving ||
+                    uploadMode === UPLOAD_MODES.OL_CLASS_SHEET ||
+                    (!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
+                    (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+                    !selectedTerm ||
+                    !selectedYear
+                  }
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                  fullWidth={isMobile}
+                >
+                  {uploading
+                    ? "Reading File..."
+                    : [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+                    ? "Upload Class Workbook for Validation"
+                    : "Upload Completed Excel / Teacher Sheet"}
+                  <input
+                    hidden
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleFileUpload}
+                  />
+                </Button>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={
+                    deletingMarks ? <CircularProgress size={18} color="inherit" /> : <DeleteOutlineIcon />
+                  }
+                  onClick={handleDeleteSelectedSubjectMarks}
+                  disabled={!canDeleteSelectedMarks}
+                  sx={{ borderRadius: 2, fontWeight: 700 }}
+                  fullWidth={isMobile}
+                >
+                  {deletingMarks ? "Deleting..." : "Delete Selected Subject Marks"}
+                </Button>
+              </Grid>
+            </Grid>
+          </Stack>
+        </Paper>
+
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+          <Stack spacing={2}>
+            <Typography variant="h6" fontWeight={700}>
+              Current Selection
+            </Typography>
+
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip label={`Year: ${selectedYear || "-"}`} />
+              <Chip
+                label={`${uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}: ${
+                  uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
+                    ? selectedGrade ? `Grade ${selectedGrade}` : "-"
+                    : selectedClass || "-"
+                }`}
+              />
+              <Chip
+                label={`Subject: ${
+                  [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+                    ? "All class subjects"
+                    : selectedSubject || "Auto from teacher sheet"
+                }`}
+              />
+              <Chip label={`Term: ${selectedTerm || "-"}`} />
+              <Chip color="primary" label={`Template Rows: ${previewRows.length}`} />
+            </Stack>
+
+            <Typography variant="body2" color="text.secondary">
+              Standard template columns:{" "}
+              <strong>
+                studentId, indexNo, studentName, marks, absent, subjectId, subjectName,
+                className, term, academicYear
+              </strong>
+              . Teacher A/L sheets are also supported when they include StudentID,
+              A/L Class Name, subject columns, and Marks columns. Grade 6-9 class sheets
+              can use subject headers such as Maths, P.T.S, I.C.T, Saivam/Hindu, R.C,
+              and N.R.C.
+            </Typography>
+          </Stack>
+        </Paper>
+
+        {uploadedFileName ? (
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+            <Stack spacing={2}>
+              <Typography variant="h6" fontWeight={700}>
+                Upload Summary
+              </Typography>
+
+              <Box display="flex" flexWrap="wrap" gap={1}>
+                <Chip label={`File: ${uploadedFileName}`} />
+                <Chip
+                  label={`Format: ${
+                    uploadedFormat === "teacherSheet"
+                      ? "Teacher A/L sheet"
+                      : uploadedFormat === "wholeGradeSheet"
+                      ? "Whole Grade 6-9 workbook"
+                      : uploadedFormat === "lowerClassSheet"
+                      ? "Grade 6-9 class sheet"
+                      : "Standard template"
+                  }`}
+                />
+                <Chip label={`Rows Read: ${rawUploadedRows.length}`} />
+                <Chip
+                  color="success"
+                  icon={<CheckCircleIcon />}
+                  label={`Valid Rows: ${validRows.length}`}
+                />
+                <Chip
+                  color="error"
+                  icon={<ErrorOutlineIcon />}
+                  label={`Invalid Rows: ${invalidRows.length}`}
+                />
+              </Box>
+
+              <Typography variant="body2" color="text.secondary">
+                Only valid rows will be saved. Teacher and class sheets can contain
+                multiple subjects in one file.
+              </Typography>
+
+              <Button
+                variant="contained"
+                startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <CheckCircleIcon />}
+                onClick={handleSaveValidRows}
+                disabled={saving || uploading || validRows.length === 0}
+                sx={{ bgcolor: "#1a237e", borderRadius: 2, fontWeight: 700, width: "fit-content" }}
+              >
+                {saving ? "Saving..." : `Save ${validRows.length} Valid Row${validRows.length === 1 ? "" : "s"}`}
+              </Button>
+            </Stack>
+          </Paper>
+        ) : null}
+
+        {(validRows.length > 0 || invalidRows.length > 0) && (
+          <>
+            <Box display="flex" gap={1} flexWrap="wrap">
+              <Button
+                variant={showInvalidOnly ? "outlined" : "contained"}
+                onClick={() => setShowInvalidOnly(false)}
+                sx={{ borderRadius: 2 }}
+                fullWidth={isMobile}
+              >
+                Show Valid Rows
+              </Button>
+              <Button
+                variant={showInvalidOnly ? "contained" : "outlined"}
+                color="error"
+                onClick={() => setShowInvalidOnly(true)}
+                sx={{ borderRadius: 2 }}
+                fullWidth={isMobile}
+              >
+                Show Invalid Rows
+              </Button>
+            </Box>
+
+            {!showInvalidOnly && (
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "auto" }}>
+                <Box sx={{ p: 2, pb: 0 }}>
+                  <Typography variant="h6" fontWeight={700}>
+                    Valid Rows Preview
+                  </Typography>
+                </Box>
+
+                <ResponsiveTableWrapper>
+                  <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: "#f5f7ff" }}>
+                      <TableCell><strong>Row</strong></TableCell>
+                      <TableCell><strong>Index No</strong></TableCell>
+                      <TableCell><strong>Student</strong></TableCell>
+                      <TableCell><strong>Subject</strong></TableCell>
+                      <TableCell><strong>Marks</strong></TableCell>
+                      <TableCell><strong>Absent</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {validRows.length ? (
+                      validRows.map((row) => (
+                        <TableRow key={`${row.studentId}-${row.rowNumber}`}>
+                          <TableCell>{row.rowNumber}</TableCell>
+                          <TableCell>{row.indexNo || "—"}</TableCell>
+                          <TableCell>{row.studentName || "—"}</TableCell>
+                          <TableCell>{row.subjectName || "—"}</TableCell>
+                          <TableCell>{row.marks ?? "—"}</TableCell>
+                          <TableCell>{row.absent === true ? "TRUE" : row.absent === false ? "FALSE" : "—"}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} align="center">
+                          No valid rows found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                  </Table>
+                </ResponsiveTableWrapper>
+              </Paper>
+            )}
+
+            {showInvalidOnly && (
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "auto" }}>
+                <Box sx={{ p: 2, pb: 0 }}>
+                  <Typography variant="h6" fontWeight={700}>
+                    Invalid Rows Preview
+                  </Typography>
+                </Box>
+
+                <ResponsiveTableWrapper>
+                  <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: "#fff4f4" }}>
+                      <TableCell><strong>Row</strong></TableCell>
+                      <TableCell><strong>Index No</strong></TableCell>
+                      <TableCell><strong>Student</strong></TableCell>
+                      <TableCell><strong>Subject</strong></TableCell>
+                      <TableCell><strong>Marks</strong></TableCell>
+                      <TableCell><strong>Absent</strong></TableCell>
+                      <TableCell><strong>Reason</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {invalidRows.length ? (
+                      invalidRows.map((row) => (
+                        <TableRow key={`${row.studentId || "invalid"}-${row.rowNumber}`}>
+                          <TableCell>{row.rowNumber}</TableCell>
+                          <TableCell>{row.indexNo || "—"}</TableCell>
+                          <TableCell>{row.studentName || "—"}</TableCell>
+                          <TableCell>{row.subjectName || "—"}</TableCell>
+                          <TableCell>{normalizeText(row.marks) || "—"}</TableCell>
+                          <TableCell>{normalizeText(row.absent) || "—"}</TableCell>
+                          <TableCell>
+                            {row.reasons.join(", ")}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={7} align="center">
+                          No invalid rows found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                  </Table>
+                </ResponsiveTableWrapper>
+              </Paper>
+            )}
+          </>
+        )}
+
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+          <Stack spacing={1}>
+            <Typography variant="h6" fontWeight={700}>
+              Validation Rules
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              1. <strong>studentId</strong> must exist in the students collection.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              2. <strong>subjectId</strong> and <strong>subjectName</strong> must match the selected subject.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              3. <strong>className</strong>, <strong>term</strong>, and <strong>academicYear</strong> must match the current selection.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              4. <strong>marks</strong> must be numeric or empty.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              5. <strong>absent</strong> must be TRUE/FALSE or empty.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              6. Duplicate student rows are rejected.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              7. A row is invalid if the student is not enrolled in the selected class and subject.
+            </Typography>
+          </Stack>
+        </Paper>
+
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+          <Stack spacing={2}>
+            <Typography variant="h6" fontWeight={700}>
+              Quick Enrollment Summary
+            </Typography>
+
+            {loading ? (
+              <Box textAlign="center" py={3}>
+                <CircularProgress />
+              </Box>
+            ) : summaryOptions.length === 0 ? (
+              <Alert severity="info">No active enrollments found.</Alert>
+            ) : isMobile ? (
+              <Stack spacing={1.25}>
+                {summaryOptions.slice(0, 12).map((item) => (
+                  <MobileListRow
+                    key={`${item.className}-${item.subjectName}-${item.academicYear}`}
+                    compact
+                    title={`${item.className} - ${item.subjectName}`}
+                    subtitle={`Academic Year: ${item.academicYear || "-"}`}
+                    right={
+                      <StatusChip
+                        status="active"
+                        label={`${item.count} students`}
+                      />
+                    }
+                    meta={[
+                      <Chip
+                        key="class"
+                        size="small"
+                        variant="outlined"
+                        label={item.className}
+                      />,
+                      <Chip
+                        key="subject"
+                        size="small"
+                        variant="outlined"
+                        label={item.subjectName}
+                      />,
+                    ]}
+                  />
+                ))}
+              </Stack>
+            ) : (
+              <Grid container spacing={1.5}>
+                {summaryOptions.slice(0, 12).map((item) => (
+                  <Grid size={{ xs: 12, md: 6, lg: 4 }} key={`${item.className}-${item.subjectName}-${item.academicYear}`}>
+                    <Card variant="outlined" sx={{ height: "100%" }}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Typography fontWeight={700}>
+                            {item.className} - {item.subjectName}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Academic Year: {item.academicYear || "-"}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            color="primary"
+                            label={`${item.count} enrolled students`}
+                            sx={{ width: "fit-content" }}
+                          />
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Stack>
+        </Paper>
+      </Stack>
+    </PageContainer>
+  );
+}

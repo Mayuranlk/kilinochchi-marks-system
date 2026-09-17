@@ -1,0 +1,9 @@
+{
+  "projectId": "kilinochchi-marks-staging",
+  "authenticatedAccount": "techzlkpro@gmail.com",
+  "releaseName": "projects/kilinochchi-marks-staging/releases/cloud.firestore",
+  "rulesetName": "projects/kilinochchi-marks-staging/rulesets/c87af2a3-5369-496c-a02e-7e3d762a532c",
+  "retrievedAt": "2026-08-08T06:14:12.861Z",
+  "sourceFileName": "firestore.rules.before-clean-rerun-20260808T060000Z",
+  "output": "staging-evidence\\stabilization\\rollback\\firestore.rules.rollback-verified-clean-rerun"
+}

@@ -1,0 +1,1443 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import PrintIcon from "@mui/icons-material/Print";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
+
+import { db } from "../firebase";
+import { getCollectionRows } from "../services/firestoreReadCache";
+import { useAuth } from "../context/AuthContext";
+import { SCHOOL_NAME, SCHOOL_SUBTITLE, buildALClassName, isALGrade } from "../constants";
+import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
+import {
+  exportClassMarksPdf,
+  exportClassMarksExcel,
+  exportClassMarksEmisExcel,
+  isClassMarksEmisExportSupported,
+} from "../utils/classMarksExportUtils";
+import { getOlGradeBand } from "../utils/gradeUtils";
+import {
+  getRankingMedium,
+  usesSeparateMediumRanking,
+} from "../utils/academicMediumUtils";
+import { PageContainer } from "../components/ui";
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function text(value) {
+  return String(value || "").trim();
+}
+
+function lower(value) {
+  return text(value).toLowerCase();
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function normalizeSection(value) {
+  const raw = text(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function buildFullClassName(grade, section) {
+  const g = parseGrade(grade);
+  const s = normalizeSection(section);
+  return g && s ? `${g}${s}` : "";
+}
+
+function normalizeSubjectName(value) {
+  return text(value)
+    .replace(/\s+/g, " ")
+    .replace(/[()]/g, "")
+    .replace(/&/g, "and")
+    .replace(/,/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function getStudentName(student) {
+  return text(student?.fullName || student?.name || "Unnamed Student");
+}
+
+function getStudentGrade(student) {
+  return parseGrade(student?.grade);
+}
+
+function getStudentSection(student) {
+  return normalizeSection(student?.section || student?.className || "");
+}
+
+function getStudentClassName(student) {
+  if (student?.alClassName || student?.fullClassName) {
+    return text(student.alClassName || student.fullClassName);
+  }
+
+  const grade = getStudentGrade(student);
+  const stream = text(student?.stream);
+  const section = getStudentSection(student);
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return buildFullClassName(getStudentGrade(student), getStudentSection(student));
+}
+
+function isStudentActive(student) {
+  return lower(student?.status || "active") === "active";
+}
+
+function getEnrollmentClassName(enrollment) {
+  const explicit = text(enrollment?.alClassName || enrollment?.fullClassName);
+  if (explicit) return explicit;
+
+  const stream = text(enrollment?.stream);
+  const section = normalizeSection(enrollment?.section || enrollment?.className || "");
+  if (isALGrade(enrollment?.grade) && stream && section) {
+    return buildALClassName(enrollment.grade, stream, section);
+  }
+
+  const rawClassName = text(enrollment?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(enrollment?.grade, enrollment?.section || rawClassName);
+}
+
+function getEnrollmentSubjectName(enrollment) {
+  return text(enrollment?.subjectName || enrollment?.subject || "");
+}
+
+function getEnrollmentSubjectId(enrollment) {
+  return text(enrollment?.subjectId || "");
+}
+
+function getEnrollmentAcademicYear(enrollment) {
+  return String(enrollment?.academicYear || enrollment?.year || "");
+}
+
+function isEnrollmentActive(enrollment) {
+  return lower(enrollment?.status || "active") === "active";
+}
+
+function getMarkSubject(mark) {
+  return text(mark?.subjectName || mark?.subject || "");
+}
+
+function getMarkSubjectId(mark) {
+  return text(mark?.subjectId || "");
+}
+
+function getMarkTerm(mark) {
+  return text(mark?.termName || mark?.term || "");
+}
+
+function getMarkYear(mark) {
+  return String(mark?.academicYear || mark?.year || "");
+}
+
+function getMarkValue(mark) {
+  const value = mark?.marks ?? mark?.mark ?? mark?.score ?? null;
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function markCountsAsEntered(mark) {
+  return (
+    getMarkValue(mark) !== null ||
+    mark?.isAbsent === true ||
+    mark?.absent === true ||
+    lower(mark?.attendanceStatus) === "absent" ||
+    lower(mark?.attendanceStatus) === "medical_absent"
+  );
+}
+
+function getMarkClassName(mark) {
+  const explicit = text(mark?.alClassName || mark?.fullClassName);
+  if (explicit) return explicit;
+
+  const stream = text(mark?.stream);
+  const section = normalizeSection(mark?.section || mark?.className || "");
+  if (isALGrade(mark?.grade) && stream && section) {
+    return buildALClassName(mark.grade, stream, section);
+  }
+
+  const rawClassName = text(mark?.className || "");
+  if (/^\d+[A-Z]+$/i.test(rawClassName)) return rawClassName.toUpperCase();
+  return buildFullClassName(mark?.grade, mark?.section || rawClassName);
+}
+
+function normalizeClassroom(classroom) {
+  const grade = parseGrade(classroom?.grade);
+  const section = normalizeSection(classroom?.section || classroom?.className || "");
+
+  return {
+    ...classroom,
+    grade,
+    section,
+    className:
+      text(classroom?.alClassName || classroom?.fullClassName || classroom?.className) ||
+      buildFullClassName(grade, section),
+  };
+}
+
+function teacherMatchesProfile(record, profile) {
+  const recordTeacherId = text(
+    record?.teacherId || record?.classTeacherId || record?.teacherDocId
+  );
+  const recordUid = text(record?.teacherUid || record?.classTeacherUid || record?.uid);
+  const recordEmail = lower(record?.teacherEmail || record?.classTeacherEmail || record?.email);
+  const recordName = lower(record?.teacherName || record?.classTeacherName || record?.name);
+  const recordSignatureNo = text(
+    record?.teacherSignatureNo || record?.classTeacherSignatureNo || record?.signatureNo
+  );
+
+  const profileIds = [
+    profile?.uid,
+    profile?.id,
+    profile?.teacherId,
+    profile?.docId,
+    profile?.userId,
+  ]
+    .map(text)
+    .filter(Boolean);
+
+  const profileEmails = [profile?.email].map(lower).filter(Boolean);
+  const profileNames = [profile?.name, profile?.displayName].map(lower).filter(Boolean);
+  const profileSignatureNos = [
+    profile?.signatureNo,
+    profile?.teacherSignatureNo,
+    profile?.teacherNo,
+  ]
+    .map(text)
+    .filter(Boolean);
+
+  return (
+    (recordTeacherId && profileIds.includes(recordTeacherId)) ||
+    (recordUid && profileIds.includes(recordUid)) ||
+    (recordEmail && profileEmails.includes(recordEmail)) ||
+    (recordName && profileNames.includes(recordName)) ||
+    (recordSignatureNo && profileSignatureNos.includes(recordSignatureNo))
+  );
+}
+
+function getGradeLetter(mark, grade) {
+  if (mark == null) return null;
+
+  if (grade >= 6 && grade <= 9) {
+    if (mark >= 75) return { label: "A", color: "#2e7d32", bg: "#e8f5e9" };
+    if (mark >= 65) return { label: "B", color: "#1565c0", bg: "#e3f2fd" };
+    if (mark >= 55) return { label: "C", color: "#e65100", bg: "#fff3e0" };
+    if (mark >= 40) return { label: "D", color: "#555", bg: "#f5f5f5" };
+    return { label: "E", color: "#c62828", bg: "#ffebee" };
+  }
+
+  const olBand = getOlGradeBand(mark);
+  if (olBand?.label === "A") return { label: "A", color: "#2e7d32", bg: "#e8f5e9" };
+  if (olBand?.label === "B") return { label: "B", color: "#1565c0", bg: "#e3f2fd" };
+  if (olBand?.label === "C") return { label: "C", color: "#e65100", bg: "#fff3e0" };
+  if (olBand?.label === "S") return { label: "S", color: "#555", bg: "#f5f5f5" };
+  return { label: "W", color: "#c62828", bg: "#ffebee" };
+}
+
+function average(values = []) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function shortSubject(name) {
+  if (name.length <= 12) return name;
+  return `${name.slice(0, 12)}…`;
+}
+
+function getOptimiStudents(studentRows = []) {
+  const normalized = (value) => normalizeSubjectName(String(value || ""));
+  const isReligionSubject = (subjectKey) => {
+    const key = subjectKey.toLowerCase();
+    return [
+      "religion",
+      "saivam",
+      "nrc",
+      "rc",
+      "islam",
+      "hinduism",
+      "christianity",
+      "catholicism",
+      "muslim",
+    ].some((term) => key.includes(term));
+  };
+
+  return studentRows
+    .map((student) => {
+      const subjects = Object.keys(student.marksBySubject || {});
+      const tamil = subjects
+        .filter((subject) => normalized(subject).includes("tamil"))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+      const english = subjects
+        .filter((subject) => normalized(subject).includes("english"))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+      const religion = subjects
+        .filter((subject) => isReligionSubject(subject))
+        .map((subject) => student.marksBySubject[subject])
+        .find((mark) => mark !== null && mark !== undefined);
+
+      return {
+        ...student,
+        tamil,
+        english,
+        religion,
+      };
+    })
+    .filter((student) => {
+      return (
+        student.average !== null &&
+        student.average >= 75 &&
+        Number.isFinite(Number(student.tamil)) &&
+        student.tamil >= 75 &&
+        Number.isFinite(Number(student.english)) &&
+        student.english >= 60 &&
+        Number.isFinite(Number(student.religion)) &&
+        student.religion >= 75
+      );
+    });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export default function ClassReport() {
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const printRef = useRef(null);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const [classTeacherClass, setClassTeacherClass] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [allMarks, setAllMarks] = useState([]);
+  const [terms, setTerms] = useState([]);
+  const [activeTerm, setActiveTerm] = useState(null);
+  const [selectedTerm, setSelectedTerm] = useState("active");
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  useEffect(() => {
+    async function fetchData() {
+      if (!profile?.uid && !profile?.email && !profile?.name) return;
+
+      setLoading(true);
+      setLoadError("");
+
+      try {
+        const [allTerms, studentRows, markRows, classroomRows, enrollmentRows] =
+          await Promise.all([
+            getCollectionRows(db, "academicTerms"),
+            getCollectionRows(db, "students"),
+            getCollectionRows(db, "marks"),
+            getCollectionRows(db, "classrooms"),
+            getCollectionRows(db, "studentSubjectEnrollments"),
+          ]);
+
+        const sortedTerms = [...allTerms].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
+        const active = allTerms.find((term) => term.isActive === true) || null;
+
+        setTerms(sortedTerms);
+        setActiveTerm(active);
+
+        const classrooms = classroomRows.map(normalizeClassroom);
+
+        const matchedClassroom =
+          classrooms.find((room) => teacherMatchesProfile(room, profile)) || null;
+
+        setClassTeacherClass(matchedClassroom);
+
+        if (!matchedClassroom) {
+          setStudents([]);
+          setEnrollments([]);
+          setAllMarks([]);
+          return;
+        }
+
+        const className = matchedClassroom.className;
+
+        const allStudents = studentRows.filter(isStudentActive);
+
+        const classStudents = allStudents
+          .filter((student) => getStudentClassName(student) === className)
+          .sort((a, b) => getStudentName(a).localeCompare(getStudentName(b)));
+
+        const classEnrollments = enrollmentRows
+          .filter(isEnrollmentActive)
+          .filter((enrollment) => getEnrollmentClassName(enrollment) === className);
+
+        const classMarks = markRows
+          .filter((mark) => getMarkClassName(mark) === className);
+
+        setStudents(classStudents);
+        setEnrollments(classEnrollments);
+        setAllMarks(classMarks);
+      } catch (error) {
+        console.error("ClassReport fetch error:", error);
+        setLoadError("Failed to load class report.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [profile]);
+
+  const currentTerm = useMemo(() => {
+    return selectedTerm === "active"
+      ? activeTerm
+      : terms.find((term) => term.id === selectedTerm) || null;
+  }, [selectedTerm, activeTerm, terms]);
+
+  const currentTermYear = useMemo(() => {
+    return currentTerm ? String(currentTerm.year) : "";
+  }, [currentTerm]);
+
+  const currentTermName = useMemo(() => {
+    return currentTerm ? text(currentTerm.term) : "";
+  }, [currentTerm]);
+
+  const classReportData = useMemo(() => {
+    if (!classTeacherClass || !currentTerm) return null;
+
+    try {
+      return buildClassMarksReportData({
+        students,
+        enrollments,
+        marks: allMarks,
+        classrooms: [classTeacherClass],
+        grade: classTeacherClass.grade,
+        className: classTeacherClass.className,
+        section: classTeacherClass.section,
+        termName: currentTermName,
+        year: currentTermYear,
+      });
+    } catch (err) {
+      console.error("Failed to build export report data:", err);
+      return null;
+    }
+  }, [allMarks, classTeacherClass, currentTerm, currentTermName, currentTermYear, enrollments, students]);
+
+  const handleExportPdf = async () => {
+    if (!classReportData) return;
+    setExportingPdf(true);
+
+    try {
+      exportClassMarksPdf(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export PDF.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!classReportData) return;
+    setExportingExcel(true);
+
+    try {
+      exportClassMarksExcel(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export Excel.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleExportEmis = async () => {
+    if (!classReportData) return;
+
+    try {
+      exportClassMarksEmisExcel(classReportData);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message || "Failed to export EMIS Excel.");
+    }
+  };
+
+  const classSubjects = useMemo(() => {
+    const filteredEnrollments = enrollments.filter((enrollment) => {
+      if (!currentTermYear) return true;
+      const enrollmentYear = getEnrollmentAcademicYear(enrollment);
+      return !enrollmentYear || enrollmentYear === currentTermYear;
+    });
+
+    const subjectMap = new Map();
+
+    filteredEnrollments.forEach((enrollment) => {
+      const subjectId = getEnrollmentSubjectId(enrollment);
+      const subjectName = getEnrollmentSubjectName(enrollment);
+      const key = subjectId || normalizeSubjectName(subjectName);
+
+      if (!key) return;
+
+      if (!subjectMap.has(key)) {
+        subjectMap.set(key, { subjectId, subjectName });
+      }
+    });
+
+    return Array.from(subjectMap.values()).sort((a, b) =>
+      a.subjectName.localeCompare(b.subjectName)
+    );
+  }, [enrollments, currentTermYear]);
+
+  const termMarks = useMemo(() => {
+    if (!currentTerm) return [];
+
+    return allMarks.filter((mark) => {
+      const sameTerm = getMarkTerm(mark) === currentTermName;
+      const sameYear = getMarkYear(mark) === currentTermYear;
+      return sameTerm && sameYear;
+    });
+  }, [allMarks, currentTerm, currentTermName, currentTermYear]);
+
+  const studentRows = useMemo(() => {
+    return students.map((student) => {
+      const studentId = text(student.id);
+
+      const studentEnrollments = enrollments.filter((enrollment) => {
+        const sameStudent = text(enrollment.studentId) === studentId;
+        const sameYear =
+          !getEnrollmentAcademicYear(enrollment) ||
+          getEnrollmentAcademicYear(enrollment) === currentTermYear;
+        return sameStudent && sameYear;
+      });
+
+      const eligibleSubjects = new Map();
+
+      studentEnrollments.forEach((enrollment) => {
+        const subjectId = getEnrollmentSubjectId(enrollment);
+        const subjectName = getEnrollmentSubjectName(enrollment);
+        const key = subjectId || normalizeSubjectName(subjectName);
+        if (!key) return;
+
+        eligibleSubjects.set(key, {
+          subjectId,
+          subjectName,
+        });
+      });
+
+      const marksBySubject = {};
+      let total = 0;
+      let enteredCount = 0;
+      let eligibleSubjectCount = 0;
+
+      classSubjects.forEach((subjectInfo) => {
+        const subjectKey = subjectInfo.subjectId || normalizeSubjectName(subjectInfo.subjectName);
+        const isEligible = eligibleSubjects.has(subjectKey);
+
+        if (!isEligible) {
+          marksBySubject[subjectInfo.subjectName] = null;
+          return;
+        }
+
+        eligibleSubjectCount += 1;
+
+        const matchedMark = termMarks.find((mark) => {
+          const sameStudent = text(mark.studentId) === studentId;
+
+          const sameSubject =
+            (subjectInfo.subjectId &&
+              getMarkSubjectId(mark) &&
+              subjectInfo.subjectId === getMarkSubjectId(mark)) ||
+            normalizeSubjectName(subjectInfo.subjectName) ===
+              normalizeSubjectName(getMarkSubject(mark));
+
+          return sameStudent && sameSubject;
+        });
+
+        const markValue =
+          matchedMark && markCountsAsEntered(matchedMark) ? getMarkValue(matchedMark) : null;
+
+        marksBySubject[subjectInfo.subjectName] = markValue;
+
+        if (matchedMark && markCountsAsEntered(matchedMark)) {
+          enteredCount += 1;
+        }
+
+        if (markValue !== null) {
+          total += markValue;
+        }
+      });
+
+      const avgValue =
+        enteredCount > 0 && eligibleSubjectCount > 0
+          ? Number((total / eligibleSubjectCount).toFixed(1))
+          : null;
+
+      return {
+        ...student,
+        rankingMedium: getRankingMedium(student, studentEnrollments),
+        marksBySubject,
+        total,
+        enteredCount,
+        subjectCount: eligibleSubjectCount,
+        average: avgValue,
+      };
+    });
+  }, [students, enrollments, classSubjects, termMarks, currentTermYear]);
+
+  const rankedRows = useMemo(() => {
+    const separateMediumRanking = usesSeparateMediumRanking(classTeacherClass?.grade);
+    const sortable = studentRows
+      .filter(
+        (student) =>
+          student.enteredCount > 0 &&
+          (!separateMediumRanking || Boolean(student.rankingMedium))
+      )
+      .sort((a, b) => {
+        const mediumDiff = separateMediumRanking
+          ? text(a.rankingMedium).localeCompare(text(b.rankingMedium))
+          : 0;
+        if (mediumDiff !== 0) return mediumDiff;
+        return b.total - a.total;
+      });
+
+    const groupState = new Map();
+
+    return sortable.map((student) => {
+      const groupKey = separateMediumRanking ? student.rankingMedium : "__all__";
+      const state = groupState.get(groupKey) || {
+        position: 0,
+        previousTotal: null,
+        currentRank: 0,
+      };
+      const position = state.position + 1;
+      const rank =
+        state.position === 0 || state.previousTotal !== student.total
+          ? position
+          : state.currentRank;
+      groupState.set(groupKey, {
+        position,
+        previousTotal: student.total,
+        currentRank: rank,
+      });
+      return { ...student, rank };
+    });
+  }, [studentRows, classTeacherClass?.grade]);
+
+  const finalRows = useMemo(() => {
+    return studentRows.map((student) => {
+      const rankedStudent = rankedRows.find((row) => row.id === student.id);
+      return {
+        ...student,
+        rank: rankedStudent?.rank ?? "—",
+      };
+    });
+  }, [studentRows, rankedRows]);
+
+  const subjectAnalysis = useMemo(() => {
+    return classSubjects.map((subjectInfo) => {
+      const subjectMarks = termMarks
+        .filter((mark) => {
+          return (
+            (subjectInfo.subjectId &&
+              getMarkSubjectId(mark) &&
+              subjectInfo.subjectId === getMarkSubjectId(mark)) ||
+            normalizeSubjectName(subjectInfo.subjectName) ===
+              normalizeSubjectName(getMarkSubject(mark))
+          );
+        })
+        .map((mark) => getMarkValue(mark))
+        .filter((value) => value !== null);
+
+      if (!subjectMarks.length) {
+        return {
+          subject: subjectInfo.subjectName,
+          count: 0,
+          avg: null,
+          highest: null,
+          lowest: null,
+          passRate: null,
+          gradesDist: {},
+        };
+      }
+
+      const passThreshold = 40;
+      const passed = subjectMarks.filter((mark) => mark >= passThreshold).length;
+
+      const gradesDist = {};
+      subjectMarks.forEach((mark) => {
+        const gradeLetter = getGradeLetter(mark, classTeacherClass?.grade || 0)?.label;
+        if (!gradeLetter) return;
+        gradesDist[gradeLetter] = (gradesDist[gradeLetter] || 0) + 1;
+      });
+
+      return {
+        subject: subjectInfo.subjectName,
+        count: subjectMarks.length,
+        avg: Number(average(subjectMarks).toFixed(1)),
+        highest: Math.max(...subjectMarks),
+        lowest: Math.min(...subjectMarks),
+        passRate: Math.round((passed / subjectMarks.length) * 100),
+        gradesDist,
+      };
+    });
+  }, [classSubjects, termMarks, classTeacherClass]);
+
+  const subjectHighestMarks = useMemo(() => {
+    return subjectAnalysis.reduce((acc, subjectRow) => {
+      if (subjectRow.subject && subjectRow.highest !== null) {
+        acc[subjectRow.subject] = subjectRow.highest;
+      }
+      return acc;
+    }, {});
+  }, [subjectAnalysis]);
+
+  const optimiStudents = useMemo(() => getOptimiStudents(finalRows), [finalRows]);
+
+  const classSummary = useMemo(() => {
+    const averages = finalRows
+      .filter((student) => student.average !== null)
+      .map((student) => student.average);
+
+    const topStudents = rankedRows.filter((student) => student.rank === 1);
+
+    const lowestStudent = finalRows
+      .filter((student) => student.average !== null)
+      .reduce((lowest, current) => {
+        if (!lowest) return current;
+        return current.average < lowest.average ? current : lowest;
+      }, null);
+
+    return {
+      classAverage: averages.length ? Number(average(averages).toFixed(1)) : "—",
+      highestAverage:
+        topStudents.length > 0
+          ? topStudents
+              .map(
+                (student) =>
+                  `${student.average} (${getStudentName(student).split(" ")[0]}${
+                    student.rankingMedium ? `, ${student.rankingMedium}` : ""
+                  })`
+              )
+              .join(" / ")
+          : "—",
+      lowestAverage:
+        lowestStudent?.average !== null
+          ? `${lowestStudent.average} (${getStudentName(lowestStudent).split(" ")[0]})`
+          : "—",
+      rankedCount: `${rankedRows.length} / ${students.length}`,
+    };
+  }, [finalRows, rankedRows, students.length]);
+
+  const sortedDisplayRows = useMemo(() => {
+    return [...finalRows].sort((a, b) => {
+      const mediumDiff = usesSeparateMediumRanking(classTeacherClass?.grade)
+        ? text(a.rankingMedium || "Unassigned").localeCompare(
+            text(b.rankingMedium || "Unassigned")
+          )
+        : 0;
+      if (mediumDiff !== 0) return mediumDiff;
+      const aRank = Number(a.rank);
+      const bRank = Number(b.rank);
+      if (!Number.isFinite(aRank)) return 1;
+      if (!Number.isFinite(bRank)) return -1;
+      return aRank - bRank;
+    });
+  }, [finalRows, classTeacherClass?.grade]);
+
+  const handlePrint = () => {
+    if (!printRef.current || !classTeacherClass) return;
+
+    const content = printRef.current.innerHTML;
+    const win = window.open("", "_blank");
+
+    if (!win) return;
+
+    win.document.write(`
+      <html>
+        <head>
+          <title>Class Report - ${classTeacherClass.className}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 16px; color: #000; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+            th, td { border: 1px solid #555; padding: 5px 8px; text-align: center; }
+            th { background: #1a237e; color: white; }
+            td:nth-child(2) { text-align: left; }
+            .header { text-align: center; margin-bottom: 16px; }
+            .section-title { font-size: 14px; font-weight: bold; color: #1a237e; margin: 16px 0 6px; }
+            @media print { button { display: none !important; } }
+          </style>
+        </head>
+        <body>${content}</body>
+      </html>
+    `);
+
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  if (loading) {
+    return (
+      <PageContainer title="Class Report">
+        <Box display="flex" justifyContent="center" mt={5}>
+          <CircularProgress />
+        </Box>
+      </PageContainer>
+    );
+  }
+
+  if (!classTeacherClass) {
+    return (
+      <PageContainer title="Class Report">
+        <Alert severity="error">
+          You are not assigned as a class teacher in the classrooms collection.
+        </Alert>
+      </PageContainer>
+    );
+  }
+
+  return (
+    <PageContainer>
+      <Button
+        startIcon={<ArrowBackIcon />}
+        onClick={() => navigate("/teacher")}
+        sx={{ mb: 2 }}
+      >
+        Back to Dashboard
+      </Button>
+
+      {!!loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {loadError}
+        </Alert>
+      )}
+
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={2}
+        flexWrap="wrap"
+        gap={1}
+      >
+        <Box>
+          <Typography variant={isMobile ? "h6" : "h5"} fontWeight={700} color="primary.main">
+            Class Report
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Grade {classTeacherClass.grade}-{classTeacherClass.section} • {students.length} students
+          </Typography>
+        </Box>
+
+        <Box display="flex" gap={1} flexWrap="wrap">
+          <FormControl size="small" sx={{ minWidth: 190 }}>
+            <InputLabel>Term</InputLabel>
+            <Select
+              value={selectedTerm}
+              label="Term"
+              onChange={(e) => setSelectedTerm(e.target.value)}
+            >
+              <MenuItem value="active">
+                {activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term"}
+              </MenuItem>
+
+              {terms.map((term) => (
+                <MenuItem key={term.id} value={term.id}>
+                  {term.term} {term.year}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {!isMobile && (
+            <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
+              <Button
+                variant="contained"
+                startIcon={<PictureAsPdfIcon />}
+                onClick={handleExportPdf}
+                disabled={!classReportData || exportingPdf}
+                sx={{ bgcolor: "#d32f2f" }}
+              >
+                {exportingPdf ? "Exporting PDF..." : "Export PDF"}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<TableViewRoundedIcon />}
+                onClick={handleExportExcel}
+                disabled={!classReportData || exportingExcel}
+              >
+                {exportingExcel ? "Exporting Excel..." : "Export Excel"}
+              </Button>
+              {classReportData && isClassMarksEmisExportSupported(classReportData) && (
+                <Button
+                  variant="outlined"
+                  startIcon={<TableViewRoundedIcon />}
+                  onClick={handleExportEmis}
+                  disabled={!classReportData}
+                >
+                  Export EMIS NP
+                </Button>
+              )}
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ bgcolor: "#1a237e" }}
+              >
+                Print
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      {!currentTerm ? (
+        <Alert severity="warning">No active term found. Select a term above.</Alert>
+      ) : termMarks.length === 0 ? (
+        <Alert severity="info">
+          No marks entered yet for {currentTerm.term} {currentTerm.year}.
+        </Alert>
+      ) : (
+        <Box ref={printRef}>
+          <Box textAlign="center" mb={2} className="header">
+            <Typography variant="h6" fontWeight={700} color="primary.main">
+              {SCHOOL_NAME}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {SCHOOL_SUBTITLE}
+            </Typography>
+            <Typography variant="body2" fontWeight={600} mt={0.5}>
+              Class Performance Report — Grade {classTeacherClass.grade}-{classTeacherClass.section}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {currentTerm.term} {currentTerm.year}
+            </Typography>
+          </Box>
+
+          <Divider sx={{ mb: 2 }} />
+
+          {usesSeparateMediumRanking(classTeacherClass.grade) &&
+            finalRows.some((student) => !student.rankingMedium) && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Students without Tamil or English medium are excluded from ranking.
+              </Alert>
+            )}
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1}>
+            Marks Schedule — {currentTerm.term} {currentTerm.year}
+          </Typography>
+
+          <Paper sx={{ overflowX: "auto", mb: 3 }}>
+            <Table size="small">
+              <TableHead sx={{ bgcolor: "#1a237e" }}>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      color: "white",
+                      fontWeight: 700,
+                      position: "sticky",
+                      left: 0,
+                      bgcolor: "#1a237e",
+                      zIndex: 2,
+                    }}
+                  >
+                    Rank
+                  </TableCell>
+
+                  <TableCell
+                    sx={{
+                      color: "white",
+                      fontWeight: 700,
+                      position: "sticky",
+                      left: 55,
+                      bgcolor: "#1a237e",
+                      zIndex: 2,
+                      minWidth: 170,
+                    }}
+                  >
+                    Name
+                  </TableCell>
+
+                  {usesSeparateMediumRanking(classTeacherClass.grade) && (
+                    <TableCell sx={{ color: "white", fontWeight: 700, textAlign: "center" }}>
+                      Medium
+                    </TableCell>
+                  )}
+
+                  {classSubjects.map((subjectInfo) => (
+                    <TableCell
+                      key={subjectInfo.subjectId || subjectInfo.subjectName}
+                      sx={{
+                        color: "white",
+                        fontWeight: 600,
+                        fontSize: 11,
+                        minWidth: 80,
+                        textAlign: "center",
+                      }}
+                    >
+                      {shortSubject(subjectInfo.subjectName)}
+                    </TableCell>
+                  ))}
+
+                  <TableCell sx={{ color: "white", fontWeight: 700, textAlign: "center" }}>
+                    Total
+                  </TableCell>
+                  <TableCell sx={{ color: "white", fontWeight: 700, textAlign: "center" }}>
+                    Avg
+                  </TableCell>
+                  <TableCell sx={{ color: "white", fontWeight: 700, textAlign: "center" }}>
+                    Grade
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+
+              <TableBody>
+                {sortedDisplayRows.map((student) => {
+                  const avgNum = student.average;
+                  const avgGradeInfo =
+                    avgNum !== null ? getGradeLetter(avgNum, classTeacherClass.grade) : null;
+
+                  const rowBg =
+                    student.rank === 1
+                      ? "#fff9c4"
+                      : student.rank === 2
+                      ? "#f5f5f5"
+                      : student.rank === 3
+                      ? "#fbe9e7"
+                      : "white";
+
+                  return (
+                    <TableRow key={student.id} hover sx={{ bgcolor: rowBg }}>
+                      <TableCell
+                        sx={{
+                          fontWeight: 700,
+                          textAlign: "center",
+                          position: "sticky",
+                          left: 0,
+                          bgcolor: rowBg,
+                          zIndex: 1,
+                          minWidth: 55,
+                        }}
+                      >
+                        {student.rank === 1
+                          ? "🥇"
+                          : student.rank === 2
+                          ? "🥈"
+                          : student.rank === 3
+                          ? "🥉"
+                          : student.rank}
+                      </TableCell>
+
+                      <TableCell
+                        sx={{
+                          fontWeight: 600,
+                          fontSize: 13,
+                          position: "sticky",
+                          left: 55,
+                          bgcolor: rowBg,
+                          zIndex: 1,
+                        }}
+                      >
+                        {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
+                      </TableCell>
+
+                      {usesSeparateMediumRanking(classTeacherClass.grade) && (
+                        <TableCell sx={{ textAlign: "center" }}>
+                          {student.rankingMedium || "Unassigned"}
+                        </TableCell>
+                      )}
+
+                      {classSubjects.map((subjectInfo) => {
+                        const mark = student.marksBySubject[subjectInfo.subjectName];
+                        const letterInfo =
+                          mark !== null ? getGradeLetter(mark, classTeacherClass.grade) : null;
+                        const isHighestMark =
+                          mark !== null &&
+                          subjectHighestMarks[subjectInfo.subjectName] !== undefined &&
+                          mark === subjectHighestMarks[subjectInfo.subjectName];
+
+                        return (
+                          <TableCell
+                            key={`${student.id}-${subjectInfo.subjectId || subjectInfo.subjectName}`}
+                            sx={{
+                              textAlign: "center",
+                              bgcolor: isHighestMark ? "#fff9c4" : mark !== null ? letterInfo?.bg : "#fafafa",
+                              fontWeight: isHighestMark ? 700 : undefined,
+                            }}
+                          >
+                            {mark !== null ? (
+                              <Typography variant="body2" fontWeight={600} color={letterInfo?.color}>
+                                {mark}
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">
+                                —
+                              </Typography>
+                            )}
+                          </TableCell>
+                        );
+                      })}
+
+                      <TableCell sx={{ textAlign: "center", fontWeight: 700 }}>
+                        {student.enteredCount > 0 ? student.total : "—"}
+                      </TableCell>
+
+                      <TableCell
+                        sx={{
+                          textAlign: "center",
+                          fontWeight: 700,
+                          color: avgGradeInfo?.color,
+                        }}
+                      >
+                        {student.average ?? "—"}
+                      </TableCell>
+
+                      <TableCell sx={{ textAlign: "center" }}>
+                        {avgGradeInfo ? (
+                          <span
+                            style={{
+                              color: avgGradeInfo.color,
+                              fontWeight: 700,
+                              background: avgGradeInfo.bg,
+                              padding: "2px 10px",
+                              borderRadius: 12,
+                              fontSize: 13,
+                            }}
+                          >
+                            {avgGradeInfo.label}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </Paper>
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
+            Class Summary
+          </Typography>
+
+          <Grid container spacing={2} mb={3}>
+            {[
+              {
+                label: "Class Average",
+                value: classSummary.classAverage,
+                color: "#e8eaf6",
+                icon: "📈",
+              },
+              {
+                label: "Highest Average",
+                value: classSummary.highestAverage,
+                color: "#e8f5e9",
+                icon: "🥇",
+              },
+              {
+                label: "Lowest Average",
+                value: classSummary.lowestAverage,
+                color: "#fff3e0",
+                icon: "📉",
+              },
+              {
+                label: "Students Ranked",
+                value: classSummary.rankedCount,
+                color: "#e3f2fd",
+                icon: "👥",
+              },
+            ].map((card) => (
+              <Grid size={{ xs: 6, sm: 3 }} key={card.label}>
+                <Card sx={{ bgcolor: card.color, boxShadow: 1 }}>
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {card.icon} {card.label}
+                    </Typography>
+                    <Typography variant="subtitle1" fontWeight={700} mt={0.3}>
+                      {card.value}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1}>
+            Subject Analysis
+          </Typography>
+
+          <Paper sx={{ overflowX: "auto", mb: 3 }}>
+            <Table size="small">
+              <TableHead sx={{ bgcolor: "#37474f" }}>
+                <TableRow>
+                  {[
+                    "Subject",
+                    "Entered",
+                    "Average",
+                    "Highest",
+                    "Lowest",
+                    "Pass Rate",
+                    "A",
+                    "B",
+                    "C",
+                    classTeacherClass.grade <= 9 ? "D" : "S",
+                    classTeacherClass.grade <= 9 ? "E" : "F",
+                  ].map((head) => (
+                    <TableCell
+                      key={head}
+                      sx={{
+                        color: "white",
+                        fontWeight: 600,
+                        textAlign: "center",
+                        fontSize: 12,
+                      }}
+                    >
+                      {head}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+
+              <TableBody>
+                {subjectAnalysis.map((subjectRow) => (
+                  <TableRow key={subjectRow.subject} hover>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>
+                        {subjectRow.subject}
+                      </Typography>
+                    </TableCell>
+
+                    <TableCell sx={{ textAlign: "center" }}>
+                      {subjectRow.count > 0 ? (
+                        <Chip
+                          label={subjectRow.count}
+                          size="small"
+                          color={subjectRow.count === students.length ? "success" : "warning"}
+                        />
+                      ) : (
+                        <Chip label="0" size="small" color="error" />
+                      )}
+                    </TableCell>
+
+                    <TableCell
+                      sx={{
+                        textAlign: "center",
+                        fontWeight: 700,
+                        color:
+                          subjectRow.avg >= 65
+                            ? "#2e7d32"
+                            : subjectRow.avg >= 40
+                            ? "#e65100"
+                            : "#c62828",
+                      }}
+                    >
+                      {subjectRow.avg ?? "—"}
+                    </TableCell>
+
+                    <TableCell sx={{ textAlign: "center", color: "#2e7d32", fontWeight: 600 }}>
+                      {subjectRow.highest ?? "—"}
+                    </TableCell>
+
+                    <TableCell sx={{ textAlign: "center", color: "#c62828", fontWeight: 600 }}>
+                      {subjectRow.lowest ?? "—"}
+                    </TableCell>
+
+                    <TableCell sx={{ textAlign: "center" }}>
+                      {subjectRow.passRate !== null ? (
+                        <Chip
+                          label={`${subjectRow.passRate}%`}
+                          size="small"
+                          color={
+                            subjectRow.passRate >= 80
+                              ? "success"
+                              : subjectRow.passRate >= 50
+                              ? "warning"
+                              : "error"
+                          }
+                        />
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+
+                    {[
+                      "A",
+                      "B",
+                      "C",
+                      classTeacherClass.grade <= 9 ? "D" : "S",
+                      classTeacherClass.grade <= 9 ? "E" : "F",
+                    ].map((gradeKey) => (
+                      <TableCell key={gradeKey} sx={{ textAlign: "center" }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          color={
+                            gradeKey === "A"
+                              ? "#2e7d32"
+                              : gradeKey === "B"
+                              ? "#1565c0"
+                              : gradeKey === "C"
+                              ? "#e65100"
+                              : ["D", "S"].includes(gradeKey)
+                              ? "#555"
+                              : "#c62828"
+                          }
+                        >
+                          {subjectRow.gradesDist[gradeKey] || 0}
+                        </Typography>
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Paper>
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
+            Optimi Student List
+          </Typography>
+
+          <Paper sx={{ overflowX: "auto", mb: 3, p: 2 }}>
+            {optimiStudents.length === 0 ? (
+              <Typography variant="body2">
+                No Optimi students found for this class. Optimi students must have overall average ≥ 75, Tamil ≥ 75, Religion ≥ 75, and English ≥ 60.
+              </Typography>
+            ) : (
+              <Table size="small">
+                <TableHead sx={{ bgcolor: "#3949ab" }}>
+                  <TableRow>
+                    {[
+                      "Rank",
+                      "Student",
+                      "Average",
+                      "Tamil",
+                      "English",
+                      "Religion",
+                    ].map((head) => (
+                      <TableCell
+                        key={head}
+                        sx={{ color: "white", fontWeight: 600, textAlign: "center" }}
+                      >
+                        {head}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {optimiStudents.map((student) => (
+                    <TableRow key={student.id} hover>
+                      <TableCell sx={{ textAlign: "center" }}>{student.rank}</TableCell>
+                      <TableCell>{getStudentName(student)}</TableCell>
+                      <TableCell sx={{ textAlign: "center", fontWeight: 600 }}>
+                        {student.average}
+                      </TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.tamil ?? "—"}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.english ?? "—"}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.religion ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Paper>
+
+          <Typography variant="subtitle1" fontWeight={700} color="primary.main" mb={1.5}>
+            Top Performers
+          </Typography>
+
+          <Grid container spacing={1.5} mb={3}>
+            {rankedRows.slice(0, 5).map((student, idx) => (
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={student.id}>
+                <Card
+                  sx={{
+                    bgcolor:
+                      idx === 0
+                        ? "#fff9c4"
+                        : idx === 1
+                        ? "#f5f5f5"
+                        : idx === 2
+                        ? "#fbe9e7"
+                        : "white",
+                    border: "1px solid #e0e0e0",
+                    boxShadow: idx < 3 ? 3 : 1,
+                  }}
+                >
+                  <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="h5">
+                        {idx === 0
+                          ? "🥇"
+                          : idx === 1
+                          ? "🥈"
+                          : idx === 2
+                          ? "🥉"
+                          : `#${idx + 1}`}
+                      </Typography>
+
+                      <Box>
+                        <Typography variant="body2" fontWeight={700}>
+                          {getStudentName(student)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Avg: {student.average ?? "—"} | Total: {student.total}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
+
+      {isMobile && termMarks.length > 0 && (
+        <Button
+          variant="contained"
+          startIcon={<PrintIcon />}
+          fullWidth
+          onClick={handlePrint}
+          sx={{ bgcolor: "#1a237e", mt: 2 }}
+        >
+          Print Class Report
+        </Button>
+      )}
+    </PageContainer>
+  );
+}

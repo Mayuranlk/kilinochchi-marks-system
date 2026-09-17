@@ -1,0 +1,863 @@
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "../firebase";
+import { invalidateCollectionRows } from "./firestoreReadCache";
+import {
+  RELIGIONS,
+  AESTHETIC_SUBJECTS,
+  BASKET_A,
+  BASKET_B,
+  BASKET_C,
+  AL_ALL_SUBJECTS,
+  AL_STREAM_RULES,
+  AL_COMMON_SUBJECTS_ALL,
+  AL_COMMON_SUBJECTS_GRADE_12_ONLY,
+} from "../constants";
+import { normalizeStudentName } from "../utils/studentNameUtils";
+
+const SUBJECTS_COLLECTION = "subjects";
+const STUDENTS_COLLECTION = "students";
+
+const BATCH_LIMIT = 400;
+const STUDENT_NAME_DEPENDENT_COLLECTIONS = [
+  "studentSubjectEnrollments",
+  "marks",
+  "studentFeeAccounts",
+  "lateArrivalRecords",
+];
+
+const RELIGION_ALIASES = {
+  catholic: "Catholicism",
+  catholicism: "Catholicism",
+  christian: "Christianity",
+  christianity: "Christianity",
+  hindu: "Hinduism",
+  hinduism: "Hinduism",
+  islam: "Islam",
+  islamic: "Islam",
+  buddhist: "Buddhism",
+  buddhism: "Buddhism",
+};
+
+const AESTHETIC_ALIASES = {
+  music: "Music",
+  art: "Art",
+  arts: "Art",
+  dance: "Dancing",
+  dancing: "Dancing",
+  drama: "Drama & Theatre",
+  theatre: "Drama & Theatre",
+  "drama & theatre": "Drama & Theatre",
+};
+
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeLower(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function normalizeLoose(value) {
+  return normalizeLower(value).replace(/[^a-z0-9]/g, "");
+}
+
+function parseGrade(value) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+function normalizeSection(value) {
+  const raw = normalizeText(value).toUpperCase();
+  const match = raw.match(/[A-Z]+/);
+  return match ? match[0] : raw;
+}
+
+function slugify(value) {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function makeSubjectId(subject) {
+  const codePart = normalizeText(subject.code || subject.subjectCode);
+  if (codePart) {
+    return `${normalizeLower(subject.category)}_${slugify(codePart)}`;
+  }
+
+  return `${normalizeLower(subject.category)}_${slugify(
+    subject.name || subject.subjectName
+  )}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function uniqueByKey(items, getKey) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const key = getKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function getCore6to9Subjects() {
+  return [
+    {
+      code: "TAM",
+      name: "Tamil",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 11,
+      displayOrder: 1,
+    },
+    {
+      code: "MAT",
+      name: "Mathematics",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 11,
+      displayOrder: 2,
+    },
+    {
+      code: "SCI",
+      name: "Science",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 11,
+      displayOrder: 3,
+    },
+    {
+      code: "HIS",
+      name: "History",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 11,
+      displayOrder: 4,
+    },
+    {
+      code: "ENG",
+      name: "English",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 11,
+      displayOrder: 5,
+    },
+    {
+      code: "GEO",
+      name: "Geography",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 6,
+    },
+    {
+      code: "CIV",
+      name: "Civics",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 7,
+    },
+    {
+      code: "HPE",
+      name: "Health & Physical Education",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 8,
+    },
+    {
+      code: "ICT",
+      name: "ICT",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 9,
+    },
+    {
+      code: "SIN",
+      name: "Sinhala",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 10,
+    },
+    {
+      code: "PTS",
+      name: "PTS",
+      category: "core",
+      minGrade: 6,
+      maxGrade: 9,
+      displayOrder: 11,
+    },
+  ];
+}
+
+function getCore10to11Subjects() {
+  return [
+    {
+      code: "TAM",
+      name: "Tamil",
+      category: "core",
+      minGrade: 10,
+      maxGrade: 11,
+      displayOrder: 1,
+    },
+    {
+      code: "MAT",
+      name: "Mathematics",
+      category: "core",
+      minGrade: 10,
+      maxGrade: 11,
+      displayOrder: 2,
+    },
+    {
+      code: "SCI",
+      name: "Science",
+      category: "core",
+      minGrade: 10,
+      maxGrade: 11,
+      displayOrder: 3,
+    },
+    {
+      code: "HIS",
+      name: "History",
+      category: "core",
+      minGrade: 10,
+      maxGrade: 11,
+      displayOrder: 4,
+    },
+    {
+      code: "ENG",
+      name: "English",
+      category: "core",
+      minGrade: 10,
+      maxGrade: 11,
+      displayOrder: 5,
+    },
+  ];
+}
+
+function getReligionSubjects() {
+  return RELIGIONS.map((religion, index) => ({
+    code: `REL_${slugify(religion).toUpperCase()}`,
+    name: religion,
+    category: "religion",
+    religion,
+    minGrade: 6,
+    maxGrade: 11,
+    displayOrder: 20 + index,
+  }));
+}
+
+function getAestheticSubjects() {
+  return AESTHETIC_SUBJECTS.map((name, index) => ({
+    code: `AES_${slugify(name).toUpperCase()}`,
+    name,
+    category: "aesthetic",
+    minGrade: 6,
+    maxGrade: 9,
+    displayOrder: 30 + index,
+  }));
+}
+
+function buildBasketSubjects(subjectNames, basketLabel, startOrder) {
+  const basketCStableCodes = {
+    "Information & Communication Technology (T)": "BKT_C_01",
+    "Agriculture & Food Technology": "BKT_C_02",
+    "Home Economics": "BKT_C_03",
+    "Health & Physical Education": "BKT_C_04",
+    "Communication & Media Studies": "BKT_C_05",
+    "Design & Construction Technology": "BKT_C_06",
+    "Design & Mechanical Technology": "BKT_C_07",
+    "Design, Electrical & Electronic Technology": "BKT_C_08",
+    "Information & Communication Technology (E)": "BKT_C_09",
+  };
+
+  return subjectNames.map((name, index) => ({
+    code:
+      basketLabel === "C" && basketCStableCodes[name]
+        ? basketCStableCodes[name]
+        : `BKT_${basketLabel}_${String(index + 1).padStart(2, "0")}`,
+    name,
+    ...(name === "Information & Communication Technology (T)"
+      ? { teachingMedium: "Tamil", medium: "Tamil" }
+      : {}),
+    ...(name === "Information & Communication Technology (E)"
+      ? { teachingMedium: "English", medium: "English" }
+      : {}),
+    category: "basket",
+    basketGroup: `BASKET_${basketLabel}`,
+    basketLabel,
+    minGrade: 10,
+    maxGrade: 11,
+    displayOrder: startOrder + index,
+  }));
+}
+
+function getBasketSubjects() {
+  return [
+    ...buildBasketSubjects(BASKET_A, "A", 40),
+    ...buildBasketSubjects(BASKET_B, "B", 50),
+    ...buildBasketSubjects(BASKET_C, "C", 60),
+  ];
+}
+
+function getALStreamNamesForSubject(subjectName) {
+  const subjectKey = normalizeLoose(subjectName);
+
+  return Object.entries(AL_STREAM_RULES)
+    .filter(([, rule]) => {
+      const allStreamSubjects = [
+        ...(rule.compulsory || []),
+        ...(rule.optionalGroups || []).flat(),
+      ];
+
+      return allStreamSubjects.some(
+        (subject) => normalizeLoose(subject.subjectName) === subjectKey
+      );
+    })
+    .map(([streamName]) => streamName);
+}
+
+function getALMainSubjects() {
+  return AL_ALL_SUBJECTS.map((subject, index) => {
+    const streamNames = getALStreamNamesForSubject(subject.subjectName);
+
+    return {
+      code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+      name: subject.subjectName,
+      shortName: subject.shortName || subject.subjectName,
+      subjectNumber: subject.subjectNumber || "",
+      category: "al",
+      minGrade: 12,
+      maxGrade: 13,
+      displayOrder: 100 + index,
+      streamOptions: streamNames,
+      isOptional: false,
+    };
+  });
+}
+
+function getALCommonSubjects() {
+  const grade12and13 = AL_COMMON_SUBJECTS_ALL.map((subject, index) => ({
+    code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+    name: subject.subjectName,
+    shortName: subject.shortName || subject.subjectName,
+    subjectNumber: subject.subjectNumber || "",
+    category: "al_general",
+    minGrade: 12,
+    maxGrade: 13,
+    displayOrder: 200 + index,
+    streamOptions: Object.keys(AL_STREAM_RULES),
+    isOptional: false,
+    appliesToAllStreams: true,
+  }));
+
+  const grade12only = AL_COMMON_SUBJECTS_GRADE_12_ONLY.map((subject, index) => ({
+    code: subject.subjectCode || `AL_${subject.subjectNumber}`,
+    name: subject.subjectName,
+    shortName: subject.shortName || subject.subjectName,
+    subjectNumber: subject.subjectNumber || "",
+    category: "al_general",
+    minGrade: 12,
+    maxGrade: 12,
+    displayOrder: 220 + index,
+    streamOptions: Object.keys(AL_STREAM_RULES),
+    isOptional: false,
+    appliesToAllStreams: true,
+  }));
+
+  return [...grade12and13, ...grade12only];
+}
+
+function getALSubjects() {
+  return [...getALMainSubjects(), ...getALCommonSubjects()];
+}
+
+function getDefaultSubjects() {
+  const defaults = [
+    ...getCore6to9Subjects(),
+    ...getCore10to11Subjects(),
+    ...getReligionSubjects(),
+    ...getAestheticSubjects(),
+    ...getBasketSubjects(),
+    ...getALSubjects(),
+  ].map((subject) => ({
+    ...subject,
+    shortName: subject.shortName || subject.name,
+    status: "active",
+    isOptional:
+      typeof subject.isOptional === "boolean"
+        ? subject.isOptional
+        : subject.category === "aesthetic" || subject.category === "basket",
+  }));
+
+  return uniqueByKey(
+    defaults,
+    (subject) =>
+      `${normalizeLower(subject.category)}__${normalizeLower(
+        subject.code || subject.subjectCode || subject.name || subject.subjectName
+      )}`
+  );
+}
+
+async function commitInChunks(ops) {
+  for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    const chunk = ops.slice(i, i + BATCH_LIMIT);
+    chunk.forEach((op) => op(batch));
+    await batch.commit();
+  }
+}
+
+function getCanonicalStudentName(student = {}) {
+  const candidates = [student.fullName, student.name]
+    .map((value) => ({ raw: normalizeText(value), clean: normalizeStudentName(value) }))
+    .filter((item) => item.clean);
+
+  // Prefer a field that is already clean if one of the two compatibility
+  // fields was damaged independently. Otherwise normalize the preferred field.
+  return (
+    candidates.find((item) => item.raw === item.clean)?.clean ||
+    candidates[0]?.clean ||
+    ""
+  );
+}
+
+function studentClassLabel(student = {}) {
+  const grade = parseGrade(student.grade);
+  const section = normalizeSection(student.section || student.className);
+  return grade && section ? `${grade}${section}` : "Unassigned";
+}
+
+async function buildStudentNameRepairPlan() {
+  const [studentSnap, ...dependentSnaps] = await Promise.all([
+    getDocs(collection(db, STUDENTS_COLLECTION)),
+    ...STUDENT_NAME_DEPENDENT_COLLECTIONS.map((collectionName) =>
+      getDocs(collection(db, collectionName))
+    ),
+  ]);
+
+  const students = studentSnap.docs.map((snapshot) => ({
+    id: snapshot.id,
+    ...snapshot.data(),
+  }));
+  const canonicalNameByStudentId = new Map();
+  const studentChanges = [];
+
+  students.forEach((student) => {
+    const canonicalName = getCanonicalStudentName(student);
+    if (!canonicalName) return;
+
+    canonicalNameByStudentId.set(student.id, canonicalName);
+    const currentName = normalizeText(student.name);
+    const currentFullName = normalizeText(student.fullName);
+    const nameChanged = currentName && currentName !== canonicalName;
+    const fullNameChanged = currentFullName && currentFullName !== canonicalName;
+    const corruptionChanged =
+      normalizeStudentName(currentName) !== currentName ||
+      normalizeStudentName(currentFullName) !== currentFullName;
+
+    if (!nameChanged && !fullNameChanged && !corruptionChanged) return;
+
+    studentChanges.push({
+      collectionName: STUDENTS_COLLECTION,
+      id: student.id,
+      studentId: student.id,
+      admissionNo: normalizeText(
+        student.admissionNo || student.admissionNumber || student.indexNo
+      ),
+      className: studentClassLabel(student),
+      before: currentFullName || currentName,
+      after: canonicalName,
+      patch: {
+        name: canonicalName,
+        fullName: canonicalName,
+        nameNormalizationBackup: student.nameNormalizationBackup || {
+          name: currentName,
+          fullName: currentFullName,
+        },
+      },
+    });
+  });
+
+  const dependentChanges = [];
+  dependentSnaps.forEach((snapshot, index) => {
+    const collectionName = STUDENT_NAME_DEPENDENT_COLLECTIONS[index];
+
+    snapshot.docs.forEach((documentSnapshot) => {
+      const data = documentSnapshot.data();
+      const studentId = normalizeText(data.studentId);
+      const currentName = normalizeText(data.studentName);
+      const canonicalName =
+        canonicalNameByStudentId.get(studentId) || normalizeStudentName(currentName);
+
+      if (!canonicalName || currentName === canonicalName) return;
+
+      dependentChanges.push({
+        collectionName,
+        id: documentSnapshot.id,
+        studentId,
+        before: currentName,
+        after: canonicalName,
+        patch: { studentName: canonicalName },
+      });
+    });
+  });
+
+  const byClass = studentChanges.reduce((counts, item) => {
+    counts[item.className] = (counts[item.className] || 0) + 1;
+    return counts;
+  }, {});
+
+  return {
+    studentsScanned: students.length,
+    affectedStudents: studentChanges.length,
+    dependentDocuments: dependentChanges.length,
+    documentsScanned:
+      students.length + dependentSnaps.reduce((total, snapshot) => total + snapshot.size, 0),
+    byClass,
+    samples: studentChanges.slice(0, 20).map(({ patch, ...item }) => item),
+    changes: [...studentChanges, ...dependentChanges],
+  };
+}
+
+export async function scanStudentNameIssues() {
+  const { changes, ...summary } = await buildStudentNameRepairPlan();
+  return summary;
+}
+
+export async function repairStudentNames(profile) {
+  const plan = await buildStudentNameRepairPlan();
+  const timestamp = nowIso();
+  const actorId = profile?.uid || "";
+  const actorName = profile?.name || profile?.displayName || profile?.email || "";
+
+  const operations = plan.changes.map((change) => (batch) => {
+    batch.update(doc(db, change.collectionName, change.id), {
+      ...change.patch,
+      nameNormalizedAt: timestamp,
+      nameNormalizedById: actorId,
+      nameNormalizedByName: actorName,
+      updatedAt: timestamp,
+    });
+  });
+
+  await commitInChunks(operations);
+  invalidateCollectionRows(...new Set(plan.changes.map((change) => change.collectionName)));
+
+  return {
+    studentsScanned: plan.studentsScanned,
+    affectedStudents: plan.affectedStudents,
+    dependentDocuments: plan.dependentDocuments,
+    documentsUpdated: operations.length,
+    byClass: plan.byClass,
+    samples: plan.samples,
+  };
+}
+
+export async function createDefaultSubjects(profile) {
+  const existingSnap = await getDocs(collection(db, SUBJECTS_COLLECTION));
+  const existing = existingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const existingKeys = new Set(
+    existing.flatMap((subject) => {
+      const code = normalizeLower(subject.code || subject.subjectCode);
+      const name = normalizeLower(subject.name || subject.subjectName);
+      const category = normalizeLower(subject.category);
+
+      return [`${category}__${code}`, `${category}__${name}`].filter(
+        (key) => !key.endsWith("__")
+      );
+    })
+  );
+
+  const defaults = getDefaultSubjects();
+  let created = 0;
+  let skipped = 0;
+
+  for (const subject of defaults) {
+    const codeValue = normalizeText(subject.code || subject.subjectCode);
+    const nameValue = normalizeText(subject.name || subject.subjectName);
+    const categoryValue = normalizeText(subject.category);
+
+    const codeKey = `${normalizeLower(categoryValue)}__${normalizeLower(codeValue)}`;
+    const nameKey = `${normalizeLower(categoryValue)}__${normalizeLower(nameValue)}`;
+
+    if (existingKeys.has(codeKey) || existingKeys.has(nameKey)) {
+      skipped += 1;
+      continue;
+    }
+
+    const ref = doc(db, SUBJECTS_COLLECTION, makeSubjectId(subject));
+    const timestamp = nowIso();
+
+    await setDoc(ref, {
+      ...subject,
+      code: codeValue,
+      name: nameValue,
+      subjectCode: codeValue,
+      subjectName: nameValue,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      createdById: profile?.uid || "",
+      createdByName:
+        profile?.name || profile?.displayName || profile?.email || "",
+      updatedById: profile?.uid || "",
+      updatedByName:
+        profile?.name || profile?.displayName || profile?.email || "",
+    });
+
+    existingKeys.add(codeKey);
+    existingKeys.add(nameKey);
+    created += 1;
+  }
+
+  if (created) invalidateCollectionRows(SUBJECTS_COLLECTION);
+  return { created, skipped, totalDefaults: defaults.length };
+}
+
+function buildSubjectLookupKeys(subject) {
+  const category = normalizeLower(subject.category);
+  const code = normalizeLower(subject.code || subject.subjectCode);
+  const name = normalizeLower(subject.name || subject.subjectName);
+  const subjectNumber = normalizeLower(subject.subjectNumber);
+  const keys = [];
+
+  if (code) keys.push(`${category}__code__${code}`);
+  if (name) keys.push(`${category}__name__${name}`);
+  if (category === "al" && subjectNumber) {
+    keys.push(`${category}__number__${subjectNumber}`);
+  }
+
+  return keys;
+}
+
+function buildOfficialSubjectPayload(subject, profile, timestamp, isNew) {
+  const codeValue = normalizeText(subject.code || subject.subjectCode);
+  const nameValue = normalizeText(subject.name || subject.subjectName);
+  const payload = {
+    ...subject,
+    code: codeValue,
+    name: nameValue,
+    subjectCode: codeValue,
+    subjectName: nameValue,
+    shortName: subject.shortName || nameValue,
+    status: "active",
+    updatedAt: timestamp,
+    updatedById: profile?.uid || "",
+    updatedByName: profile?.name || profile?.displayName || profile?.email || "",
+  };
+
+  if (isNew) {
+    payload.createdAt = timestamp;
+    payload.createdById = profile?.uid || "";
+    payload.createdByName =
+      profile?.name || profile?.displayName || profile?.email || "";
+  }
+
+  return payload;
+}
+
+export async function restoreOfficialSubjects(profile) {
+  const existingSnap = await getDocs(collection(db, SUBJECTS_COLLECTION));
+  const existing = existingSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const existingByKey = new Map();
+
+  existing.forEach((subject) => {
+    buildSubjectLookupKeys(subject).forEach((key) => {
+      if (!existingByKey.has(key)) existingByKey.set(key, subject);
+    });
+  });
+
+  const defaults = getDefaultSubjects();
+  const timestamp = nowIso();
+  let created = 0;
+  let restored = 0;
+
+  for (const subject of defaults) {
+    const matchingExisting = buildSubjectLookupKeys(subject)
+      .map((key) => existingByKey.get(key))
+      .find(Boolean);
+
+    if (matchingExisting) {
+      await setDoc(
+        doc(db, SUBJECTS_COLLECTION, matchingExisting.id),
+        buildOfficialSubjectPayload(subject, profile, timestamp, false),
+        { merge: true }
+      );
+      restored += 1;
+      continue;
+    }
+
+    const ref = doc(db, SUBJECTS_COLLECTION, makeSubjectId(subject));
+    await setDoc(
+      ref,
+      buildOfficialSubjectPayload(subject, profile, timestamp, true),
+      { merge: false }
+    );
+    created += 1;
+  }
+
+  if (created || restored) invalidateCollectionRows(SUBJECTS_COLLECTION);
+  return { created, restored, totalDefaults: defaults.length };
+}
+
+export async function fixStudentData(profile) {
+  const snap = await getDocs(collection(db, STUDENTS_COLLECTION));
+  const students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const ops = [];
+  let updated = 0;
+  let unchanged = 0;
+
+  for (const student of students) {
+    const patch = {};
+
+    const grade = parseGrade(student.grade);
+
+    const currentSection = normalizeSection(
+      student.section || student.className || ""
+    );
+    const currentClassName = normalizeText(student.className);
+    const currentName = normalizeText(student.name);
+    const currentFullName = normalizeText(student.fullName);
+
+    const religionRaw = normalizeLower(student.religion);
+    const aestheticRaw = normalizeLower(
+      student.aesthetic || student.aestheticChoice
+    );
+
+    const basket1 = normalizeText(student.basket1 || student.basketAChoice);
+    const basket2 = normalizeText(student.basket2 || student.basketBChoice);
+    const basket3 = normalizeText(student.basket3 || student.basketCChoice);
+
+    if (!normalizeText(student.status)) {
+      patch.status = "active";
+    }
+
+    if (!currentSection && normalizeText(student.class || student.classSection)) {
+      patch.section = normalizeSection(student.class || student.classSection);
+    } else if (currentSection && normalizeText(student.section) !== currentSection) {
+      patch.section = currentSection;
+    }
+
+    if (!currentClassName && currentSection) {
+      patch.className = currentSection;
+    } else if (
+      currentClassName &&
+      normalizeSection(currentClassName) !== currentSection &&
+      currentSection
+    ) {
+      patch.className = currentSection;
+    }
+
+    if (!currentFullName && currentName) {
+      patch.fullName = currentName;
+    }
+
+    if (!currentName && currentFullName) {
+      patch.name = currentFullName;
+    }
+
+    if (
+      religionRaw &&
+      RELIGION_ALIASES[religionRaw] &&
+      student.religion !== RELIGION_ALIASES[religionRaw]
+    ) {
+      patch.religion = RELIGION_ALIASES[religionRaw];
+    }
+
+    if (grade >= 6 && grade <= 9) {
+      if (aestheticRaw && AESTHETIC_ALIASES[aestheticRaw]) {
+        const normalizedAesthetic = AESTHETIC_ALIASES[aestheticRaw];
+
+        if (normalizeText(student.aesthetic) !== normalizedAesthetic) {
+          patch.aesthetic = normalizedAesthetic;
+        }
+        if (normalizeText(student.aestheticChoice) !== normalizedAesthetic) {
+          patch.aestheticChoice = normalizedAesthetic;
+        }
+      } else {
+        if (
+          normalizeText(student.aesthetic) &&
+          !normalizeText(student.aestheticChoice)
+        ) {
+          patch.aestheticChoice = normalizeText(student.aesthetic);
+        }
+        if (
+          normalizeText(student.aestheticChoice) &&
+          !normalizeText(student.aesthetic)
+        ) {
+          patch.aesthetic = normalizeText(student.aestheticChoice);
+        }
+      }
+    }
+
+    if (grade >= 10 && grade <= 11) {
+      if (basket1 && normalizeText(student.basket1) !== basket1) {
+        patch.basket1 = basket1;
+      }
+      if (basket1 && normalizeText(student.basketAChoice) !== basket1) {
+        patch.basketAChoice = basket1;
+      }
+
+      if (basket2 && normalizeText(student.basket2) !== basket2) {
+        patch.basket2 = basket2;
+      }
+      if (basket2 && normalizeText(student.basketBChoice) !== basket2) {
+        patch.basketBChoice = basket2;
+      }
+
+      if (basket3 && normalizeText(student.basket3) !== basket3) {
+        patch.basket3 = basket3;
+      }
+      if (basket3 && normalizeText(student.basketCChoice) !== basket3) {
+        patch.basketCChoice = basket3;
+      }
+    }
+
+    if (!normalizeText(student.admissionNo) && normalizeText(student.indexNumber)) {
+      patch.admissionNo = normalizeText(student.indexNumber);
+    }
+
+    if (!normalizeText(student.grade) && grade !== null) {
+      patch.grade = grade;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      unchanged += 1;
+      continue;
+    }
+
+    patch.updatedAt = nowIso();
+    patch.updatedById = profile?.uid || "";
+    patch.updatedByName =
+      profile?.name || profile?.displayName || profile?.email || "";
+
+    const ref = doc(db, STUDENTS_COLLECTION, student.id);
+    ops.push((batch) => batch.update(ref, patch));
+    updated += 1;
+  }
+
+  await commitInChunks(ops);
+  if (updated) invalidateCollectionRows(STUDENTS_COLLECTION);
+
+  return { updated, unchanged, total: students.length };
+}

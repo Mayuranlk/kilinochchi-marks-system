@@ -1,0 +1,21 @@
+{
+  "reviewOnly": true,
+  "productionProjectId": "kilinochchi-marks",
+  "productionProjectNumber": "499271151802",
+  "productionProjectState": "ACTIVE",
+  "stagingProjectId": "kilinochchi-marks-staging",
+  "stagingProjectNumber": "571201491847",
+  "stagingProjectState": "ACTIVE",
+  "authenticatedAccount": "techzlkpro@gmail.com",
+  "firestoreDatabaseId": "(default)",
+  "firestoreDatabaseLocation": "asia-southeast1",
+  "retrievedAtUtc": "2026-08-08T06:26:50.292Z",
+  "productionRulesetId": "projects/kilinochchi-marks/rulesets/d98a04f8-7720-4214-8c7d-359a152bcd5b",
+  "productionRulesSource": "staging-evidence/production-review/firestore.rules.production-before-20260808-062700",
+  "productionRulesSha256": "D714CFE3216B0A68DBE348BC779F02D370DFFAC543C4E55F3C467FFA2CF12FCB",
+  "historicalReviewSha256": "04F9ECED7836F7CA4266BBF91A843A9BDE63698E28F40BFA6414CE46D111C57E",
+  "historicalDifference": "Whitespace differs; authorization semantics are the same broad authenticated read/write grant.",
+  "proposedRulesSource": "firestore.rules.proposed.review",
+  "proposedRulesSha256": "EB6518F273C2F037BE80AAD8A65E53043893EDA09587C6E442BFFE9623FFE969",
+  "productionMutations": 0
+}

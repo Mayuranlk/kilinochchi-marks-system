@@ -1,0 +1,256 @@
+rules_version = '2';
+
+// REVIEW ONLY — NOT REFERENCED BY firebase.json AND NOT DEPLOYED.
+// This is an interim compatibility ruleset. Academic reads remain broad where
+// current React pages still issue whole-collection queries. Class/subject read
+// scope must be tightened only with the reconciled scoped-query rollout.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(profilePath());
+    }
+
+    function profile() {
+      return get(profilePath()).data;
+    }
+
+    function role() {
+      return hasProfile() ? profile().get('role', '') : '';
+    }
+
+    function isAdmin() {
+      return hasProfile() && role() in ['admin', 'Admin', 'ADMIN'];
+    }
+
+    function isAccount() {
+      return hasProfile() && role() in ['account', 'Account', 'ACCOUNT'];
+    }
+
+    function isPrefect() {
+      return hasProfile() && (
+        role() in ['prefect', 'Prefect', 'PREFECT'] ||
+        profile().get('isPrefect', false) == true
+      );
+    }
+
+    function isSectionalHead() {
+      return hasProfile() && (
+        role() in ['sectional_head', 'Sectional_Head', 'SECTIONAL_HEAD'] ||
+        profile().get('isSectionalHead', false) == true
+      );
+    }
+
+    function isITTeacher() {
+      return hasProfile() && (
+        role() in ['it_teacher', 'IT_Teacher', 'IT_TEACHER'] ||
+        profile().get('isITTeacher', false) == true ||
+        profile().get('canAccessAllReports', false) == true
+      );
+    }
+
+    function isSubjectTeacher() {
+      return hasProfile() && (
+        role() in ['teacher', 'Teacher', 'TEACHER'] ||
+        isITTeacher() ||
+        profile().get('isSubjectTeacher', false) == true
+      );
+    }
+
+    function isAcademicReader() {
+      return isAdmin() || isSubjectTeacher() || isSectionalHead();
+    }
+
+    function validOptionalAttendance(data) {
+      return !data.keys().hasAny(['attendancePercentage']) ||
+        data.attendancePercentage == null ||
+        (data.attendancePercentage is number &&
+          data.attendancePercentage >= 0 && data.attendancePercentage <= 100);
+    }
+
+    function validMarkAliases(data) {
+      return data.mark == data.marks &&
+        data.mark == data.score &&
+        data.absent == data.isAbsent;
+    }
+
+    function validMarkValue(data) {
+      return (data.absent == true && data.mark == null) ||
+        (data.absent == false && (
+          data.mark == null ||
+          (data.mark is number && data.mark >= 0 && data.mark <= 100)
+        ));
+    }
+
+    function validCanonicalMark(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'studentId', 'subjectId', 'academicYearKey', 'termKey',
+          'gradeNumber', 'classKey', 'subjectKey', 'assessmentKey',
+          'markKey', 'mark', 'marks', 'score', 'absent', 'isAbsent',
+          'teacherId'
+        ]) &&
+        data.schemaVersion == 2 &&
+        data.studentId is string && data.studentId.size() > 0 &&
+        data.subjectId is string && data.subjectId.size() > 0 &&
+        data.academicYearKey is string && data.academicYearKey.size() > 0 &&
+        data.termKey is string && data.termKey.size() > 0 &&
+        data.gradeNumber is number &&
+        data.classKey is string && data.classKey.size() > 0 &&
+        data.subjectKey is string && data.subjectKey.size() > 0 &&
+        data.assessmentKey is string && data.assessmentKey.size() > 0 &&
+        data.markKey is string && data.markKey.size() > 0 &&
+        data.absent is bool && data.isAbsent is bool &&
+        data.teacherId is string && data.teacherId == request.auth.uid &&
+        validMarkAliases(data) &&
+        validMarkValue(data) &&
+        validOptionalAttendance(data);
+    }
+
+    function teacherPreservesMarkIdentity() {
+      return request.resource.data.studentId == resource.data.studentId &&
+        (!resource.data.keys().hasAny(['markKey']) ||
+          request.resource.data.markKey == resource.data.markKey);
+    }
+
+    function validLateArrivalCreate(data) {
+      return data.keys().hasAll([
+          'studentId', 'dateKey', 'arrivalTime', 'reason',
+          'recordBookReceived', 'bookStatus', 'recordedBy',
+          'recordedAt', 'handoverHistory'
+        ]) &&
+        data.keys().hasOnly([
+          'studentId', 'studentName', 'admissionNo', 'grade', 'section',
+          'classLabel', 'dateKey', 'arrivalTime', 'reason',
+          'recordBookReceived', 'bookStatus', 'recordedBy',
+          'recordedAt', 'handoverHistory'
+        ]) &&
+        data.studentId is string && data.studentId.size() > 0 &&
+        data.dateKey is string && data.dateKey.size() > 0 &&
+        data.arrivalTime is timestamp &&
+        data.reason is string &&
+        data.recordBookReceived is bool &&
+        data.bookStatus in ['held', 'not_received'] &&
+        data.recordedBy is map &&
+        data.recordedBy.get('uid', '') == request.auth.uid &&
+        data.recordedAt is timestamp &&
+        data.handoverHistory is list;
+    }
+
+    function validLateArrivalReturnUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'bookStatus', 'returnedAt', 'handedOverBy', 'handoverHistory'
+      ]) &&
+        request.resource.data.bookStatus == 'returned' &&
+        request.resource.data.returnedAt is timestamp &&
+        request.resource.data.handedOverBy is map &&
+        request.resource.data.handedOverBy.get('uid', '') == request.auth.uid &&
+        request.resource.data.handoverHistory is list;
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAcademicReader());
+      // Teacher Dashboard and current admin tools still list users. Account and
+      // prefect sessions need only their own profile document.
+      allow list: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if isAcademicReader() || isAccount() || isPrefect();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /classrooms/{classroomId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /academicTerms/{termId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /practiceExams/{examId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /teacherAssignments/{assignmentId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /studentSubjectEnrollments/{enrollmentId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /marks/{markId} {
+      allow read: if isAcademicReader();
+      allow create: if isAdmin() || (isSubjectTeacher() && validCanonicalMark(request.resource.data));
+      allow update: if isAdmin() || (
+        isSubjectTeacher() &&
+        validCanonicalMark(request.resource.data) &&
+        teacherPreservesMarkIdentity()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /systemSettings/{settingId} {
+      allow read: if isAcademicReader();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /studentFeeAccounts/{accountId} {
+      allow read, create, update: if isAdmin() || isAccount();
+      allow delete: if isAdmin();
+    }
+
+    match /lateArrivalRecords/{recordId} {
+      allow read: if isAdmin() || isPrefect();
+      allow create: if isAdmin() || (isPrefect() && validLateArrivalCreate(request.resource.data));
+      allow update: if isAdmin() || (isPrefect() && validLateArrivalReturnUpdate());
+      allow delete: if isAdmin();
+    }
+
+    match /elections/{electionId} {
+      // Deployed Rules already require authentication; preserve that behavior.
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      // Backup/restore writes exact historical audit documents, so admin must
+      // retain full access until restore is moved to a trusted backend.
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /classShufflePlans/{planId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /promotionHistory/{historyId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /teachers/{teacherId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

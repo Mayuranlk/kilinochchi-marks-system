@@ -1,0 +1,944 @@
+// src/pages/reports/ClassMarksReports.js
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Divider,
+  FormControl,
+  Grid,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  Typography,
+  useTheme,
+} from "@mui/material";
+import { saveAs } from "file-saver";
+import ShareRoundedIcon from "@mui/icons-material/ShareRounded";
+import { db } from "../../firebase";
+import { getCollectionRows } from "../../services/firestoreReadCache";
+import { useAuth } from "../../context/AuthContext";
+import { PageContainer } from "../../components/ui";
+import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
+import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
+import {
+  createColorClassMarksPdfFile,
+  createClassMarksPdfFile,
+  exportAllClassesReportsZip,
+  exportClassMarksExcel,
+  exportClassMarksEmisExcel,
+  exportClassMarksPdf,
+  exportColorClassMarksExcel,
+  exportColorClassMarksPdf,
+  exportGradeElevenOlResultSheetsZip,
+  getClassMarksSchedulePreviewLayout,
+  isClassMarksEmisExportSupported,
+  printGradeElevenOlResultSheets,
+} from "../../utils/classMarksExportUtils";
+import { getMarkColorStyle, MARK_COLOR_BANDS } from "../../utils/markColorBands";
+
+const CURRENT_YEAR = new Date().getFullYear();
+
+function getClassroomDisplayName(classroom = {}) {
+  if (Number(classroom.grade) === 12 || Number(classroom.grade) === 13) {
+    return (
+      classroom.displayClassName ||
+      classroom.fullClassName ||
+      classroom.alClassName ||
+      classroom.className ||
+      `${classroom.grade}${classroom.section || ""}`
+    );
+  }
+
+  return classroom.className || classroom.fullClassName || `${classroom.grade}${classroom.section || ""}`;
+}
+
+function getClassroomReportName(classroom = {}) {
+  if (Number(classroom.grade) === 12 || Number(classroom.grade) === 13) {
+    return (
+      classroom.fullClassName ||
+      classroom.alClassName ||
+      classroom.displayClassName ||
+      classroom.className ||
+      `${classroom.grade}${classroom.section || ""}`
+    );
+  }
+
+  return classroom.className || classroom.fullClassName || `${classroom.grade}${classroom.section || ""}`;
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return Number.isInteger(value) ? String(value) : Number(value).toFixed(2);
+}
+
+function createPreviewCellStyle({ theme, compact = false, header = false, align = "center", minWidth }) {
+  return {
+    border: `1px solid ${theme.palette.divider}`,
+    padding: compact ? "4px 5px" : "6px 8px",
+    background: header ? theme.custom.surfaces.subtle : theme.palette.background.paper,
+    color: theme.palette.text.primary,
+    whiteSpace: compact ? "normal" : "nowrap",
+    wordBreak: compact ? "break-word" : "normal",
+    overflowWrap: compact ? "anywhere" : "normal",
+    textAlign: align,
+    verticalAlign: "middle",
+    ...(header ? { fontWeight: 700 } : null),
+    ...(minWidth ? { minWidth } : null),
+  };
+}
+
+function SchedulePreview({ reportData, colorSchedule = false }) {
+  const theme = useTheme();
+  const { schema, rows, className, year, termName } = reportData;
+  const flatColumns = flattenSchemaColumns(schema);
+  const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
+  const overallExclusionNote = getOverallExclusionNote(schema);
+  const unassignedMediumCount = reportData.separateMediumRanking
+    ? rows.filter((row) => !row.rankingMedium).length
+    : 0;
+  const previewLayout = useMemo(
+    () => getClassMarksSchedulePreviewLayout(reportData),
+    [reportData]
+  );
+  const headCellStyle = createPreviewCellStyle({
+    theme,
+    compact: previewLayout.compact,
+    header: true,
+  });
+  const bodyCellStyle = createPreviewCellStyle({ theme, compact: previewLayout.compact });
+  const nameCellStyle = createPreviewCellStyle({
+    theme,
+    compact: previewLayout.compact,
+    align: "left",
+    minWidth: previewLayout.compact ? 150 : 180,
+  });
+
+  return (
+    <Card sx={{ borderRadius: 3 }}>
+      <CardContent>
+        <Typography variant="h6" fontWeight={700} gutterBottom>
+          KN/Kilinochchi Central College - {colorSchedule ? "Color Mark Schedule" : "Mark Schedule"}
+        </Typography>
+
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
+        </Typography>
+
+        {unassignedMediumCount > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {unassignedMediumCount} student{unassignedMediumCount === 1 ? " is" : "s are"} not ranked because Tamil or English medium is not assigned.
+          </Alert>
+        )}
+
+        <Box sx={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: previewLayout.compact ? `${previewLayout.tableWidth}px` : "100%",
+              borderCollapse: "collapse",
+              minWidth: previewLayout.compact
+                ? `${previewLayout.minWidth}px`
+                : previewLayout.minWidth,
+              tableLayout: previewLayout.compact ? "fixed" : "auto",
+              fontSize: previewLayout.fontSize,
+            }}
+          >
+            {previewLayout.compact && (
+              <colgroup>
+                {previewLayout.columnWidths.map((width, index) => (
+                  <col key={index} style={{ width: `${width}px` }} />
+                ))}
+              </colgroup>
+            )}
+            <thead>
+              <tr>
+                <th style={headCellStyle} rowSpan={2}>No</th>
+                <th style={headCellStyle} rowSpan={2}>Student ID</th>
+                <th style={headCellStyle} rowSpan={2}>Index No</th>
+                <th style={headCellStyle} rowSpan={2}>Students Name</th>
+                {reportData.separateMediumRanking && (
+                  <th style={headCellStyle} rowSpan={2}>Medium</th>
+                )}
+
+                {schema.groups.map((group) => (
+                  <th key={group.key} style={headCellStyle} colSpan={group.columns.length}>
+                    {group.label || ""}
+                  </th>
+                ))}
+
+                <th style={headCellStyle} rowSpan={2}>
+                  {showOverallTotal ? "Main Total" : "Total"}
+                </th>
+                <th style={headCellStyle} rowSpan={2}>
+                  {showOverallTotal ? "Main Avg" : "Average"}
+                </th>
+                {showOverallTotal && (
+                  <>
+                    <th style={headCellStyle} rowSpan={2}>Overall Total</th>
+                    <th style={headCellStyle} rowSpan={2}>Overall Avg</th>
+                  </>
+                )}
+                <th style={headCellStyle} rowSpan={2}>Rank</th>
+              </tr>
+              <tr>
+                {flatColumns.map((column) => (
+                  <th key={column.key} style={headCellStyle}>
+                    {column.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.student.id}>
+                  <td style={bodyCellStyle}>{row.rowNo}</td>
+                  <td style={bodyCellStyle}>{row.studentId}</td>
+                  <td style={bodyCellStyle}>{row.studentIndexNo}</td>
+                  <td style={nameCellStyle}>
+                    {row.studentName}
+                  </td>
+                  {reportData.separateMediumRanking && (
+                    <td style={bodyCellStyle}>{row.rankingMedium || "Unassigned"}</td>
+                  )}
+
+                  {flatColumns.map((column) => {
+                    const mark = row.marksByColumn[column.key];
+                    const isHighest =
+                      !colorSchedule &&
+                      Number.isFinite(Number(mark)) &&
+                      mark === reportData.highestMarksByColumn?.[column.key];
+                    const colorStyle =
+                      colorSchedule && !row.absencesByColumn[column.key]
+                        ? getMarkColorStyle(mark)
+                        : null;
+                    return (
+                      <td
+                        key={column.key}
+                        style={{
+                          ...bodyCellStyle,
+                          ...(colorStyle || {}),
+                          ...(isHighest
+                            ? {
+                                background: theme.palette.warning.lighter,
+                                color: theme.palette.text.primary,
+                                fontWeight: 800,
+                              }
+                            : {}),
+                        }}
+                      >
+                        {row.absencesByColumn[column.key]
+                          ? "AB"
+                          : row.marksByColumn[column.key] ?? ""}
+                      </td>
+                    );
+                  })}
+
+                  <td style={bodyCellStyle}>{formatNumber(row.total)}</td>
+                  <td style={bodyCellStyle}>{formatNumber(row.average)}</td>
+                  {showOverallTotal && (
+                    <>
+                      <td style={bodyCellStyle}>{formatNumber(row.overallTotal)}</td>
+                      <td style={bodyCellStyle}>{formatNumber(row.overallAverage)}</td>
+                    </>
+                  )}
+                  <td style={bodyCellStyle}>{row.rank ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Box>
+        {colorSchedule ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.25 }}>
+            {MARK_COLOR_BANDS.map((band) => (
+              <Box
+                key={band.key}
+                sx={{
+                  px: 1,
+                  py: 0.4,
+                  borderRadius: 1,
+                  bgcolor: band.background,
+                  color: band.textColor,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {band.label}: {band.colorName}
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography variant="caption" sx={{ display: "block", mt: 1 }}>
+            Highest marks in each subject are highlighted in yellow.
+          </Typography>
+        )}
+        {showOverallTotal && (
+          <Typography variant="caption" sx={{ display: "block", mt: 0.75, fontWeight: 700 }}>
+            A/L rank uses main 3 subjects. Overall total includes held general subjects.
+          </Typography>
+        )}
+
+        {overallExclusionNote && (
+          <Typography
+            variant="caption"
+            sx={{ mt: 1.5, display: "block", fontStyle: "italic", color: "text.secondary" }}
+          >
+            {overallExclusionNote}
+          </Typography>
+        )}
+
+        <Grid container spacing={2} sx={{ mt: 3 }}>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2">
+              {reportData.classroom?.classTeacherName || "Class Teacher"}
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2" align="center">
+              {reportData.classroom?.sectionHeadName || "Sectional Head"}
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2" align="right">
+              Principal
+            </Typography>
+          </Grid>
+        </Grid>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AnalysisPreview({ reportData }) {
+  const theme = useTheme();
+  const { schema, analysis, className, year, termName } = reportData;
+  const flatColumns = flattenSchemaColumns(schema);
+  const optimiStudents = reportData.optimiStudents || [];
+  const compact = Number(reportData?.grade || 0) >= 10 && Number(reportData?.grade || 0) <= 11;
+  const headCellStyle = createPreviewCellStyle({ theme, compact, header: true });
+  const bodyCellStyle = createPreviewCellStyle({ theme, compact });
+  const labelCellStyle = createPreviewCellStyle({
+    theme,
+    compact,
+    align: "left",
+  });
+
+  const rows = [
+    { label: "Students's Total", getValue: (key) => analysis[key]?.total ?? 0 },
+    { label: "Appeared", getValue: (key) => analysis[key]?.appeared ?? 0 },
+    { label: "0-10", getValue: (key) => analysis[key]?.bands?.["0-10"] ?? 0 },
+    { label: "11-20", getValue: (key) => analysis[key]?.bands?.["11-20"] ?? 0 },
+    { label: "21-30", getValue: (key) => analysis[key]?.bands?.["21-30"] ?? 0 },
+    { label: "31-34", getValue: (key) => analysis[key]?.bands?.["31-34"] ?? 0 },
+    { label: "35-40", getValue: (key) => analysis[key]?.bands?.["35-40"] ?? 0 },
+    { label: "41-50", getValue: (key) => analysis[key]?.bands?.["41-50"] ?? 0 },
+    { label: "51-60", getValue: (key) => analysis[key]?.bands?.["51-60"] ?? 0 },
+    { label: "61-70", getValue: (key) => analysis[key]?.bands?.["61-70"] ?? 0 },
+    { label: "71-80", getValue: (key) => analysis[key]?.bands?.["71-80"] ?? 0 },
+    { label: "81-90", getValue: (key) => analysis[key]?.bands?.["81-90"] ?? 0 },
+    { label: "91-100", getValue: (key) => analysis[key]?.bands?.["91-100"] ?? 0 },
+    { label: "Students >40marks", getValue: (key) => analysis[key]?.passCount ?? 0 },
+    { label: "Pass Percentage", getValue: (key) => formatNumber(analysis[key]?.passPercentage ?? 0) },
+  ];
+
+  return (
+    <Card sx={{ borderRadius: 3 }}>
+      <CardContent>
+        <Typography variant="h6" fontWeight={700} gutterBottom>
+          KN/Kilinochchi Central College - Mark Analysis
+        </Typography>
+
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
+        </Typography>
+
+        <Box sx={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              minWidth: compact ? 1120 : 1200,
+              fontSize: compact ? 11 : 12,
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={headCellStyle}> </th>
+                {flatColumns.map((column) => (
+                  <th key={column.key} style={headCellStyle}>
+                    {column.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label}>
+                  <td style={{ ...labelCellStyle, fontWeight: 600 }}>
+                    {row.label}
+                  </td>
+                  {flatColumns.map((column) => (
+                    <td key={column.key} style={bodyCellStyle}>
+                      {row.getValue(column.key)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Box>
+
+        {optimiStudents.length > 0 && (
+          <Card sx={{ borderRadius: 3, mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight={700} gutterBottom>
+                Optimi Student List
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Students meeting overall average ≥ 75, Tamil ≥ 75, Religion ≥ 75, and English ≥ 60.
+              </Typography>
+              <Box component="ol" sx={{ pl: 3, mb: 0 }}>
+                {optimiStudents.map((student) => (
+                  <Typography key={student.studentId} component="li" variant="body2" sx={{ mb: 0.5 }}>
+                    {student.studentName} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
+                  </Typography>
+                ))}
+              </Box>
+            </CardContent>
+          </Card>
+        )}
+
+        <Grid container spacing={2} sx={{ mt: 3 }}>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2">
+              {reportData.classroom?.classTeacherName || "Class Teacher"}
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2" align="center">
+              {reportData.classroom?.sectionHeadName || "Sectional Head"}
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 4 }}>
+            <Typography variant="body2" align="right">
+              Principal
+            </Typography>
+          </Grid>
+        </Grid>
+      </CardContent>
+    </Card>
+  );
+}
+
+async function shareClassMarksPdf(reportData, colorSchedule = false) {
+  const { blob, fileName, file } = colorSchedule
+    ? createColorClassMarksPdfFile(reportData)
+    : createClassMarksPdfFile(reportData);
+  const text = [
+    "Kilinochchi Central College",
+    colorSchedule ? "Color Mark Schedule" : "Class Marks Report",
+    `Class: ${reportData.className}`,
+    `Term: ${reportData.termName} | Year: ${reportData.year}`,
+  ].join("\n");
+
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({
+        title: "Kilinochchi Central College - Class Marks Report",
+        text,
+        files: [file],
+      });
+      return;
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    console.warn("Class marks PDF share fallback triggered:", err);
+  }
+
+  saveAs(blob, fileName);
+  window.open(
+    `https://wa.me/?text=${encodeURIComponent(
+      `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
+    )}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+  window.alert(
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
+  );
+}
+
+export default function ClassMarksReports() {
+  const { isSectionalHead, assignedGrades } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [reportMode, setReportMode] = useState("standard");
+  const colorSchedule = reportMode === "color";
+
+  const [students, setStudents] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [marks, setMarks] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
+  const [terms, setTerms] = useState([]);
+
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedTerm, setSelectedTerm] = useState("Term 1");
+
+  const selectedClassroom = useMemo(
+    () => classrooms.find((item) => item.id === selectedClassId) || null,
+    [classrooms, selectedClassId]
+  );
+
+  const reportData = useMemo(() => {
+    if (!selectedClassroom) return null;
+
+    try {
+      return buildClassMarksReportData({
+        students,
+        enrollments,
+        marks,
+        classrooms,
+        grade: selectedClassroom.grade,
+        className: getClassroomReportName(selectedClassroom),
+        section: selectedClassroom.section,
+        stream: selectedClassroom.stream || "",
+        termName: selectedTerm,
+        year: selectedYear,
+      });
+    } catch (err) {
+      console.error("Report build failed:", err);
+      return null;
+    }
+  }, [students, enrollments, marks, classrooms, selectedClassroom, selectedTerm, selectedYear]);
+
+  const filteredClassrooms = useMemo(() => {
+    const assignedGradeSet = new Set((assignedGrades || []).map(Number));
+    return classrooms
+      .filter((item) => {
+        const grade = Number(item.grade);
+        const year = Number(item.year || item.academicYear || 0);
+
+        return (
+          year === Number(selectedYear) &&
+          (!isSectionalHead || assignedGradeSet.has(grade)) &&
+          grade >= 6 &&
+          grade <= 13
+        );
+      })
+      .sort((a, b) => {
+        const gradeDiff = Number(a.grade) - Number(b.grade);
+        if (gradeDiff !== 0) return gradeDiff;
+        return getClassroomDisplayName(a).localeCompare(getClassroomDisplayName(b), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+  }, [classrooms, selectedYear, isSectionalHead, assignedGrades]);
+
+  const availableYears = useMemo(() => {
+    const years = new Set(
+      classrooms
+        .map((item) => Number(item.year || item.academicYear || 0))
+        .filter(Boolean)
+    );
+    return Array.from(years).sort((a, b) => a - b);
+  }, [classrooms]);
+
+  useEffect(() => {
+    loadBaseData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadBaseData(forceRefresh = false) {
+    try {
+      setLoading(true);
+      setError("");
+
+      const [studentsData, enrollmentsData, marksData, classroomsData, termsData] =
+        await Promise.all([
+          getCollectionRows(db, "students", { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "classrooms", { forceRefresh }),
+          getCollectionRows(db, "academicTerms", { forceRefresh }),
+        ]);
+
+      setStudents(studentsData);
+      setEnrollments(enrollmentsData);
+      setMarks(marksData);
+      setClassrooms(classroomsData);
+      setTerms(termsData);
+
+      const activeTerm = termsData.find((item) => item.isActive) || termsData[0] || null;
+      if (activeTerm?.term) {
+        setSelectedTerm(activeTerm.term);
+      }
+
+      const assignedGradeSet = new Set((assignedGrades || []).map(Number));
+      const defaultClassrooms = classroomsData
+        .filter((item) => {
+          const grade = Number(item.grade);
+          return (
+            Number(item.year || item.academicYear) === Number(CURRENT_YEAR) &&
+            (!isSectionalHead || assignedGradeSet.has(grade)) &&
+            grade >= 6 &&
+            grade <= 13
+          );
+        })
+        .sort((a, b) => {
+          const gradeDiff = Number(a.grade) - Number(b.grade);
+          if (gradeDiff !== 0) return gradeDiff;
+          return getClassroomDisplayName(a).localeCompare(getClassroomDisplayName(b), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+        });
+
+      if (defaultClassrooms.length > 0) {
+        setSelectedClassId(defaultClassrooms[0].id);
+        setSelectedYear(
+          Number(defaultClassrooms[0].year || defaultClassrooms[0].academicYear || CURRENT_YEAR)
+        );
+      }
+    } catch (err) {
+      console.error("Failed to load class marks reports data:", err);
+      setError(err.message || "Failed to load report data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBulkExport() {
+    try {
+      setBulkLoading(true);
+      setError("");
+
+      const allReports = filteredClassrooms
+        .map((classroom) => {
+          try {
+            return buildClassMarksReportData({
+              students,
+              enrollments,
+              marks,
+              classrooms,
+              grade: classroom.grade,
+              className: getClassroomReportName(classroom),
+              section: classroom.section,
+              stream: classroom.stream || "",
+              termName: selectedTerm,
+              year: selectedYear,
+            });
+          } catch (err) {
+            console.error(`Bulk report build failed for ${classroom.className}:`, err);
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      if (allReports.length === 0) {
+        throw new Error("No class reports available for bulk export.");
+      }
+
+      await exportAllClassesReportsZip(allReports, {
+        includePdf: true,
+        includeExcel: true,
+      });
+    } catch (err) {
+      console.error("Bulk export failed:", err);
+      setError(err.message || "Bulk export failed.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handlePrintOlResultSheets() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      await printGradeElevenOlResultSheets(reportData);
+    } catch (err) {
+      console.error("O/L result sheet print failed:", err);
+      setError(err.message || "O/L result sheet print failed.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleExportOlResultSheetsZip() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      await exportGradeElevenOlResultSheetsZip(reportData);
+    } catch (err) {
+      console.error("O/L result sheet ZIP export failed:", err);
+      setError(err.message || "O/L result sheet ZIP export failed.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleSharePdf() {
+    if (!reportData) return;
+
+    try {
+      setError("");
+      await shareClassMarksPdf(reportData, colorSchedule);
+    } catch (err) {
+      console.error("Class marks PDF share failed:", err);
+      setError(err.message || "Failed to share class marks PDF.");
+    }
+  }
+
+  function handleExportPdf() {
+    if (!reportData) return;
+
+    try {
+      setError("");
+      if (colorSchedule) {
+        exportColorClassMarksPdf(reportData);
+      } else {
+        exportClassMarksPdf(reportData);
+      }
+    } catch (err) {
+      console.error("Class marks PDF export failed:", err);
+      setError(err.message || "Failed to export class marks PDF.");
+    }
+  }
+
+  async function handleExportExcel() {
+    if (!reportData) return;
+
+    try {
+      setBulkLoading(true);
+      setError("");
+      if (colorSchedule) {
+        await exportColorClassMarksExcel(reportData);
+      } else {
+        exportClassMarksExcel(reportData);
+      }
+    } catch (err) {
+      console.error("Class marks Excel export failed:", err);
+      setError(err.message || "Failed to export class marks Excel.");
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  return (
+    <PageContainer
+      title="Class Marks Reports"
+      subtitle="Grades 6-13 schedule and analysis, including A/L stream-wise reports."
+    >
+      <Stack spacing={3}>
+        <Card sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Year</InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Year"
+                    onChange={(e) => {
+                      setSelectedYear(Number(e.target.value));
+                      setSelectedClassId("");
+                    }}
+                  >
+                    {availableYears.map((year) => (
+                      <MenuItem key={year} value={year}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 5 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Class</InputLabel>
+                  <Select
+                    value={selectedClassId}
+                    label="Class"
+                    onChange={(e) => setSelectedClassId(e.target.value)}
+                  >
+                    {filteredClassrooms.map((item) => (
+                      <MenuItem key={item.id} value={item.id}>
+                        {getClassroomDisplayName(item)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 4 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Term</InputLabel>
+                  <Select
+                    value={selectedTerm}
+                    label="Term"
+                    onChange={(e) => setSelectedTerm(e.target.value)}
+                  >
+                    {terms.map((item) => (
+                      <MenuItem key={item.id} value={item.term}>
+                        {item.term}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "stretch", sm: "center" }}
+              sx={{ mt: 2 }}
+            >
+              <Typography variant="body2" fontWeight={700} sx={{ mr: 0.5 }}>
+                Report type
+              </Typography>
+              <Button
+                size="small"
+                variant={reportMode === "standard" ? "contained" : "outlined"}
+                onClick={() => setReportMode("standard")}
+              >
+                Mark Schedule
+              </Button>
+              <Button
+                size="small"
+                variant={reportMode === "color" ? "contained" : "outlined"}
+                color="success"
+                onClick={() => setReportMode("color")}
+              >
+                Color Mark Schedule
+              </Button>
+            </Stack>
+
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              sx={{ mt: 2, flexWrap: "wrap" }}
+            >
+              {selectedClassroom && (
+                <Alert severity="info" sx={{ flex: 1, minWidth: 260 }}>
+                  Grade {selectedClassroom.grade} | Class {getClassroomDisplayName(selectedClassroom)} | Term {selectedTerm}
+                </Alert>
+              )}
+
+              <Button variant="outlined" onClick={() => loadBaseData(true)} disabled={loading || bulkLoading}>
+                Reload Data
+              </Button>
+
+              <Button
+                variant="contained"
+                onClick={handleExportPdf}
+                disabled={!reportData || loading || bulkLoading}
+              >
+                {colorSchedule ? "Download Color PDF" : "Download PDF"}
+              </Button>
+
+              <Button
+                variant="outlined"
+                color="success"
+                startIcon={<ShareRoundedIcon />}
+                onClick={handleSharePdf}
+                disabled={!reportData || loading || bulkLoading}
+              >
+                Share PDF
+              </Button>
+
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleExportExcel}
+                disabled={!reportData || loading || bulkLoading}
+              >
+                {colorSchedule ? "Download Color Excel" : "Download Excel"}
+              </Button>
+
+              {reportData && isClassMarksEmisExportSupported(reportData) && (
+                <Button
+                  variant="contained"
+                  color="warning"
+                  onClick={() => {
+                    if (reportData) exportClassMarksEmisExcel(reportData);
+                  }}
+                  disabled={!reportData || loading || bulkLoading}
+                >
+                  Download EMIS NP
+                </Button>
+              )}
+
+              {reportData && Number(reportData.grade) === 11 && (
+                <>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={handlePrintOlResultSheets}
+                    disabled={!reportData || loading || bulkLoading}
+                  >
+                    Print O/L Sheets
+                  </Button>
+
+                  <Button
+                    variant="contained"
+                    color="info"
+                    onClick={handleExportOlResultSheetsZip}
+                    disabled={!reportData || loading || bulkLoading}
+                  >
+                    Download O/L ZIP
+                  </Button>
+                </>
+              )}
+
+              <Button
+                variant="contained"
+                color="secondary"
+                onClick={handleBulkExport}
+                disabled={filteredClassrooms.length === 0 || loading || bulkLoading}
+              >
+                {bulkLoading ? "Preparing ZIP..." : "Export All Classes ZIP"}
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {loading && (
+          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+            <CircularProgress />
+          </Box>
+        )}
+
+        {!!error && <Alert severity="error">{error}</Alert>}
+
+        {!loading && !error && selectedClassroom && !reportData && (
+          <Alert severity="warning">
+            Unable to build report preview for this class.
+          </Alert>
+        )}
+
+        {!loading && !error && reportData && (
+          <>
+            <SchedulePreview reportData={reportData} colorSchedule={colorSchedule} />
+            <Divider />
+            <AnalysisPreview reportData={reportData} />
+          </>
+        )}
+      </Stack>
+    </PageContainer>
+  );
+}

@@ -1,0 +1,139 @@
+===== getStudentSubjects =====
+src/constants.js:865:export const getStudentSubjects = (student) => {
+
+===== old subject logic =====
+src/constants.js:122:export const AESTHETIC_SUBJECTS = [
+src/constants.js:133:export const BASKET_A = [
+src/constants.js:140:export const BASKET_B = [
+src/constants.js:149:export const BASKET_C = [
+src/constants.js:164:export const BASKET_1 = BASKET_A;
+src/constants.js:165:export const BASKET_2 = BASKET_B;
+src/constants.js:166:export const BASKET_3 = BASKET_C;
+src/constants.js:185:  A: BASKET_A,
+src/constants.js:186:  B: BASKET_B,
+src/constants.js:187:  C: BASKET_C,
+src/constants.js:523:  ...AESTHETIC_SUBJECTS,
+src/constants.js:529:  ...BASKET_A,
+src/constants.js:530:  ...BASKET_B,
+src/constants.js:531:  ...BASKET_C,
+src/constants.js:539:export const SUBJECTS_BY_GRADE = {
+src/constants.js:635:  if (BASKET_A.some((s) => normalizeLoose(s) === key)) return "A";
+src/constants.js:636:  if (BASKET_B.some((s) => normalizeLoose(s) === key)) return "B";
+src/constants.js:637:  if (BASKET_C.some((s) => normalizeLoose(s) === key)) return "C";
+src/constants.js:643:  A: normalizeText(student?.basketAChoice || student?.basket1),
+src/constants.js:644:  B: normalizeText(student?.basketBChoice || student?.basket2),
+src/constants.js:645:  C: normalizeText(student?.basketCChoice || student?.basket3),
+src/constants.js:872:      normalizeText(student?.aesthetic || student?.aestheticChoice),
+src/constants.js:895:  return SUBJECTS_BY_GRADE[grade] || [];
+src/pages/ReportCard.js:132:  return safeText(student?.aestheticChoice || student?.aesthetic);
+src/pages/ReportCard.js:136:  return [student?.basket1, student?.basket2, student?.basket3]
+src/pages/Students.js:59:  AESTHETIC_SUBJECTS,
+src/pages/Students.js:60:  BASKET_A,
+src/pages/Students.js:61:  BASKET_B,
+src/pages/Students.js:62:  BASKET_C,
+src/pages/Students.js:97:  aestheticChoice: "",
+src/pages/Students.js:509:          aestheticChoice: raw.aestheticChoice || raw.aesthetic || "",
+src/pages/Students.js:510:          basketAChoice: raw.basketAChoice || raw.basket1 || "",
+src/pages/Students.js:511:          basketBChoice: raw.basketBChoice || raw.basket2 || "",
+src/pages/Students.js:512:          basketCChoice: raw.basketCChoice || raw.basket3 || "",
+src/pages/Students.js:564:      aestheticChoice: shouldShowAesthetic(grade) ? normalizeText(data.aestheticChoice) : "",
+src/pages/Students.js:623:      aesthetic: normalizeText(cleaned.aestheticChoice),
+src/pages/Students.js:624:      aestheticChoice: normalizeText(cleaned.aestheticChoice),
+src/pages/Students.js:626:      basket1: normalizeText(cleaned.basketAChoice),
+src/pages/Students.js:627:      basket2: normalizeText(cleaned.basketBChoice),
+src/pages/Students.js:628:      basket3: normalizeText(cleaned.basketCChoice),
+src/pages/Students.js:694:      if (!normalizeText(form.aestheticChoice)) {
+src/pages/Students.js:801:      aestheticChoice: s.aestheticChoice || s.aesthetic || "",
+src/pages/Students.js:802:      basketAChoice: s.basketAChoice || s.basket1 || "",
+src/pages/Students.js:803:      basketBChoice: s.basketBChoice || s.basket2 || "",
+src/pages/Students.js:804:      basketCChoice: s.basketCChoice || s.basket3 || "",
+src/pages/Students.js:853:      aestheticChoice: normalizeText(row["Aesthetic Choice"] || row["aestheticChoice"]),
+src/pages/Students.js:854:      basketAChoice: normalizeText(row["Basket A Choice"] || row["basketAChoice"] || row["Basket 1"] || row["basket1"]),
+src/pages/Students.js:855:      basketBChoice: normalizeText(row["Basket B Choice"] || row["basketBChoice"] || row["Basket 2"] || row["basket2"]),
+src/pages/Students.js:856:      basketCChoice: normalizeText(row["Basket C Choice"] || row["basketCChoice"] || row["Basket 3"] || row["basket3"]),
+src/pages/Students.js:915:    if (shouldShowAesthetic(grade) && !normalizeText(student.aestheticChoice)) {
+src/pages/Students.js:951:      aesthetic: normalizeText(cleaned.aestheticChoice),
+src/pages/Students.js:952:      aestheticChoice: normalizeText(cleaned.aestheticChoice),
+src/pages/Students.js:954:      basket1: normalizeText(cleaned.basketAChoice),
+src/pages/Students.js:955:      basket2: normalizeText(cleaned.basketBChoice),
+src/pages/Students.js:956:      basket3: normalizeText(cleaned.basketCChoice),
+src/pages/Students.js:1063:      "Aesthetic Choice": s.aestheticChoice || s.aesthetic || "",
+src/pages/Students.js:1064:      "Basket A Choice": s.basketAChoice || s.basket1 || "",
+src/pages/Students.js:1065:      "Basket B Choice": s.basketBChoice || s.basket2 || "",
+src/pages/Students.js:1066:      "Basket C Choice": s.basketCChoice || s.basket3 || "",
+src/pages/Students.js:1631:                      {(s.aestheticChoice || s.aesthetic) && (
+src/pages/Students.js:1632:                        <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
+src/pages/Students.js:1634:                      {(s.basketAChoice || s.basket1) && (
+src/pages/Students.js:1635:                        <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
+src/pages/Students.js:1637:                      {(s.basketBChoice || s.basket2) && (
+src/pages/Students.js:1638:                        <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
+src/pages/Students.js:1640:                      {(s.basketCChoice || s.basket3) && (
+src/pages/Students.js:1641:                        <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
+src/pages/Students.js:1951:                                value={form.aestheticChoice}
+src/pages/Students.js:1954:                                  setForm({ ...form, aestheticChoice: e.target.value })
+src/pages/StudentsBySubject.js:5:  AESTHETIC_SUBJECTS,
+src/pages/StudentsBySubject.js:6:  BASKET_A,
+src/pages/StudentsBySubject.js:7:  BASKET_B,
+src/pages/StudentsBySubject.js:8:  BASKET_C,
+src/pages/StudentsBySubject.js:11:  SUBJECTS_BY_GRADE,
+src/pages/StudentsBySubject.js:272:  return [...BASKET_A, ...BASKET_B, ...BASKET_C];
+src/pages/StudentsBySubject.js:283:  const isAesthetic = AESTHETIC_SUBJECTS.includes(normalizedSubject);
+src/pages/StudentsBySubject.js:421:      : (SUBJECTS_BY_GRADE[selectedGrade] || []).map((subjectName) => ({
+src/services/enrollmentGenerator.js:180:    student?.aestheticChoice || student?.aesthetic || ""
+src/services/enrollmentGenerator.js:186:    return canonicalizeChoiceValue(student?.basketAChoice || student?.basket1 || "");
+src/services/enrollmentGenerator.js:189:    return canonicalizeChoiceValue(student?.basketBChoice || student?.basket2 || "");
+src/services/enrollmentGenerator.js:192:    return canonicalizeChoiceValue(student?.basketCChoice || student?.basket3 || "");
+src/services/enrollmentGenerator.js:377:      raw === "basket1" ||
+src/services/enrollmentGenerator.js:387:      raw === "basket2" ||
+src/services/enrollmentGenerator.js:397:      raw === "basket3" ||
+src/services/enrollmentGenerator.js:496:    errors.push("Missing aestheticChoice");
+src/services/setupDefaultsService.js:566:      student.aesthetic || student.aestheticChoice
+src/services/setupDefaultsService.js:569:    const basket1 = normalizeText(student.basket1 || student.basketAChoice);
+src/services/setupDefaultsService.js:570:    const basket2 = normalizeText(student.basket2 || student.basketBChoice);
+src/services/setupDefaultsService.js:571:    const basket3 = normalizeText(student.basket3 || student.basketCChoice);
+src/services/setupDefaultsService.js:617:        if (normalizeText(student.aestheticChoice) !== normalizedAesthetic) {
+src/services/setupDefaultsService.js:618:          patch.aestheticChoice = normalizedAesthetic;
+src/services/setupDefaultsService.js:623:          !normalizeText(student.aestheticChoice)
+src/services/setupDefaultsService.js:625:          patch.aestheticChoice = normalizeText(student.aesthetic);
+src/services/setupDefaultsService.js:628:          normalizeText(student.aestheticChoice) &&
+src/services/setupDefaultsService.js:631:          patch.aesthetic = normalizeText(student.aestheticChoice);
+src/services/setupDefaultsService.js:637:      if (basket1 && normalizeText(student.basket1) !== basket1) {
+src/services/setupDefaultsService.js:638:        patch.basket1 = basket1;
+src/services/setupDefaultsService.js:640:      if (basket1 && normalizeText(student.basketAChoice) !== basket1) {
+src/services/setupDefaultsService.js:641:        patch.basketAChoice = basket1;
+src/services/setupDefaultsService.js:644:      if (basket2 && normalizeText(student.basket2) !== basket2) {
+src/services/setupDefaultsService.js:645:        patch.basket2 = basket2;
+src/services/setupDefaultsService.js:647:      if (basket2 && normalizeText(student.basketBChoice) !== basket2) {
+src/services/setupDefaultsService.js:648:        patch.basketBChoice = basket2;
+src/services/setupDefaultsService.js:651:      if (basket3 && normalizeText(student.basket3) !== basket3) {
+src/services/setupDefaultsService.js:652:        patch.basket3 = basket3;
+src/services/setupDefaultsService.js:654:      if (basket3 && normalizeText(student.basketCChoice) !== basket3) {
+src/services/setupDefaultsService.js:655:        patch.basketCChoice = basket3;
+src/utils/reportSchemas.js:207:      key: "basket1",
+src/utils/reportSchemas.js:237:      key: "basket2",
+src/utils/reportSchemas.js:273:      key: "basket3",
+
+===== canonical enrollment usage =====
+src/pages/BulkMarksUpload.js:495:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/BulkMarksUpload.js:790:          This uses <strong>studentSubjectEnrollments</strong> as the source of truth.
+src/pages/ClassReport.js:277:            getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/Dashboard.js:174:            getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/GenerateSubjectEnrollments.js:371:          This page rebuilds <strong>studentSubjectEnrollments</strong> using the current
+src/pages/MarksEntry.js:494:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/MigrateStudentSubjects.js:123:        <b>studentSubjectEnrollments</b> as the source of truth.
+src/pages/ReportCard.js:229:          getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/reports/ClassMarksReports.js:323:          getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/SetupSchoolDefaults.js:185:              <strong> studentSubjectEnrollments</strong>.
+src/pages/SetupSchoolDefaults.js:220:            <StatCard title="Enrollment Authority" value="studentSubjectEnrollments" />
+src/pages/StudentsBySubject.js:352:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/StudentSubjectEnrollments.js:181:          getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/TeacherDashboard.js:205:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/TeacherMarkSheets.js:201:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/TeacherMarkSheets.js:733:          This page uses <strong>studentSubjectEnrollments</strong> so each sheet includes
+src/pages/YearEndPromotion.js:178:        getDocs(collection(db, "studentSubjectEnrollments")),
+src/pages/YearEndPromotion.js:338:          const ref = doc(db, "studentSubjectEnrollments", enrollment.id);
+src/pages/YearEndPromotion.js:377:          const ref = doc(db, "studentSubjectEnrollments", enrollment.id);
+src/services/classDataService.js:178:  const enrollments = await getAllDocs("studentSubjectEnrollments");
+src/services/classDataService.js:257:    getAllDocs("studentSubjectEnrollments"),
+src/services/enrollmentGenerator.js:14:const ENROLLMENTS_COLLECTION = "studentSubjectEnrollments";
+src/utils/exportFirestoreSamples.js:9:  "studentSubjectEnrollments",
