@@ -359,6 +359,7 @@ function getOptimiStudents(rows = []) {
 }
 
 export function buildClassMarksReportData({
+  rejectDuplicateMarks = false,
   students = [],
   enrollments = [],
   marks = [],
@@ -435,11 +436,16 @@ export function buildClassMarksReportData({
 
     const religionColumn = resolveReligionColumnFromStudent(student);
 
+    const seenResultColumns = new Set();
     studentMarks.forEach((markDoc) => {
       const subjectName = markDoc.subjectName || markDoc.subject || "";
       const columnKey = resolveColumnKeyFromSubjectName(schema, subjectName);
 
       if (!columnKey || !schemaColumnMap[columnKey]) return;
+      if (rejectDuplicateMarks && seenResultColumns.has(columnKey)) {
+        throw new Error(`Multiple results found for student ${student.id}, subject ${subjectName}, ${termName} ${year}. Resolve duplicate or mixed-attempt records before generating this sheet.`);
+      }
+      seenResultColumns.add(columnKey);
 
       if (isAbsentMark(markDoc)) {
         absencesByColumn[columnKey] = true;

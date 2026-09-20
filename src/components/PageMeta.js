@@ -98,6 +98,18 @@ const ROUTE_META = [
       "Generate printable teacher mark sheets by class, subject, term, and academic year.",
   },
   {
+    match: /^\/attendance-register\/?$/,
+    title: "Attendance Register | Kilinochchi Marks System",
+    description:
+      "Create, save, print, and share monthly class attendance registers by division.",
+  },
+  {
+    match: /^\/grade-result-sheet\/?$/,
+    title: "Grade Result Sheet | Kilinochchi Marks System",
+    description:
+      "Generate class subject grades, basket results, totals, and student result summaries.",
+  },
+  {
     match: /^\/subject-analysis\/?$/,
     title: "Subject Analysis | Kilinochchi Marks System",
     description:

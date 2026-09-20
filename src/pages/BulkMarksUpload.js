@@ -80,7 +80,12 @@ const UPLOAD_MODES = {
   LOWER_CLASS_SHEET: "lowerClassSheet",
   WHOLE_GRADE_SHEET: "wholeGradeSheet",
   OL_CLASS_SHEET: "olClassSheet",
+  WHOLE_OL_GRADE_SHEET: "wholeOlGradeSheet",
 };
+
+function isWholeGradeUploadMode(mode) {
+  return [UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(mode);
+}
 
 const SUBJECT_ALIASES = {
   maths: "Mathematics",
@@ -146,6 +151,9 @@ const SPECIAL_SUBJECT_ROLES = {
   citiedugove: "civics",
   civiceducation: "civics",
   civics: "civics",
+  firstgroup: "basketA",
+  secondgroup: "basketB",
+  thirdgroup: "basketC",
   basket1: "basketA",
   basket2: "basketB",
   basket3: "basketC",
@@ -527,21 +535,21 @@ function createClassSheetWorkbook({ classEnrollments, studentsById, className, t
   worksheet["!autofilter"] = { ref: `A1:${XLSX.utils.encode_col(template.headers.length - 1)}${template.rows.length + 1}` };
 
   const instructions = XLSX.utils.aoa_to_sheet([
-    ["Grade 6-9 Class Marks Upload"],
+    ["Class Marks Upload"],
     [`Class: ${className}`],
     [`Term: ${term}`],
     [`Academic Year: ${academicYear}`],
     [""],
     ["Enter marks under the actual enrolled subject columns."],
     ["Keep Student ID unchanged. Student ID is used as the identity key."],
-    ...(includeClass ? ["Keep the Class column unchanged. It identifies each division."] : []),
+    ...(includeClass ? [["Keep the Class column unchanged. It identifies each division."]] : []),
     ["Use AB, Absent, or A for absent students."],
     ["Do not rename or delete the identity columns."],
   ]);
   instructions["!cols"] = [{ wch: 90 }];
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Grade 6-9 Marks");
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Class Marks");
   XLSX.utils.book_append_sheet(workbook, instructions, "Instructions");
   return workbook;
 }
@@ -1241,7 +1249,7 @@ function validateTeacherMarksSheetRows({
   return { validRows, invalidRows };
 }
 
-function validateLowerClassSheetRows({
+export function validateLowerClassSheetRows({
   rows,
   studentsByUploadId,
   classEnrollments,
@@ -1253,7 +1261,7 @@ function validateLowerClassSheetRows({
 }) {
   const plan = getLowerClassColumnPlan(rows);
   if (!plan) {
-    throw new Error("Could not find the lower-grade marks header row.");
+    throw new Error("Could not find the class marks header row.");
   }
 
   const validRows = [];
@@ -1313,7 +1321,10 @@ function validateLowerClassSheetRows({
       ) {
         reasons.push("Class/Division does not match the student's class");
       }
-      if (uploadedGrade && student && Number(uploadedGrade) !== Number(student.grade)) {
+      if (!wholeGrade && uploadedDivision && normalizeLower(buildFullClassName(uploadedGrade || parseGrade(selectedClass), uploadedDivision)) !== normalizeLower(selectedClass)) {
+        reasons.push("Class/Division does not match the selected class");
+      }
+      if (uploadedGrade && student && Number(uploadedGrade) !== Number(getEnrollmentGrade(studentEnrollments[0], student))) {
         reasons.push("Grade does not match the student's grade");
       }
       if (uploadedTerm && normalizeUploadedTerm(uploadedTerm) !== normalizeUploadedTerm(selectedTerm)) {
@@ -1346,6 +1357,10 @@ function validateLowerClassSheetRows({
       const marksResult = parseTeacherSheetMarkValue(rawMarks);
       if (!marksResult.valid) {
         reasons.push("Marks must be numeric, AB, or empty");
+      }
+
+      if (marksResult.valid && !marksResult.absent && (marksResult.marks < 0 || marksResult.marks > 100)) {
+        reasons.push("Marks must be between 0 and 100");
       }
 
       const dedupeKey = `${studentId}__${subject?.subjectId || subject?.subjectName || column.rawSubject}`;
@@ -1508,8 +1523,8 @@ export default function BulkMarksUpload() {
       filtered.map((enrollment) =>
         getEnrollmentClassName(enrollment, studentsById.get(normalizeText(enrollment.studentId)))
       )
-    );
-  }, [allEnrollments, selectedYear, studentsById]);
+    ).filter((className) => uploadMode !== UPLOAD_MODES.OL_CLASS_SHEET || [10, 11].includes(parseGrade(className)));
+  }, [allEnrollments, selectedYear, studentsById, uploadMode]);
 
   const availableGrades = useMemo(
     () =>
@@ -1522,9 +1537,9 @@ export default function BulkMarksUpload() {
               getEnrollmentAcademicYear(enrollment) === String(selectedYear)
           )
           .map((enrollment) => getEnrollmentGrade(enrollment, studentsById.get(normalizeText(enrollment.studentId))))
-          .filter((grade) => grade >= 6 && grade <= 9)
+          .filter((grade) => uploadMode === UPLOAD_MODES.WHOLE_OL_GRADE_SHEET ? [10, 11].includes(grade) : grade >= 6 && grade <= 9)
       ).sort((a, b) => a - b),
-    [allEnrollments, selectedYear, studentsById]
+    [allEnrollments, selectedYear, studentsById, uploadMode]
   );
 
   const gradeEnrollments = useMemo(
@@ -1677,10 +1692,10 @@ export default function BulkMarksUpload() {
     setRawUploadedRows([]);
     setUploadedFormat("");
     setSuccess("");
-  }, [selectedClass, selectedSubject, selectedTerm, selectedYear, uploadMode]);
+  }, [selectedClass, selectedGrade, selectedSubject, selectedTerm, selectedYear, uploadMode]);
 
   useEffect(() => {
-    if (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !availableGrades.includes(Number(selectedGrade))) {
+    if (isWholeGradeUploadMode(uploadMode) && !availableGrades.includes(Number(selectedGrade))) {
       setSelectedGrade(availableGrades[0] ? String(availableGrades[0]) : "");
     }
   }, [availableGrades, selectedGrade, uploadMode]);
@@ -1689,15 +1704,15 @@ export default function BulkMarksUpload() {
     if (uploadMode !== UPLOAD_MODES.SUBJECT_TEMPLATE && selectedSubject) {
       setSelectedSubject("");
     }
-    if (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && selectedClass) {
+    if (isWholeGradeUploadMode(uploadMode) && selectedClass) {
       setSelectedClass("");
     }
   }, [selectedClass, selectedSubject, uploadMode]);
 
   async function handleDownloadTemplate() {
     if (
-      (!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
-      (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+      (!selectedClass && !isWholeGradeUploadMode(uploadMode)) ||
+      (isWholeGradeUploadMode(uploadMode) && !selectedGrade) ||
       !selectedTerm ||
       !selectedYear
     ) return;
@@ -1708,8 +1723,8 @@ export default function BulkMarksUpload() {
     }
 
     if (
-      [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode) &&
-      !(uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments.length : classEnrollments.length)
+      [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode) &&
+      !(isWholeGradeUploadMode(uploadMode) ? gradeEnrollments.length : classEnrollments.length)
     ) {
       setError("No enrolled students found for the selected class and year.");
       return;
@@ -1720,15 +1735,15 @@ export default function BulkMarksUpload() {
 
     try {
       const workbook =
-        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)
           ? createClassSheetWorkbook({
               classEnrollments:
-                uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments : classEnrollments,
+                isWholeGradeUploadMode(uploadMode) ? gradeEnrollments : classEnrollments,
               studentsById,
-              className: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${selectedGrade}` : selectedClass,
+              className: isWholeGradeUploadMode(uploadMode) ? `Grade ${selectedGrade}` : selectedClass,
               term: selectedTerm,
               academicYear: String(selectedYear),
-              includeClass: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET,
+              includeClass: isWholeGradeUploadMode(uploadMode),
             })
           : createWorkbook({
               rows: previewRows,
@@ -1739,8 +1754,8 @@ export default function BulkMarksUpload() {
             });
 
       const fileName =
-        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
-          ? `${uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${selectedGrade}` : selectedClass} - Grade 6-9 Marks - ${selectedTerm} - ${selectedYear}.xlsx`
+        [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)
+          ? `${isWholeGradeUploadMode(uploadMode) ? `Grade ${selectedGrade}` : selectedClass} - Class Marks - ${selectedTerm} - ${selectedYear}.xlsx`
           : buildTemplateFileName({
               className: selectedClass,
               subjectName: selectedSubject,
@@ -1764,8 +1779,8 @@ export default function BulkMarksUpload() {
     if (!file) return;
 
     if (
-      ((!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
-        (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+      ((!selectedClass && !isWholeGradeUploadMode(uploadMode)) ||
+        (isWholeGradeUploadMode(uploadMode) && !selectedGrade) ||
         !selectedTerm ||
         !selectedYear)
     ) {
@@ -1799,26 +1814,24 @@ export default function BulkMarksUpload() {
       });
       const headers = sheetRows[0] || [];
 
-      if ([UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)) {
+      if ([UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)) {
         if (!isLowerClassMarksSheet(sheetRows)) {
-          throw new Error("This does not look like a Grade 6-9 class marks sheet.");
+          throw new Error("This does not look like a class marks sheet. Include Student ID, StudentName and subject headers.");
         }
 
         const result = validateLowerClassSheetRows({
           rows: sheetRows,
           studentsByUploadId,
           classEnrollments:
-            uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? gradeEnrollments : classEnrollments,
+            isWholeGradeUploadMode(uploadMode) ? gradeEnrollments : classEnrollments,
           selectedClass,
           selectedGrade,
-          wholeGrade: uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET,
+          wholeGrade: isWholeGradeUploadMode(uploadMode),
           selectedTerm,
           selectedYear,
         });
 
-        setUploadedFormat(
-          uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "wholeGradeSheet" : "lowerClassSheet"
-        );
+        setUploadedFormat(uploadMode);
         setRawUploadedRows(
           sheetRows.filter((row) => row.some((cell) => normalizeText(cell)))
         );
@@ -2068,13 +2081,13 @@ export default function BulkMarksUpload() {
   }
 
   const canDownload =
-    (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? selectedGrade : selectedClass) &&
+    (isWholeGradeUploadMode(uploadMode) ? selectedGrade : selectedClass) &&
     selectedTerm &&
     selectedYear &&
-    (uploadMode === UPLOAD_MODES.LOWER_CLASS_SHEET
-      ? classEnrollments.length > 0
+    (uploadMode !== UPLOAD_MODES.SUBJECT_TEMPLATE
+      ? (isWholeGradeUploadMode(uploadMode) ? gradeEnrollments : classEnrollments).length > 0
       : selectedSubject && previewRows.length > 0) &&
-    !downloading;
+    !downloading && !loading && !uploading && !saving && !deletingMarks;
 
   const canDeleteSelectedMarks =
     uploadMode === UPLOAD_MODES.SUBJECT_TEMPLATE &&
@@ -2087,8 +2100,14 @@ export default function BulkMarksUpload() {
     !saving &&
     !deletingMarks;
 
+  const templateStudentCount = uploadMode === UPLOAD_MODES.SUBJECT_TEMPLATE
+    ? previewRows.length
+    : (isWholeGradeUploadMode(uploadMode) ? selectedGrade : selectedClass)
+      ? new Set((isWholeGradeUploadMode(uploadMode) ? gradeEnrollments : classEnrollments).map((enrollment) => enrollment.studentId)).size
+      : 0;
+
   const quickStats = [
-    { title: "Template Rows", value: previewRows.length, color: "primary", status: "active" },
+    { title: "Template Rows", value: templateStudentCount, color: "primary", status: "active" },
     { title: "Uploaded Rows", value: validRows.length + invalidRows.length, color: "saved", status: "saved" },
     { title: "Valid Rows", value: validRows.length, color: "success", status: "completed" },
     { title: "Invalid Rows", value: invalidRows.length, color: "error", status: "pending" },
@@ -2102,10 +2121,12 @@ export default function BulkMarksUpload() {
     >
       <Stack spacing={3}>
         <Alert severity="info">
-          {[UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode) ? (
+          {[UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode) ? (
             <>
-              {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
-                ? "Whole-grade mode creates one workbook containing every division in the selected grade."
+              {isWholeGradeUploadMode(uploadMode)
+                ? "Whole-grade mode includes every division in the selected grade. Keep Class or GrDivision on each student row. First Language maps to Tamil; Religion and Basket 1/2/3 (FirstGroup/SecondGroup/ThirdGroup) follow each student's choices."
+                : uploadMode === UPLOAD_MODES.OL_CLASS_SHEET
+                ? "Grade 10-11: First Language maps to Tamil. Religion follows each student's religion; FirstGroup, SecondGroup and ThirdGroup follow their Basket 1, 2 and 3 choices. Review the resolved subjects before saving."
                 : "Grade 6-9 class mode creates one workbook with the enrolled students and actual subject columns."}
             </>
           ) : (
@@ -2116,15 +2137,16 @@ export default function BulkMarksUpload() {
         <Paper variant="outlined" sx={{ borderRadius: 3 }}>
           <Tabs
             value={uploadMode}
-            onChange={(_, value) => setUploadMode(value)}
-            variant={isMobile ? "scrollable" : "standard"}
+            onChange={(_, value) => { if (!uploading && !saving && !deletingMarks) setUploadMode(value); }}
+            variant="scrollable"
             scrollButtons="auto"
             sx={{ px: 1 }}
           >
             <Tab value={UPLOAD_MODES.SUBJECT_TEMPLATE} label="Single Subject / A-L" />
             <Tab value={UPLOAD_MODES.LOWER_CLASS_SHEET} label="Grade 6-9 Bulk Class" />
             <Tab value={UPLOAD_MODES.WHOLE_GRADE_SHEET} label="Whole Grade 6-9" />
-            <Tab value={UPLOAD_MODES.OL_CLASS_SHEET} label="Grade 10-11 Bulk" disabled />
+            <Tab value={UPLOAD_MODES.OL_CLASS_SHEET} label="Grade 10-11 Bulk" disabled={uploading || saving || deletingMarks} />
+            <Tab value={UPLOAD_MODES.WHOLE_OL_GRADE_SHEET} label="Whole Grade 10-11" disabled={uploading || saving || deletingMarks} />
           </Tabs>
         </Paper>
 
@@ -2156,7 +2178,7 @@ export default function BulkMarksUpload() {
         ) : (
           <Grid container spacing={1.5}>
             <Grid size={{ xs: 6, md: 3 }}>
-              <StatCard title="Template Rows" value={previewRows.length} icon={<SchoolIcon />} color="primary" />
+              <StatCard title="Template Rows" value={templateStudentCount} icon={<SchoolIcon />} color="primary" />
             </Grid>
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard title="Uploaded Rows" value={validRows.length + invalidRows.length} icon={<PreviewIcon />} color="secondary" />
@@ -2193,7 +2215,7 @@ export default function BulkMarksUpload() {
                     value={selectedYear}
                     label="Academic Year"
                     onChange={(e) => setSelectedYear(String(e.target.value))}
-                    disabled={loading}
+                    disabled={loading || uploading || saving || deletingMarks}
                   >
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={String(year)}>
@@ -2206,23 +2228,23 @@ export default function BulkMarksUpload() {
 
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>{uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}</InputLabel>
+                  <InputLabel>{isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}</InputLabel>
                   <Select
-                    value={uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? selectedGrade : selectedClass}
-                    label={uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}
+                    value={isWholeGradeUploadMode(uploadMode) ? selectedGrade : selectedClass}
+                    label={isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}
                     onChange={(e) =>
-                      uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
+                      isWholeGradeUploadMode(uploadMode)
                         ? setSelectedGrade(String(e.target.value))
                         : setSelectedClass(e.target.value)
                     }
-                    disabled={loading}
+                    disabled={loading || uploading || saving || deletingMarks}
                   >
                     <MenuItem value="">
-                      {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Select grade..." : "Select class..."}
+                      {isWholeGradeUploadMode(uploadMode) ? "Select grade..." : "Select class..."}
                     </MenuItem>
-                    {(uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? availableGrades : availableClasses).map((value) => (
+                    {(isWholeGradeUploadMode(uploadMode) ? availableGrades : availableClasses).map((value) => (
                       <MenuItem key={value} value={String(value)}>
-                        {uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? `Grade ${value}` : value}
+                        {isWholeGradeUploadMode(uploadMode) ? `Grade ${value}` : value}
                       </MenuItem>
                     ))}
                   </Select>
@@ -2237,7 +2259,7 @@ export default function BulkMarksUpload() {
                       value={selectedSubject}
                       label="Subject"
                       onChange={(e) => setSelectedSubject(e.target.value)}
-                      disabled={loading || !selectedClass}
+                      disabled={loading || uploading || saving || deletingMarks || !selectedClass}
                     >
                       <MenuItem value="">Select subject...</MenuItem>
                       {availableSubjects.map((subject) => (
@@ -2265,7 +2287,7 @@ export default function BulkMarksUpload() {
                     value={selectedTerm}
                     label="Term"
                     onChange={(e) => setSelectedTerm(e.target.value)}
-                    disabled={loading}
+                    disabled={loading || uploading || saving || deletingMarks}
                   >
                     {availableTerms.map((term) => (
                       <MenuItem key={term} value={term}>
@@ -2293,8 +2315,8 @@ export default function BulkMarksUpload() {
                 >
                   {downloading
                     ? "Generating..."
-                    : uploadMode === UPLOAD_MODES.LOWER_CLASS_SHEET
-                    ? "Download Grade 6-9 Class Template"
+                    : uploadMode !== UPLOAD_MODES.SUBJECT_TEMPLATE
+                    ? "Download Class Marks Template"
                     : "Download Single-Subject Template"}
                 </Button>
               </Grid>
@@ -2310,9 +2332,8 @@ export default function BulkMarksUpload() {
                     loading ||
                     uploading ||
                     saving ||
-                    uploadMode === UPLOAD_MODES.OL_CLASS_SHEET ||
-                    (!selectedClass && uploadMode !== UPLOAD_MODES.WHOLE_GRADE_SHEET) ||
-                    (uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET && !selectedGrade) ||
+                    (!selectedClass && !isWholeGradeUploadMode(uploadMode)) ||
+                    (isWholeGradeUploadMode(uploadMode) && !selectedGrade) ||
                     !selectedTerm ||
                     !selectedYear
                   }
@@ -2321,7 +2342,7 @@ export default function BulkMarksUpload() {
                 >
                   {uploading
                     ? "Reading File..."
-                    : [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+                    : [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)
                     ? "Upload Class Workbook for Validation"
                     : "Upload Completed Excel / Teacher Sheet"}
                   <input
@@ -2361,21 +2382,21 @@ export default function BulkMarksUpload() {
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Chip label={`Year: ${selectedYear || "-"}`} />
               <Chip
-                label={`${uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET ? "Grade" : "Class"}: ${
-                  uploadMode === UPLOAD_MODES.WHOLE_GRADE_SHEET
+                label={`${isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}: ${
+                  isWholeGradeUploadMode(uploadMode)
                     ? selectedGrade ? `Grade ${selectedGrade}` : "-"
                     : selectedClass || "-"
                 }`}
               />
               <Chip
                 label={`Subject: ${
-                  [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET].includes(uploadMode)
+                  [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)
                     ? "All class subjects"
                     : selectedSubject || "Auto from teacher sheet"
                 }`}
               />
               <Chip label={`Term: ${selectedTerm || "-"}`} />
-              <Chip color="primary" label={`Template Rows: ${previewRows.length}`} />
+              <Chip color="primary" label={`Template Rows: ${templateStudentCount}`} />
             </Stack>
 
             <Typography variant="body2" color="text.secondary">
@@ -2405,8 +2426,12 @@ export default function BulkMarksUpload() {
                   label={`Format: ${
                     uploadedFormat === "teacherSheet"
                       ? "Teacher A/L sheet"
+                      : uploadedFormat === "wholeOlGradeSheet"
+                      ? "Whole Grade 10-11 workbook"
                       : uploadedFormat === "wholeGradeSheet"
                       ? "Whole Grade 6-9 workbook"
+                      : uploadedFormat === "olClassSheet"
+                      ? "Grade 10-11 class sheet"
                       : uploadedFormat === "lowerClassSheet"
                       ? "Grade 6-9 class sheet"
                       : "Standard template"
@@ -2488,7 +2513,7 @@ export default function BulkMarksUpload() {
                   <TableBody>
                     {validRows.length ? (
                       validRows.map((row) => (
-                        <TableRow key={`${row.studentId}-${row.rowNumber}`}>
+                        <TableRow key={`${row.studentId}-${row.rowNumber}-${row.subjectId || row.subjectName}`}>
                           <TableCell>{row.rowNumber}</TableCell>
                           <TableCell>{row.indexNo || "—"}</TableCell>
                           <TableCell>{row.studentName || "—"}</TableCell>

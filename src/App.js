@@ -40,6 +40,8 @@ const ClassTeacherAssignments = lazy(() => import("./pages/ClassTeacherAssignmen
 const MarksEntry = lazy(() => import("./pages/MarksEntry"));
 const BulkMarksUpload = lazy(() => import("./pages/BulkMarksUpload"));
 const TeacherMarkSheets = lazy(() => import("./pages/TeacherMarkSheets"));
+const AttendanceRegister = lazy(() => import("./pages/AttendanceRegister"));
+const GradeResultSheet = lazy(() => import("./pages/GradeResultSheet"));
 const ReportCard = lazy(() => import("./pages/ReportCard"));
 const ClassReport = lazy(() => import("./pages/ClassReport"));
 const ClassMarksReports = lazy(() => import("./pages/reports/ClassMarksReports"));
@@ -497,6 +499,26 @@ export default function App() {
                       <TeacherMarkSheets />
                     </LazyRoute>
                   </ReportAccessRoute>
+                }
+              />
+              <Route
+                path="attendance-register"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <AttendanceRegister />
+                    </LazyRoute>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="grade-result-sheet"
+                element={
+                  <AdminRoute>
+                    <LazyRoute>
+                      <GradeResultSheet />
+                    </LazyRoute>
+                  </AdminRoute>
                 }
               />
               <Route

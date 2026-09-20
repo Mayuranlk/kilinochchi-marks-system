@@ -10,6 +10,7 @@ import {
   Breadcrumbs,
   ButtonBase,
   Chip,
+  Collapse,
   Dialog,
   DialogContent,
   Divider,
@@ -32,6 +33,8 @@ import {
   useTheme,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import { groupNavigationItems } from "../utils/navigationGroups";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import AssignmentIndRoundedIcon from "@mui/icons-material/AssignmentIndRounded";
@@ -155,7 +158,7 @@ export default function Layout() {
     };
   }, []);
 
-  const adminMenuSections = useMemo(() => [
+  const originalAdminMenuSections = useMemo(() => [
     {
       section: "Overview",
       items: [{ label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/" }],
@@ -203,6 +206,8 @@ export default function Layout() {
         { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/sba" },
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
+        { label: "Attendance Register", icon: <CalendarMonthRoundedIcon />, path: "/attendance-register", badge: "NEW" },
+        { label: "Grade Result Sheet", icon: <AssessmentRoundedIcon />, path: "/grade-result-sheet", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "NEW" },
         { label: "Text Book Request", icon: <MenuBookRoundedIcon />, path: "/text-book-request", badge: "NEW" },
@@ -223,6 +228,12 @@ export default function Layout() {
       items: [{ label: "Election Count", icon: <HowToVoteRoundedIcon />, path: "/election-count", badge: "LIVE" }],
     },
   ], []);
+
+  const adminMenuSections = useMemo(
+    () => groupNavigationItems(originalAdminMenuSections.flatMap((section) => section.items)),
+    [originalAdminMenuSections]
+  );
+  const [openSection, setOpenSection] = useState(null);
 
   const teacherMenu = useMemo(() => {
     const items = [
@@ -298,6 +309,10 @@ export default function Layout() {
   const currentPageTitle = activeItem?.label || titleFromPath(location.pathname);
   const currentPageSection = activeItem?.section || "School Workspace";
   const activePath = activeItem?.path;
+
+  useEffect(() => {
+    setOpenSection(activeItem?.section || null);
+  }, [activeItem?.section, location.pathname]);
 
   const filteredSearchItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -387,7 +402,7 @@ export default function Layout() {
   };
 
   const renderBadge = (item) =>
-    item.badge ? (
+    item.badge && item.badge !== "NEW" ? (
       <Chip
         label={item.badge}
         size="small"
@@ -597,12 +612,32 @@ export default function Layout() {
 
       <Box component="nav" aria-label="Primary navigation" sx={{ flex: 1, overflowY: "auto", py: 0.75 }}>
         {isAdmin ? (
-          adminMenuSections.map((section, index) => (
-            <React.Fragment key={section.section}>
-              {index > 0 || !navCompact ? <SidebarSectionLabel>{section.section}</SidebarSectionLabel> : null}
-              <List disablePadding>{section.items.map(renderMenuItem)}</List>
-            </React.Fragment>
-          ))
+          adminMenuSections.map((section, index) => {
+            if (section.section === "Overview") return <List key={section.section} disablePadding>{section.items.map(renderMenuItem)}</List>;
+            const expanded = openSection === section.section && !navCompact;
+            const active = activeItem?.section === section.section;
+            const sectionId = `navigation-section-${index}`;
+            return <Box key={section.section}>
+              <Tooltip title={navCompact ? section.section : ""} placement="right">
+                <ListItemButton
+                  aria-label={section.section}
+                  aria-expanded={expanded}
+                  aria-controls={sectionId}
+                  onClick={() => {
+                    if (navCompact) { setDesktopCollapsed(false); window.localStorage.setItem("kcc-sidebar-collapsed", "false"); }
+                    setOpenSection(expanded ? null : section.section);
+                  }}
+                  sx={{ mx: 1, my: 0.5, minHeight: 46, borderRadius: 1.5, px: 1.5, bgcolor: active ? activeNavBg : "transparent", color: active ? "primary.main" : "text.primary", justifyContent: navCompact ? "center" : "flex-start" }}
+                >
+                  <ListItemIcon sx={{ minWidth: navCompact ? 0 : 34, color: "inherit" }}>{section.items[0].icon}</ListItemIcon>
+                  {!navCompact && <><ListItemText primary={section.section} primaryTypographyProps={{ fontSize: 13, fontWeight: 700 }} /><ExpandMoreRoundedIcon sx={{ fontSize: 20, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 160ms" }} /></>}
+                </ListItemButton>
+              </Tooltip>
+              <Collapse in={expanded} timeout="auto" unmountOnExit>
+                <List id={sectionId} aria-label={`${section.section} pages`} disablePadding sx={{ ml: 2, mr: 0.5, mb: 1, borderLeft: 1, borderColor: "divider" }}>{section.items.map(renderMenuItem)}</List>
+              </Collapse>
+            </Box>;
+          })
         ) : (
           <>
             <SidebarSectionLabel>{isSectionalHead ? "Sectional Head" : "Teacher Workspace"}</SidebarSectionLabel>
