@@ -30,6 +30,7 @@ import { PageContainer } from "../components/ui";
 
 import { academicYear, classroomsForYear, matchesRegisterClass, monthDays, displayMonth, text, isActive } from "../utils/registerContext";
 import { getStudentDisplayName } from "../utils/reportMappingUtils";
+import ClassSheetExport from "../components/ClassSheetExport";
 
 const SCHOOL_NAME = "KN/Kilinochchi Central College";
 
@@ -193,6 +194,7 @@ export default function AttendanceRegister() {
             </Grid>
           </Grid>
         </Paper>
+        <ClassSheetExport classrooms={availableClassrooms} students={students} year={selectedYear} />
         <Stack direction="row" spacing={1} alignItems="center">
           <CalendarMonthRoundedIcon color="primary" />
           <Typography variant="body2" color="text.secondary">Blank daily cells are provided for marking attendance by hand.</Typography>
