@@ -2,7 +2,7 @@ const GROUPS = [
   ["Overview", ["/"]],
   ["Students & Attendance", ["/students", "/students/by-subject", "/students/classwise-list", "/attendance-register", "/text-book-request"]],
   ["Teaching & Staff", ["/teachers", "/assignments", "/class-teachers"]],
-  ["Marks & Assessments", ["/marks", "/sba", "/marks-upload", "/teacher-mark-sheets", "/practice-exams"]],
+  ["Marks & Assessments", ["/marks", "/sba-marks", "/sba-register", "/sba", "/marks-upload", "/teacher-mark-sheets", "/practice-exams"]],
   ["Reports & Analysis", ["/grade-result-sheet", "/class-marks-reports", "/class-completion-report", "/marks-status-live", "/subject-analysis"]],
   ["Academic Setup", ["/classrooms", "/subjects", "/terms", "/student-subject-enrollments", "/manual-student-subject-enrollments", "/promotion", "/class-shuffle"]],
   ["Administration", ["/setup-school-defaults", "/academic-data-health", "/backup-restore", "/migrate-student-subjects", "/class-data-management"]],

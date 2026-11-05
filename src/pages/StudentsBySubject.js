@@ -1,3 +1,4 @@
+import { academicDisplay, academicSearch } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
@@ -658,10 +659,10 @@ export default function StudentsBySubject() {
       const stream = normalizeLower(student.stream);
 
       return (
-        name.includes(query) ||
-        admissionNo.includes(query) ||
-        displayClass.includes(query) ||
-        stream.includes(query)
+        academicSearch(name, query) ||
+        academicSearch(admissionNo, query) ||
+        academicSearch(displayClass, query) ||
+        academicSearch(stream, query)
       );
     });
   }, [students, search]);
@@ -715,7 +716,7 @@ export default function StudentsBySubject() {
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
-          {loadError}
+          {academicDisplay(loadError)}
         </Alert>
       )}
 
@@ -779,9 +780,9 @@ export default function StudentsBySubject() {
           mt={0.5}
           display="block"
         >
-          {mode === "assigned"
+          {academicDisplay(mode === "assigned"
             ? "Enrollment-driven subject list for the selected grade"
-            : "Students with marks for the selected subject, term, and year"}
+            : "Students with marks for the selected subject, term, and year")}
         </Typography>
       </Box>
 
@@ -807,7 +808,7 @@ export default function StudentsBySubject() {
                 >
                   {GRADES.map((g) => (
                     <MenuItem key={g} value={g}>
-                      Grade {g}
+                      Grade {academicDisplay(g)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -825,7 +826,7 @@ export default function StudentsBySubject() {
                   <MenuItem value="">Select subject...</MenuItem>
                   {availableSubjects.map((s) => (
                     <MenuItem key={s.key} value={s.key}>
-                      {s.label}
+                      {academicDisplay(s.label)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -844,7 +845,7 @@ export default function StudentsBySubject() {
                     >
                       {["Term 1", "Term 2", "Term 3"].map((t) => (
                         <MenuItem key={t} value={t}>
-                          {t}
+                          {academicDisplay(t)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -861,7 +862,7 @@ export default function StudentsBySubject() {
                     >
                       {availableYears.map((y) => (
                         <MenuItem key={y} value={y}>
-                          {y}
+                          {academicDisplay(y)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -908,7 +909,7 @@ export default function StudentsBySubject() {
               }}
             >
               <Chip
-                label={subjectTypeBadge.label}
+                label={academicDisplay(subjectTypeBadge.label)}
                 size="small"
                 sx={{
                   bgcolor: subjectTypeBadge.color,
@@ -917,7 +918,7 @@ export default function StudentsBySubject() {
                 }}
               />
               <Typography variant="body2" fontWeight={700} color="text.primary">
-                {selectedSubjectLabel}
+                {academicDisplay(selectedSubjectLabel)}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Grade {grade}
@@ -949,15 +950,15 @@ export default function StudentsBySubject() {
                 Quick Summary
               </Typography>
               <Box display="flex" gap={1} flexWrap="wrap">
-                <StatusChip status="active" label={`${students.length} students`} />
+                <StatusChip status="active" label={academicDisplay(`${students.length} students`)} />
                 {mode === "marks" && avgMark ? (
-                  <StatusChip status="saved" label={`Avg ${avgMark}`} />
+                  <StatusChip status="saved" label={academicDisplay(`Avg ${avgMark}`)} />
                 ) : null}
                 {mode === "marks" ? (
-                  <StatusChip status="completed" label={`${passedCount} passed`} />
+                  <StatusChip status="completed" label={academicDisplay(`${passedCount} passed`)} />
                 ) : null}
                 {mode === "marks" ? (
-                  <StatusChip status="error" label={`${failedCount} failed`} />
+                  <StatusChip status="error" label={academicDisplay(`${failedCount} failed`)} />
                 ) : null}
               </Box>
             </Box>
@@ -1047,13 +1048,13 @@ export default function StudentsBySubject() {
                   <MobileListRow
                     key={student.id}
                     compact
-                    title={`${idx + 1}. ${getStudentName(student)}`}
-                    subtitle={`Admission: ${getStudentAdmissionNo(student) || "-"}`}
+                    title={academicDisplay(`${idx + 1}. ${getStudentName(student)}`)}
+                    subtitle={academicDisplay(`Admission: ${getStudentAdmissionNo(student) || "-"}`)}
                     right={
                       mode === "marks" ? (
                         <StatusChip
                           status={student.mark !== null ? "saved" : "pending"}
-                          label={`Rank #${idx + 1}`}
+                          label={academicDisplay(`Rank #${idx + 1}`)}
                         />
                       ) : (
                         <StatusChip status="active" label="Assigned" />
@@ -1066,20 +1067,20 @@ export default function StudentsBySubject() {
                           variant="outlined"
                           color="primary"
                           label={
-                            alStudent
+                            academicDisplay(alStudent
                               ? student.displayClass || "-"
-                              : `G${getStudentGrade(student)}-${getStudentSection(student)}`
+                              : `G${getStudentGrade(student)}-${getStudentSection(student)}`)
                           }
                         />
                         {student.stream ? (
-                          <Chip size="small" variant="outlined" label={student.stream} />
+                          <Chip size="small" variant="outlined" label={academicDisplay(student.stream)} />
                         ) : null}
                         {alStudent && student.subjectNumber ? (
                           <Chip
                             size="small"
                             variant="outlined"
                             color="secondary"
-                            label={`No. ${student.subjectNumber}`}
+                            label={academicDisplay(`No. ${student.subjectNumber}`)}
                           />
                         ) : null}
                       </Stack>
@@ -1107,14 +1108,14 @@ export default function StudentsBySubject() {
                                   Result
                                 </Typography>
                                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                  {markLabel}
+                                  {academicDisplay(markLabel)}
                                 </Typography>
                               </Box>
                               {gradeInfo &&
                               !student.isAbsent &&
                               !student.isMedicalAbsent ? (
                                 <Chip
-                                  label={`Grade ${gradeInfo.label}`}
+                                  label={academicDisplay(`Grade ${gradeInfo.label}`)}
                                   size="small"
                                   color={gradeInfo.color}
                                 />
@@ -1166,7 +1167,7 @@ export default function StudentsBySubject() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {heading}
+                          {academicDisplay(heading)}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -1207,7 +1208,7 @@ export default function StudentsBySubject() {
 
                           <TableCell>
                             <Typography variant="body2" fontWeight={700}>
-                              {getStudentName(student)}
+                              {academicDisplay(getStudentName(student))}
                             </Typography>
 
                             <Stack direction="row" spacing={0.5} flexWrap="wrap" mt={0.25}>
@@ -1217,7 +1218,7 @@ export default function StudentsBySubject() {
 
                               {alStudent && student.subjectNumber ? (
                                 <Chip
-                                  label={`No: ${student.subjectNumber}`}
+                                  label={academicDisplay(`No: ${student.subjectNumber}`)}
                                   size="small"
                                   sx={{ height: 18, fontSize: 10 }}
                                   color="secondary"
@@ -1231,7 +1232,7 @@ export default function StudentsBySubject() {
                             {alStudent ? (
                               <Stack spacing={0.5}>
                                 <Chip
-                                  label={student.displayClass || "-"}
+                                  label={academicDisplay(student.displayClass || "-")}
                                   size="small"
                                   color="primary"
                                   sx={{ fontWeight: 700, fontSize: 11, maxWidth: 220 }}
@@ -1244,7 +1245,7 @@ export default function StudentsBySubject() {
                               </Stack>
                             ) : (
                               <Chip
-                                label={`G${getStudentGrade(student)}-${getStudentSection(student)}`}
+                                label={academicDisplay(`G${getStudentGrade(student)}-${getStudentSection(student)}`)}
                                 size="small"
                                 color="primary"
                                 sx={{ fontWeight: 700, fontSize: 11 }}
@@ -1271,7 +1272,7 @@ export default function StudentsBySubject() {
                                 !student.isAbsent &&
                                 !student.isMedicalAbsent ? (
                                   <Chip
-                                    label={gradeInfo.label}
+                                    label={academicDisplay(gradeInfo.label)}
                                     size="small"
                                     color={gradeInfo.color}
                                   />

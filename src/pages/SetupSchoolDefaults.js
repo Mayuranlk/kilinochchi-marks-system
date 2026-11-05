@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useState } from "react";
 import {
   Alert,
@@ -41,10 +42,10 @@ function StatCard({ title, value, color = "text.primary" }) {
     >
       <CardContent>
         <Typography variant="body2" color="text.secondary">
-          {title}
+          {academicDisplay(title)}
         </Typography>
         <Typography variant="h5" fontWeight={700} sx={{ mt: 1 }} color={color}>
-          {value}
+          {academicDisplay(value)}
         </Typography>
       </CardContent>
     </Card>
@@ -75,12 +76,12 @@ function ActionCard({
           <Stack direction="row" spacing={1.5} alignItems="center">
             {icon}
             <Typography variant="h6" fontWeight={700}>
-              {title}
+              {academicDisplay(title)}
             </Typography>
           </Stack>
 
           <Typography variant="body2" color="text.secondary">
-            {description}
+            {academicDisplay(description)}
           </Typography>
 
           <Button
@@ -180,7 +181,7 @@ export default function SetupSchoolDefaults() {
     }
 
     const confirmed = window.confirm(
-      `Normalize ${nameRepairPreview.affectedStudents} student name(s) and synchronize ${nameRepairPreview.dependentDocuments} related document(s)? Original master names will be retained in a backup field.`
+      academicDisplay(`Normalize ${nameRepairPreview.affectedStudents} student name(s) and synchronize ${nameRepairPreview.dependentDocuments} related document(s)? Original master names will be retained in a backup field.`)
     );
     if (!confirmed) return;
 
@@ -254,13 +255,13 @@ export default function SetupSchoolDefaults() {
 
         {success && (
           <Alert severity="success" onClose={() => setSuccess("")}>
-            {success}
+            {academicDisplay(success)}
           </Alert>
         )}
 
         {error && (
           <Alert severity="error" onClose={() => setError("")}>
-            {error}
+            {academicDisplay(error)}
           </Alert>
         )}
 
@@ -410,7 +411,7 @@ export default function SetupSchoolDefaults() {
               <Stack spacing={0.75}>
                 {nameRepairPreview.samples.slice(0, 10).map((item) => (
                   <Typography key={item.id} variant="body2" sx={{ overflowWrap: "anywhere" }}>
-                    <strong>{item.className} | {item.admissionNo || item.id}:</strong>{" "}
+                    <strong>{academicDisplay(item.className)} | {item.admissionNo || item.id}:</strong>{" "}
                     {item.before || "(empty)"} -&gt; <strong>{item.after}</strong>
                   </Typography>
                 ))}

@@ -1,3 +1,4 @@
+import { academicDisplay } from "./academicDisplay";
 import { buildGradeResultSlides } from "./gradeResultSlides";
 
 let fontPromise;
@@ -56,7 +57,7 @@ export async function createGradeResultSlidePdf(input, { onProgress = () => {}, 
     } while (true);
     if (wrapped.length * size * 1.42 > height) throw new Error("Presentation text is too long to fit. Please review the student name or notes.");
     ctx.fillStyle = color; ctx.textBaseline = "top";
-    wrapped.forEach((line, index) => ctx.fillText(line, x, y + index * size * 1.42));
+    wrapped.forEach((line, index) => ctx.fillText(academicDisplay(line), x, y + index * size * 1.42));
   }
   function rect(x, y, width, height, color = C.pale) { ctx.fillStyle = color; ctx.fillRect(x, y, width, height); }
   function bar(rate, x, y, width) { rect(x, y, width, 14, C.line); rect(x, y, width * (rate || 0) / 100, 14, C.teal); }

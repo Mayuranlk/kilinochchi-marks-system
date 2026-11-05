@@ -1,3 +1,4 @@
+import { academicDisplay, academicExport } from "./academicDisplay";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -58,14 +59,14 @@ export function createTextBookRequestPdf(report) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
-  doc.text(SCHOOL_NAME, 148.5, 12, { align: "center" });
+  doc.text(academicDisplay(SCHOOL_NAME), 148.5, 12, { align: "center" });
   doc.setFontSize(13);
-  doc.text("Text Book Request", 148.5, 19, { align: "center" });
+  doc.text(academicDisplay("Text Book Request"), 148.5, 19, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.text(filterText(report), 148.5, 25, { align: "center" });
+  doc.text(academicDisplay(filterText(report)), 148.5, 25, { align: "center" });
 
-  autoTable(doc, {
+  autoTable(doc, academicExport({
     startY: 30,
     head: [["Summary", "Count"]],
     body: summaryRows(report),
@@ -73,12 +74,12 @@ export function createTextBookRequestPdf(report) {
     tableWidth: 75,
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: [26, 35, 126] },
-  });
+  }));
 
   let startY = (doc.lastAutoTable?.finalY || 55) + 6;
   const breakdown = report.scope === "school" ? report.gradeBreakdown : report.classBreakdown;
   if (breakdown.length) {
-    autoTable(doc, {
+    autoTable(doc, academicExport({
       startY,
       head: [[report.scope === "school" ? "Grade" : "Division", "Male", "Female", "Unknown", "Total"]],
       body: breakdown.map((row) => [
@@ -91,12 +92,12 @@ export function createTextBookRequestPdf(report) {
       theme: "grid",
       styles: { fontSize: 7.5, cellPadding: 1.2, halign: "center" },
       headStyles: { fillColor: [69, 90, 100] },
-    });
+    }));
     startY = (doc.lastAutoTable?.finalY || startY) + 6;
   }
 
   const subjectTable = subjectHeadAndBody(report);
-  autoTable(doc, {
+  autoTable(doc, academicExport({
     startY,
     head: subjectTable.head,
     body: subjectTable.body,
@@ -105,7 +106,7 @@ export function createTextBookRequestPdf(report) {
     columnStyles: { 1: { halign: "left" } },
     headStyles: { fillColor: [46, 125, 50] },
     rowPageBreak: "avoid",
-  });
+  }));
 
   const fileName = `Text_Book_Request_${report.academicYear}_${safePart(scopeLabel(report))}.pdf`;
   return { doc, fileName };
@@ -113,12 +114,12 @@ export function createTextBookRequestPdf(report) {
 
 export function exportTextBookRequestPdf(report) {
   const { doc, fileName } = createTextBookRequestPdf(report);
-  doc.save(fileName);
+  doc.save(academicDisplay(fileName));
 }
 
 export function createTextBookRequestWorkbook(report) {
   const workbook = XLSX.utils.book_new();
-  const summary = XLSX.utils.aoa_to_sheet([
+  const summary = XLSX.utils.aoa_to_sheet(academicExport([
     [SCHOOL_NAME],
     ["Text Book Request"],
     ["Academic Year", report.academicYear],
@@ -127,10 +128,10 @@ export function createTextBookRequestWorkbook(report) {
     ["Stream", report.stream || "All"],
     [],
     ...summaryRows(report),
-  ]);
+  ]));
   summary["!cols"] = [{ wch: 24 }, { wch: 18 }];
 
-  const requirements = XLSX.utils.aoa_to_sheet([
+  const requirements = XLSX.utils.aoa_to_sheet(academicExport([
     ["Subject", "Division", "Student Count", "Books Required"],
     ...report.subjectRows.flatMap((subject) =>
       report.classes.map((classroom) => [
@@ -140,13 +141,13 @@ export function createTextBookRequestWorkbook(report) {
         subject.byClass[classroom.id] || 0,
       ])
     ),
-  ]);
+  ]));
   requirements["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 16 }];
 
-  const breakdown = XLSX.utils.aoa_to_sheet([
+  const breakdown = XLSX.utils.aoa_to_sheet(academicExport([
     ["Grade", "Division", "Male", "Female", "Unknown", "Total"],
     ...report.classBreakdown.map((row) => [row.grade, row.className, row.male, row.female, row.unknown, row.total]),
-  ]);
+  ]));
   breakdown["!cols"] = [{ wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }];
 
   XLSX.utils.book_append_sheet(workbook, summary, "Summary");
@@ -159,6 +160,6 @@ export function exportTextBookRequestExcel(report) {
   const workbook = createTextBookRequestWorkbook(report);
   XLSX.writeFile(
     workbook,
-    `Text_Book_Request_${report.academicYear}_${safePart(scopeLabel(report))}.xlsx`
+    academicDisplay(`Text_Book_Request_${report.academicYear}_${safePart(scopeLabel(report))}.xlsx`)
   );
 }

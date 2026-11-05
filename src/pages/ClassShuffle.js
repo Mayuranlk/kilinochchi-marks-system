@@ -1,3 +1,4 @@
+import { academicWorksheet, academicExport, academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -200,14 +201,14 @@ function createPlanWorkbook(plan, XLSX) {
       .join(", "),
   }));
 
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "Summary");
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Students");
+  XLSX.utils.book_append_sheet(workbook, academicWorksheet(XLSX.utils.json_to_sheet(academicExport(summaryRows))), "Summary");
+  XLSX.utils.book_append_sheet(workbook, academicWorksheet(XLSX.utils.json_to_sheet(academicExport(rows))), "Students");
   return workbook;
 }
 
 async function downloadPlanWorkbook(plan, academicYear) {
   const XLSX = await loadXlsx();
-  XLSX.writeFile(createPlanWorkbook(plan, XLSX), `${getShuffleFileBase(plan, academicYear)}.xlsx`);
+  XLSX.writeFile(createPlanWorkbook(plan, XLSX), academicDisplay(`${getShuffleFileBase(plan, academicYear)}.xlsx`));
 }
 
 async function createPlanWorkbookBlob(plan) {
@@ -226,19 +227,19 @@ async function createClassShufflePdf(plan, academicYear) {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
-  doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
+  doc.text(academicDisplay("Kilinochchi Central College"), 148.5, 12, { align: "center" });
   doc.setFontSize(11);
-  doc.text(title, 148.5, 19, { align: "center" });
+  doc.text(academicDisplay(title), 148.5, 19, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text(`Academic Year: ${academicYear}`, 10, 28);
-  doc.text(`Students: ${plan.totalStudents}`, 72, 28);
-  doc.text(`New Classes: ${plan.targetSections.join(", ")}`, 122, 28);
-  doc.text(`RC Classes: ${plan.rareSections.join(", ")}`, 190, 28);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 287, 28, { align: "right" });
+  doc.text(academicDisplay(`Academic Year: ${academicYear}`), 10, 28);
+  doc.text(academicDisplay(`Students: ${plan.totalStudents}`), 72, 28);
+  doc.text(academicDisplay(`New Classes: ${plan.targetSections.join(", ")}`), 122, 28);
+  doc.text(academicDisplay(`RC Classes: ${plan.rareSections.join(", ")}`), 190, 28);
+  doc.text(academicDisplay(`Generated: ${new Date().toLocaleString()}`), 287, 28, { align: "right" });
 
-  autoTable(doc, {
+  autoTable(doc, academicExport({
     startY: 34,
     head: [["Class", "Students", "Religion Counts", plan.band === "junior" ? "Aesthetic Counts" : "Basket Combination Counts"]],
     body: plan.classes.map((classItem) => [
@@ -261,9 +262,9 @@ async function createClassShufflePdf(plan, academicYear) {
       3: { cellWidth: 158 },
     },
     margin: { left: 8, right: 8 },
-  });
+  }));
 
-  autoTable(doc, {
+  autoTable(doc, academicExport({
     startY: (doc.lastAutoTable?.finalY || 34) + 7,
     head: [
       plan.band === "junior"
@@ -321,16 +322,16 @@ async function createClassShufflePdf(plan, academicYear) {
             8: { cellWidth: 50 },
           },
     margin: { left: 8, right: 8 },
-  });
+  }));
 
   if (plan.warnings.length) {
     const pageHeight = doc.internal.pageSize.getHeight();
     const y = Math.min((doc.lastAutoTable?.finalY || pageHeight - 22) + 7, pageHeight - 16);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text("Warnings:", 8, y);
+    doc.text(academicDisplay("Warnings:"), 8, y);
     doc.setFont("helvetica", "normal");
-    doc.text(plan.warnings.slice(0, 3).join(" | "), 25, y);
+    doc.text(academicDisplay(plan.warnings.slice(0, 3).join(" | ")), 25, y);
   }
 
   return doc;
@@ -338,7 +339,7 @@ async function createClassShufflePdf(plan, academicYear) {
 
 async function downloadPlanPdf(plan, academicYear) {
   const doc = await createClassShufflePdf(plan, academicYear);
-  doc.save(`${getShuffleFileBase(plan, academicYear)}.pdf`);
+  doc.save(academicDisplay(`${getShuffleFileBase(plan, academicYear)}.pdf`));
 }
 
 async function printPlanPdf(plan, academicYear) {
@@ -359,7 +360,7 @@ async function shareGeneratedFile({ file, title, text, fallbackMessage }) {
   }
 
   const { saveAs } = await loadFileSaver();
-  saveAs(file, file.name);
+  saveAs(file, academicDisplay(file.name));
   window.open(
     `https://wa.me/?text=${encodeURIComponent(`${text}\n\n${fallbackMessage}`)}`,
     "_blank",
@@ -375,7 +376,7 @@ function ProfileCountChips({ countMap }) {
   return (
     <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
       {entries.map(([key, value]) => (
-        <Chip key={key} size="small" label={`${key}: ${value}`} variant="outlined" />
+        <Chip key={key} size="small" label={academicDisplay(`${key}: ${value}`)} variant="outlined" />
       ))}
     </Stack>
   );
@@ -511,7 +512,7 @@ export default function ClassShuffle() {
     if (!plan || applying) return;
 
     const confirmed = window.confirm(
-      `Apply this shuffle for Grade ${plan.grade}?\n\n${plan.totalStudents} students will be moved into ${plan.targetClassCount} classes. Export the plan before applying if you need a paper record.`
+      academicDisplay(`Apply this shuffle for Grade ${plan.grade}?\n\n${plan.totalStudents} students will be moved into ${plan.targetClassCount} classes. Export the plan before applying if you need a paper record.`)
     );
     if (!confirmed) return;
 
@@ -624,8 +625,8 @@ export default function ClassShuffle() {
       }
     >
       <Stack spacing={2}>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-        {success ? <Alert severity="success">{success}</Alert> : null}
+        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
+        {success ? <Alert severity="success">{academicDisplay(success)}</Alert> : null}
 
         <Card>
           <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -650,7 +651,7 @@ export default function ClassShuffle() {
                     >
                       {[...new Set([...ACADEMIC_YEARS, currentAcademicYear()])].map((year) => (
                         <MenuItem key={year} value={year}>
-                          {year}
+                          {academicDisplay(year)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -670,7 +671,7 @@ export default function ClassShuffle() {
                     >
                       {SUPPORTED_GRADES.map((item) => (
                         <MenuItem key={item} value={item}>
-                          Grade {item}
+                          Grade {academicDisplay(item)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -692,7 +693,7 @@ export default function ClassShuffle() {
                     >
                       {TARGET_CLASS_OPTIONS.map((item) => (
                         <MenuItem key={item} value={item}>
-                          {item}
+                          {academicDisplay(item)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -712,7 +713,7 @@ export default function ClassShuffle() {
                     >
                       {Array.from({ length: targetClassCount }, (_, index) => index + 1).map((item) => (
                         <MenuItem key={item} value={item}>
-                          {item}
+                          {academicDisplay(item)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -753,10 +754,10 @@ export default function ClassShuffle() {
             <StatCard title="Active Students" value={gradeStudents.length} icon={<GroupsRoundedIcon />} color="primary" />
           </Grid>
           <Grid size={{ xs: 6, md: 3 }}>
-            <StatCard title="Current Classes" value={currentClassCount} helperText={currentSections.join(", ") || "-"} icon={<MeetingRoomRoundedIcon />} color="secondary" />
+            <StatCard title="Current Classes" value={currentClassCount} helperText={academicDisplay(currentSections.join(", ") || "-")} icon={<MeetingRoomRoundedIcon />} color="secondary" />
           </Grid>
           <Grid size={{ xs: 6, md: 3 }}>
-            <StatCard title="New Classes" value={targetClassCount} helperText={plan ? plan.targetSections.join(", ") : "Preview pending"} color="success" />
+            <StatCard title="New Classes" value={targetClassCount} helperText={academicDisplay(plan ? plan.targetSections.join(", ") : "Preview pending")} color="success" />
           </Grid>
           <Grid size={{ xs: 6, md: 3 }}>
             <StatCard title="Rule Set" value={plan ? getBandLabel(plan.band) : getBandLabel(Number(grade) <= 9 ? "junior" : "ol")} color="warning" />
@@ -772,7 +773,7 @@ export default function ClassShuffle() {
             <Stack spacing={0.5}>
               {plan.warnings.map((warning) => (
                 <Typography key={warning} variant="body2">
-                  {warning}
+                  {academicDisplay(warning)}
                 </Typography>
               ))}
             </Stack>
@@ -800,9 +801,9 @@ export default function ClassShuffle() {
                           <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
                               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
-                                {classItem.className}
+                                {academicDisplay(classItem.className)}
                               </Typography>
-                              <Chip size="small" color="primary" label={`${classItem.students.length} students`} />
+                              <Chip size="small" color="primary" label={academicDisplay(`${classItem.students.length} students`)} />
                             </Stack>
                             <Divider />
                             <Typography variant="body2" sx={{ fontWeight: 800 }}>
@@ -852,12 +853,12 @@ export default function ClassShuffle() {
                           {plan.classes.flatMap((classItem) =>
                             classItem.students.map((student, index) => (
                               <TableRow key={`${classItem.section}-${student.id}`} hover>
-                                <TableCell sx={{ fontWeight: 900 }}>{classItem.className}</TableCell>
+                                <TableCell sx={{ fontWeight: 900 }}>{academicDisplay(classItem.className)}</TableCell>
                                 <TableCell>{index + 1}</TableCell>
                                 <TableCell>{getShuffleAdmissionNo(student) || "-"}</TableCell>
-                                <TableCell>{getShuffleStudentName(student)}</TableCell>
-                                <TableCell>{student.oldClassName || "-"}</TableCell>
-                                <TableCell>{student.shuffleProfile.religion || "-"}</TableCell>
+                                <TableCell>{academicDisplay(getShuffleStudentName(student))}</TableCell>
+                                <TableCell>{academicDisplay(student.oldClassName || "-")}</TableCell>
+                                <TableCell>{academicDisplay(student.shuffleProfile.religion || "-")}</TableCell>
                                 <TableCell>
                                   {plan.band === "junior"
                                     ? student.shuffleProfile.aesthetic || "-"

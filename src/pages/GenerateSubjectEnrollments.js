@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -757,7 +758,7 @@ export default function GenerateSubjectEnrollments() {
               options={sortedStudents}
               value={selectedStudent}
               onChange={(_, value) => setSelectedStudent(value)}
-              getOptionLabel={(option) => getStudentOptionLabel(option)}
+              getOptionLabel={(...args) => academicDisplay(((option) => getStudentOptionLabel(option))(...args))}
               isOptionEqualToValue={(option, value) => option.id === value.id}
               renderInput={(params) => (
                 <TextField
@@ -772,9 +773,9 @@ export default function GenerateSubjectEnrollments() {
             </Grid>
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <StatusChip status="active" label={`Year ${academicYear}`} />
-              <StatusChip status={selectedStudent ? "saved" : "pending"} label={selectedStudent ? "Student selected" : "All students"} />
-              <StatusChip status={isAdmin ? "completed" : "pending"} label={isAdmin ? "Admin access" : "Standard access"} />
+              <StatusChip status="active" label={academicDisplay(`Year ${academicYear}`)} />
+              <StatusChip status={selectedStudent ? "saved" : "pending"} label={academicDisplay(selectedStudent ? "Student selected" : "All students")} />
+              <StatusChip status={isAdmin ? "completed" : "pending"} label={academicDisplay(isAdmin ? "Admin access" : "Standard access")} />
             </Stack>
           </Stack>
         </Paper>
@@ -788,12 +789,12 @@ export default function GenerateSubjectEnrollments() {
             {operationCards.map((card) => (
               <Grid size={{ xs: 12, md: card.key === "cleanup_duplicates" ? 6 : 4, lg: card.key === "cleanup_duplicates" ? 4 : 4 }} key={card.key}>
                 <MobileListRow
-                  title={card.title}
+                  title={academicDisplay(card.title)}
                   right={
                     card.badge ? (
                       <Chip
                         size="small"
-                        label={card.badge}
+                        label={academicDisplay(card.badge)}
                         color={isAdmin ? "success" : "default"}
                       />
                     ) : null
@@ -803,14 +804,14 @@ export default function GenerateSubjectEnrollments() {
                       {card.icon}
                       <StatusChip
                         status={running === card.key ? "draft" : card.disabled ? "pending" : "saved"}
-                        label={running === card.key ? "Running" : card.disabled ? "Unavailable" : "Ready"}
+                        label={academicDisplay(running === card.key ? "Running" : card.disabled ? "Unavailable" : "Ready")}
                       />
                     </Stack>
                   }
                   footer={
                     <Stack spacing={1.25}>
                       <Typography variant="body2" color="text.secondary">
-                        {card.description}
+                        {academicDisplay(card.description)}
                       </Typography>
                       <Button
                         variant="contained"
@@ -846,7 +847,7 @@ export default function GenerateSubjectEnrollments() {
           <Grid container spacing={2}>
             {quickStats.map((item) => (
               <Grid size={{ xs: 6, md: 3 }} key={item.title}>
-                <SharedStatCard title={item.title} value={item.value} />
+                <SharedStatCard title={academicDisplay(item.title)} value={item.value} />
               </Grid>
             ))}
           </Grid>
@@ -861,7 +862,7 @@ export default function GenerateSubjectEnrollments() {
         <Grid container spacing={2}>
           {summaryStats.map((item) => (
             <Grid size={{ xs: 6, md: item.title.includes("Duplicate") ? 3 : 2 }} key={item.title}>
-              <SharedStatCard title={item.title} value={item.value} />
+              <SharedStatCard title={academicDisplay(item.title)} value={item.value} />
             </Grid>
           ))}
         </Grid>
@@ -889,11 +890,11 @@ export default function GenerateSubjectEnrollments() {
                   }
                 >
                   <Typography variant="body2" fontWeight={600}>
-                    {log.message || "Log"}
+                    {academicDisplay(log.message || "Log")}
                   </Typography>
                   {log.details ? (
                     <Typography variant="caption" display="block">
-                      {String(log.details)}
+                      {academicDisplay(String(log.details))}
                     </Typography>
                   ) : null}
                 </Alert>
@@ -904,17 +905,17 @@ export default function GenerateSubjectEnrollments() {
 
         <ActionBar sticky>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip status="active" label={`Year ${academicYear}`} />
+            <StatusChip status="active" label={academicDisplay(`Year ${academicYear}`)} />
             <StatusChip
               status={isRunning ? "draft" : "saved"}
-              label={isRunning ? "Operation running" : "Ready"}
+              label={academicDisplay(isRunning ? "Operation running" : "Ready")}
             />
           </Stack>
 
           <Typography variant="body2" color="text.secondary">
-            {selectedStudent
+            {academicDisplay(selectedStudent
               ? `Selected: ${getStudentOptionLabel(selectedStudent)}`
-              : "No student selected. General actions apply to all students."}
+              : "No student selected. General actions apply to all students.")}
           </Typography>
         </ActionBar>
       </Stack>

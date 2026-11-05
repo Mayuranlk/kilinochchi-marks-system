@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   collection,
@@ -418,20 +419,20 @@ export default function YearEndPromotion() {
       <Stepper activeStep={step} sx={{ mb: 3 }} orientation={isMobile ? "vertical" : "horizontal"}>
         {["Select Class", "Review Students", "Done"].map((label) => (
           <Step key={label}>
-            <StepLabel>{label}</StepLabel>
+            <StepLabel>{academicDisplay(label)}</StepLabel>
           </Step>
         ))}
       </Stepper>
 
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
-          {success}
+          {academicDisplay(success)}
         </Alert>
       )}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {academicDisplay(error)}
         </Alert>
       )}
 
@@ -457,7 +458,7 @@ export default function YearEndPromotion() {
                   >
                     {availableYears.map((y) => (
                       <MenuItem key={y} value={y}>
-                        {y}
+                        {academicDisplay(y)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -468,7 +469,7 @@ export default function YearEndPromotion() {
                 <FormControl fullWidth>
                   <InputLabel>To Year</InputLabel>
                   <Select value={toYear} label="To Year" disabled>
-                    <MenuItem value={toYear}>{toYear}</MenuItem>
+                    <MenuItem value={toYear}>{academicDisplay(toYear)}</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -483,7 +484,7 @@ export default function YearEndPromotion() {
                   >
                     {GRADES.map((g) => (
                       <MenuItem key={g} value={g}>
-                        Grade {g}
+                        Grade {academicDisplay(g)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -500,7 +501,7 @@ export default function YearEndPromotion() {
                   >
                     {availableSections.map((s) => (
                       <MenuItem key={s} value={s}>
-                        {s}
+                        {academicDisplay(s)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -558,10 +559,10 @@ export default function YearEndPromotion() {
                   Grade {grade}-{section} → Grade {transitionType === "graduate" ? "🎓" : nextGrade}-{section}
                 </Typography>
 
-                <Chip label={`${promotingCount} Promoting`} color="success" size="small" />
+                <Chip label={academicDisplay(`${promotingCount} Promoting`)} color="success" size="small" />
 
                 {detainedCount > 0 && (
-                  <Chip label={`${detainedCount} Detained`} color="error" size="small" />
+                  <Chip label={academicDisplay(`${detainedCount} Detained`)} color="error" size="small" />
                 )}
 
                 {transitionType === "critical" && (
@@ -605,7 +606,7 @@ export default function YearEndPromotion() {
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                       <Box>
                         <Typography variant="subtitle2" fontWeight={700}>
-                          {getStudentName(student)}
+                          {academicDisplay(getStudentName(student))}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Adm: {getStudentAdmissionNo(student) || "—"}
@@ -635,7 +636,7 @@ export default function YearEndPromotion() {
                         >
                           {STREAMS.map((stream) => (
                             <MenuItem key={stream} value={stream}>
-                              {stream}
+                              {academicDisplay(stream)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -671,7 +672,7 @@ export default function YearEndPromotion() {
                     >
                       <TableCell>{idx + 1}</TableCell>
                       <TableCell>{getStudentAdmissionNo(student) || "—"}</TableCell>
-                      <TableCell fontWeight={600}>{getStudentName(student)}</TableCell>
+                      <TableCell fontWeight={600}>{academicDisplay(getStudentName(student))}</TableCell>
 
                       <TableCell>
                         {transitionType === "al" && studentStatus[student.id] === "promote" ? (
@@ -686,13 +687,13 @@ export default function YearEndPromotion() {
                             >
                               {STREAMS.map((stream) => (
                                 <MenuItem key={stream} value={stream}>
-                                  {stream}
+                                  {academicDisplay(stream)}
                                 </MenuItem>
                               ))}
                             </Select>
                           </FormControl>
                         ) : (
-                          <Chip label={`Grade ${getStudentGrade(student)}`} size="small" color="primary" />
+                          <Chip label={academicDisplay(`Grade ${getStudentGrade(student)}`)} size="small" color="primary" />
                         )}
                       </TableCell>
 
@@ -797,20 +798,20 @@ export default function YearEndPromotion() {
           <Box display="flex" flexDirection="column" gap={1}>
             <Chip
               icon={<ArrowForwardIcon />}
-              label={`Grade ${grade}-${section} (${fromYear}) → Grade ${nextGrade || "🎓"}-${section} (${toYear})`}
+              label={academicDisplay(`Grade ${grade}-${section} (${fromYear}) → Grade ${nextGrade || "🎓"}-${section} (${toYear})`)}
               color="primary"
             />
 
             <Chip
               icon={<CheckCircleIcon />}
-              label={`${promotingCount} students will be promoted`}
+              label={academicDisplay(`${promotingCount} students will be promoted`)}
               color="success"
             />
 
             {detainedCount > 0 && (
               <Chip
                 icon={<WarningIcon />}
-                label={`${detainedCount} students will be detained`}
+                label={academicDisplay(`${detainedCount} students will be detained`)}
                 color="error"
               />
             )}

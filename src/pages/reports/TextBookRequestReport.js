@@ -1,3 +1,4 @@
+import { academicDisplay } from "../../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -45,8 +46,8 @@ function SummaryCard({ label, value, color = "primary.main" }) {
   return (
     <Card sx={{ height: "100%", borderRadius: 3 }}>
       <CardContent>
-        <Typography variant="body2" color="text.secondary">{label}</Typography>
-        <Typography variant="h4" fontWeight={800} color={color}>{value}</Typography>
+        <Typography variant="body2" color="text.secondary">{academicDisplay(label)}</Typography>
+        <Typography variant="h4" fontWeight={800} color={color}>{academicDisplay(value)}</Typography>
       </CardContent>
     </Card>
   );
@@ -60,7 +61,7 @@ function CountBreakdownTable({ report }) {
     <Card sx={{ borderRadius: 3 }}>
       <CardContent>
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>
-          {report.scope === "school" ? "Grade Summary" : "Class / Division Summary"}
+          {academicDisplay(report.scope === "school" ? "Grade Summary" : "Class / Division Summary")}
         </Typography>
         <ResponsiveTableWrapper>
           <Table size="small">
@@ -76,7 +77,7 @@ function CountBreakdownTable({ report }) {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={report.scope === "school" ? row.grade : row.id}>
-                  <TableCell>{report.scope === "school" ? `Grade ${row.grade}` : row.className}</TableCell>
+                  <TableCell>{academicDisplay(report.scope === "school" ? `Grade ${row.grade}` : row.className)}</TableCell>
                   <TableCell align="right">{row.male}</TableCell>
                   <TableCell align="right">{row.female}</TableCell>
                   <TableCell align="right">{row.unknown}</TableCell>
@@ -109,7 +110,7 @@ function SubjectRequirementTable({ report }) {
                   <TableCell>No</TableCell>
                   <TableCell>Subject</TableCell>
                   {showClassColumns && report.classes.map((row) => (
-                    <TableCell key={row.id} align="right">{row.className}</TableCell>
+                    <TableCell key={row.id} align="right">{academicDisplay(row.className)}</TableCell>
                   ))}
                   {!showClassColumns && <TableCell align="right">Students Taking Subject</TableCell>}
                   <TableCell align="right">Books Required</TableCell>
@@ -119,12 +120,12 @@ function SubjectRequirementTable({ report }) {
                 {report.subjectRows.map((subject, index) => (
                   <TableRow key={subject.id} hover>
                     <TableCell>{index + 1}</TableCell>
-                    <TableCell>{subject.name}</TableCell>
+                    <TableCell>{academicDisplay(subject.name)}</TableCell>
                     {showClassColumns && report.classes.map((row) => (
-                      <TableCell key={row.id} align="right">{subject.byClass[row.id] || 0}</TableCell>
+                      <TableCell key={row.id} align="right">{academicDisplay(subject.byClass[row.id] || 0)}</TableCell>
                     ))}
-                    {!showClassColumns && <TableCell align="right">{subject.total}</TableCell>}
-                    <TableCell align="right"><strong>{subject.booksRequired}</strong></TableCell>
+                    {!showClassColumns && <TableCell align="right">{academicDisplay(subject.total)}</TableCell>}
+                    <TableCell align="right"><strong>{academicDisplay(subject.booksRequired)}</strong></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -232,7 +233,7 @@ export default function TextBookRequestReport() {
                 <FormControl fullWidth size="small">
                   <InputLabel>Academic Year</InputLabel>
                   <Select value={academicYear} label="Academic Year" onChange={(e) => setAcademicYear(Number(e.target.value))}>
-                    {availableYears.map((year) => <MenuItem key={year} value={year}>{year}</MenuItem>)}
+                    {availableYears.map((year) => <MenuItem key={year} value={year}>{academicDisplay(year)}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -251,7 +252,7 @@ export default function TextBookRequestReport() {
                   <FormControl fullWidth size="small">
                     <InputLabel>Grade</InputLabel>
                     <Select value={grade} label="Grade" onChange={(e) => { setGrade(e.target.value); setClassId(""); }}>
-                      {grades.map((item) => <MenuItem key={item} value={item}>Grade {item}</MenuItem>)}
+                      {grades.map((item) => <MenuItem key={item} value={item}>Grade {academicDisplay(item)}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -261,7 +262,7 @@ export default function TextBookRequestReport() {
                   <FormControl fullWidth size="small">
                     <InputLabel>Class / Division</InputLabel>
                     <Select value={classId} label="Class / Division" onChange={(e) => setClassId(e.target.value)} disabled={!grade}>
-                      {classesForGrade.map((row) => <MenuItem key={row.id} value={row.id}>{row.className}</MenuItem>)}
+                      {classesForGrade.map((row) => <MenuItem key={row.id} value={row.id}>{academicDisplay(row.className)}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -271,7 +272,7 @@ export default function TextBookRequestReport() {
                   <InputLabel>Medium</InputLabel>
                   <Select value={medium} label="Medium" onChange={(e) => setMedium(e.target.value)}>
                     <MenuItem value="">All</MenuItem>
-                    {mediums.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+                    {mediums.map((item) => <MenuItem key={item} value={item}>{academicDisplay(item)}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -280,7 +281,7 @@ export default function TextBookRequestReport() {
                   <InputLabel>Stream</InputLabel>
                   <Select value={stream} label="Stream" onChange={(e) => setStream(e.target.value)}>
                     <MenuItem value="">All</MenuItem>
-                    {streams.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+                    {streams.map((item) => <MenuItem key={item} value={item}>{academicDisplay(item)}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -300,7 +301,7 @@ export default function TextBookRequestReport() {
         </Card>
 
         {loading && <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>}
-        {!!error && <Alert severity="error">{error}</Alert>}
+        {!!error && <Alert severity="error">{academicDisplay(error)}</Alert>}
         {!loading && !error && (
           <>
             {(scope === "grade" && !grade) || (scope === "class" && (!grade || !classId)) ? (

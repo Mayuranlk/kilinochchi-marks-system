@@ -52,6 +52,7 @@ const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
 const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
 const SBAForm = lazy(() => import("./pages/SBAForm"));
+const SBAMarks = lazy(() => import("./pages/SBAMarks"));
 const ElectionCount = lazy(() => import("./pages/ElectionCount"));
 const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
 const MarksStatusLive = lazy(() => import("./pages/MarksStatusLive"));
@@ -461,6 +462,8 @@ export default function App() {
               />
 
               {/* Marks & Reports */}
+              <Route path="sba-marks" element={<AdminRoute><LazyRoute><SBAMarks /></LazyRoute></AdminRoute>} />
+              <Route path="sba-register" element={<AdminRoute><LazyRoute><SBAMarks registerMode /></LazyRoute></AdminRoute>} />
               <Route
                 path="marks"
                 element={
@@ -696,6 +699,8 @@ export default function App() {
                 </PrivateRoute>
               }
             >
+              <Route path="sba-marks" element={<TeacherRoute><LazyRoute><SBAMarks /></LazyRoute></TeacherRoute>} />
+              <Route path="sba-register" element={<TeacherRoute><LazyRoute><SBAMarks registerMode /></LazyRoute></TeacherRoute>} />
               <Route
                 index
                 element={

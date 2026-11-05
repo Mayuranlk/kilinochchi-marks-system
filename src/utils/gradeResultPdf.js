@@ -1,3 +1,4 @@
+import { academicDisplay, academicExport } from "./academicDisplay";
 import { formatRate } from "./gradeResultLogic";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -25,7 +26,7 @@ export function createGradeResultPdf({
     pdf.setFont("helvetica", bold ? "bold" : "normal");
     pdf.setFontSize(size);
     pdf.setTextColor(...color);
-    pdf.text(String(value), x, y, options);
+    pdf.text(academicDisplay(String(value)), x, y, options);
   }
 
   function frame(section) {
@@ -75,13 +76,13 @@ export function createGradeResultPdf({
   });
   write("Absent = absent in at least one subject, counted once. 9A and absent counts overlap the eligibility groups.", MARGIN, 87, 7.5, MUTED);
   const distribution = summaryStats;
-  autoTable(pdf, {
+  autoTable(pdf, academicExport({
     ...tableBase, startY: 93,
     styles: { ...tableBase.styles, cellPadding: 1.5 },
     head: [["Category", "Students", "% of selected class / grade"]],
     body: distribution.map((item) => [item.label, item.value, `${item.percentage}%`]),
     columnStyles: { 0: { cellWidth: 160 }, 1: { cellWidth: 35, halign: "center" }, 2: { halign: "center" } },
-  });
+  }));
   const categoryTotal = distribution.reduce((sum, item) => sum + item.value, 0);
   write(`Category total: ${categoryTotal} / ${totalStudents} students`, MARGIN, 150, 9, TEAL, true);
   write(`${RESULT_VIEWS[resultFilter] || resultFilter}  /  ${rows.length} students in this export`, MARGIN, 159, 10, INK, true);
@@ -94,7 +95,7 @@ export function createGradeResultPdf({
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(7.1);
   pdf.setTextColor(...MUTED);
-  pdf.text(pdf.splitTextToSize(guide || "No elective subjects in this view.", contentWidth), MARGIN, 188);
+  pdf.text(academicDisplay(pdf.splitTextToSize(academicDisplay(guide || "No elective subjects in this view."), contentWidth)), MARGIN, 188);
 
   // Nine subject slots preserve every recorded choice while keeping A4 readable.
   pdf.addPage();
@@ -108,7 +109,7 @@ export function createGradeResultPdf({
   slots.forEach((slot, index) => { columnStyles[index + 3] = { cellWidth: slotBudget * weights[index] / weightTotal, fontSize: slot.elective ? 7.2 : 9, fontStyle: slot.elective ? "normal" : "bold" }; });
   columnStyles[slots.length + 3] = { cellWidth: fixed.summary, fontSize: 7.3 };
   columnStyles[slots.length + 4] = { cellWidth: fixed.status, fontSize: 7.5, fontStyle: "bold" };
-  autoTable(pdf, {
+  autoTable(pdf, academicExport({
     ...tableBase,
     startY: 49,
     styles: { ...tableBase.styles, halign: "center", minCellHeight: 9, cellPadding: { top: 1.5, right: 1.3, bottom: 1.5, left: 1.3 } },
@@ -131,7 +132,7 @@ export function createGradeResultPdf({
         cell.cell.styles.fillColor = [253, 238, 240];
       }
     },
-  });
+  }));
 
   // Put the full-scope follow-up lists after the main schedule, not before it.
   pdf.addPage();
@@ -151,14 +152,14 @@ export function createGradeResultPdf({
       nextY += 28;
       return;
     }
-    autoTable(pdf, {
+    autoTable(pdf, academicExport({
       ...tableBase, startY: nextY + 10,
       styles: { ...tableBase.styles, cellPadding: 1.6 },
       head: [["No.", "Class", "Student name", list.failure ? "Below S" : "Follow-up", "Results"]],
       body: list.entries.map((row) => [row.rowNo, resultClassLabel(row, grade), row.studentName, list.failure ? failedCoreSubjects(row) : "Credit / pass threshold", row.summary || "-"]),
       columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 17 }, 2: { cellWidth: 100 }, 3: { cellWidth: 66 }, 4: { cellWidth: contentWidth - 195 } },
       willDrawPage: () => frame("Student follow-up"),
-    });
+    }));
     nextY = pdf.lastAutoTable.finalY + 12;
   });
 
@@ -179,7 +180,7 @@ export function createGradeResultPdf({
     write(`Pending / review: ${analytics.pending}. Categories include provisional results; missing marks are not treated as confirmed failures.`, MARGIN, 184, 8, MUTED);
     pdf.addPage(); frame("Subject pass rates");
     heading("05", "Subject pass rates", "Pass rate = passed / sat x 100. Absent and pending marks are excluded from sat. N/A = no recorded sitting.");
-    autoTable(pdf, {
+    autoTable(pdf, academicExport({
       ...tableBase, startY: 49,
       head: [["Subject", "Enrolled", "Sat", "Passed", "Failed", "Absent", "Pending", "Pass rate", "0-100%"]],
       body: analytics.subjects.map((subject) => [subject.label, subject.enrolled, subject.sat, subject.passed, subject.failed, subject.absent, subject.pending, formatRate(subject.rate), ""]),
@@ -193,7 +194,7 @@ export function createGradeResultPdf({
         pdf.setFillColor(...LINE); pdf.rect(x, y, barWidth, 3, "F");
         if (rate !== null) { pdf.setFillColor(...TEAL); pdf.rect(x, y, barWidth * rate / 100, 3, "F"); }
       },
-    });
+    }));
   }
 
   const pageCount = pdf.getNumberOfPages();

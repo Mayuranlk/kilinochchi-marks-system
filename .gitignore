@@ -8,3 +8,5 @@ firestore-debug.log
 test-results/
 playwright-report/
 *.log
+
+build-sba-emulator/

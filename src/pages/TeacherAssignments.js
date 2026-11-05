@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
@@ -824,7 +825,7 @@ export default function TeacherAssignments() {
   };
 
   const handleDelete = async (id) => {
-    const confirmed = window.confirm("Remove this assignment?");
+    const confirmed = window.confirm(academicDisplay("Remove this assignment?"));
     if (!confirmed) return;
 
     try {
@@ -843,7 +844,7 @@ export default function TeacherAssignments() {
 
     const teacherName = safeString(teacher.name) || "this teacher";
     const confirmed = window.confirm(
-      `Clear all ${teacherAssignments.length} assignment${teacherAssignments.length === 1 ? "" : "s"} for ${teacherName}?`
+      academicDisplay(`Clear all ${teacherAssignments.length} assignment${teacherAssignments.length === 1 ? "" : "s"} for ${teacherName}?`)
     );
     if (!confirmed) return;
 
@@ -976,10 +977,10 @@ export default function TeacherAssignments() {
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <StatusChip status="active" label={`${stats.total} total`} />
-                <StatusChip status="saved" label={`${stats.teachers} teachers`} />
-                <StatusChip status="completed" label={`${stats.subjects} subjects`} />
-                <StatusChip status="draft" label={`${stats.preview} preview`} />
+                <StatusChip status="active" label={academicDisplay(`${stats.total} total`)} />
+                <StatusChip status="saved" label={academicDisplay(`${stats.teachers} teachers`)} />
+                <StatusChip status="completed" label={academicDisplay(`${stats.subjects} subjects`)} />
+                <StatusChip status="draft" label={academicDisplay(`${stats.preview} preview`)} />
               </Stack>
             </Stack>
           </Paper>
@@ -1002,7 +1003,7 @@ export default function TeacherAssignments() {
 
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess("")}>
-          {success}
+          {academicDisplay(success)}
         </Alert>
       )}
 
@@ -1038,7 +1039,7 @@ export default function TeacherAssignments() {
             options={teachers}
             value={selectedTeacherRow}
             onChange={(_, value) => setSelectedTeacher(value?.id || "")}
-            getOptionLabel={(teacher) => safeString(teacher?.name)}
+            getOptionLabel={(...args) => academicDisplay(((teacher) => safeString(teacher?.name))(...args))}
             isOptionEqualToValue={(option, value) => option.id === value.id}
             size={isMobile ? "medium" : "small"}
             sx={{ maxWidth: 520 }}
@@ -1057,12 +1058,12 @@ export default function TeacherAssignments() {
                       fontWeight: 700,
                     }}
                   >
-                    {safeString(teacher.name).charAt(0) || "T"}
+                    {academicDisplay(safeString(teacher.name).charAt(0) || "T")}
                   </Avatar>
 
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="body2" fontWeight={700} noWrap>
-                      {teacher.name}
+                      {academicDisplay(teacher.name)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {
@@ -1104,7 +1105,7 @@ export default function TeacherAssignments() {
             onChange={(_, value) =>
               setSelectedClassKeys(value.map((classroom) => getClassroomOptionKey(classroom)))
             }
-            getOptionLabel={(classroom) => getClassroomDisplayName(classroom)}
+            getOptionLabel={(...args) => academicDisplay(((classroom) => getClassroomDisplayName(classroom))(...args))}
             isOptionEqualToValue={(option, value) =>
               getClassroomOptionKey(option) === getClassroomOptionKey(value)
             }
@@ -1120,7 +1121,7 @@ export default function TeacherAssignments() {
             renderOption={(props, classroom) => (
               <Box component="li" {...props}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%" }}>
-                  <Chip size="small" color="primary" label={getClassroomDisplayName(classroom)} />
+                  <Chip size="small" color="primary" label={academicDisplay(getClassroomDisplayName(classroom))} />
                   {safeString(classroom.stream) && (
                     <Typography variant="caption" color="text.secondary">
                       {classroom.stream}
@@ -1185,7 +1186,7 @@ export default function TeacherAssignments() {
                           }}
                         />
                       }
-                      label={<Typography variant="body2">Grade {grade}</Typography>}
+                      label={academicDisplay(<Typography variant="body2">Grade {grade}</Typography>)}
                     />
                   ))}
                 </FormGroup>
@@ -1193,7 +1194,7 @@ export default function TeacherAssignments() {
 
               {selectedGrades.length > 0 && (
                 <Chip
-                  label={`${selectedGrades.length} selected`}
+                  label={academicDisplay(`${selectedGrades.length} selected`)}
                   size="small"
                   color="primary"
                   sx={{ mt: 1 }}
@@ -1252,7 +1253,7 @@ export default function TeacherAssignments() {
                           }}
                         />
                       }
-                      label={<Typography variant="body2">Section {section}</Typography>}
+                      label={academicDisplay(<Typography variant="body2">Section {section}</Typography>)}
                     />
                   ))}
                 </FormGroup>
@@ -1260,7 +1261,7 @@ export default function TeacherAssignments() {
 
               {selectedSections.length > 0 && (
                 <Chip
-                  label={`${selectedSections.length} selected`}
+                  label={academicDisplay(`${selectedSections.length} selected`)}
                   size="small"
                   color="success"
                   sx={{ mt: 1 }}
@@ -1315,7 +1316,7 @@ export default function TeacherAssignments() {
                           }}
                         />
                       }
-                      label={<Typography variant="body2">{stream}</Typography>}
+                      label={academicDisplay(<Typography variant="body2">{stream}</Typography>)}
                     />
                   ))}
                 </FormGroup>
@@ -1323,7 +1324,7 @@ export default function TeacherAssignments() {
 
               {selectedStreams.length > 0 && (
                 <Chip
-                  label={`${selectedStreams.length} selected`}
+                  label={academicDisplay(`${selectedStreams.length} selected`)}
                   size="small"
                   sx={{ mt: 1, bgcolor: "#6a1b9a", color: "white" }}
                 />
@@ -1351,7 +1352,7 @@ export default function TeacherAssignments() {
                   onClick={toggleAllSubjects}
                   disabled={availableSubjects.length === 0}
                 >
-                  {selectedSubjectKeys.length === availableSubjects.length ? "None" : "All"}
+                  {academicDisplay(selectedSubjectKeys.length === availableSubjects.length ? "None" : "All")}
                 </Button>
               </Box>
 
@@ -1388,7 +1389,7 @@ export default function TeacherAssignments() {
                         />
                       }
                       label={
-                        <Box>
+                        academicDisplay(<Box>
                           <Typography variant="body2" sx={{ fontSize: 13 }}>
                             {getSubjectName(subject)}
                           </Typography>
@@ -1397,7 +1398,7 @@ export default function TeacherAssignments() {
                               No. {getSubjectNumber(subject)}
                             </Typography>
                           )}
-                        </Box>
+                        </Box>)
                       }
                     />
                   );
@@ -1407,7 +1408,7 @@ export default function TeacherAssignments() {
 
               {selectedSubjectKeys.length > 0 && (
                 <Chip
-                  label={`${selectedSubjectKeys.length} selected`}
+                  label={academicDisplay(`${selectedSubjectKeys.length} selected`)}
                   size="small"
                   color="warning"
                   sx={{ mt: 1 }}
@@ -1443,7 +1444,7 @@ export default function TeacherAssignments() {
               >
                 {TEACHING_MEDIUMS.map((medium) => (
                   <MenuItem key={medium} value={medium}>
-                    {medium} Medium
+                    {academicDisplay(medium)} Medium
                   </MenuItem>
                 ))}
               </TextField>
@@ -1453,10 +1454,10 @@ export default function TeacherAssignments() {
 
         <ActionBar sticky sx={{ mt: 1, pb: { xs: 0.5, sm: 0 } }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip status="active" label={`${previewCount} preview`} />
+            <StatusChip status="active" label={academicDisplay(`${previewCount} preview`)} />
             <StatusChip
               status={selectedTeacher ? "saved" : "pending"}
-              label={selectedTeacher ? "Teacher selected" : "Select teacher"}
+              label={academicDisplay(selectedTeacher ? "Teacher selected" : "Select teacher")}
             />
           </Stack>
 
@@ -1584,11 +1585,11 @@ export default function TeacherAssignments() {
                               flex: "0 0 auto",
                             }}
                           >
-                            {safeString(teacher.name).charAt(0) || "T"}
+                            {academicDisplay(safeString(teacher.name).charAt(0) || "T")}
                           </Avatar>
                           <Box sx={{ minWidth: 0, flex: 1 }}>
                             <Typography variant="body2" fontWeight={800} noWrap>
-                              {teacher.name}
+                              {academicDisplay(teacher.name)}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" noWrap>
                               {teacher.email || "Teacher assignments"}
@@ -1604,7 +1605,7 @@ export default function TeacherAssignments() {
                           sx={{ width: { xs: "100%", sm: "auto" } }}
                         >
                           <Chip
-                            label={`${teacher.assignments.length} assigned`}
+                            label={academicDisplay(`${teacher.assignments.length} assigned`)}
                             size="small"
                             color="primary"
                             variant="outlined"
@@ -1678,9 +1679,9 @@ export default function TeacherAssignments() {
                             }}
                           >
                             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                              <Chip label={group.label} size="small" color="primary" />
+                              <Chip label={academicDisplay(group.label)} size="small" color="primary" />
                               {group.stream && (
-                                <Chip label={group.stream} size="small" color="secondary" />
+                                <Chip label={academicDisplay(group.stream)} size="small" color="secondary" />
                               )}
                             </Stack>
 
@@ -1704,7 +1705,7 @@ export default function TeacherAssignments() {
                                 >
                                   <Box sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography variant="caption" fontWeight={700} noWrap>
-                                      {assignment.subjectName || assignment.subject}
+                                      {academicDisplay(assignment.subjectName || assignment.subject)}
                                     </Typography>
                                     {getAcademicMedium(assignment) && (
                                       <Typography
@@ -1721,7 +1722,7 @@ export default function TeacherAssignments() {
                                         color="text.secondary"
                                         sx={{ ml: 0.5 }}
                                       >
-                                        No. {assignment.subjectNumber}
+                                        No. {academicDisplay(assignment.subjectNumber)}
                                       </Typography>
                                     )}
                                   </Box>

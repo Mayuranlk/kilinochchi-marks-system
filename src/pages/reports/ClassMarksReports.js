@@ -1,3 +1,4 @@
+import { academicDisplay } from "../../utils/academicDisplay";
 // src/pages/reports/ClassMarksReports.js
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -127,7 +128,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
+          Grade - {academicDisplay(className)} Year - {year} Term - {academicDisplay(termName.replace("Term ", ""))}
         </Typography>
 
         {unassignedMediumCount > 0 && (
@@ -167,7 +168,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
 
                 {schema.groups.map((group) => (
                   <th key={group.key} style={headCellStyle} colSpan={group.columns.length}>
-                    {group.label || ""}
+                    {academicDisplay(group.label || "")}
                   </th>
                 ))}
 
@@ -188,7 +189,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
               <tr>
                 {flatColumns.map((column) => (
                   <th key={column.key} style={headCellStyle}>
-                    {column.label}
+                    {academicDisplay(column.label)}
                   </th>
                 ))}
               </tr>
@@ -201,7 +202,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                   <td style={bodyCellStyle}>{row.studentId}</td>
                   <td style={bodyCellStyle}>{row.studentIndexNo}</td>
                   <td style={nameCellStyle}>
-                    {row.studentName}
+                    {academicDisplay(row.studentName)}
                   </td>
                   {reportData.separateMediumRanking && (
                     <td style={bodyCellStyle}>{row.rankingMedium || "Unassigned"}</td>
@@ -232,9 +233,9 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                             : {}),
                         }}
                       >
-                        {row.absencesByColumn[column.key]
+                        {academicDisplay(row.absencesByColumn[column.key]
                           ? "AB"
-                          : row.marksByColumn[column.key] ?? ""}
+                          : row.marksByColumn[column.key] ?? "")}
                       </td>
                     );
                   })}
@@ -270,7 +271,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                   fontWeight: 700,
                 }}
               >
-                {band.label}: {band.colorName}
+                {academicDisplay(band.label)}: {academicDisplay(band.colorName)}
               </Box>
             ))}
           </Stack>
@@ -297,12 +298,12 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
         <Grid container spacing={2} sx={{ mt: 3 }}>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
-              {reportData.classroom?.classTeacherName || "Class Teacher"}
+              {academicDisplay(reportData.classroom?.classTeacherName || "Class Teacher")}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
-              {reportData.classroom?.sectionHeadName || "Sectional Head"}
+              {academicDisplay(reportData.classroom?.sectionHeadName || "Sectional Head")}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
@@ -356,7 +357,7 @@ function AnalysisPreview({ reportData }) {
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
+          Grade - {academicDisplay(className)} Year - {year} Term - {academicDisplay(termName.replace("Term ", ""))}
         </Typography>
 
         <Box sx={{ overflowX: "auto" }}>
@@ -373,7 +374,7 @@ function AnalysisPreview({ reportData }) {
                 <th style={headCellStyle}> </th>
                 {flatColumns.map((column) => (
                   <th key={column.key} style={headCellStyle}>
-                    {column.label}
+                    {academicDisplay(column.label)}
                   </th>
                 ))}
               </tr>
@@ -383,11 +384,11 @@ function AnalysisPreview({ reportData }) {
               {rows.map((row) => (
                 <tr key={row.label}>
                   <td style={{ ...labelCellStyle, fontWeight: 600 }}>
-                    {row.label}
+                    {academicDisplay(row.label)}
                   </td>
                   {flatColumns.map((column) => (
                     <td key={column.key} style={bodyCellStyle}>
-                      {row.getValue(column.key)}
+                      {academicDisplay(row.getValue(column.key))}
                     </td>
                   ))}
                 </tr>
@@ -408,7 +409,7 @@ function AnalysisPreview({ reportData }) {
               <Box component="ol" sx={{ pl: 3, mb: 0 }}>
                 {optimiStudents.map((student) => (
                   <Typography key={student.studentId} component="li" variant="body2" sx={{ mb: 0.5 }}>
-                    {student.studentName} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
+                    {academicDisplay(student.studentName)} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
                   </Typography>
                 ))}
               </Box>
@@ -419,12 +420,12 @@ function AnalysisPreview({ reportData }) {
         <Grid container spacing={2} sx={{ mt: 3 }}>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
-              {reportData.classroom?.classTeacherName || "Class Teacher"}
+              {academicDisplay(reportData.classroom?.classTeacherName || "Class Teacher")}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
-              {reportData.classroom?.sectionHeadName || "Sectional Head"}
+              {academicDisplay(reportData.classroom?.sectionHeadName || "Sectional Head")}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
@@ -463,7 +464,7 @@ async function shareClassMarksPdf(reportData, colorSchedule = false) {
     console.warn("Class marks PDF share fallback triggered:", err);
   }
 
-  saveAs(blob, fileName);
+  saveAs(blob, academicDisplay(fileName));
   window.open(
     `https://wa.me/?text=${encodeURIComponent(
       `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
@@ -472,7 +473,7 @@ async function shareClassMarksPdf(reportData, colorSchedule = false) {
     "noopener,noreferrer"
   );
   window.alert(
-    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
+    academicDisplay("This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually.")
   );
 }
 
@@ -760,7 +761,7 @@ export default function ClassMarksReports() {
                   >
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={year}>
-                        {year}
+                        {academicDisplay(year)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -777,7 +778,7 @@ export default function ClassMarksReports() {
                   >
                     {filteredClassrooms.map((item) => (
                       <MenuItem key={item.id} value={item.id}>
-                        {getClassroomDisplayName(item)}
+                        {academicDisplay(getClassroomDisplayName(item))}
                       </MenuItem>
                     ))}
                   </Select>
@@ -794,7 +795,7 @@ export default function ClassMarksReports() {
                   >
                     {terms.map((item) => (
                       <MenuItem key={item.id} value={item.term}>
-                        {item.term}
+                        {academicDisplay(item.term)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -835,7 +836,7 @@ export default function ClassMarksReports() {
             >
               {selectedClassroom && (
                 <Alert severity="info" sx={{ flex: 1, minWidth: 260 }}>
-                  Grade {selectedClassroom.grade} | Class {getClassroomDisplayName(selectedClassroom)} | Term {selectedTerm}
+                  Grade {selectedClassroom.grade} | Class {academicDisplay(getClassroomDisplayName(selectedClassroom))} | Term {selectedTerm}
                 </Alert>
               )}
 
@@ -923,7 +924,7 @@ export default function ClassMarksReports() {
           </Box>
         )}
 
-        {!!error && <Alert severity="error">{error}</Alert>}
+        {!!error && <Alert severity="error">{academicDisplay(error)}</Alert>}
 
         {!loading && !error && selectedClassroom && !reportData && (
           <Alert severity="warning">

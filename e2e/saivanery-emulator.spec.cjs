@@ -1,0 +1,61 @@
+const fs = require("node:fs");
+const { test, expect } = require("@playwright/test");
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
+let db;
+test.beforeAll(async () => {
+  if (process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8085" || process.env.GCLOUD_PROJECT !== "demo-kilinochchi-rules") throw new Error("Synthetic emulator only");
+  db = getFirestore(initializeApp({ projectId: "demo-kilinochchi-rules" }, "saivanery-tests"));
+  const subjectId = "legacy-hinduism";
+  await db.collection("subjects").doc(subjectId).set({ name: "Hinduism", subjectName: "Hinduism", code: "REL_HINDUISM", subjectCode: "REL_HINDUISM", subjectNumber: "R1", category: "religion", religion: "Hinduism", grade: 10, status: "active" });
+  await db.collection("teacherAssignments").doc("legacy-hinduism-assignment").set({ teacherId: "app-teacher", teacherName: "Synthetic Teacher", subjectId, subjectName: "Hinduism", grade: 10, section: "A", fullClassName: "10A", academicYear: "2026", medium: "Tamil", status: "active" });
+  await db.collection("studentSubjectEnrollments").doc("legacy-hinduism-enrollment").set({ studentId: "student-001", subjectId, subjectName: "Hinduism", academicYear: "2026", grade: 10, section: "A", fullClassName: "10A", medium: "Tamil", status: "active" });
+  await db.collection("students").doc("student-001").update({ religion: "Hinduism" });
+  fs.mkdirSync("audit-output/saivanery", { recursive: true });
+});
+async function login(page, role) {
+  await page.goto("/login");
+  await page.locator('input[type="email"]').fill(`${role}@app-emulator.test`);
+  await page.locator('input[type="password"]').fill("EmulatorOnly!123");
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await expect(page).toHaveURL(role === "admin" ? /\/$/ : /\/teacher$/);
+}
+test("legacy subject displays and searches as Saivanery; unrelated edits preserve stored names and identifiers", async ({ page }) => {
+  await login(page, "admin");
+  await page.goto("/subjects");
+  await page.getByPlaceholder("Search by number, name, code, category, religion, stream").fill("Saivanery");
+  const row = page.getByRole("row").filter({ hasText: "REL_HINDUISM" });
+  await expect(row).toContainText("Saivanery");
+  await row.getByRole("button").first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Subject Name", { exact: true })).toHaveValue("Saivanery");
+  await expect(dialog.getByRole("combobox").filter({ hasText: "Saivanery" })).toHaveText("Saivanery");
+  await dialog.getByLabel("Description", { exact: true }).fill("Synthetic description update");
+  await dialog.getByRole("button", { name: "Update Subject", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const subject = (await db.collection("subjects").doc("legacy-hinduism").get()).data();
+  expect(subject.name).toBe("Hinduism"); expect(subject.subjectName).toBe("Hinduism"); expect(subject.religion).toBe("Hinduism"); expect(subject.code).toBe("REL_HINDUISM");
+  await page.screenshot({ path: "audit-output/saivanery/subjects.png", fullPage: true });
+});
+test("teacher selects legacy subject by its new label; SBA entry and English PDF preserve subject identity", async ({ page }) => {
+  await login(page, "teacher");
+  await page.goto("/teacher/sba-marks");
+  await page.getByRole("combobox").nth(2).click();
+  await page.getByRole("option", { name: /Saivanery/ }).click();
+  const mark = page.getByRole("textbox", { name: "SBA mark for Synthetic Student One", exact: true });
+  await expect(mark).toBeEnabled(); await mark.fill("19");
+  await page.getByRole("button", { name: "Save SBA marks", exact: true }).click();
+  await expect(page.getByText("1 SBA record(s) saved.", { exact: true })).toBeVisible();
+  const value = (await db.collection("sbaMarks").doc("term-2026-1~student-001~legacy-hinduism").get()).data();
+  expect(value.subjectId).toBe("legacy-hinduism"); expect(value.mark).toBe(19);
+  expect((await db.collection("teacherAssignments").doc("legacy-hinduism-assignment").get()).data().subjectName).toBe("Hinduism");
+  await page.getByRole("button", { name: "A3 class register", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="SBA A3 register preview"]');
+  await expect(frame.locator("thead")).toContainText("Saivanery");
+  await expect(frame.locator("body")).not.toContainText("Hinduism");
+  await page.getByRole("button", { name: "Share PDF", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: "Download PDF", exact: true })).toBeEnabled({ timeout: 30000 });
+  const [download] = await Promise.all([page.waitForEvent("download"), dialog.getByRole("button", { name: "Download PDF", exact: true }).click()]);
+  await download.saveAs("audit-output/saivanery/register.pdf");
+});

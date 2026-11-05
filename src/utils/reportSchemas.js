@@ -16,6 +16,8 @@ export const ANALYSIS_BANDS = [
 
 export const RELIGION_REPORT_MAP = {
   Hinduism: "REL_SAIVAM",
+  Saivanery: "REL_SAIVAM",
+  Saivam: "REL_SAIVAM",
   Christianity: "REL_NRC",
   Catholicism: "REL_RC",
   Islam: "REL_ISLAM",
@@ -31,8 +33,8 @@ export const REPORT_SCHEMA_6_TO_9 = {
       columns: [
         {
           key: "REL_SAIVAM",
-          label: "Saivam",
-          aliases: ["Hinduism", "Saivam"],
+          label: "Saivanery",
+          aliases: ["Hinduism", "Saivam", "Saivanery"],
         },
         {
           key: "REL_NRC",
@@ -158,8 +160,8 @@ export const REPORT_SCHEMA_10_TO_11 = {
       columns: [
         {
           key: "REL_SAIVAM",
-          label: "Saivam",
-          aliases: ["Hinduism", "Saivam"],
+          label: "Saivanery",
+          aliases: ["Hinduism", "Saivam", "Saivanery"],
         },
         {
           key: "REL_NRC",

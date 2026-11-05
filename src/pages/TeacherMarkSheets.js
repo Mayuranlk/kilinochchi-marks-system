@@ -1,3 +1,4 @@
+import { academicDisplay, academicExport } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
@@ -501,25 +502,25 @@ export default function TeacherMarkSheets() {
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9.2);
-    doc.text(SCHOOL_NAME, centerX, y, { align: "center" });
+    doc.text(academicDisplay(SCHOOL_NAME), centerX, y, { align: "center" });
 
     doc.setFontSize(8.8);
-    doc.text(`Teacher Mark Sheet - ${selectedYear}`, centerX, y + 4.8, {
+    doc.text(academicDisplay(`Teacher Mark Sheet - ${selectedYear}`), centerX, y + 4.8, {
       align: "center",
     });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text(
-      `Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}${
+      academicDisplay(`Class ${sheet.className} - ${selectedTerm || "Term"} - ${sheet.subjectName}${
         sheet.medium ? ` - ${sheet.medium} Medium` : ""
-      }`,
+      }`),
       centerX,
       y + 9.6,
       { align: "center" }
     );
 
-    autoTable(doc, {
+    autoTable(doc, academicExport({
       startY: y + 14,
       margin: {
         left: x,
@@ -550,15 +551,15 @@ export default function TeacherMarkSheets() {
       },
       tableWidth: width,
       pageBreak: "avoid",
-    });
+    }));
 
     const finalY = doc.lastAutoTable?.finalY || y + 25;
     const footerY = Math.min(finalY + 6, y + blockHeight - 6);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.6);
-    doc.text("Date: ____________", x, footerY);
-    doc.text("Teacher Signature: ____________", x + width - 40, footerY);
+    doc.text(academicDisplay("Date: ____________"), x, footerY);
+    doc.text(academicDisplay("Teacher Signature: ____________"), x + width - 40, footerY);
   }
 
   async function handleDownloadPdf() {
@@ -603,7 +604,7 @@ export default function TeacherMarkSheets() {
       });
 
       const fileName = `TeacherMarkSheets_${selectedClass}_${selectedTerm || "Term"}_${selectedYear}.pdf`;
-      doc.save(fileName);
+      doc.save(academicDisplay(fileName));
     } catch (err) {
       console.error("PDF generation error:", err);
       setError("Failed to generate PDF.");
@@ -617,9 +618,9 @@ export default function TeacherMarkSheets() {
       .map(
         (row) => `
           <tr>
-            <td class="center">${escapeHtml(row[0])}</td>
-            <td class="center">${escapeHtml(row[1])}</td>
-            <td>${escapeHtml(row[2])}</td>
+            <td class="center">${escapeHtml(academicDisplay(row[0]))}</td>
+            <td class="center">${escapeHtml(academicDisplay(row[1]))}</td>
+            <td>${escapeHtml(academicDisplay(row[2]))}</td>
             <td></td>
             <td></td>
           </tr>
@@ -630,12 +631,12 @@ export default function TeacherMarkSheets() {
     return `
       <div class="sheet-block">
         <div class="header">
-          <div class="school">${escapeHtml(SCHOOL_NAME)}</div>
-          <div class="title">Teacher Mark Sheet - ${escapeHtml(selectedYear)}</div>
-          <div class="meta">Class ${escapeHtml(sheet.className)} - ${escapeHtml(
-      selectedTerm || "Term"
-    )} - ${escapeHtml(sheet.subjectName)}${
-      sheet.medium ? ` - ${escapeHtml(sheet.medium)} Medium` : ""
+          <div class="school">${escapeHtml(academicDisplay(SCHOOL_NAME))}</div>
+          <div class="title">Teacher Mark Sheet - ${escapeHtml(academicDisplay(selectedYear))}</div>
+          <div class="meta">Class ${escapeHtml(academicDisplay(sheet.className))} - ${escapeHtml(
+      academicDisplay(selectedTerm || "Term")
+    )} - ${escapeHtml(academicDisplay(sheet.subjectName))}${
+      sheet.medium ? ` - ${escapeHtml(academicDisplay(sheet.medium))} Medium` : ""
     }</div>
         </div>
 
@@ -794,7 +795,7 @@ export default function TeacherMarkSheets() {
       return;
     }
 
-    printWindow.document.write(buildPrintableHtml());
+    printWindow.document.write(academicDisplay(buildPrintableHtml()));
     printWindow.document.close();
     printWindow.focus();
 
@@ -828,7 +829,7 @@ export default function TeacherMarkSheets() {
           </Typography>
         </Box>
 
-        {error && <Alert severity="error">{error}</Alert>}
+        {error && <Alert severity="error">{academicDisplay(error)}</Alert>}
 
         <Alert severity="info">
           This page uses <strong>studentSubjectEnrollments</strong> so each sheet includes
@@ -854,7 +855,7 @@ export default function TeacherMarkSheets() {
                   >
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={year}>
-                        {year}
+                        {academicDisplay(year)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -871,7 +872,7 @@ export default function TeacherMarkSheets() {
                   >
                     {availableTerms.map((term) => (
                       <MenuItem key={term} value={term}>
-                        {term}
+                        {academicDisplay(term)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -891,7 +892,7 @@ export default function TeacherMarkSheets() {
                   >
                     {classOptions.map((className) => (
                       <MenuItem key={className} value={className}>
-                        {className}
+                        {academicDisplay(className)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -909,7 +910,7 @@ export default function TeacherMarkSheets() {
                     <MenuItem value="__ALL__">All Subjects</MenuItem>
                     {subjectOptions.map((subject) => (
                       <MenuItem key={subject.key} value={subject.key}>
-                        {subject.subjectName}
+                        {academicDisplay(subject.subjectName)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -925,7 +926,7 @@ export default function TeacherMarkSheets() {
               alignItems={{ xs: "stretch", sm: "center" }}
             >
               <Typography variant="body2" color="text.secondary">
-                {summaryText}
+                {academicDisplay(summaryText)}
               </Typography>
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
@@ -1000,10 +1001,10 @@ export default function TeacherMarkSheets() {
                     }}
                   >
                     <Typography variant="subtitle1" fontWeight={700} color="primary.main">
-                      {sheet.subjectName}{sheet.medium ? ` - ${sheet.medium} Medium` : ""}
+                      {academicDisplay(sheet.subjectName)}{sheet.medium ? ` - ${sheet.medium} Medium` : ""}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" mb={1}>
-                      Class {sheet.className} · {selectedTerm || "Term"} · {selectedYear}
+                      Class {academicDisplay(sheet.className)} · {selectedTerm || "Term"} · {selectedYear}
                     </Typography>
                     <Typography variant="body2">
                       Students: <strong>{sheet.rows.length}</strong>
@@ -1040,7 +1041,7 @@ export default function TeacherMarkSheets() {
             Footer: Date, Teacher Signature
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Generated by: {profile?.name || profile?.email || "Admin"}
+            Generated by: {academicDisplay(profile?.name || profile?.email || "Admin")}
           </Typography>
         </Paper>
       </Stack>

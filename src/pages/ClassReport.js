@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -286,6 +287,7 @@ function getOptimiStudents(studentRows = []) {
     return [
       "religion",
       "saivam",
+      "saivanery",
       "nrc",
       "rc",
       "islam",
@@ -787,7 +789,7 @@ export default function ClassReport() {
 
     if (!win) return;
 
-    win.document.write(`
+    win.document.write(academicDisplay(`
       <html>
         <head>
           <title>Class Report - ${classTeacherClass.className}</title>
@@ -804,7 +806,7 @@ export default function ClassReport() {
         </head>
         <body>${content}</body>
       </html>
-    `);
+    `));
 
     win.document.close();
     win.focus();
@@ -843,7 +845,7 @@ export default function ClassReport() {
 
       {!!loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {loadError}
+          {academicDisplay(loadError)}
         </Alert>
       )}
 
@@ -873,12 +875,12 @@ export default function ClassReport() {
               onChange={(e) => setSelectedTerm(e.target.value)}
             >
               <MenuItem value="active">
-                {activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term"}
+                {academicDisplay(activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term")}
               </MenuItem>
 
               {terms.map((term) => (
                 <MenuItem key={term.id} value={term.id}>
-                  {term.term} {term.year}
+                  {academicDisplay(term.term)} {academicDisplay(term.year)}
                 </MenuItem>
               ))}
             </Select>
@@ -936,10 +938,10 @@ export default function ClassReport() {
         <Box ref={printRef}>
           <Box textAlign="center" mb={2} className="header">
             <Typography variant="h6" fontWeight={700} color="primary.main">
-              {SCHOOL_NAME}
+              {academicDisplay(SCHOOL_NAME)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {SCHOOL_SUBTITLE}
+              {academicDisplay(SCHOOL_SUBTITLE)}
             </Typography>
             <Typography variant="body2" fontWeight={600} mt={0.5}>
               Class Performance Report — Grade {classTeacherClass.grade}-{classTeacherClass.section}
@@ -1010,7 +1012,7 @@ export default function ClassReport() {
                         textAlign: "center",
                       }}
                     >
-                      {shortSubject(subjectInfo.subjectName)}
+                      {academicDisplay(shortSubject(subjectInfo.subjectName))}
                     </TableCell>
                   ))}
 
@@ -1073,7 +1075,7 @@ export default function ClassReport() {
                           zIndex: 1,
                         }}
                       >
-                        {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
+                        {academicDisplay(isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student))}
                       </TableCell>
 
                       {usesSeparateMediumRanking(classTeacherClass.grade) && (
@@ -1139,7 +1141,7 @@ export default function ClassReport() {
                               fontSize: 13,
                             }}
                           >
-                            {avgGradeInfo.label}
+                            {academicDisplay(avgGradeInfo.label)}
                           </span>
                         ) : (
                           "—"
@@ -1187,7 +1189,7 @@ export default function ClassReport() {
                 <Card sx={{ bgcolor: card.color, boxShadow: 1 }}>
                   <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                     <Typography variant="caption" color="text.secondary">
-                      {card.icon} {card.label}
+                      {card.icon} {academicDisplay(card.label)}
                     </Typography>
                     <Typography variant="subtitle1" fontWeight={700} mt={0.3}>
                       {card.value}
@@ -1239,14 +1241,14 @@ export default function ClassReport() {
                   <TableRow key={subjectRow.subject} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight={600}>
-                        {subjectRow.subject}
+                        {academicDisplay(subjectRow.subject)}
                       </Typography>
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center" }}>
                       {subjectRow.count > 0 ? (
                         <Chip
-                          label={subjectRow.count}
+                          label={academicDisplay(subjectRow.count)}
                           size="small"
                           color={subjectRow.count === students.length ? "success" : "warning"}
                         />
@@ -1267,21 +1269,21 @@ export default function ClassReport() {
                             : "#c62828",
                       }}
                     >
-                      {subjectRow.avg ?? "—"}
+                      {academicDisplay(subjectRow.avg ?? "—")}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center", color: "#2e7d32", fontWeight: 600 }}>
-                      {subjectRow.highest ?? "—"}
+                      {academicDisplay(subjectRow.highest ?? "—")}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center", color: "#c62828", fontWeight: 600 }}>
-                      {subjectRow.lowest ?? "—"}
+                      {academicDisplay(subjectRow.lowest ?? "—")}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center" }}>
                       {subjectRow.passRate !== null ? (
                         <Chip
-                          label={`${subjectRow.passRate}%`}
+                          label={academicDisplay(`${subjectRow.passRate}%`)}
                           size="small"
                           color={
                             subjectRow.passRate >= 80
@@ -1319,7 +1321,7 @@ export default function ClassReport() {
                               : "#c62828"
                           }
                         >
-                          {subjectRow.gradesDist[gradeKey] || 0}
+                          {academicDisplay(subjectRow.gradesDist[gradeKey] || 0)}
                         </Typography>
                       </TableCell>
                     ))}
@@ -1363,13 +1365,13 @@ export default function ClassReport() {
                   {optimiStudents.map((student) => (
                     <TableRow key={student.id} hover>
                       <TableCell sx={{ textAlign: "center" }}>{student.rank}</TableCell>
-                      <TableCell>{getStudentName(student)}</TableCell>
+                      <TableCell>{academicDisplay(getStudentName(student))}</TableCell>
                       <TableCell sx={{ textAlign: "center", fontWeight: 600 }}>
                         {student.average}
                       </TableCell>
                       <TableCell sx={{ textAlign: "center" }}>{student.tamil ?? "—"}</TableCell>
                       <TableCell sx={{ textAlign: "center" }}>{student.english ?? "—"}</TableCell>
-                      <TableCell sx={{ textAlign: "center" }}>{student.religion ?? "—"}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{academicDisplay(student.religion ?? "—")}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1412,7 +1414,7 @@ export default function ClassReport() {
 
                       <Box>
                         <Typography variant="body2" fontWeight={700}>
-                          {getStudentName(student)}
+                          {academicDisplay(getStudentName(student))}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Avg: {student.average ?? "—"} | Total: {student.total}

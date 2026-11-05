@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -26,14 +27,8 @@ import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import { EmptyState, PageContainer } from "../components/ui";
-import {
-  buildALClassName,
-  buildALDisplayClassName,
-  isALGrade,
-  normalizeSection,
-  normalizeText,
-  parseGrade,
-} from "../constants";
+import { normalizeText } from "../constants";
+import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, isSameTeacher, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
 
 const ROWS_PER_PAGE = 40;
 
@@ -63,242 +58,6 @@ const pageCellStyle = {
   ...thTdBaseStyle,
   height: 28,
 };
-
-const pick = (...values) =>
-  values.find((value) => value !== undefined && value !== null && value !== "");
-
-const normalize = (value) => String(value || "").trim().toLowerCase();
-
-const normalizeAcademicYear = (value) => {
-  const raw = String(value ?? "").trim();
-  const match = raw.match(/\d{4}/);
-  return match ? match[0] : raw;
-};
-
-const hasValue = (value) =>
-  value !== undefined && value !== null && String(value).trim() !== "";
-
-const safeNormalizedEquals = (left, right) => {
-  if (!hasValue(left) || !hasValue(right)) return false;
-  return normalize(left) === normalize(right);
-};
-
-const buildSubjectIdentity = (item = {}, fallback = {}) => ({
-  subjectId: pick(item.subjectId, fallback.subjectId, ""),
-  subjectName: pick(
-    item.subjectName,
-    item.subject,
-    fallback.subjectName,
-    fallback.subject,
-    ""
-  ),
-  subjectNumber: pick(item.subjectNumber, fallback.subjectNumber, ""),
-});
-
-const matchesSubjectIdentity = (item = {}, target = {}, fallback = {}) => {
-  const itemSubject = buildSubjectIdentity(item, fallback);
-  const targetSubject = buildSubjectIdentity(target);
-
-  return (
-    safeNormalizedEquals(itemSubject.subjectId, targetSubject.subjectId) ||
-    safeNormalizedEquals(itemSubject.subjectName, targetSubject.subjectName) ||
-    safeNormalizedEquals(itemSubject.subjectNumber, targetSubject.subjectNumber)
-  );
-};
-
-const getClassIdentity = (item = {}) =>
-  pick(item.alClassName, item.fullClassName, item.className, "");
-
-const getResolvedStream = (item = {}, fallback = {}) =>
-  normalizeText(pick(item.stream, fallback.stream, ""));
-
-const getResolvedSection = (item = {}, fallback = {}) =>
-  normalizeSection(
-    pick(item.section, item.className, fallback.section, fallback.className, "")
-  );
-
-const getResolvedGrade = (item = {}, fallback = {}) =>
-  parseGrade(pick(item.grade, fallback.grade, ""));
-
-const getComparableALClassName = (item = {}, fallback = {}) => {
-  const explicit = getClassIdentity(item);
-  if (explicit) return explicit;
-
-  const grade = getResolvedGrade(item, fallback);
-  const section = getResolvedSection(item, fallback);
-  const stream = getResolvedStream(item, fallback);
-
-  if (isALGrade(grade) && stream && section) {
-    return buildALClassName(grade, stream, section);
-  }
-
-  return "";
-};
-
-const getClassFallback = (item = {}, fallback = {}) => {
-  const grade = getResolvedGrade(item, fallback);
-  const section = getResolvedSection(item, fallback);
-  const stream = getResolvedStream(item, fallback);
-
-  if (isALGrade(grade) && stream && section) {
-    return buildALClassName(grade, stream, section);
-  }
-
-  return pick(
-    item.className,
-    fallback.className,
-    `${pick(item.grade, fallback.grade, "")}${pick(
-      item.section,
-      fallback.section,
-      ""
-    )}`.trim()
-  );
-};
-
-const getDisplayClassName = (item = {}, fallback = {}) => {
-  const explicit = pick(
-    item.alClassName,
-    item.fullClassName,
-    fallback.alClassName,
-    fallback.fullClassName,
-    ""
-  );
-
-  if (explicit) {
-    const grade = getResolvedGrade(item, fallback);
-    const section = getResolvedSection(item, fallback);
-    const stream = getResolvedStream(item, fallback);
-
-    if (isALGrade(grade) && stream && section) {
-      return buildALDisplayClassName(grade, stream, section) || explicit;
-    }
-
-    return explicit;
-  }
-
-  return getClassFallback(item, fallback);
-};
-
-const getClassContext = (item = {}, fallback = {}) => ({
-  grade: getResolvedGrade(item, fallback),
-  section: getResolvedSection(item, fallback),
-  stream: getResolvedStream(item, fallback),
-  fullClassName:
-    getComparableALClassName(item, fallback) ||
-    getClassIdentity(item) ||
-    getClassFallback(item, fallback),
-  className: pick(item.className, fallback.className, ""),
-  alClassName: pick(item.alClassName, fallback.alClassName, ""),
-});
-
-const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
-  const itemGrade = getResolvedGrade(item, fallback);
-  const itemSection = getResolvedSection(item, fallback);
-  const itemStream = normalize(getResolvedStream(item, fallback));
-
-  const targetGrade = parseGrade(target.grade);
-  const targetSection = normalizeSection(target.section);
-  const targetStream = normalize(target.stream);
-
-  const itemIdentity = normalize(
-    getComparableALClassName(item, fallback) ||
-      getClassIdentity(item) ||
-      getClassFallback(item, fallback)
-  );
-
-  const targetIdentity = normalize(
-    pick(target.fullClassName, target.alClassName, target.className, "")
-  );
-
-  if (isALGrade(targetGrade)) {
-    if (itemIdentity && targetIdentity && itemIdentity === targetIdentity) {
-      return true;
-    }
-
-    if (itemGrade !== targetGrade || itemSection !== targetSection) {
-      return false;
-    }
-
-    if (!targetStream) return true;
-    if (itemStream) return itemStream === targetStream;
-    return false;
-  }
-
-  if (itemIdentity && targetIdentity) {
-    return itemIdentity === targetIdentity;
-  }
-
-  return itemGrade === targetGrade && itemSection === targetSection;
-};
-
-const buildEnrollmentDedupKey = (item = {}, fallback = {}) => {
-  const classContext = getClassContext(item, fallback);
-  const subject = buildSubjectIdentity(item, fallback);
-  const academicYear = normalizeAcademicYear(
-    pick(item.academicYear, item.year, fallback.academicYear, fallback.year, "")
-  );
-
-  return [
-    String(pick(item.studentId, fallback.studentId, "")).trim(),
-    normalize(classContext.fullClassName || classContext.className || ""),
-    normalize(subject.subjectId),
-    normalize(subject.subjectName),
-    normalize(subject.subjectNumber),
-    normalize(academicYear),
-  ].join("__");
-};
-
-const buildTermKey = (term = {}) =>
-  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
-
-const buildTermLabel = (term = {}) => {
-  const termName = pick(term.term, term.termName, term.name, "Term");
-  const year = pick(term.year, term.academicYear, "");
-  return year ? `${termName} - ${year}` : termName;
-};
-
-const isActiveTerm = (term = {}) => {
-  const raw = pick(term.isActive, term.active, term.status);
-  if (typeof raw === "boolean") return raw;
-  return normalize(raw) === "active" || normalize(raw) === "true";
-};
-
-const isSameTeacher = (item = {}, user) => {
-  const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
-  const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
-
-  return (
-    itemTeacherId === normalize(user?.uid) ||
-    itemTeacherEmail === normalize(user?.email)
-  );
-};
-
-const getStudentSortIndex = (row = {}) =>
-  String(row.indexNo || row.admissionNo || "").trim();
-
-const sortRowsInTeacherMarkSheetOrder = (rows = []) =>
-  [...rows].sort((a, b) => {
-    const aIndex = getStudentSortIndex(a);
-    const bIndex = getStudentSortIndex(b);
-
-    if (aIndex && bIndex) {
-      const byIndex = aIndex.localeCompare(bIndex, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-      if (byIndex !== 0) return byIndex;
-    } else if (aIndex && !bIndex) {
-      return -1;
-    } else if (!aIndex && bIndex) {
-      return 1;
-    }
-
-    return String(a.studentName || "").localeCompare(
-      String(b.studentName || ""),
-      undefined,
-      { sensitivity: "base" }
-    );
-  });
 
 const chunkArray = (items = [], size) => {
   const chunks = [];
@@ -337,7 +96,7 @@ function SBAFormPage({ page, meta }) {
             Assessment Marks
           </Typography>
           <Typography sx={{ mt: 0.5, fontSize: 12, color: "#334155" }}>
-            {meta.classLabel} | Subject: {meta.subjectName} | {meta.termName} |{" "}
+            {academicDisplay(meta.classLabel)} | Subject: {academicDisplay(meta.subjectName)} | {academicDisplay(meta.termName)} |{" "}
             {meta.academicYear}
           </Typography>
           <Typography sx={{ mt: 0.25, fontSize: 11, color: "#475569" }}>
@@ -381,7 +140,7 @@ function SBAFormPage({ page, meta }) {
                     fontWeight: 700,
                   }}
                 >
-                  {value}
+                  {academicDisplay(value)}
                 </th>
               ))}
               <th style={{ ...thTdBaseStyle, fontWeight: 400 }} />
@@ -391,7 +150,7 @@ function SBAFormPage({ page, meta }) {
             {page.rows.map((row) => (
               <tr key={row.key}>
                 <td style={{ ...pageCellStyle, textAlign: "center" }}>{row.no}</td>
-                <td style={pageCellStyle}>{row.studentName}</td>
+                <td style={pageCellStyle}>{academicDisplay(row.studentName)}</td>
                 {[1, 2, 3, 4, 5].map((value) => (
                   <td
                     key={`${row.key}-assessment-${value}`}
@@ -422,7 +181,7 @@ function SBAFormPage({ page, meta }) {
             {[1, 2, 3, 4, 5].map((value) => (
               <tr key={`criteria-${page.pageNumber}-${value}`}>
                 <td style={{ ...pageCellStyle, textAlign: "center", height: 34 }}>
-                  {value}
+                  {academicDisplay(value)}
                 </td>
                 <td style={{ ...pageCellStyle, height: 34 }} />
                 <td style={{ ...pageCellStyle, height: 34 }} />
@@ -450,7 +209,7 @@ function SBAFormPage({ page, meta }) {
                     mt: 3.5,
                   }}
                 >
-                  {label}
+                  {academicDisplay(label)}
                 </Typography>
               </Box>
             )
@@ -834,7 +593,7 @@ export default function SBAForm() {
             (row) => `
               <tr>
                 <td class="cell cell-center">${row.no}</td>
-                <td class="cell">${escapeHtml(row.studentName)}</td>
+                <td class="cell">${escapeHtml(academicDisplay(row.studentName))}</td>
                 <td class="cell cell-center"></td>
                 <td class="cell cell-center"></td>
                 <td class="cell cell-center"></td>
@@ -862,16 +621,16 @@ export default function SBAForm() {
           <section class="sheet-page">
             <div class="header">
               <div class="title">Assessment Marks</div>
-              <div class="meta">${escapeHtml(printMeta.classLabel)} | Subject: ${escapeHtml(
-                printMeta.subjectName
-              )} | ${escapeHtml(printMeta.termName)} | ${escapeHtml(
-                printMeta.academicYear
+              <div class="meta">${escapeHtml(academicDisplay(printMeta.classLabel))} | Subject: ${escapeHtml(
+                academicDisplay(printMeta.subjectName)
+              )} | ${escapeHtml(academicDisplay(printMeta.termName))} | ${escapeHtml(
+                academicDisplay(printMeta.academicYear)
               )}</div>
               <div class="meta subtle">Grade ${escapeHtml(
-                printMeta.grade
-              )} | Division ${escapeHtml(printMeta.division)}${
+                academicDisplay(printMeta.grade)
+              )} | Division ${escapeHtml(academicDisplay(printMeta.division))}${
                 printMeta.stream
-                  ? ` | Stream: ${escapeHtml(printMeta.stream)}`
+                  ? ` | Stream: ${escapeHtml(academicDisplay(printMeta.stream))}`
                   : ""
               }</div>
             </div>
@@ -933,8 +692,8 @@ export default function SBAForm() {
     return `
       <html>
         <head>
-          <title>Assessment Marks - ${escapeHtml(printMeta.classLabel)} - ${escapeHtml(
-            printMeta.subjectName
+          <title>Assessment Marks - ${escapeHtml(academicDisplay(printMeta.classLabel))} - ${escapeHtml(
+            academicDisplay(printMeta.subjectName)
           )}</title>
           <style>
             @page {
@@ -1066,7 +825,7 @@ export default function SBAForm() {
       return;
     }
 
-    printWindow.document.write(buildPrintableHtml());
+    printWindow.document.write(academicDisplay(buildPrintableHtml()));
     printWindow.document.close();
     printWindow.focus();
 
@@ -1112,7 +871,7 @@ export default function SBAForm() {
       <Stack spacing={2.5}>
         {error ? (
           <Alert severity="error" onClose={() => setError("")}>
-            {error}
+            {academicDisplay(error)}
           </Alert>
         ) : null}
 
@@ -1147,7 +906,7 @@ export default function SBAForm() {
                 >
                   {terms.map((term) => (
                     <MenuItem key={term.id} value={buildTermKey(term)}>
-                      {buildTermLabel(term)}
+                      {academicDisplay(buildTermLabel(term))}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1165,7 +924,7 @@ export default function SBAForm() {
                 >
                   {classOptions.map((option) => (
                     <MenuItem key={option.fullClassName} value={option.fullClassName}>
-                      {option.displayClassName || option.fullClassName}
+                      {academicDisplay(option.displayClassName || option.fullClassName)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1187,7 +946,7 @@ export default function SBAForm() {
                 >
                   {subjectOptions.map((option) => (
                     <MenuItem key={option.key} value={option.key}>
-                      {option.subjectName}
+                      {academicDisplay(option.subjectName)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1217,42 +976,42 @@ export default function SBAForm() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip
                     icon={<SchoolRoundedIcon />}
-                    label={printMeta.classLabel}
+                    label={academicDisplay(printMeta.classLabel)}
                     color="primary"
                     variant="outlined"
                   />
                   <Chip
                     icon={<AutoStoriesRoundedIcon />}
-                    label={printMeta.subjectName}
+                    label={academicDisplay(printMeta.subjectName)}
                     variant="outlined"
                   />
                   <Chip
                     icon={<TimelineRoundedIcon />}
-                    label={buildTermLabel(activeTerm)}
+                    label={academicDisplay(buildTermLabel(activeTerm))}
                     variant="outlined"
                   />
                   <Chip
                     icon={<ClassRoundedIcon />}
-                    label={`Grade ${printMeta.grade || "-"} / Division ${printMeta.division || "-"}`}
+                    label={academicDisplay(`Grade ${printMeta.grade || "-"} / Division ${printMeta.division || "-"}`)}
                     variant="outlined"
                   />
                   {printMeta.stream ? (
-                    <Chip label={`Stream: ${printMeta.stream}`} variant="outlined" />
+                    <Chip label={academicDisplay(`Stream: ${printMeta.stream}`)} variant="outlined" />
                   ) : null}
                 </Stack>
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip
                     icon={<AssignmentRoundedIcon />}
-                    label={`${studentRows.length} students`}
+                    label={academicDisplay(`${studentRows.length} students`)}
                     color="success"
                     variant="outlined"
                   />
                   <Chip
                     icon={<PrintRoundedIcon />}
-                    label={`${printablePages.length} page${
+                    label={academicDisplay(`${printablePages.length} page${
                       printablePages.length === 1 ? "" : "s"
-                    }`}
+                    }`)}
                     color="secondary"
                     variant="outlined"
                   />

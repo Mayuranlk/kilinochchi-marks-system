@@ -195,3 +195,12 @@ describe("Grade 10-11 class workbook validation", () => {
   });
 
 });
+
+
+test("Saivanery upload headers resolve to the existing Hinduism enrollment and ID", () => {
+  const before = JSON.stringify(enrollments);
+  expect(resolveClassSheetSubject("Saivanery", enrollments, { religion: "Hinduism" })).toEqual(
+    expect.objectContaining({ subjectId: "rel-h", subjectName: "Hinduism" })
+  );
+  expect(JSON.stringify(enrollments)).toBe(before);
+});

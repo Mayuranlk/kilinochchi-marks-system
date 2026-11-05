@@ -1,3 +1,4 @@
+import { academicDisplay, academicSearch } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -46,6 +47,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
+import { useSbaTermGate } from "../utils/useSbaTermGate";
 import { useLocation } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -370,6 +372,7 @@ export default function MarksEntry() {
   const { isAdmin, profile: authProfile } = useAuth();
   const location = useLocation();
   const markInputRefs = useRef({});
+  const retainedSaveRows = useRef(new Map());
   const appliedNavigationSelectionRef = useRef("");
 
   const [bootLoading, setBootLoading] = useState(true);
@@ -400,13 +403,6 @@ export default function MarksEntry() {
 
   const [studentRows, setStudentRows] = useState([]);
   const [drafts, setDrafts] = useState({});
-
-  const teacherEntryLocked =
-    !isAdmin &&
-    (entrySettingsLoading || isTeacherMarksEntryLocked(entrySettings));
-  const teacherEntryLockReason = entrySettingsLoading
-    ? "Checking marks entry access..."
-    : getTeacherMarksEntryLockReason(entrySettings);
 
   const urlParams = useMemo(
     () => new URLSearchParams(location.search),
@@ -640,9 +636,9 @@ export default function MarksEntry() {
     return studentRows.filter((row) => {
       return (
         !search ||
-        normalize(row.studentName).includes(search) ||
-        normalize(row.indexNo).includes(search) ||
-        normalize(row.admissionNo).includes(search)
+        academicSearch(normalize(row.studentName), search) ||
+        academicSearch(normalize(row.indexNo), search) ||
+        academicSearch(normalize(row.admissionNo), search)
       );
     });
   }, [studentRows, searchText]);
@@ -1080,7 +1076,11 @@ export default function MarksEntry() {
         };
       });
 
-      const rows = sortRowsInTeacherMarkSheetOrder(mappedRows);
+      const rows = sortRowsInTeacherMarkSheetOrder(mappedRows).map((row) => {
+        const retained = retainedSaveRows.current.get(row.key);
+        return retained ? { ...row, mark: retained.mark, absent: retained.absent, isDirty: true } : row;
+      });
+      retainedSaveRows.current.clear();
 
       const nextDrafts = {};
       rows.forEach((row) => {
@@ -1316,7 +1316,7 @@ export default function MarksEntry() {
     const subjectName = pick(mark.subjectName, mark.subject, "selected subject");
     const termName = pick(mark.term, mark.termName, "selected term");
     const confirmed = window.confirm(
-      `Delete the ${subjectName} mark (${termName}) for ${studentLabel}? This cannot be undone.`
+      academicDisplay(`Delete the ${subjectName} mark (${termName}) for ${studentLabel}? This cannot be undone.`)
     );
     if (!confirmed) return;
 
@@ -1381,7 +1381,10 @@ export default function MarksEntry() {
         return;
       }
 
-      const batch = writeBatch(db);
+      await sbaGate.verifyBeforeSave(studentRows);
+      const batches = [];
+      let batch;
+      let group;
       const savedMarks = [];
       const currentUser = auth.currentUser;
       const teacherName = pick(
@@ -1392,6 +1395,9 @@ export default function MarksEntry() {
       );
 
       for (const row of dirtyRows) {
+        if (!group || group.marks.length === 8) {
+          batch = writeBatch(db); group = { batch, marks: [] }; batches.push(group);
+        }
         const markValue = asNumber(row.mark);
         const absent = Boolean(row.absent);
 
@@ -1418,6 +1424,7 @@ export default function MarksEntry() {
           subjectNumber: row.subjectNumber || "",
           term: row.term,
           termName: row.term,
+          academicTermId: activeTerm.id,
           academicYear: row.academicYear,
           year: row.academicYear,
           assessmentType: row.assessmentId ? "practice" : "term",
@@ -1438,24 +1445,29 @@ export default function MarksEntry() {
 
         if (row.existingDocId) {
           batch.set(doc(db, "marks", row.existingDocId), payload, { merge: true });
-          savedMarks.push({ id: row.existingDocId, ...payload });
+          group.marks.push({ id: row.existingDocId, ...payload });
         } else {
           const newRef = doc(collection(db, "marks"));
           batch.set(newRef, {
             ...payload,
             createdAt: serverTimestamp(),
           });
-          savedMarks.push({ id: newRef.id, ...payload });
+          group.marks.push({ id: newRef.id, ...payload });
         }
       }
 
-      await batch.commit();
+      let saveFailure;
+      for (const item of batches) {
+        try { await item.batch.commit(); savedMarks.push(...item.marks); }
+        catch (failure) { saveFailure = failure; break; }
+      }
       const savedByStudent = new Map(savedMarks.map((mark) => [String(mark.studentId), mark]));
       const mergeSavedMarks = (previous) => {
         const byId = new Map(previous.map((mark) => [mark.id, mark]));
         savedMarks.forEach((mark) => byId.set(mark.id, { ...byId.get(mark.id), ...mark }));
         return Array.from(byId.values());
       };
+      if (saveFailure) retainedSaveRows.current = new Map(studentRows.filter((row) => row.isDirty && !savedByStudent.has(String(row.studentId))).map((row) => [row.key, row]));
       setMarksDocs(mergeSavedMarks);
       updateCachedCollection("marks", mergeSavedMarks);
       setStudentRows((previous) =>
@@ -1464,6 +1476,7 @@ export default function MarksEntry() {
           return saved ? { ...row, existingDocId: saved.id, isDirty: false } : row;
         })
       );
+      if (saveFailure) throw new Error(`${savedMarks.length} marks saved; remaining edits are retained. ${saveFailure.message}`);
       setSuccess("Marks saved successfully.");
     } catch (err) {
       console.error(err);
@@ -1472,6 +1485,13 @@ export default function MarksEntry() {
       setSaving(false);
     }
   };
+
+  const sbaGate = useSbaTermGate({ isAdmin, settings: entrySettings, term: activeTerm,
+    classContext: selectedClassRow, subject: selectedSubject, assessmentId: selectedAssessmentId,
+    students: allStudents, enrollments: allEnrollments });
+  const teacherEntryLocked = !isAdmin && (entrySettingsLoading || isTeacherMarksEntryLocked(entrySettings) || sbaGate.locked);
+  const teacherEntryLockReason = entrySettingsLoading ? "Checking marks entry access..." :
+    getTeacherMarksEntryLockReason(entrySettings) || sbaGate.reason;
 
   const dirtyCount = studentRows.filter((row) => row.isDirty).length;
   const saveProgress =
@@ -1515,11 +1535,12 @@ export default function MarksEntry() {
       }
     >
       <Stack spacing={2.25}>
-        {error ? <Alert severity="error">{error}</Alert> : null}
-        {success ? <Alert severity="success">{success}</Alert> : null}
+        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
+        {success ? <Alert severity="success">{academicDisplay(success)}</Alert> : null}
         {!isAdmin && teacherEntryLocked ? (
           <Alert severity="warning" icon={<LockRoundedIcon />}>
             <strong>Marks Entry Disabled.</strong> {teacherEntryLockReason} You can still view saved marks and use the other teacher dashboard features.
+            {sbaGate.locked && <Button href="/teacher/sba-marks" sx={{ ml: 1 }}>Enter SBA marks</Button>}
           </Alert>
         ) : null}
 
@@ -1539,7 +1560,7 @@ export default function MarksEntry() {
                 options={adminStudents}
                 value={deleteStudent}
                 onChange={(_, value) => setDeleteStudent(value)}
-                getOptionLabel={getAdminStudentLabel}
+                getOptionLabel={(...args) => academicDisplay((getAdminStudentLabel)(...args))}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
                 renderInput={(params) => (
                   <TextField
@@ -1570,13 +1591,13 @@ export default function MarksEntry() {
                           <TableRow key={mark.id} hover>
                             <TableCell>{pick(mark.year, mark.academicYear, "-")}</TableCell>
                             <TableCell>
-                              {[
+                              {academicDisplay([
                                 pick(mark.term, mark.termName, ""),
                                 pick(mark.assessmentName, ""),
-                              ].filter(Boolean).join(" - ") || "-"}
+                              ].filter(Boolean).join(" - ") || "-")}
                             </TableCell>
-                            <TableCell>{pick(mark.fullClassName, mark.className, "-")}</TableCell>
-                            <TableCell>{pick(mark.subjectName, mark.subject, "-")}</TableCell>
+                            <TableCell>{academicDisplay(pick(mark.fullClassName, mark.className, "-"))}</TableCell>
+                            <TableCell>{academicDisplay(pick(mark.subjectName, mark.subject, "-"))}</TableCell>
                             <TableCell>{mark.absent ? "Absent" : pick(mark.mark, "-")}</TableCell>
                             <TableCell align="right">
                               <Button
@@ -1641,7 +1662,7 @@ export default function MarksEntry() {
                 >
                   {classOptions.map((option) => (
                     <MenuItem key={option.fullClassName} value={option.fullClassName}>
-                      {option.displayClassName || option.fullClassName}
+                      {academicDisplay(option.displayClassName || option.fullClassName)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1659,8 +1680,8 @@ export default function MarksEntry() {
                 >
                   {subjectOptions.map((option) => (
                     <MenuItem key={option.key} value={option.key}>
-                      {option.subjectName}
-                      {option.medium ? ` - ${option.medium} Medium` : ""}
+                      {academicDisplay(option.subjectName)}
+                      {academicDisplay(option.medium ? ` - ${option.medium} Medium` : "")}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1680,7 +1701,7 @@ export default function MarksEntry() {
                     const key = buildTermKey(term);
                     return (
                       <MenuItem key={term.id} value={key}>
-                        {buildTermLabel(term)}
+                        {academicDisplay(buildTermLabel(term))}
                       </MenuItem>
                     );
                   })}
@@ -1699,7 +1720,7 @@ export default function MarksEntry() {
                 >
                   {assessmentOptions.map((option) => (
                     <MenuItem key={option.id} value={option.id}>
-                      {option.name}
+                      {academicDisplay(option.name)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1731,10 +1752,10 @@ export default function MarksEntry() {
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <StatusChip status="active" label={`${stats.total} students`} />
-                <StatusChip status="saved" label={`${stats.saved} saved`} />
-                <StatusChip status="draft" label={`${stats.draftCount} unsaved`} />
-                <StatusChip status="pending" label={`${stats.absent} absent`} />
+                <StatusChip status="active" label={academicDisplay(`${stats.total} students`)} />
+                <StatusChip status="saved" label={academicDisplay(`${stats.saved} saved`)} />
+                <StatusChip status="draft" label={academicDisplay(`${stats.draftCount} unsaved`)} />
+                <StatusChip status="pending" label={academicDisplay(`${stats.absent} absent`)} />
               </Stack>
             </Stack>
           </Paper>
@@ -1788,16 +1809,16 @@ export default function MarksEntry() {
                   Mark Entry Sheet
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {selectedClass && selectedSubject && activeTerm
+                  {academicDisplay(selectedClass && selectedSubject && activeTerm
                     ? `${selectedClassRow?.displayClassName || selectedClass} - ${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""} - ${buildTermLabel(activeTerm)}`
-                    : "Select class, subject, and term to begin."}
+                    : "Select class, subject, and term to begin.")}
                 </Typography>
               </Box>
 
               {selectedClass && selectedSubject && activeTerm ? (
                 <StatusChip
                   status={dirtyCount > 0 ? "draft" : "saved"}
-                  label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"}
+                  label={academicDisplay(dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved")}
                 />
               ) : null}
             </Stack>
@@ -1819,32 +1840,32 @@ export default function MarksEntry() {
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     <Chip
                       icon={<SchoolRoundedIcon />}
-                      label={selectedClassRow?.displayClassName || selectedClass}
+                      label={academicDisplay(selectedClassRow?.displayClassName || selectedClass)}
                       color="primary"
                       variant="outlined"
                     />
                     {selectedClassRow?.stream ? (
                       <Chip
                         icon={<ClassRoundedIcon />}
-                        label={selectedClassRow.stream}
+                        label={academicDisplay(selectedClassRow.stream)}
                         color="secondary"
                         variant="outlined"
                       />
                     ) : null}
                     <Chip
                       icon={<AutoStoriesRoundedIcon />}
-                      label={`${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""}`}
+                      label={academicDisplay(`${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""}`)}
                       variant="outlined"
                     />
                     {selectedSubject.subjectNumber ? (
                       <Chip
-                        label={`No. ${selectedSubject.subjectNumber}`}
+                        label={academicDisplay(`No. ${selectedSubject.subjectNumber}`)}
                         variant="outlined"
                       />
                     ) : null}
                     <Chip
                       icon={<TimelineRoundedIcon />}
-                      label={buildTermLabel(activeTerm)}
+                      label={academicDisplay(buildTermLabel(activeTerm))}
                       variant="outlined"
                     />
                   </Stack>
@@ -1876,8 +1897,8 @@ export default function MarksEntry() {
                       <MobileListRow
                         key={row.key}
                         compact
-                        title={`${index + 1}. Index ${getStudentEntryLabel(row, index)}`}
-                        subtitle={row.indexNo && row.admissionNo ? `Admission ${row.admissionNo}` : ""}
+                        title={academicDisplay(`${index + 1}. Index ${getStudentEntryLabel(row, index)}`)}
+                        subtitle={academicDisplay(row.indexNo && row.admissionNo ? `Admission ${row.admissionNo}` : "")}
                         right={
                           row.isDirty ? (
                             <StatusChip status="draft" />
@@ -1890,10 +1911,10 @@ export default function MarksEntry() {
                         meta={
                           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                             {row.subjectNumber ? (
-                              <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                              <Chip size="small" variant="outlined" label={academicDisplay(`No. ${row.subjectNumber}`)} />
                             ) : null}
                             {row.stream ? (
-                              <Chip size="small" variant="outlined" label={row.stream} />
+                              <Chip size="small" variant="outlined" label={academicDisplay(row.stream)} />
                             ) : null}
                             {Boolean(drafts[row.key]?.absent ?? row.absent) ? (
                               <Chip size="small" color="error" variant="outlined" label="Absent" />
@@ -1977,10 +1998,10 @@ export default function MarksEntry() {
                             <TableCell>{index + 1}</TableCell>
                             <TableCell>
                               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                {getStudentEntryLabel(row, index)}
+                                {academicDisplay(getStudentEntryLabel(row, index))}
                               </Typography>
                             </TableCell>
-                            <TableCell>{row.subjectNumber || "-"}</TableCell>
+                            <TableCell>{academicDisplay(row.subjectNumber || "-")}</TableCell>
                             <TableCell>{row.stream || "-"}</TableCell>
                             <TableCell>
                               <TextField
@@ -2024,10 +2045,10 @@ export default function MarksEntry() {
 
                 <ActionBar sticky>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <StatusChip status="active" label={`${filteredRows.length} rows`} />
+                    <StatusChip status="active" label={academicDisplay(`${filteredRows.length} rows`)} />
                     <StatusChip
                       status={dirtyCount > 0 ? "draft" : "saved"}
-                      label={`${dirtyCount} unsaved`}
+                      label={academicDisplay(`${dirtyCount} unsaved`)}
                     />
                   </Stack>
 

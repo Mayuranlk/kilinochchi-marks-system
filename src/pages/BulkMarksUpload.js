@@ -1,3 +1,4 @@
+import { academicWorksheet, academicExport, academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -100,6 +101,7 @@ const SUBJECT_ALIASES = {
   hindu: "Hinduism",
   saivam: "Hinduism",
   hinduism: "Hinduism",
+  saivanery: "Hinduism",
   rc: "Catholicism",
   catholic: "Catholicism",
   catholisim: "Catholicism",
@@ -399,9 +401,9 @@ function createWorkbook({
   term,
   academicYear,
 }) {
-  const worksheet = XLSX.utils.json_to_sheet(rows, {
+  const worksheet = academicWorksheet(XLSX.utils.json_to_sheet(academicExport(rows), {
     header: TEMPLATE_HEADERS,
-  });
+  }));
 
   worksheet["!cols"] = autoSizeColumns(rows);
   worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
@@ -426,7 +428,7 @@ function createWorkbook({
     ["4. Do not delete hidden columns. They are required for upload."],
   ];
 
-  const infoSheet = XLSX.utils.aoa_to_sheet(infoRows);
+  const infoSheet = XLSX.utils.aoa_to_sheet(academicExport(infoRows));
   infoSheet["!cols"] = [{ wch: 80 }];
   XLSX.utils.book_append_sheet(workbook, infoSheet, "Instructions");
 
@@ -527,14 +529,14 @@ function createClassSheetWorkbook({ classEnrollments, studentsById, className, t
     academicYear,
     includeClass,
   });
-  const worksheet = XLSX.utils.aoa_to_sheet([template.headers, ...template.rows]);
+  const worksheet = XLSX.utils.aoa_to_sheet(academicExport([template.headers, ...template.rows]));
   worksheet["!cols"] = template.headers.map((header, index) => ({
     wch: index < 3 ? Math.max(header.length + 2, 18) : Math.min(Math.max(header.length + 2, 16), 32),
   }));
   worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
   worksheet["!autofilter"] = { ref: `A1:${XLSX.utils.encode_col(template.headers.length - 1)}${template.rows.length + 1}` };
 
-  const instructions = XLSX.utils.aoa_to_sheet([
+  const instructions = XLSX.utils.aoa_to_sheet(academicExport([
     ["Class Marks Upload"],
     [`Class: ${className}`],
     [`Term: ${term}`],
@@ -545,7 +547,7 @@ function createClassSheetWorkbook({ classEnrollments, studentsById, className, t
     ...(includeClass ? [["Keep the Class column unchanged. It identifies each division."]] : []),
     ["Use AB, Absent, or A for absent students."],
     ["Do not rename or delete the identity columns."],
-  ]);
+  ]));
   instructions["!cols"] = [{ wch: 90 }];
 
   const workbook = XLSX.utils.book_new();
@@ -1763,7 +1765,7 @@ export default function BulkMarksUpload() {
               academicYear: String(selectedYear),
             });
 
-      XLSX.writeFile(workbook, fileName);
+      XLSX.writeFile(workbook, academicDisplay(fileName));
     } catch (err) {
       console.error("Template download error:", err);
       setError("Failed to generate Excel template.");
@@ -2021,7 +2023,7 @@ export default function BulkMarksUpload() {
     }
 
     const confirmed = window.confirm(
-      `Delete all saved marks for ${selectedSubject} in ${selectedClass}, ${selectedTerm}, ${selectedYear}? This cannot be undone.`
+      academicDisplay(`Delete all saved marks for ${selectedSubject} in ${selectedClass}, ${selectedTerm}, ${selectedYear}? This cannot be undone.`)
     );
     if (!confirmed) return;
 
@@ -2123,11 +2125,11 @@ export default function BulkMarksUpload() {
         <Alert severity="info">
           {[UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode) ? (
             <>
-              {isWholeGradeUploadMode(uploadMode)
+              {academicDisplay(isWholeGradeUploadMode(uploadMode)
                 ? "Whole-grade mode includes every division in the selected grade. Keep Class or GrDivision on each student row. First Language maps to Tamil; Religion and Basket 1/2/3 (FirstGroup/SecondGroup/ThirdGroup) follow each student's choices."
                 : uploadMode === UPLOAD_MODES.OL_CLASS_SHEET
                 ? "Grade 10-11: First Language maps to Tamil. Religion follows each student's religion; FirstGroup, SecondGroup and ThirdGroup follow their Basket 1, 2 and 3 choices. Review the resolved subjects before saving."
-                : "Grade 6-9 class mode creates one workbook with the enrolled students and actual subject columns."}
+                : "Grade 6-9 class mode creates one workbook with the enrolled students and actual subject columns.")}
             </>
           ) : (
             <>This uses <strong>studentSubjectEnrollments</strong> as the source of truth. Only enrolled students for the selected class, subject, and academic year are valid.</>
@@ -2152,13 +2154,13 @@ export default function BulkMarksUpload() {
 
         {error && (
           <Alert severity="error" onClose={() => setError("")}>
-            {error}
+            {academicDisplay(error)}
           </Alert>
         )}
 
         {success && (
           <Alert severity="success" onClose={() => setSuccess("")}>
-            {success}
+            {academicDisplay(success)}
           </Alert>
         )}
 
@@ -2170,7 +2172,7 @@ export default function BulkMarksUpload() {
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 {quickStats.map((item) => (
-                  <StatusChip key={item.title} status={item.status} label={`${item.title}: ${item.value}`} />
+                  <StatusChip key={item.title} status={item.status} label={academicDisplay(`${item.title}: ${item.value}`)} />
                 ))}
               </Stack>
             </Stack>
@@ -2219,7 +2221,7 @@ export default function BulkMarksUpload() {
                   >
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={String(year)}>
-                        {year}
+                        {academicDisplay(year)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -2231,7 +2233,7 @@ export default function BulkMarksUpload() {
                   <InputLabel>{isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}</InputLabel>
                   <Select
                     value={isWholeGradeUploadMode(uploadMode) ? selectedGrade : selectedClass}
-                    label={isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}
+                    label={academicDisplay(isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class")}
                     onChange={(e) =>
                       isWholeGradeUploadMode(uploadMode)
                         ? setSelectedGrade(String(e.target.value))
@@ -2240,11 +2242,11 @@ export default function BulkMarksUpload() {
                     disabled={loading || uploading || saving || deletingMarks}
                   >
                     <MenuItem value="">
-                      {isWholeGradeUploadMode(uploadMode) ? "Select grade..." : "Select class..."}
+                      {academicDisplay(isWholeGradeUploadMode(uploadMode) ? "Select grade..." : "Select class...")}
                     </MenuItem>
                     {(isWholeGradeUploadMode(uploadMode) ? availableGrades : availableClasses).map((value) => (
                       <MenuItem key={value} value={String(value)}>
-                        {isWholeGradeUploadMode(uploadMode) ? `Grade ${value}` : value}
+                        {academicDisplay(isWholeGradeUploadMode(uploadMode) ? `Grade ${value}` : value)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -2264,7 +2266,7 @@ export default function BulkMarksUpload() {
                       <MenuItem value="">Select subject...</MenuItem>
                       {availableSubjects.map((subject) => (
                         <MenuItem key={subject} value={subject}>
-                          {subject}
+                          {academicDisplay(subject)}
                         </MenuItem>
                       ))}
                     </Select>
@@ -2291,7 +2293,7 @@ export default function BulkMarksUpload() {
                   >
                     {availableTerms.map((term) => (
                       <MenuItem key={term} value={term}>
-                        {term}
+                        {academicDisplay(term)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -2313,11 +2315,11 @@ export default function BulkMarksUpload() {
                   }}
                   fullWidth={isMobile}
                 >
-                  {downloading
+                  {academicDisplay(downloading
                     ? "Generating..."
                     : uploadMode !== UPLOAD_MODES.SUBJECT_TEMPLATE
                     ? "Download Class Marks Template"
-                    : "Download Single-Subject Template"}
+                    : "Download Single-Subject Template")}
                 </Button>
               </Grid>
 
@@ -2366,7 +2368,7 @@ export default function BulkMarksUpload() {
                   sx={{ borderRadius: 2, fontWeight: 700 }}
                   fullWidth={isMobile}
                 >
-                  {deletingMarks ? "Deleting..." : "Delete Selected Subject Marks"}
+                  {academicDisplay(deletingMarks ? "Deleting..." : "Delete Selected Subject Marks")}
                 </Button>
               </Grid>
             </Grid>
@@ -2380,23 +2382,23 @@ export default function BulkMarksUpload() {
             </Typography>
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip label={`Year: ${selectedYear || "-"}`} />
+              <Chip label={academicDisplay(`Year: ${selectedYear || "-"}`)} />
               <Chip
-                label={`${isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}: ${
+                label={academicDisplay(`${isWholeGradeUploadMode(uploadMode) ? "Grade" : "Class"}: ${
                   isWholeGradeUploadMode(uploadMode)
                     ? selectedGrade ? `Grade ${selectedGrade}` : "-"
                     : selectedClass || "-"
-                }`}
+                }`)}
               />
               <Chip
-                label={`Subject: ${
+                label={academicDisplay(`Subject: ${
                   [UPLOAD_MODES.LOWER_CLASS_SHEET, UPLOAD_MODES.WHOLE_GRADE_SHEET, UPLOAD_MODES.OL_CLASS_SHEET, UPLOAD_MODES.WHOLE_OL_GRADE_SHEET].includes(uploadMode)
                     ? "All class subjects"
                     : selectedSubject || "Auto from teacher sheet"
-                }`}
+                }`)}
               />
-              <Chip label={`Term: ${selectedTerm || "-"}`} />
-              <Chip color="primary" label={`Template Rows: ${templateStudentCount}`} />
+              <Chip label={academicDisplay(`Term: ${selectedTerm || "-"}`)} />
+              <Chip color="primary" label={academicDisplay(`Template Rows: ${templateStudentCount}`)} />
             </Stack>
 
             <Typography variant="body2" color="text.secondary">
@@ -2407,7 +2409,7 @@ export default function BulkMarksUpload() {
               </strong>
               . Teacher A/L sheets are also supported when they include StudentID,
               A/L Class Name, subject columns, and Marks columns. Grade 6-9 class sheets
-              can use subject headers such as Maths, P.T.S, I.C.T, Saivam/Hindu, R.C,
+              can use subject headers such as Maths, P.T.S, I.C.T, Saivanery, R.C,
               and N.R.C.
             </Typography>
           </Stack>
@@ -2421,9 +2423,9 @@ export default function BulkMarksUpload() {
               </Typography>
 
               <Box display="flex" flexWrap="wrap" gap={1}>
-                <Chip label={`File: ${uploadedFileName}`} />
+                <Chip label={academicDisplay(`File: ${uploadedFileName}`)} />
                 <Chip
-                  label={`Format: ${
+                  label={academicDisplay(`Format: ${
                     uploadedFormat === "teacherSheet"
                       ? "Teacher A/L sheet"
                       : uploadedFormat === "wholeOlGradeSheet"
@@ -2435,18 +2437,18 @@ export default function BulkMarksUpload() {
                       : uploadedFormat === "lowerClassSheet"
                       ? "Grade 6-9 class sheet"
                       : "Standard template"
-                  }`}
+                  }`)}
                 />
-                <Chip label={`Rows Read: ${rawUploadedRows.length}`} />
+                <Chip label={academicDisplay(`Rows Read: ${rawUploadedRows.length}`)} />
                 <Chip
                   color="success"
                   icon={<CheckCircleIcon />}
-                  label={`Valid Rows: ${validRows.length}`}
+                  label={academicDisplay(`Valid Rows: ${validRows.length}`)}
                 />
                 <Chip
                   color="error"
                   icon={<ErrorOutlineIcon />}
-                  label={`Invalid Rows: ${invalidRows.length}`}
+                  label={academicDisplay(`Invalid Rows: ${invalidRows.length}`)}
                 />
               </Box>
 
@@ -2516,8 +2518,8 @@ export default function BulkMarksUpload() {
                         <TableRow key={`${row.studentId}-${row.rowNumber}-${row.subjectId || row.subjectName}`}>
                           <TableCell>{row.rowNumber}</TableCell>
                           <TableCell>{row.indexNo || "—"}</TableCell>
-                          <TableCell>{row.studentName || "—"}</TableCell>
-                          <TableCell>{row.subjectName || "—"}</TableCell>
+                          <TableCell>{academicDisplay(row.studentName || "—")}</TableCell>
+                          <TableCell>{academicDisplay(row.subjectName || "—")}</TableCell>
                           <TableCell>{row.marks ?? "—"}</TableCell>
                           <TableCell>{row.absent === true ? "TRUE" : row.absent === false ? "FALSE" : "—"}</TableCell>
                         </TableRow>
@@ -2562,8 +2564,8 @@ export default function BulkMarksUpload() {
                         <TableRow key={`${row.studentId || "invalid"}-${row.rowNumber}`}>
                           <TableCell>{row.rowNumber}</TableCell>
                           <TableCell>{row.indexNo || "—"}</TableCell>
-                          <TableCell>{row.studentName || "—"}</TableCell>
-                          <TableCell>{row.subjectName || "—"}</TableCell>
+                          <TableCell>{academicDisplay(row.studentName || "—")}</TableCell>
+                          <TableCell>{academicDisplay(row.subjectName || "—")}</TableCell>
                           <TableCell>{normalizeText(row.marks) || "—"}</TableCell>
                           <TableCell>{normalizeText(row.absent) || "—"}</TableCell>
                           <TableCell>
@@ -2633,12 +2635,12 @@ export default function BulkMarksUpload() {
                   <MobileListRow
                     key={`${item.className}-${item.subjectName}-${item.academicYear}`}
                     compact
-                    title={`${item.className} - ${item.subjectName}`}
-                    subtitle={`Academic Year: ${item.academicYear || "-"}`}
+                    title={academicDisplay(`${item.className} - ${item.subjectName}`)}
+                    subtitle={academicDisplay(`Academic Year: ${item.academicYear || "-"}`)}
                     right={
                       <StatusChip
                         status="active"
-                        label={`${item.count} students`}
+                        label={academicDisplay(`${item.count} students`)}
                       />
                     }
                     meta={[
@@ -2646,13 +2648,13 @@ export default function BulkMarksUpload() {
                         key="class"
                         size="small"
                         variant="outlined"
-                        label={item.className}
+                        label={academicDisplay(item.className)}
                       />,
                       <Chip
                         key="subject"
                         size="small"
                         variant="outlined"
-                        label={item.subjectName}
+                        label={academicDisplay(item.subjectName)}
                       />,
                     ]}
                   />
@@ -2666,7 +2668,7 @@ export default function BulkMarksUpload() {
                       <CardContent>
                         <Stack spacing={1}>
                           <Typography fontWeight={700}>
-                            {item.className} - {item.subjectName}
+                            {academicDisplay(item.className)} - {academicDisplay(item.subjectName)}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             Academic Year: {item.academicYear || "-"}
@@ -2674,7 +2676,7 @@ export default function BulkMarksUpload() {
                           <Chip
                             size="small"
                             color="primary"
-                            label={`${item.count} enrolled students`}
+                            label={academicDisplay(`${item.count} enrolled students`)}
                             sx={{ width: "fit-content" }}
                           />
                         </Stack>

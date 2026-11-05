@@ -1,5 +1,6 @@
 export const DEFAULT_MARKS_ENTRY_SETTINGS = {
   teacherEntryEnabled: true,
+  requireSbaCompletion: false,
   teacherEntryDeadline: "",
 };
 
@@ -13,6 +14,7 @@ export function getLocalDateKey(date = new Date()) {
 export function normalizeMarksEntrySettings(settings = {}) {
   return {
     teacherEntryEnabled: settings.teacherEntryEnabled !== false,
+    requireSbaCompletion: settings.requireSbaCompletion === true,
     teacherEntryDeadline: String(settings.teacherEntryDeadline || "").trim(),
   };
 }

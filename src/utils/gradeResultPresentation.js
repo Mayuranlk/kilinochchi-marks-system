@@ -8,7 +8,7 @@ export const RESULT_VIEWS = {
 };
 
 const SUBJECT_LABELS = {
-  REL_SAIVAM: "Saivam", REL_NRC: "NRC", REL_RC: "RC", REL_ISLAM: "Islam",
+  REL_SAIVAM: "Saivanery", REL_NRC: "NRC", REL_RC: "RC", REL_ISLAM: "Islam",
   TAMIL: "Tamil", MATHS: "Maths", ENGLISH: "English", SCIENCE: "Science", HISTORY: "History",
   B1_CIV_GOV: "Civics", B1_GEO: "Geo", B1_BAS: "Business", B1_ENT: "Entrepr.",
   B2_ART: "Art", B2_DANCE: "Dance", B2_MUSIC: "Music", B2_DRAMA: "Drama",

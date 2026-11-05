@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -913,7 +914,7 @@ export default function TeacherDashboard() {
   return (
     <PageContainer
       title="Teacher Dashboard"
-      subtitle={`Welcome ${teacherName}`}
+      subtitle={academicDisplay(`Welcome ${teacherName}`)}
       actions={
         <Button
           variant="outlined"
@@ -926,7 +927,7 @@ export default function TeacherDashboard() {
       }
     >
       <Stack spacing={2.25}>
-        {error ? <Alert severity="error">{error}</Alert> : null}
+        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
         {marksEntryDisabled ? (
           <Alert severity="warning" icon={<LockRoundedIcon />}>
             <Typography component="span" sx={{ fontWeight: 900 }}>
@@ -982,7 +983,7 @@ export default function TeacherDashboard() {
                 >
                   {terms.map((term) => (
                     <MenuItem key={term.id} value={buildTermKey(term)}>
-                      {buildTermLabel(term)}
+                      {academicDisplay(buildTermLabel(term))}
                     </MenuItem>
                   ))}
                 </Select>
@@ -997,9 +998,9 @@ export default function TeacherDashboard() {
                 useFlexGap
                 justifyContent={{ xs: "flex-start", md: "flex-end" }}
               >
-                {currentTerm ? <Chip label={buildTermLabel(currentTerm)} color="primary" /> : null}
-                <Chip label={`Subject Assignments: ${subjectRows.length}`} />
-                <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
+                {currentTerm ? <Chip label={academicDisplay(buildTermLabel(currentTerm))} color="primary" /> : null}
+                <Chip label={academicDisplay(`Subject Assignments: ${subjectRows.length}`)} />
+                <Chip label={academicDisplay(`Class Teacher Roles: ${classTeacherData ? 1 : 0}`)} />
                 {progressLoading ? <Chip label="Stats syncing" color="info" variant="outlined" /> : null}
               </Stack>
             </Grid>
@@ -1015,23 +1016,23 @@ export default function TeacherDashboard() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <StatusChip
                   status="active"
-                  label={`${subjectProgressSummary.assignedClasses.size} classes`}
+                  label={academicDisplay(`${subjectProgressSummary.assignedClasses.size} classes`)}
                 />
-                <StatusChip status="saved" label={`${subjectRows.length} subjects`} />
+                <StatusChip status="saved" label={academicDisplay(`${subjectRows.length} subjects`)} />
                 <StatusChip
                   status="completed"
                   label={
-                    progressLoading
+                    academicDisplay(progressLoading
                       ? "syncing"
-                      : `${subjectProgressSummary.completed} completed`
+                      : `${subjectProgressSummary.completed} completed`)
                   }
                 />
                 <StatusChip
                   status="pending"
                   label={
-                    progressLoading
+                    academicDisplay(progressLoading
                       ? "syncing"
-                      : `${subjectProgressSummary.pending} pending`
+                      : `${subjectProgressSummary.pending} pending`)
                   }
                 />
               </Stack>
@@ -1088,23 +1089,23 @@ export default function TeacherDashboard() {
                     Class Monitoring
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {classTeacherData.fullClassName}
+                    {academicDisplay(classTeacherData.fullClassName)}
                   </Typography>
                 </Box>
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   {classTeacherData.stream ? (
                     <Chip
-                      label={classTeacherData.stream}
+                      label={academicDisplay(classTeacherData.stream)}
                       color="secondary"
                       variant="outlined"
                     />
                   ) : null}
                   <Chip
                     label={
-                      progressLoading
+                      academicDisplay(progressLoading
                         ? "Progress syncing"
-                        : `${classTeacherData.progress}% Completed`
+                        : `${classTeacherData.progress}% Completed`)
                     }
                     color={classTeacherData.progress === 100 ? "success" : "warning"}
                   />
@@ -1155,16 +1156,16 @@ export default function TeacherDashboard() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <StatusChip
                     status="active"
-                    label={progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`}
+                    label={academicDisplay(progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`)}
                   />
-                  <StatusChip status="saved" label={`${classTeacherData.totalSubjects} subjects`} />
+                  <StatusChip status="saved" label={academicDisplay(`${classTeacherData.totalSubjects} subjects`)} />
                   <StatusChip
                     status="completed"
-                    label={progressLoading ? "syncing" : `${classTeacherData.completed} completed`}
+                    label={academicDisplay(progressLoading ? "syncing" : `${classTeacherData.completed} completed`)}
                   />
                   <StatusChip
                     status="pending"
-                    label={progressLoading ? "syncing" : `${classTeacherData.pending} pending`}
+                    label={academicDisplay(progressLoading ? "syncing" : `${classTeacherData.pending} pending`)}
                   />
                 </Stack>
               ) : (
@@ -1230,35 +1231,35 @@ export default function TeacherDashboard() {
                       <MobileListRow
                         key={`${subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}__${subject.medium || "all"}`}
                         compact
-                        title={`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`}
+                        title={academicDisplay(`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`)}
                         subtitle={
-                          subject.progressLoading
+                          academicDisplay(subject.progressLoading
                             ? "Progress syncing"
-                            : `${subject.done}/${subject.total} students`
+                            : `${subject.done}/${subject.total} students`)
                         }
                         right={
                           <StatusChip
                             status={subject.progressLoading ? "active" : subject.completed ? "completed" : "pending"}
                             label={
-                              subject.progressLoading
+                              academicDisplay(subject.progressLoading
                                 ? "Syncing"
                                 : subject.completed
                                 ? "Completed"
-                                : "Pending"
+                                : "Pending")
                             }
                           />
                         }
                         meta={
                           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                             {subject.subjectNumber ? (
-                              <Chip size="small" variant="outlined" label={`No. ${subject.subjectNumber}`} />
+                              <Chip size="small" variant="outlined" label={academicDisplay(`No. ${subject.subjectNumber}`)} />
                             ) : null}
                             <Chip
                               size="small"
                               variant="outlined"
-                              label={subject.progressLoading ? "Syncing" : `${subject.progress}%`}
+                              label={academicDisplay(subject.progressLoading ? "Syncing" : `${subject.progress}%`)}
                             />
-                            <Chip size="small" variant="outlined" label={subject.teacherName} />
+                            <Chip size="small" variant="outlined" label={academicDisplay(subject.teacherName)} />
                           </Stack>
                         }
                         footer={
@@ -1276,7 +1277,7 @@ export default function TeacherDashboard() {
                                 }}
                               >
                                 <PhoneRoundedIcon sx={{ fontSize: 18 }} />
-                                {subject.teacherPhone}
+                                {academicDisplay(subject.teacherPhone)}
                               </Link>
                             ) : null}
 
@@ -1326,13 +1327,13 @@ export default function TeacherDashboard() {
                             <Box sx={{ minWidth: 0 }}>
                               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                 <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                                  {subject.subjectName}
+                                  {academicDisplay(subject.subjectName)}
                                 </Typography>
                                 {subject.subjectNumber ? (
                                   <Chip
                                     size="small"
                                     variant="outlined"
-                                    label={`No. ${subject.subjectNumber}`}
+                                    label={academicDisplay(`No. ${subject.subjectNumber}`)}
                                   />
                                 ) : null}
                                 {subject.medium ? (
@@ -1340,20 +1341,20 @@ export default function TeacherDashboard() {
                                     size="small"
                                     color="primary"
                                     variant="outlined"
-                                    label={`${subject.medium} Medium`}
+                                    label={academicDisplay(`${subject.medium} Medium`)}
                                   />
                                 ) : null}
                               </Stack>
                               <Typography variant="body2" color="text.secondary">
-                                {subject.progressLoading
+                                {academicDisplay(subject.progressLoading
                                   ? "Progress syncing"
-                                  : `${subject.done}/${subject.total} students`}
+                                  : `${subject.done}/${subject.total} students`)}
                               </Typography>
                             </Box>
 
                             <StatusChip
                               status={subject.completed ? "completed" : "pending"}
-                              label={subject.completed ? "Completed" : "Pending"}
+                              label={academicDisplay(subject.completed ? "Completed" : "Pending")}
                             />
                           </Stack>
 
@@ -1365,11 +1366,11 @@ export default function TeacherDashboard() {
                             useFlexGap
                           >
                             <Typography variant="body2" color="text.secondary">
-                              {subject.progressLoading ? "Syncing" : `${subject.progress}%`}
+                              {academicDisplay(subject.progressLoading ? "Syncing" : `${subject.progress}%`)}
                             </Typography>
 
                             <Typography variant="body2" color="text.secondary">
-                              {subject.teacherName}
+                              {academicDisplay(subject.teacherName)}
                             </Typography>
                           </Stack>
 
@@ -1386,7 +1387,7 @@ export default function TeacherDashboard() {
                               }}
                             >
                               <PhoneRoundedIcon sx={{ fontSize: 18 }} />
-                              {subject.teacherPhone}
+                              {academicDisplay(subject.teacherPhone)}
                             </Link>
                           ) : null}
 
@@ -1440,15 +1441,15 @@ export default function TeacherDashboard() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip
                   icon={<AutoStoriesRoundedIcon />}
-                  label={`${subjectRows.length} Subjects`}
+                  label={academicDisplay(`${subjectRows.length} Subjects`)}
                   variant="outlined"
                 />
                 <Chip
                   icon={<TimelineRoundedIcon />}
                   label={
-                    progressLoading
+                    academicDisplay(progressLoading
                       ? "Stats syncing"
-                      : `${subjectProgressSummary.pending} Pending`
+                      : `${subjectProgressSummary.pending} Pending`)
                   }
                   color="warning"
                   variant="outlined"
@@ -1464,23 +1465,23 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 12, md: 6 }} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${row.medium}_${i}`}>
                     <MobileListRow
                       compact={isMobile}
-                      title={`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`}
+                      title={academicDisplay(`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`)}
                       right={
                         <StatusChip
                           status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
-                          label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
+                          label={academicDisplay(row.pending > 0 || row.total === 0 ? "Pending" : "Completed")}
                         />
                       }
                       meta={
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                           {row.stream ? (
-                            <Chip size="small" variant="outlined" label={row.stream} />
+                            <Chip size="small" variant="outlined" label={academicDisplay(row.stream)} />
                           ) : null}
                           {row.subjectNumber ? (
-                            <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
+                            <Chip size="small" variant="outlined" label={academicDisplay(`No. ${row.subjectNumber}`)} />
                           ) : null}
                           {row.medium ? (
-                            <Chip size="small" color="primary" variant="outlined" label={`${row.medium} Medium`} />
+                            <Chip size="small" color="primary" variant="outlined" label={academicDisplay(`${row.medium} Medium`)} />
                           ) : null}
                         </Stack>
                       }

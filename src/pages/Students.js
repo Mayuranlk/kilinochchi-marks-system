@@ -1,3 +1,4 @@
+import { academicWorksheet, academicDisplay, academicExport, academicSearch, storedReligion } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -368,11 +369,11 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
               fontWeight: 800,
             }}
           >
-            {initials(getStudentName(s))}
+            {academicDisplay(initials(getStudentName(s)))}
           </Avatar>
           <Box>
             <Typography variant="body2" fontWeight={700}>
-              {getStudentName(s)}
+              {academicDisplay(getStudentName(s))}
             </Typography>
             {s.gender && (
               <Typography variant="caption" color="text.secondary">
@@ -392,7 +393,7 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Chip
-          label={`G${s.grade}-${s.section || s.className}`}
+          label={academicDisplay(`G${s.grade}-${s.section || s.className}`)}
           size="small"
           color="primary"
           sx={{ fontWeight: 700, fontSize: 12 }}
@@ -400,7 +401,7 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Chip
-          label={s.status || "Unknown"}
+          label={academicDisplay(s.status || "Unknown")}
           size="small"
           color={statusColor(s.status)}
           sx={{ fontWeight: 600 }}
@@ -408,32 +409,32 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Typography variant="caption" color="text.secondary" display="block">
-          {s.religion || "-"}
+          {academicDisplay(s.religion || "-")}
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block">
           {s.stream || "-"}
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block">
-          {s.alClassName || "-"}
+          {academicDisplay(s.alClassName || "-")}
         </Typography>
       </TableCell>
       <TableCell>
         <Box display="flex" gap={0.5} flexWrap="wrap">
           {(s.aestheticChoice || s.aesthetic) && (
-            <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
+            <Chip size="small" label={academicDisplay(`Aesthetic: ${s.aestheticChoice || s.aesthetic}`)} />
           )}
           {(s.basketAChoice || s.basket1) && (
-            <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
+            <Chip size="small" label={academicDisplay(`A: ${s.basketAChoice || s.basket1}`)} color="warning" />
           )}
           {(s.basketBChoice || s.basket2) && (
-            <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
+            <Chip size="small" label={academicDisplay(`B: ${s.basketBChoice || s.basket2}`)} color="warning" />
           )}
           {(s.basketCChoice || s.basket3) && (
-            <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
+            <Chip size="small" label={academicDisplay(`C: ${s.basketCChoice || s.basket3}`)} color="warning" />
           )}
           {Array.isArray(s.alSubjectChoices) &&
             s.alSubjectChoices.map((item, itemIdx) => (
-              <Chip key={`${s.id}-al-${itemIdx}`} size="small" label={item} color="success" />
+              <Chip key={`${s.id}-al-${itemIdx}`} size="small" label={academicDisplay(item)} color="success" />
             ))}
         </Box>
       </TableCell>
@@ -547,14 +548,14 @@ const IDENTITY_FIX_HEADERS = [
 ];
 
 const downloadWorksheet = (rows, sheetName, fileName) => {
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = academicWorksheet(XLSX.utils.json_to_sheet(academicExport(rows)));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, fileName);
+  XLSX.writeFile(wb, academicDisplay(fileName));
 };
 
 const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const ws = XLSX.utils.aoa_to_sheet(academicExport(rows));
 
   if (widths.length > 0) {
     ws["!cols"] = widths.map((wch) => ({ wch }));
@@ -562,7 +563,7 @@ const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, fileName);
+  XLSX.writeFile(wb, academicDisplay(fileName));
 };
 
 const buildIdentityFixWorksheetRows = (students = []) => {
@@ -1344,12 +1345,12 @@ export default function Students() {
 
       const matchSearch =
         !q ||
-        studentName.includes(q) ||
-        normalizeText(s.admissionNo).toLowerCase().includes(q) ||
-        getEmisStudentId(s).toLowerCase().includes(q) ||
-        normalizeText(s.religion).toLowerCase().includes(q) ||
-        normalizeText(s.stream).toLowerCase().includes(q) ||
-        normalizeText(s.alClassName).toLowerCase().includes(q);
+        academicSearch(studentName, q) ||
+        academicSearch(normalizeText(s.admissionNo).toLowerCase(), q) ||
+        academicSearch(getEmisStudentId(s).toLowerCase(), q) ||
+        academicSearch(normalizeText(s.religion).toLowerCase(), q) ||
+        academicSearch(normalizeText(s.stream).toLowerCase(), q) ||
+        academicSearch(normalizeText(s.alClassName).toLowerCase(), q);
 
       const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
       const matchSection = studentMatchesClassFilter(s, filterSection);
@@ -1529,7 +1530,7 @@ export default function Students() {
   }, [cleanFormByGrade, deriveALChoiceNamesFromNumbers]);
 
   const handleInactivate = useCallback(async (student) => {
-    if (!window.confirm(`Set student "${getStudentName(student)}" as Left?`)) return;
+    if (!window.confirm(academicDisplay(`Set student "${getStudentName(student)}" as Left?`))) return;
 
     try {
       await updateDoc(doc(db, "students", student.id), {
@@ -1574,7 +1575,7 @@ export default function Students() {
       dob: normalizeText(row["DOB"] || row.dob),
       status: normalizeText(row["Status"] || row.status) || "Active",
       joinDate: normalizeText(row["Join Date"] || row.joinDate),
-      religion: normalizeText(row["Religion"] || row.religion),
+      religion: storedReligion(normalizeText(row["Religion"] || row.religion)),
       aestheticChoice: normalizeText(row["Aesthetic Choice"] || row.aestheticChoice),
       basketAChoice: normalizeText(row["Basket A Choice"] || row.basketAChoice || row["Basket 1"] || row.basket1),
       basketBChoice: normalizeText(row["Basket B Choice"] || row.basketBChoice || row["Basket 2"] || row.basket2),
@@ -2261,7 +2262,7 @@ export default function Students() {
             sx={{ mt: 1.5, borderRadius: 2 }}
             onClose={() => setBulkResults(null)}
           >
-            Uploaded {bulkResults.successCount} students
+            Uploaded {academicDisplay(bulkResults.successCount)} students
             {bulkResults.failCount > 0 && `, ${bulkResults.failCount} failed`}
             {bulkResults.errors.length > 0 && (
               <Box mt={0.5}>
@@ -2272,7 +2273,7 @@ export default function Students() {
                 ))}
                 {bulkResults.errors.length > 8 && (
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    + {bulkResults.errors.length - 8} more row error(s)
+                    + {academicDisplay(bulkResults.errors.length - 8)} more row error(s)
                   </Typography>
                 )}
               </Box>
@@ -2300,7 +2301,7 @@ export default function Students() {
                 ))}
                 {emisSyncResults.errors.length > 8 && (
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    + {emisSyncResults.errors.length - 8} more row error(s)
+                    + {academicDisplay(emisSyncResults.errors.length - 8)} more row error(s)
                   </Typography>
                 )}
               </Box>
@@ -2334,7 +2335,7 @@ export default function Students() {
               <MenuItem value="">All Grades</MenuItem>
               {gradeOptions.map((g) => (
                 <MenuItem key={g} value={g}>
-                  Grade {g}
+                  Grade {academicDisplay(g)}
                 </MenuItem>
               ))}
             </Select>
@@ -2350,7 +2351,7 @@ export default function Students() {
               <MenuItem value="">All Sections</MenuItem>
               {sectionOptionsForFilter.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
-                  {option.label}
+                  {academicDisplay(option.label)}
                 </MenuItem>
               ))}
             </Select>
@@ -2366,7 +2367,7 @@ export default function Students() {
               <MenuItem value="">All</MenuItem>
               {STUDENT_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>
-                  {s}
+                  {academicDisplay(s)}
                 </MenuItem>
               ))}
             </Select>
@@ -2409,7 +2410,7 @@ export default function Students() {
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {quickStats.map((item) => (
-                <StatusChip key={item.label} status={item.status} label={item.label} />
+                <StatusChip key={item.label} status={item.status} label={academicDisplay(item.label)} />
               ))}
             </Stack>
           </Stack>
@@ -2433,13 +2434,13 @@ export default function Students() {
 
       {success && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
-          {success}
+          {academicDisplay(success)}
         </Alert>
       )}
 
       {error && !open && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
-          {error}
+          {academicDisplay(error)}
         </Alert>
       )}
 
@@ -2480,20 +2481,20 @@ export default function Students() {
                         fontWeight: 800,
                       }}
                     >
-                      {initials(getStudentName(s))}
+                      {academicDisplay(initials(getStudentName(s)))}
                     </Avatar>
                     <Box>
                       <Typography variant="subtitle2" fontWeight={800}>
-                        {getStudentName(s)}
+                        {academicDisplay(getStudentName(s))}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         Admission: {s.admissionNo || "-"} | StudentID: {getEmisStudentId(s) || "-"} | Grade {s.grade}-
-                        {s.section || s.className}
+                        {academicDisplay(s.section || s.className)}
                       </Typography>
                     </Box>
                   </Box>
                   <Chip
-                    label={s.status || "Unknown"}
+                    label={academicDisplay(s.status || "Unknown")}
                     size="small"
                     color={statusColor(s.status)}
                     sx={{ fontWeight: 600 }}
@@ -2503,7 +2504,7 @@ export default function Students() {
                 <Box mt={0.8}>
                   {s.religion && (
                     <Typography variant="caption" color="text.secondary" display="block">
-                      Religion: {s.religion}
+                      Religion: {academicDisplay(s.religion)}
                     </Typography>
                   )}
                   {s.stream && (
@@ -2513,7 +2514,7 @@ export default function Students() {
                   )}
                   {s.alClassName && (
                     <Typography variant="caption" color="text.secondary" display="block">
-                      Class: {s.alClassName}
+                      Class: {academicDisplay(s.alClassName)}
                     </Typography>
                   )}
                 </Box>
@@ -2656,7 +2657,7 @@ export default function Students() {
         <DialogContent sx={{ pt: 2 }}>
           {error && (
             <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-              {error}
+              {academicDisplay(error)}
             </Alert>
           )}
 
@@ -2726,7 +2727,7 @@ export default function Students() {
                           </MenuItem>
                           {gradeOptions.map((g) => (
                             <MenuItem key={g} value={g}>
-                              Grade {g}
+                              Grade {academicDisplay(g)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2757,7 +2758,7 @@ export default function Students() {
                           </MenuItem>
                           {sectionOptionsForForm.map((s) => (
                             <MenuItem key={s} value={s}>
-                              {s}
+                              {academicDisplay(s)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2777,7 +2778,7 @@ export default function Students() {
                         >
                           {STUDENT_STATUSES.map((s) => (
                             <MenuItem key={s} value={s}>
-                              {s}
+                              {academicDisplay(s)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2807,7 +2808,7 @@ export default function Students() {
                           <MenuItem value="">—</MenuItem>
                           {GENDERS.map((g) => (
                             <MenuItem key={g} value={g}>
-                              {g}
+                              {academicDisplay(g)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2850,7 +2851,7 @@ export default function Students() {
                             : MEDIUM_OPTIONS
                           ).map((item) => (
                             <MenuItem key={item} value={item}>
-                              {item}
+                              {academicDisplay(item)}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2896,7 +2897,7 @@ export default function Students() {
                         <Alert severity="warning" sx={{ mb: 2 }}>
                           {enrollmentWarnings.map((warning, idx) => (
                             <Typography key={idx} variant="body2">
-                              {warning}
+                              {academicDisplay(warning)}
                             </Typography>
                           ))}
                         </Alert>
@@ -2914,7 +2915,7 @@ export default function Students() {
                               >
                                 {religionSubjectOptions.map((item) => (
                                   <MenuItem key={item} value={item}>
-                                    {item}
+                                    {academicDisplay(item)}
                                   </MenuItem>
                                 ))}
                               </Select>
@@ -2935,7 +2936,7 @@ export default function Students() {
                               >
                                 {aestheticOptions.map((subject) => (
                                   <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
-                                    {subjectDisplayName(subject)}
+                                    {academicDisplay(subjectDisplayName(subject))}
                                   </MenuItem>
                                 ))}
                               </Select>
@@ -2962,7 +2963,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.A.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {subjectName}
+                                      {academicDisplay(subjectName)}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -2984,7 +2985,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.B.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {subjectName}
+                                      {academicDisplay(subjectName)}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3006,7 +3007,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.C.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {subjectName}
+                                      {academicDisplay(subjectName)}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3043,7 +3044,7 @@ export default function Students() {
                                 >
                                   {AL_STREAM_OPTIONS.map((item) => (
                                     <MenuItem key={item} value={item}>
-                                      {item}
+                                      {academicDisplay(item)}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3100,10 +3101,10 @@ export default function Students() {
                                     });
                                   }}
                                   input={<OutlinedInput label="A/L Optional Subject Choice(s)" />}
-                                  renderValue={(selected) => {
+                                  renderValue={(...args) => academicDisplay(((selected) => {
                                     const names = deriveALChoiceNamesFromNumbers(selected);
                                     return names.join(", ");
-                                  }}
+                                  })(...args))}
                                 >
                                   {alOptionalChoiceOptions.map((subject) => (
                                     <MenuItem key={subject.subjectNumber} value={subject.subjectNumber}>
@@ -3113,7 +3114,7 @@ export default function Students() {
                                         }
                                       />
                                       <ListItemText
-                                        primary={`${subject.subjectNumber} - ${subject.subjectName}`}
+                                        primary={academicDisplay(`${subject.subjectNumber} - ${subject.subjectName}`)}
                                       />
                                     </MenuItem>
                                   ))}
@@ -3144,7 +3145,7 @@ export default function Students() {
                                         Main subjects will be generated from stream compulsory subjects + selected optional subject(s).
                                       </Typography>
                                       <Typography variant="caption" display="block">
-                                        Display class: {buildALDisplayClassName(form.grade, form.stream, form.section) || "—"}
+                                        Display class: {academicDisplay(buildALDisplayClassName(form.grade, form.stream, form.section) || "—")}
                                       </Typography>
                                     </>
                                   ) : (

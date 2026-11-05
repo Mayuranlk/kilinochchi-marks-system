@@ -197,14 +197,112 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    // Optional prerequisite: SBA remains a read-only reference for term writes.
+    // The UI checks the whole roster; rules independently require each saved
+    // student's corresponding SBA result, even for direct client writes.
+    function hasCompletedSba(data) {
+      let termId = data.get('academicTermId', '');
+      let term = get(/databases/$(database)/documents/academicTerms/$(termId)).data;
+      let id = termId + '~' + data.studentId + '~' + data.subjectId;
+      let sba = get(/databases/$(database)/documents/sbaMarks/$(id)).data;
+      return string(term.get('academicYear', term.get('year', ''))) == data.academicYearKey &&
+        term.get('term', term.get('termName', term.get('name', ''))) == data.get('term', '') &&
+        sba.termId == termId && sba.studentId == data.studentId && sba.subjectId == data.subjectId &&
+        sba.year == data.academicYearKey && sba.classKey == sbaClassKey(data) &&
+        ((sba.absent == true && sba.mark == null) ||
+          (sba.absent == false && sba.mark is number && sba.mark >= 0 && sba.mark <= 20));
+    }
+
+    function termSbaPrerequisite(data) {
+      let path = /databases/$(database)/documents/systemSettings/marksEntry;
+      return !exists(path) || get(path).data.get('requireSbaCompletion', false) != true ||
+        data.get('assessmentType', 'term') == 'practice' ||
+        data.get('term', '').lower().matches('.*practice.*') || hasCompletedSba(data);
+    }
+
     match /marks/{markId} {
       allow read: if isAcademicReader();
-      allow create: if isAdmin() || (isSubjectTeacher() && validCanonicalMark(request.resource.data));
+      allow create: if isAdmin() || (isSubjectTeacher() && validCanonicalMark(request.resource.data) && termSbaPrerequisite(request.resource.data));
       allow update: if isAdmin() || (
         isSubjectTeacher() &&
         validCanonicalMark(request.resource.data) &&
+        termSbaPrerequisite(request.resource.data) &&
         teacherPreservesMarkIdentity()
       );
+      allow delete: if isAdmin();
+    }
+
+    // SBA is a separate assessment store. No SBA operation grants access to marks.
+    function sbaClassKey(data) {
+      return string(int(data.grade)) + '|' + data.section.upper() + '|' +
+        (int(data.grade) >= 12 ? data.get('stream', '').lower() : '');
+    }
+
+    function sbaOpen() {
+      let path = /databases/$(database)/documents/systemSettings/sbaEntry;
+      return !exists(path) || (get(path).data.get('teacherEntryEnabled', true) == true &&
+        (get(path).data.get('teacherEntryDeadlineAt', null) == null ||
+          request.time <= get(path).data.teacherEntryDeadlineAt));
+    }
+
+    function validSbaShape(data, markId) {
+      return data.keys().hasAll(['schemaVersion', 'assessmentType', 'maxMark',
+          'termId', 'year', 'classKey', 'scopeKey', 'subjectId', 'studentId',
+          'assignmentId', 'enrollmentId', 'mark', 'absent', 'revision', 'updatedBy', 'updatedAt']) &&
+        data.keys().hasOnly(['schemaVersion', 'assessmentType', 'maxMark',
+          'termId', 'year', 'classKey', 'scopeKey', 'subjectId', 'studentId',
+          'assignmentId', 'enrollmentId', 'mark', 'absent', 'revision', 'updatedBy', 'updatedAt']) &&
+        data.schemaVersion == 1 && data.assessmentType == 'sba' && data.maxMark == 20 &&
+        data.termId is string && data.termId.size() > 0 && !data.termId.matches('.*[~/].*') &&
+        data.studentId is string && data.studentId.size() > 0 && !data.studentId.matches('.*[~/].*') &&
+        data.subjectId is string && data.subjectId.size() > 0 && !data.subjectId.matches('.*[~/].*') &&
+        markId == data.termId + '~' + data.studentId + '~' + data.subjectId &&
+        data.year is string && data.classKey is string &&
+        data.scopeKey == data.termId + '|' + data.classKey &&
+        data.assignmentId is string && data.enrollmentId is string &&
+        data.updatedBy is string && data.updatedAt is timestamp &&
+        data.revision is int && data.revision > 0 && data.absent is bool &&
+        ((data.absent && data.mark == null) || (!data.absent &&
+          (data.mark == null || (data.mark is number && data.mark >= 0 && data.mark <= 20))));
+    }
+
+    function sbaAssigned(data) {
+      let assignment = get(/databases/$(database)/documents/teacherAssignments/$(data.assignmentId)).data;
+      let enrollment = get(/databases/$(database)/documents/studentSubjectEnrollments/$(data.enrollmentId)).data;
+      let term = get(/databases/$(database)/documents/academicTerms/$(data.termId)).data;
+      let student = get(/databases/$(database)/documents/students/$(data.studentId)).data;
+      return (
+          assignment.get('teacherId', assignment.get('teacherUid', assignment.get('userId', ''))) == request.auth.uid ||
+          (request.auth.token.get('email', '') != '' &&
+            assignment.get('teacherEmail', assignment.get('email', '')).lower() == request.auth.token.email.lower())
+        ) && assignment.get('status', 'active').lower() == 'active' &&
+        enrollment.get('status', 'active').lower() == 'active' &&
+        student.get('status', 'active').lower() == 'active' &&
+        assignment.subjectId == data.subjectId && enrollment.subjectId == data.subjectId &&
+        enrollment.studentId == data.studentId &&
+        string(enrollment.get('academicYear', enrollment.get('year', ''))) == data.year &&
+        string(term.get('academicYear', term.get('year', ''))) == data.year &&
+        (assignment.get('academicYear', assignment.get('year', '')) == '' ||
+          string(assignment.get('academicYear', assignment.get('year', ''))) == data.year) &&
+        term.get('assessmentType', 'term') != 'practice' &&
+        !term.get('term', term.get('termName', term.get('name', ''))).lower().matches('.*practice.*') &&
+        sbaClassKey(assignment) == data.classKey && sbaClassKey(enrollment) == data.classKey &&
+        (assignment.get('medium', assignment.get('teachingMedium', '')) == '' ||
+          assignment.get('medium', assignment.get('teachingMedium', '')).lower() ==
+            enrollment.get('medium', student.get('medium', '')).lower()) &&
+        data.updatedBy == request.auth.uid && data.updatedAt == request.time;
+    }
+
+    match /sbaMarks/{markId} {
+      allow read: if isAcademicReader();
+      allow create: if validSbaShape(request.resource.data, markId) && (isAdmin() ||
+        (isSubjectTeacher() && sbaOpen() && request.resource.data.revision == 1 && sbaAssigned(request.resource.data)));
+      allow update: if validSbaShape(request.resource.data, markId) && (isAdmin() ||
+        (isSubjectTeacher() && sbaOpen() && sbaAssigned(request.resource.data) &&
+          request.resource.data.revision == resource.data.revision + 1 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'mark', 'absent', 'revision', 'updatedBy', 'updatedAt', 'assignmentId', 'enrollmentId'
+          ])));
       allow delete: if isAdmin();
     }
 

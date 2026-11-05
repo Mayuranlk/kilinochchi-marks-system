@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -172,7 +173,7 @@ export default function SectionalHeadDashboard() {
     return (
       <PageContainer title="Sectional Head Dashboard">
         <Alert severity="warning">
-          No assigned grades found for {profile?.name || "this sectional head"}. Ask an admin to set assigned grades in the user profile.
+          No assigned grades found for {academicDisplay(profile?.name || "this sectional head")}. Ask an admin to set assigned grades in the user profile.
         </Alert>
       </PageContainer>
     );
@@ -181,7 +182,7 @@ export default function SectionalHeadDashboard() {
   return (
     <PageContainer
       title="Sectional Head Dashboard"
-      subtitle={`Assigned Grade(s): ${assignedGrades.join(", ")} | ${activeTermName || "No active exam"} ${activeYear || ""}`}
+      subtitle={academicDisplay(`Assigned Grade(s): ${assignedGrades.join(", ")} | ${activeTermName || "No active exam"} ${activeYear || ""}`)}
     >
       <Stack spacing={2.5}>
         {loading ? (
@@ -189,7 +190,7 @@ export default function SectionalHeadDashboard() {
             <CircularProgress />
           </Box>
         ) : error ? (
-          <Alert severity="error">{error}</Alert>
+          <Alert severity="error">{academicDisplay(error)}</Alert>
         ) : (
           <>
             <Grid container spacing={2}>
@@ -244,7 +245,7 @@ export default function SectionalHeadDashboard() {
                     <TableBody>
                       {classRows.map((row) => (
                         <TableRow key={row.className}>
-                          <TableCell sx={{ fontWeight: 800 }}>{row.className}</TableCell>
+                          <TableCell sx={{ fontWeight: 800 }}>{academicDisplay(row.className)}</TableCell>
                           <TableCell>{row.classTeacher}</TableCell>
                           <TableCell align="right">{row.studentCount}</TableCell>
                           <TableCell align="right">{row.markCount}</TableCell>

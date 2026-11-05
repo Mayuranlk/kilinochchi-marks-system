@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Accordion,
@@ -442,7 +443,7 @@ function StatusPill({ status }) {
     <Chip
       size="small"
       color={getStatusColor(status)}
-      label={`${getStatusLabel(status)} - ${getStatusText(status)}`}
+      label={academicDisplay(`${getStatusLabel(status)} - ${getStatusText(status)}`)}
       sx={{ fontWeight: 900 }}
     />
   );
@@ -603,14 +604,14 @@ export default function MarksStatusLive() {
               </Stack>
 
               <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Chip size="small" color="success" label={`Green ${summary.done}`} sx={{ fontWeight: 900 }} />
-                <Chip size="small" color="warning" label={`Yellow ${summary.partial}`} sx={{ fontWeight: 900 }} />
-                <Chip size="small" color="error" label={`Red ${summary.missing}`} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="success" label={academicDisplay(`Green ${summary.done}`)} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="warning" label={academicDisplay(`Yellow ${summary.partial}`)} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="error" label={academicDisplay(`Red ${summary.missing}`)} sx={{ fontWeight: 900 }} />
               </Stack>
             </Stack>
           </Paper>
 
-          {error ? <Alert severity="warning">{error}</Alert> : null}
+          {error ? <Alert severity="warning">{academicDisplay(error)}</Alert> : null}
 
           <Paper elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
             <Stack spacing={1.1}>
@@ -632,7 +633,7 @@ export default function MarksStatusLive() {
                   <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={year}>
-                        {year}
+                        {academicDisplay(year)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -642,7 +643,7 @@ export default function MarksStatusLive() {
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
                     {(data.terms.length ? data.terms : [{ id: DEFAULT_TERM, term: DEFAULT_TERM }]).map((term) => (
                       <MenuItem key={term.id} value={term.term}>
-                        {term.term}
+                        {academicDisplay(term.term)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -667,9 +668,9 @@ export default function MarksStatusLive() {
           ) : (
             <>
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={`${summary.total} classes`} />
-                <Chip size="small" label={`${formatPercent(summary.completionPercent)} complete`} />
-                <Chip size="small" color="error" variant="outlined" label={`${summary.missingMarks} marks missing`} />
+                <Chip size="small" label={academicDisplay(`${summary.total} classes`)} />
+                <Chip size="small" label={academicDisplay(`${formatPercent(summary.completionPercent)} complete`)} />
+                <Chip size="small" color="error" variant="outlined" label={academicDisplay(`${summary.missingMarks} marks missing`)} />
               </Stack>
 
               <Stack spacing={0.8}>
@@ -700,10 +701,10 @@ export default function MarksStatusLive() {
                         <StatusDot status={row.status} />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: 900, lineHeight: 1.1 }} noWrap>
-                            {row.className}
+                            {academicDisplay(row.className)}
                           </Typography>
                           <Typography variant="caption" color="text.secondary" noWrap>
-                            {row.completedSubjectCount}/{row.subjectCount} subjects | {formatPercent(row.completionPercent)}
+                            {academicDisplay(row.completedSubjectCount)}/{academicDisplay(row.subjectCount)} subjects | {formatPercent(row.completionPercent)}
                           </Typography>
                         </Box>
                         <StatusPill status={row.status} />
@@ -713,7 +714,7 @@ export default function MarksStatusLive() {
                     <AccordionDetails sx={{ px: { xs: 1.1, sm: 1.5 }, pt: 0, pb: 1.25 }}>
                       <Stack spacing={0.8}>
                         <Typography variant="caption" color="text.secondary">
-                          {row.classTeacherName || "Class teacher not set"}
+                          {academicDisplay(row.classTeacherName || "Class teacher not set")}
                         </Typography>
 
                         {row.subjectSummaries.length ? (
@@ -733,16 +734,16 @@ export default function MarksStatusLive() {
                                 <StatusDot status={subject.status} />
                                 <Box sx={{ minWidth: 0, flex: 1 }}>
                                   <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>
-                                    {subject.subjectName}
+                                    {academicDisplay(subject.subjectName)}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary" noWrap>
-                                    {subject.teacherName || "Teacher not assigned"}
+                                    {academicDisplay(subject.teacherName || "Teacher not assigned")}
                                   </Typography>
                                 </Box>
                                 <Chip
                                   size="small"
                                   color={getStatusColor(subject.status)}
-                                  label={`${subject.enteredCount}/${subject.enrolledCount}`}
+                                  label={academicDisplay(`${subject.enteredCount}/${subject.enrolledCount}`)}
                                   sx={{ fontWeight: 900, flexShrink: 0 }}
                                 />
                               </Stack>

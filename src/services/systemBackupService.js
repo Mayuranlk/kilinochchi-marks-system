@@ -25,6 +25,7 @@ export const SYSTEM_COLLECTIONS = [
   "elections",
   "lateArrivalRecords",
   "marks",
+  "sbaMarks",
   "practiceExams",
   "promotionHistory",
   "studentFeeAccounts",

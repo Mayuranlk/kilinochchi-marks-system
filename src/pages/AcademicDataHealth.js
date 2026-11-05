@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import {
@@ -121,12 +122,12 @@ export default function AcademicDataHealth() {
       subtitle="Find enrollment, subject, student and marks problems before they affect reports.">
       <Stack spacing={2.5}>
         <Alert severity={report.totals.errors ? "error" : report.totals.warnings ? "warning" : "success"}>
-          {report.issues.length
+          {academicDisplay(report.issues.length
             ? `${report.totals.errors} critical and ${report.totals.warnings} warning issues need review.`
-            : `No academic data problems detected for ${year}.`}
+            : `No academic data problems detected for ${year}.`)}
         </Alert>
         {fixResult && <Alert severity={fixResult.errors ? "warning" : "success"} onClose={() => setFixResult(null)}>
-          Safe fixes completed: {fixResult.subjectsCreated} subjects created, {fixResult.subjectsRepaired} repaired,
+          Safe fixes completed: {academicDisplay(fixResult.subjectsCreated)} subjects created, {academicDisplay(fixResult.subjectsRepaired)} repaired,
           {" "}{fixResult.enrollmentsCreated} enrollments created, {fixResult.enrollmentsReactivated} reactivated,
           {" "}{fixResult.enrollmentsUpdated} updated. {fixResult.skipped} students need manual data review.
         </Alert>}
@@ -135,11 +136,11 @@ export default function AcademicDataHealth() {
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}
             sx={{ flexWrap: { sm: "wrap" }, rowGap: 2 }}>
             <TextField select label="Academic year" value={year} onChange={(e) => setYear(e.target.value)} sx={{ minWidth: 180 }}>
-              {years.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+              {years.map((value) => <MenuItem key={value} value={value}>{academicDisplay(value)}</MenuItem>)}
             </TextField>
             <TextField select fullWidth label="Issue type" value={type} onChange={(e) => setType(e.target.value)}>
-              <MenuItem value="all">All issues ({report.issues.length})</MenuItem>
-              {issueTypes.map((value) => <MenuItem key={value} value={value}>{value} ({report.byType[value]})</MenuItem>)}
+              <MenuItem value="all">All issues ({academicDisplay(report.issues.length)})</MenuItem>
+              {issueTypes.map((value) => <MenuItem key={value} value={value}>{academicDisplay(value)} ({academicDisplay(report.byType[value])})</MenuItem>)}
             </TextField>
             <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
             <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!visibleIssues.length}>Export</Button>
@@ -150,11 +151,11 @@ export default function AcademicDataHealth() {
           </Stack>
         </CardContent></Card>
 
-        {loading ? <Box textAlign="center" py={8}><CircularProgress /></Box> : error ? <Alert severity="error">{error}</Alert> : <>
+        {loading ? <Box textAlign="center" py={8}><CircularProgress /></Box> : error ? <Alert severity="error">{academicDisplay(error)}</Alert> : <>
           <Stack direction="row" spacing={1.5} sx={{ overflowX: "auto", pb: 1 }}>
             <Box minWidth={160}><StatCard title="Active students" value={report.totals.students} /></Box>
             <Box minWidth={160}><StatCard title="Active subjects" value={report.totals.subjects} /></Box>
-            <Box minWidth={160}><StatCard title={`${year} enrollments`} value={report.totals.enrollments} /></Box>
+            <Box minWidth={160}><StatCard title={academicDisplay(`${year} enrollments`)} value={report.totals.enrollments} /></Box>
             <Box minWidth={160}><StatCard title="Critical issues" value={report.totals.errors} color="error" /></Box>
           </Stack>
 
@@ -168,13 +169,13 @@ export default function AcademicDataHealth() {
                     <Box>
                       <Typography fontWeight={850}>{issue.type}</Typography>
                       {(issue.student || issue.className) && <Typography variant="body2" color="text.secondary">
-                        {[issue.student, issue.indexNo && `Index ${issue.indexNo}`, issue.className].filter(Boolean).join(" · ")}
+                        {academicDisplay([issue.student, issue.indexNo && `Index ${issue.indexNo}`, issue.className].filter(Boolean).join(" · "))}
                       </Typography>}
-                      <Typography mt={.75}>{issue.detail}</Typography>
+                      <Typography mt={.75}>{academicDisplay(issue.detail)}</Typography>
                     </Box>
                     <Stack direction="row" spacing={1}>
                       {SAFE_FIX_TYPES.has(issue.type) && <Chip size="small" color="success" variant="outlined" label="Safe fix available" />}
-                      <Chip size="small" color={issue.severity === "error" ? "error" : "warning"} label={issue.severity} />
+                      <Chip size="small" color={issue.severity === "error" ? "error" : "warning"} label={academicDisplay(issue.severity)} />
                     </Stack>
                   </Stack>
                 </CardContent>

@@ -17,6 +17,7 @@ module.exports = defineConfig({
     actionTimeout: 15_000,
     baseURL,
     browserName: "chromium",
+    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     headless: true,
     viewport: { width: 1440, height: 1000 },
     acceptDownloads: true,

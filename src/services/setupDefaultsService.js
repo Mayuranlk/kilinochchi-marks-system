@@ -38,6 +38,7 @@ const RELIGION_ALIASES = {
   christianity: "Christianity",
   hindu: "Hinduism",
   hinduism: "Hinduism",
+  saivanery: "Hinduism",
   islam: "Islam",
   islamic: "Islam",
   buddhist: "Buddhism",

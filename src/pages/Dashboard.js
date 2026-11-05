@@ -542,6 +542,15 @@ export default function Dashboard() {
                   sx={{ m: 0 }}
                 />
 
+                <FormControlLabel
+                  control={<Switch checked={marksEntrySettings.requireSbaCompletion === true}
+                    onChange={(event) => setMarksEntrySettings((current) => ({ ...current, requireSbaCompletion: event.target.checked }))} />}
+                  label="Require completed SBA before term marks"
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Teachers must save SBA marks (or Absent) for every enrolled student in the selected term, class and subject. Practice exams and admin entry are exempt.
+                </Typography>
+
                 <TextField
                   type="date"
                   size="small"

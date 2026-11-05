@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import { addDoc, collection, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import {
@@ -185,7 +186,7 @@ export default function PracticeExams() {
   }
 
   async function handleDelete(exam) {
-    if (!window.confirm(`Delete ${exam.name}? Existing marks will not be deleted.`)) return;
+    if (!window.confirm(academicDisplay(`Delete ${exam.name}? Existing marks will not be deleted.`))) return;
 
     try {
       await deleteDoc(doc(db, "practiceExams", exam.id));
@@ -208,8 +209,8 @@ export default function PracticeExams() {
       }
     >
       <Stack spacing={2}>
-        {success && <Alert severity="success" onClose={() => setSuccess("")}>{success}</Alert>}
-        {error && <Alert severity="error" onClose={() => setError("")}>{error}</Alert>}
+        {success && <Alert severity="success" onClose={() => setSuccess("")}>{academicDisplay(success)}</Alert>}
+        {error && <Alert severity="error" onClose={() => setError("")}>{academicDisplay(error)}</Alert>}
 
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, md: 4 }}>
@@ -236,7 +237,7 @@ export default function PracticeExams() {
                     <tr>
                       {["Exam", "Term", "Year", "Grade", "Subject", "Date", "Source", "Actions"].map((heading) => (
                         <th key={heading} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #ddd" }}>
-                          {heading}
+                          {academicDisplay(heading)}
                         </th>
                       ))}
                     </tr>
@@ -244,11 +245,11 @@ export default function PracticeExams() {
                   <tbody>
                     {sortedExams.map((exam) => (
                       <tr key={exam.id}>
-                        <td style={{ padding: 10, fontWeight: 700 }}>{exam.name}</td>
+                        <td style={{ padding: 10, fontWeight: 700 }}>{academicDisplay(exam.name)}</td>
                         <td style={{ padding: 10 }}>{exam.term}</td>
                         <td style={{ padding: 10 }}>{exam.year || exam.academicYear}</td>
                         <td style={{ padding: 10 }}>Grade {exam.grade}</td>
-                        <td style={{ padding: 10 }}>{exam.subjectName}</td>
+                        <td style={{ padding: 10 }}>{academicDisplay(exam.subjectName)}</td>
                         <td style={{ padding: 10 }}>{exam.examDate || "-"}</td>
                         <td style={{ padding: 10 }}>{exam.source || "-"}</td>
                         <td style={{ padding: 10 }}>
@@ -276,7 +277,7 @@ export default function PracticeExams() {
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editId ? "Edit Practice Exam" : "Add Practice Exam"}</DialogTitle>
         <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{error}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2, mt: 1 }}>{academicDisplay(error)}</Alert>}
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid size={{ xs: 12 }}>
               <TextField fullWidth label="Exam Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -285,7 +286,7 @@ export default function PracticeExams() {
               <FormControl fullWidth>
                 <InputLabel>Term</InputLabel>
                 <Select value={form.term} label="Term" onChange={(e) => setForm({ ...form, term: e.target.value })}>
-                  {TERMS.map((term) => <MenuItem key={term} value={term}>{term}</MenuItem>)}
+                  {TERMS.map((term) => <MenuItem key={term} value={term}>{academicDisplay(term)}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
@@ -296,8 +297,8 @@ export default function PracticeExams() {
               <TextField fullWidth type="number" label="Grade" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField fullWidth select label="Subject" value={form.subjectName} onChange={(e) => setForm({ ...form, subjectName: e.target.value })}>
-                {subjectOptions.map((subject) => <MenuItem key={subject} value={subject}>{subject}</MenuItem>)}
+              <TextField fullWidth select label="Subject" value={academicDisplay(form.subjectName)} onChange={(e) => setForm({ ...form, subjectName: e.target.value })}>
+                {subjectOptions.map((subject) => <MenuItem key={subject} value={subject}>{academicDisplay(subject)}</MenuItem>)}
               </TextField>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>

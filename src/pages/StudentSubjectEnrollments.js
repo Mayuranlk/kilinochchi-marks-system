@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -131,20 +132,20 @@ const StudentCard = ({ student }) => {
       <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
         <Stack spacing={0.75}>
           <Typography variant="body2" fontWeight={700}>
-            {student.studentName}
+            {academicDisplay(student.studentName)}
           </Typography>
 
           <Stack direction="row" spacing={1} flexWrap="wrap">
             <Chip
               size="small"
               icon={<TagIcon />}
-              label={`Index: ${student.indexNumber}`}
+              label={academicDisplay(`Index: ${student.indexNumber}`)}
               variant="outlined"
             />
             {student.subjectNumber ? (
               <Chip
                 size="small"
-                label={`No: ${student.subjectNumber}`}
+                label={academicDisplay(`No: ${student.subjectNumber}`)}
                 color="primary"
                 variant="outlined"
               />
@@ -152,7 +153,7 @@ const StudentCard = ({ student }) => {
           </Stack>
 
           <Typography variant="caption" color="text.secondary">
-            {student.classLabel}
+            {academicDisplay(student.classLabel)}
             {student.stream ? ` • ${student.stream}` : ""}
           </Typography>
         </Stack>
@@ -512,7 +513,7 @@ export default function StudentSubjectEnrollments() {
       subtitle="Canonical enrollment view grouped by class and subject, with A/L stream and subject number support."
     >
       <Stack spacing={2}>
-        {error ? <Alert severity="error">{error}</Alert> : null}
+        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
 
         <Paper
           variant="outlined"
@@ -540,7 +541,7 @@ export default function StudentSubjectEnrollments() {
                     <MenuItem value="">All Grades</MenuItem>
                     {gradeOptions.map((grade) => (
                       <MenuItem key={grade} value={grade}>
-                        {grade}
+                        {academicDisplay(grade)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -558,7 +559,7 @@ export default function StudentSubjectEnrollments() {
                     <MenuItem value="">All Streams</MenuItem>
                     {streamOptions.map((stream) => (
                       <MenuItem key={stream} value={stream}>
-                        {stream}
+                        {academicDisplay(stream)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -576,7 +577,7 @@ export default function StudentSubjectEnrollments() {
                     <MenuItem value="">All Classes</MenuItem>
                     {classOptions.map((className) => (
                       <MenuItem key={className} value={className}>
-                        {className}
+                        {academicDisplay(className)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -594,7 +595,7 @@ export default function StudentSubjectEnrollments() {
                     <MenuItem value="">All Subjects</MenuItem>
                     {subjectOptions.map((subject) => (
                       <MenuItem key={subject} value={subject}>
-                        {subject}
+                        {academicDisplay(subject)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -611,10 +612,10 @@ export default function StudentSubjectEnrollments() {
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <StatusChip status="active" label={`Enrollments: ${summary.enrollments}`} />
-                <StatusChip status="saved" label={`Students: ${summary.students}`} />
-                <StatusChip status="completed" label={`Classes: ${summary.classes}`} />
-                <StatusChip status="draft" label={`Subjects: ${summary.subjects}`} />
+                <StatusChip status="active" label={academicDisplay(`Enrollments: ${summary.enrollments}`)} />
+                <StatusChip status="saved" label={academicDisplay(`Students: ${summary.students}`)} />
+                <StatusChip status="completed" label={academicDisplay(`Classes: ${summary.classes}`)} />
+                <StatusChip status="draft" label={academicDisplay(`Subjects: ${summary.subjects}`)} />
               </Stack>
             </Stack>
           </Paper>
@@ -660,20 +661,20 @@ export default function StudentSubjectEnrollments() {
                     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                       <ClassIcon fontSize="small" color="primary" />
                       <Typography variant="subtitle1" fontWeight={700}>
-                        {classGroup.classLabel}
+                        {academicDisplay(classGroup.classLabel)}
                       </Typography>
                     </Stack>
 
                     <Stack direction="row" spacing={1} flexWrap="wrap">
                       {classGroup.grade ? (
-                        <Chip size="small" label={`Grade ${classGroup.grade}`} variant="outlined" />
+                        <Chip size="small" label={academicDisplay(`Grade ${classGroup.grade}`)} variant="outlined" />
                       ) : null}
                       {classGroup.stream ? (
-                        <Chip size="small" label={classGroup.stream} color="primary" variant="outlined" />
+                        <Chip size="small" label={academicDisplay(classGroup.stream)} color="primary" variant="outlined" />
                       ) : null}
                       <Chip
                         size="small"
-                        label={`${classGroup.subjects.length} subject${classGroup.subjects.length !== 1 ? "s" : ""}`}
+                        label={academicDisplay(`${classGroup.subjects.length} subject${classGroup.subjects.length !== 1 ? "s" : ""}`)}
                         variant="outlined"
                       />
                     </Stack>
@@ -698,15 +699,15 @@ export default function StudentSubjectEnrollments() {
                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                               <MenuBookIcon fontSize="small" color="action" />
                               <Typography variant="subtitle2" fontWeight={700}>
-                                {subjectGroup.subjectLabel}
+                                {academicDisplay(subjectGroup.subjectLabel)}
                               </Typography>
                             </Stack>
 
                             <Chip
                               size="small"
-                              label={`${subjectGroup.students.length} student${
+                              label={academicDisplay(`${subjectGroup.students.length} student${
                                 subjectGroup.students.length !== 1 ? "s" : ""
-                              }`}
+                              }`)}
                               variant="outlined"
                             />
                           </Stack>
@@ -744,24 +745,24 @@ export default function StudentSubjectEnrollments() {
                                     <Stack direction="row" spacing={1} alignItems="center">
                                       <PersonIcon fontSize="small" color="disabled" />
                                       <Typography variant="body2" fontWeight={600}>
-                                        {student.studentName}
+                                        {academicDisplay(student.studentName)}
                                       </Typography>
                                     </Stack>
                                   </TableCell>
                                   <TableCell>{student.indexNumber}</TableCell>
-                                  <TableCell>{student.subjectNumber || "-"}</TableCell>
+                                  <TableCell>{academicDisplay(student.subjectNumber || "-")}</TableCell>
                                   <TableCell>
                                     <Stack direction="row" spacing={0.75} flexWrap="wrap">
                                       <Chip
                                         size="small"
                                         icon={<SchoolIcon />}
-                                        label={student.classLabel}
+                                        label={academicDisplay(student.classLabel)}
                                         variant="outlined"
                                       />
                                       {student.stream ? (
                                         <Chip
                                           size="small"
-                                          label={student.stream}
+                                          label={academicDisplay(student.stream)}
                                           color="primary"
                                           variant="outlined"
                                         />

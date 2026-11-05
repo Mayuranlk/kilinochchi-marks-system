@@ -1,3 +1,4 @@
+import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   collection,
@@ -123,9 +124,9 @@ export default function MigrateStudentSubjects() {
       </Typography>
 
       <Box display="flex" gap={1} mb={2} flexWrap="wrap">
-        <Chip label={`Students: ${students.length}`} color="primary" />
+        <Chip label={academicDisplay(`Students: ${students.length}`)} color="primary" />
         <Chip
-          label={`With Old Fields: ${studentsWithOldFields.length}`}
+          label={academicDisplay(`With Old Fields: ${studentsWithOldFields.length}`)}
           color="warning"
         />
       </Box>
@@ -152,8 +153,8 @@ export default function MigrateStudentSubjects() {
         </Button>
       </Box>
 
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>{academicDisplay(success)}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{academicDisplay(error)}</Alert>}
 
       {loading ? (
         <CircularProgress />
@@ -177,14 +178,14 @@ export default function MigrateStudentSubjects() {
               {studentsWithOldFields.map((s, i) => (
                 <TableRow key={s.id}>
                   <TableCell>{i + 1}</TableCell>
-                  <TableCell>{s.name || s.fullName}</TableCell>
+                  <TableCell>{academicDisplay(s.name || s.fullName)}</TableCell>
                   <TableCell>{s.grade}</TableCell>
                   <TableCell>{s.section}</TableCell>
                   <TableCell>
                     {OLD_FIELDS.map((f) =>
                       normalizeText(s[f]) ||
                       (Array.isArray(s[f]) && s[f].length > 0) ? (
-                        <Chip key={f} size="small" label={f} sx={{ mr: 0.5 }} />
+                        <Chip key={f} size="small" label={academicDisplay(f)} sx={{ mr: 0.5 }} />
                       ) : null
                     )}
                   </TableCell>

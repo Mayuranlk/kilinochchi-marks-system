@@ -203,7 +203,9 @@ export default function Layout() {
       section: "Marks & Reports",
       items: [
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
-        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/sba" },
+        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/sba-marks" },
+        { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/sba-register" },
+        { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/sba" },
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Attendance Register", icon: <CalendarMonthRoundedIcon />, path: "/attendance-register", badge: "NEW" },
@@ -239,7 +241,9 @@ export default function Layout() {
     const items = [
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
-      { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
+      { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
+      { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/teacher/sba-register" },
+      { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
     ];
     if (canAccessAllReports) {
       items.push(
@@ -267,7 +271,9 @@ export default function Layout() {
     if (isTeacher) {
       items.push(
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
-        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" }
+        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
+        { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/teacher/sba-register" },
+        { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" }
       );
     }
     if (isClassTeacher) {
@@ -371,6 +377,7 @@ export default function Layout() {
   }, [bottomNavItems, location.pathname]);
 
   const handleLogout = async () => {
+    if (!window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) return;
     setProfileAnchor(null);
     await logout();
     navigate("/login");
@@ -378,6 +385,7 @@ export default function Layout() {
 
   const handleNavigate = (path) => {
     if (!path) return;
+    if (!window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) return;
     navigate(path);
     setMobileOpen(false);
     setSearchOpen(false);

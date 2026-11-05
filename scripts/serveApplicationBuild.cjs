@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 
-const root = path.resolve(__dirname, "..", "build");
+const root = path.resolve(__dirname, "..", process.env.BUILD_PATH || "build");
 const host = "127.0.0.1";
 const port = 3100;
 const mimeTypes = {
