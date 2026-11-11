@@ -9,6 +9,7 @@ import { ColorModeContext } from "./theme/ColorModeContext";
 
 import Layout from "./components/Layout";
 import PageMeta from "./components/PageMeta";
+import MaintenanceGate from "./components/MaintenanceGate";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -222,6 +223,7 @@ export default function App() {
         <AuthProvider>
           <Router>
           <PageMeta />
+          <MaintenanceGate>
           <Routes>
             <Route
               path="/login"
@@ -759,6 +761,7 @@ export default function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </MaintenanceGate>
           </Router>
         </AuthProvider>
       </ThemeProvider>

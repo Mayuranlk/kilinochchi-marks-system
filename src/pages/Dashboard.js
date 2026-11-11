@@ -1,3 +1,4 @@
+import MaintenanceControls from "../components/MaintenanceControls";
 import React, { useEffect, useMemo, useState } from "react";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
@@ -479,6 +480,8 @@ export default function Dashboard() {
             </Stack>
           </CardContent>
         </Card>
+
+        <MaintenanceControls />
 
         <Card
           sx={{
