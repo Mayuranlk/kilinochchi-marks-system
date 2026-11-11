@@ -56,3 +56,12 @@ test("save rechecks current server settings and all rows even after earlier comp
   getDocFromServer.mockResolvedValue({ data: () => ({ requireSbaCompletion: false }) });
   await expect(result.current.verifyBeforeSave(rows)).resolves.toBeUndefined();
 });
+
+test("subject changes resubscribe narrowly and discard previous verification", () => {
+  const { result, rerender } = renderHook((input) => useSbaTermGate(input), { initialProps: props });
+  act(() => receive({ metadata: { fromCache: false }, docs: [saved] }));
+  expect(result.current.locked).toBe(false);
+  rerender({ ...props, subject: { subjectId: "english" } });
+  expect(result.current.locked).toBe(true);
+  expect(onSnapshot.mock.calls.at(-1)[0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|6|A|"], ["subjectId", "==", "english"]]);
+});

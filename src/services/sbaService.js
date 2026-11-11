@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, getDocFromServer, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, getDocFromServer, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { normalizeMarksEntrySettings } from "../utils/marksEntryAccess";
@@ -8,9 +8,26 @@ export const SBA_SETTINGS_ID = "sbaEntry";
 const settingsRef = () => doc(db, "systemSettings", SBA_SETTINGS_ID);
 
 // SBA never reads or writes the term/practice marks collection or its cache.
-export async function loadSbaRecords(term, assignment) {
-  const snapshot = await getDocs(query(collection(db, SBA_COLLECTION), where("scopeKey", "==", sbaScopeKey(term, assignment))));
+export async function loadSbaRecords(term, assignment, subjectId = "") {
+  const snapshot = await getDocs(query(collection(db, SBA_COLLECTION), where("scopeKey", "==", sbaScopeKey(term, assignment)), ...(subjectId ? [where("subjectId", "==", subjectId)] : [])));
   return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+}
+// Query existing subject IDs rather than scanning every enrollment/student.
+// Filter years locally to retain compatibility with legacy year field formats.
+export async function loadSbaRosterData(subjectIds, term) {
+  const ids = [...new Set(subjectIds.filter(Boolean))];
+  const enrollments = [];
+  for (let start = 0; start < ids.length; start += 30) {
+    const snapshot = await getDocs(query(collection(db, "studentSubjectEnrollments"), where("subjectId", "in", ids.slice(start, start + 30))));
+    enrollments.push(...snapshot.docs.map((item) => ({ ...item.data(), id: item.id })).filter((row) => sbaYear(row) === sbaYear(term)));
+  }
+  const studentIds = [...new Set(enrollments.map((row) => row.studentId).filter(Boolean))];
+  const students = [];
+  for (let start = 0; start < studentIds.length; start += 30) {
+    const snapshot = await getDocs(query(collection(db, "students"), where(documentId(), "in", studentIds.slice(start, start + 30))));
+    students.push(...snapshot.docs.map((item) => ({ ...item.data(), id: item.id })));
+  }
+  return { students, enrollments };
 }
 export async function loadSbaSettings() {
   const snapshot = await getDocFromServer(settingsRef());

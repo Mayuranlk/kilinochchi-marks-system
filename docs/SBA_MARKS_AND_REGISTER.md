@@ -78,3 +78,12 @@ The optional term prerequisite rules were released with explicit user approval o
 - Candidate rules SHA256: `db9e64b3096d22cca2d81394d5e0b11de0940bdf924ee6cae607e3b8c71d3d34`.
 - Initial production deployment was blocked pending explicit approval. The user then approved the release, and deployment succeeded on November 5, 2026. The retrieved live rules match the tested candidate byte-for-byte. Release: `projects/kilinochchi-marks/rulesets/baa205ad-248b-49ea-b2fb-337ed35ba376`. No production marks or admin setting values were changed. Hosting was not deployed.
 - Exact pre-release rules and rollback configuration: `audit-output/sba-release/before-gate.rules`, `before-gate.json`, `gate-rollback.json`.
+
+
+### Read usage optimization (November 2026)
+
+SBA entry no longer requests the complete students or studentSubjectEnrollments collections. It queries enrollment subject IDs for the selected subject (or the register's subject set), retains the selected academic year, and fetches only linked student documents in groups of at most 30. Legacy year/class/medium handling remains in the existing roster builder. Enrollment queries still span classes and years for those subject IDs; class filtering remains local to avoid dropping legacy records whose class information comes from the student. Assignments and academic terms continue using the shared session cache.
+
+Entry reads SBA marks by class/term scope AND subject. The register reads the full class scope. The term prerequisite listener and server recheck also filter by subject, and subject changes invalidate earlier verification. Saves retain transaction conflict detection and security checks. No schema, stored marks, or security rules changed.
+
+This reduces entry reads, but is not a claim that all application-wide scans have been removed: the teacher dashboard and existing term entry loaders still have broader reads. Production savings require deploying the frontend and measuring usage with comparable user activity.

@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
 import { PageContainer, EmptyState } from "../components/ui";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaRecords, loadSbaSettings, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
+import { loadSbaRecords, loadSbaRosterData, loadSbaSettings, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
 import { activeSbaRow, buildSbaRegister, buildSbaRoster, indexSbaRosterData, parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { buildTermLabel, getDisplayClassName, isActiveTerm, isSameTeacher } from "../utils/sbaContext";
 import { buildSbaRegisterHtml, printSbaRegister } from "../utils/sbaRegisterPrint";
@@ -49,16 +49,15 @@ export default function SBAMarks({ registerMode = false }) {
     const version = ++loadVersion.current;
     setLoading(true); setBaseError(""); setError("");
     try {
-      const [assignments, terms, enrollments, students, controls] = await Promise.all([
+      const [assignments, terms, controls] = await Promise.all([
         getCollectionRows(db, "teacherAssignments", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
-        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-        getCollectionRows(db, "students", { forceRefresh }), loadSbaSettings(),
+        loadSbaSettings(),
       ]);
       if (version !== loadVersion.current) return;
       const termOptions = terms.filter((term) => String(term.assessmentType || "").toLowerCase() !== "practice" && !/practice/i.test(term.term || term.termName || term.name || ""))
         .sort((a, b) => sbaYear(b).localeCompare(sbaYear(a)) || buildTermLabel(a).localeCompare(buildTermLabel(b), undefined, { numeric: true }));
-      setBase({ assignments: assignments.filter(activeSbaRow), terms: termOptions, enrollments, students });
+      setBase({ assignments: assignments.filter(activeSbaRow), terms: termOptions, enrollments: [], students: [] });
       setSettings(controls); setSettingsDraft(controls);
       setTermId((previous) => termOptions.some((term) => term.id === previous) ? previous : (termOptions.find(isActiveTerm) || termOptions[0])?.id || "");
       setRefreshVersion((value) => value + 1);
@@ -81,29 +80,32 @@ export default function SBAMarks({ registerMode = false }) {
   useEffect(() => { if (!options.some((item) => item.id === assignmentId)) setAssignmentId(options[0]?.id || ""); }, [options, assignmentId]);
   const assignment = options.find((item) => item.id === assignmentId);
   const scopeKey = term && classAssignment ? sbaScopeKey(term, classAssignment) : "";
-  // Effect depends on a stable scope, not on the selected subject. Switching
-  // subjects in a class reuses the same small SBA read.
+  const rosterSubjects = JSON.stringify([...new Set((registerMode ? classAssignments : [assignment]).filter(Boolean).map((item) => item.subjectId).filter(Boolean))].sort());
+  const readKey = scopeKey && rosterSubjects !== "[]" ? `${scopeKey}|${rosterSubjects}|${registerMode}` : "";
   useEffect(() => {
     let cancelled = false;
     setLoaded({ key: "", records: [], error: "" });
-    if (scopeKey && !loading && !baseError) {
+    if (readKey && !loading && !baseError) {
       const [selectedTerm, selectedClass] = [term, classAssignment];
-      loadSbaRecords(selectedTerm, selectedClass).then((records) => {
-        if (!cancelled) setLoaded({ key: scopeKey, records, error: "" });
+      Promise.all([
+        loadSbaRecords(selectedTerm, selectedClass, registerMode ? "" : assignment.subjectId),
+        loadSbaRosterData(JSON.parse(rosterSubjects), selectedTerm),
+      ]).then(([records, rosterData]) => {
+        if (!cancelled) setLoaded({ key: readKey, records, ...rosterData, error: "" });
       }).catch((failure) => {
-        if (!cancelled) setLoaded({ key: scopeKey, records: [], error: `Could not load SBA marks: ${failure.message}` });
+        if (!cancelled) setLoaded({ key: readKey, records: [], error: `Could not load SBA marks: ${failure.message}` });
       });
     }
     return () => { cancelled = true; };
     // term and classAssignment are represented by scopeKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, refreshVersion, loading, baseError]);
+  }, [readKey, refreshVersion, loading, baseError]);
   useEffect(() => { setDrafts({}); setError(""); setSuccess(""); }, [scopeKey, assignmentId, registerMode]);
   useEffect(() => { setSettingsDraft(settings); }, [settings, registerMode]);
-  const ready = Boolean(scopeKey && loaded.key === scopeKey && !loaded.error && !baseError && !loading);
+  const ready = Boolean(readKey && loaded.key === readKey && !loaded.error && !baseError && !loading);
   const locked = !isAdmin && (!settings || sbaEntryLocked(settings));
   const canEdit = ready && !saving && !locked && !registerMode;
-  const rosterIndex = useMemo(() => indexSbaRosterData(base.students, base.enrollments), [base.students, base.enrollments]);
+  const rosterIndex = useMemo(() => indexSbaRosterData(loaded.students || [], loaded.enrollments || []), [loaded.students, loaded.enrollments]);
   const roster = useMemo(() => buildSbaRoster({ assignment, term, index: rosterIndex }), [assignment, term, rosterIndex]);
   const recordsByStudent = useMemo(() => new Map(loaded.records.filter((record) => record.subjectId === assignment?.subjectId).map((record) => [record.studentId, record])), [loaded.records, assignment]);
   const register = useMemo(() => registerMode && term ? buildSbaRegister({ assignments: classAssignments, term, index: rosterIndex, records: loaded.records }) : { columns: [], rows: [] }, [registerMode, term, classAssignments, rosterIndex, loaded.records]);
@@ -211,7 +213,7 @@ export default function SBAMarks({ registerMode = false }) {
         {!registerMode && selector("Assigned subject", assignmentId, setAssignmentId, options.map((item) => ({ value: item.id, label: `${item.subjectName || item.subject}${item.medium ? ` · ${item.medium}` : ""}${isAdmin && item.teacherName ? ` · ${item.teacherName}` : ""}` })))}
       </Stack></Paper>
       {mine.some((item) => !item.subjectId) && <Alert severity="warning">Some legacy assignments have no subject ID. Update those assignments before entering their SBA marks.</Alert>}
-      {(loading || (scopeKey && loaded.key !== scopeKey && !baseError)) && <Box role="status" sx={{ py: 3, textAlign: "center" }}><CircularProgress size={26} /><Typography>Loading SBA…</Typography></Box>}
+      {(loading || (readKey && loaded.key !== readKey && !baseError)) && <Box role="status" sx={{ py: 3, textAlign: "center" }}><CircularProgress size={26} /><Typography>Loading SBA…</Typography></Box>}
       {!loading && !baseError && !classes.length && <EmptyState title="No assigned classes" description="Create teacher subject assignments to use SBA." />}
       {ready && registerMode && (register.rows.length ? <>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap><Chip label={academicDisplay(`${register.rows.length} students`)} /><Chip label={academicDisplay(`${register.columns.length} subjects`)} /><Button variant="contained" onClick={() => printSbaRegister(registerHtml).catch((failure) => setError(failure.message))}>Print / Save A3 PDF</Button><Button variant="outlined" disabled={pdfBusy} onClick={() => preparePdf("share")}>Share PDF</Button><Button variant="outlined" disabled={pdfBusy} onClick={() => preparePdf("whatsapp")}>WhatsApp</Button></Stack>

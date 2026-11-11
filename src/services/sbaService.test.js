@@ -1,10 +1,10 @@
-import { doc, runTransaction, setDoc } from "firebase/firestore";
-import { saveSbaChange, saveSbaChanges, saveSbaSettings } from "./sbaService";
+import { doc, runTransaction, setDoc, getDocs } from "firebase/firestore";
+import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaRosterData, loadSbaRecords } from "./sbaService";
 
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("firebase/firestore", () => ({
   doc: jest.fn((_db, collection, id) => ({ collection, id })),
-  collection: jest.fn(), getDocs: jest.fn(), getDocFromServer: jest.fn(), query: jest.fn(), where: jest.fn(),
+  collection: (_db, name) => name, documentId: () => "__name__", getDocs: jest.fn(), getDocFromServer: jest.fn(), query: (...args) => args, where: (...args) => args,
   runTransaction: jest.fn(), setDoc: jest.fn(), serverTimestamp: () => "server-time",
   Timestamp: { fromDate: (date) => date.toISOString() },
 }));
@@ -47,4 +47,30 @@ test("SBA controls write only their own settings and store a Sri Lanka deadline"
   await saveSbaSettings({ teacherEntryEnabled: true, teacherEntryDeadline: "2026-11-03" }, "admin");
   expect(setDoc.mock.calls[0][0]).toEqual({ collection: "systemSettings", id: "sbaEntry" });
   expect(setDoc.mock.calls[0][1].teacherEntryDeadlineAt).toBe("2026-11-03T18:29:59.999Z");
+});
+
+test("roster reads only selected subjects and linked current-year students", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  getDocs.mockResolvedValueOnce({ docs: [
+    wrap("e1", { subjectId: "maths", studentId: "s1", academicYear: "2026" }),
+    wrap("e2", { subjectId: "maths", studentId: "old", year: "2025" }),
+  ] }).mockResolvedValueOnce({ docs: [wrap("s1", { name: "One" })] });
+  const result = await loadSbaRosterData(["maths", "maths"], context.term);
+  expect(getDocs.mock.calls).toEqual([
+    [["studentSubjectEnrollments", ["subjectId", "in", ["maths"]]]],
+    [["students", ["__name__", "in", ["s1"]]]],
+  ]);
+  expect(result.enrollments.map((row) => row.id)).toEqual(["e1"]);
+  expect(result.students.map((row) => row.id)).toEqual(["s1"]);
+});
+test("empty subject selection performs no reads", async () => {
+  expect(await loadSbaRosterData([], context.term)).toEqual({ students: [], enrollments: [] });
+  expect(getDocs).not.toHaveBeenCalled();
+});
+test("entry scopes marks by subject while register retains all class subjects", async () => {
+  getDocs.mockResolvedValue({ docs: [] });
+  await loadSbaRecords(context.term, context.assignment, "maths");
+  expect(getDocs.mock.calls[0][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["subjectId", "==", "maths"]]);
+  await loadSbaRecords(context.term, context.assignment);
+  expect(getDocs.mock.calls[1][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"]]);
 });

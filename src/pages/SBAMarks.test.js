@@ -3,14 +3,14 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SBAMarks from "./SBAMarks";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaRecords, loadSbaSettings, saveSbaChanges } from "../services/sbaService";
+import { loadSbaRecords, loadSbaRosterData, loadSbaSettings, saveSbaChanges } from "../services/sbaService";
 
 jest.mock("react-router-dom", () => ({ useNavigate: () => jest.fn() }), { virtual: true });
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("../context/AuthContext", () => ({ useAuth: () => ({ user: { uid: "teacher", email: "teacher@example.test" }, isAdmin: false }) }));
 jest.mock("../components/ui", () => ({ PageContainer: ({ title, children }) => <div><h1>{title}</h1>{children}</div>, EmptyState: ({ title }) => <div>{title}</div> }));
 jest.mock("../services/firestoreReadCache", () => ({ getCollectionRows: jest.fn() }));
-jest.mock("../services/sbaService", () => ({ loadSbaRecords: jest.fn(), loadSbaSettings: jest.fn(), saveSbaChanges: jest.fn(), saveSbaSettings: jest.fn() }));
+jest.mock("../services/sbaService", () => ({ loadSbaRecords: jest.fn(), loadSbaRosterData: jest.fn(), loadSbaSettings: jest.fn(), saveSbaChanges: jest.fn(), saveSbaSettings: jest.fn() }));
 const data = {
   teacherAssignments: [{ id: "a1", teacherId: "teacher", grade: 10, section: "A", fullClassName: "10A", subjectId: "maths", subjectName: "Mathematics" }],
   academicTerms: [{ id: "t1", year: "2026", term: "Term 1", isActive: true }],
@@ -21,6 +21,7 @@ beforeEach(() => {
   getCollectionRows.mockImplementation(async (_db, collection) => data[collection]);
   loadSbaSettings.mockResolvedValue({ teacherEntryEnabled: true, teacherEntryDeadline: "" });
   loadSbaRecords.mockResolvedValue([]);
+  loadSbaRosterData.mockResolvedValue({ students: data.students, enrollments: data.studentSubjectEnrollments });
 });
 test("failed scoped read prevents entry and printing rather than exposing empty editable results", async () => {
   loadSbaRecords.mockRejectedValue(new Error("permission-denied"));
@@ -50,4 +51,13 @@ test("closed SBA controls disable entry without hiding saved results", async () 
   const input = await screen.findByRole("textbox", { name: "SBA mark for Student One" });
   expect(input).toHaveValue("0");
   expect(input).toBeDisabled();
+});
+
+test("opening entry never requests complete student or enrollment collections", async () => {
+  getCollectionRows.mockClear();
+  render(<SBAMarks />);
+  await screen.findByRole("textbox", { name: "SBA mark for Student One" });
+  expect(getCollectionRows.mock.calls.map((call) => call[1])).toEqual(["teacherAssignments", "academicTerms"]);
+  expect(loadSbaRosterData).toHaveBeenCalledWith(["maths"], expect.objectContaining({ id: "t1" }));
+  expect(loadSbaRecords).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }), expect.any(Object), "maths");
 });
