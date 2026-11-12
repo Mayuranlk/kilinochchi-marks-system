@@ -12,6 +12,42 @@ let cacheEpoch = 0;
 
 export const DEFAULT_COLLECTION_CACHE_MS = 5 * 60 * 1000;
 
+// Query cache shares collection invalidation and authentication boundaries.
+const scopedCache = new Map();
+const scopedPending = new Map();
+const diagnostics = [];
+export function recordRead(label, documents, cached = false) {
+  diagnostics.push({ time: new Date().toISOString(), query: label, documents, cached });
+  if (diagnostics.length > 200) diagnostics.shift();
+}
+export const getReadDiagnostics = () => diagnostics.map((entry) => ({ ...entry }));
+if (typeof window !== "undefined") window.getFirestoreReadDiagnostics = getReadDiagnostics;
+
+export async function getScopedRows(collectionName, key, read, { forceRefresh = false } = {}) {
+  const cacheKey = JSON.stringify([collectionName, key]);
+  const version = `${cacheEpoch}:${collectionGenerations.get(collectionName) || 0}`;
+  const entry = scopedCache.get(cacheKey);
+  if (!forceRefresh && entry?.version === version && Date.now() - entry.at < DEFAULT_COLLECTION_CACHE_MS) {
+    recordRead(`${collectionName}: scoped`, 0, true);
+    return entry.rows;
+  }
+  const pending = scopedPending.get(cacheKey);
+  if (pending?.version === version) return pending.promise;
+  const promise = read().then((snapshot) => {
+    const rows = snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+    recordRead(`${collectionName}: scoped`, rows.length);
+    if (version === `${cacheEpoch}:${collectionGenerations.get(collectionName) || 0}`) {
+      scopedCache.set(cacheKey, { rows, version, at: Date.now() });
+      if (scopedCache.size > 500) scopedCache.delete(scopedCache.keys().next().value);
+    }
+    return rows;
+  }).finally(() => {
+    if (scopedPending.get(cacheKey)?.promise === promise) scopedPending.delete(cacheKey);
+  });
+  scopedPending.set(cacheKey, { version, promise });
+  return promise;
+}
+
 export async function getCollectionRows(
   db,
   collectionName,
@@ -38,6 +74,7 @@ export async function getCollectionRows(
         id: document.id,
         ...document.data(),
       }));
+      recordRead(`${collectionName}: collection`, rows.length);
       // A write may invalidate the collection while this request is in flight.
       // Do not let the older response repopulate the shared cache.
       if (
@@ -94,17 +131,6 @@ export async function getCollectionCount(
       }
       return count;
     })
-    .catch(async (error) => {
-      // Some existing Firestore Rules deployments allow the collection reads
-      // used by this app but reject aggregation queries. Preserve compatibility
-      // instead of failing the entire dashboard.
-      console.warn(
-        `Count aggregation failed for ${collectionName}; using collection fallback.`,
-        error
-      );
-      const rows = await getCollectionRows(db, collectionName, { maxAgeMs, forceRefresh });
-      return rows.length;
-    })
     .finally(() => {
       if (pendingCountReads.get(collectionName) === read) {
         pendingCountReads.delete(collectionName);
@@ -139,6 +165,9 @@ export function updateCachedCollection(collectionName, updater) {
 
 export function clearFirestoreReadCache() {
   cacheEpoch += 1;
+  scopedCache.clear();
+  scopedPending.clear();
+  diagnostics.length = 0;
   collectionCache.clear();
   pendingReads.clear();
   countCache.clear();

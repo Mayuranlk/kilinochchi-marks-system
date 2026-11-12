@@ -40,6 +40,7 @@ export default function SBAMarks({ registerMode = false }) {
   const [shareBusy, setShareBusy] = useState(false);
   const [deleteRow, setDeleteRow] = useState(null);
   const loadVersion = useRef(0);
+  const forceRosterRefresh = useRef(false);
   const inputRefs = useRef({});
   const dirty = Object.keys(drafts).length > 0;
   const busy = loading || saving;
@@ -47,6 +48,7 @@ export default function SBAMarks({ registerMode = false }) {
 
   const loadBase = useCallback(async (forceRefresh = false) => {
     const version = ++loadVersion.current;
+    forceRosterRefresh.current = forceRefresh;
     setLoading(true); setBaseError(""); setError("");
     try {
       const [assignments, terms, controls] = await Promise.all([
@@ -89,8 +91,9 @@ export default function SBAMarks({ registerMode = false }) {
       const [selectedTerm, selectedClass] = [term, classAssignment];
       Promise.all([
         loadSbaRecords(selectedTerm, selectedClass, registerMode ? "" : assignment.subjectId),
-        loadSbaRosterData(JSON.parse(rosterSubjects), selectedTerm),
+        loadSbaRosterData(JSON.parse(rosterSubjects), selectedTerm, selectedClass, { forceRefresh: forceRosterRefresh.current }),
       ]).then(([records, rosterData]) => {
+        if (!cancelled) forceRosterRefresh.current = false;
         if (!cancelled) setLoaded({ key: readKey, records, ...rosterData, error: "" });
       }).catch((failure) => {
         if (!cancelled) setLoaded({ key: readKey, records: [], error: `Could not load SBA marks: ${failure.message}` });

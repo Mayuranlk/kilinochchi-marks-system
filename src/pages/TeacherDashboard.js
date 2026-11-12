@@ -34,6 +34,7 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { loadTeacherProgress } from "../services/teacherProgressService";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
@@ -635,10 +636,14 @@ export default function TeacherDashboard() {
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [progressLoading, setProgressLoading] = useState(false);
+  const [progressReady, setProgressReady] = useState(false);
+  const progressPending = progressLoading || !progressReady;
+  const progressLabel = progressLoading ? "Loading" : "Not loaded";
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
   const lastLoadedTermKey = useRef("");
+  const dashboardLoadVersion = useRef(0);
 
   const marksEntryDisabled = isTeacherMarksEntryLocked(marksEntrySettings);
   const marksEntryDisabledReason = getTeacherMarksEntryLockReason(marksEntrySettings);
@@ -662,9 +667,13 @@ export default function TeacherDashboard() {
     [subjectRows]
   );
 
-  const loadDashboard = async (silent = false, forceRefresh = false) => {
+  const loadDashboard = async (silent = false, forceRefresh = false, includeProgress = false) => {
+    const version = ++dashboardLoadVersion.current;
     try {
       setError("");
+      setProgressReady(false);
+      setProgressLoading(false);
+      setEnrollments([]); setMarks([]);
       if (silent) setRefreshing(true);
       else setLoading(true);
 
@@ -678,6 +687,7 @@ export default function TeacherDashboard() {
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
 
+      if (version !== dashboardLoadVersion.current) return;
       setClassrooms(classrooms);
 
       const sortedTerms = [...loadedTerms].sort((a, b) => {
@@ -717,16 +727,16 @@ export default function TeacherDashboard() {
       setAssignedClassroom(initialData.assignedClassroom);
       setLoading(false);
       setRefreshing(false);
+      if (!includeProgress) return;
       setProgressLoading(true);
 
       try {
-        const [loadedEnrollments, loadedMarks] = await Promise.all([
-          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-          getCollectionRows(db, "marks", { forceRefresh }),
-        ]);
+        const { enrollments: loadedEnrollments, marks: loadedMarks } = await loadTeacherProgress({ forceRefresh });
 
+        if (version !== dashboardLoadVersion.current) return;
         setEnrollments(loadedEnrollments);
         setMarks(loadedMarks);
+        setProgressReady(true);
 
         const completedData = buildTeacherDashboardData({
           user,
@@ -744,22 +754,24 @@ export default function TeacherDashboard() {
         setClassTeacherData(completedData.classTeacherData);
         setAssignedClassroom(completedData.assignedClassroom);
       } catch (statsError) {
+        if (version !== dashboardLoadVersion.current) return;
         console.error(statsError);
         setError(statsError.message || "Dashboard opened, but progress stats failed to load.");
       } finally {
-        setProgressLoading(false);
+        if (version === dashboardLoadVersion.current) setProgressLoading(false);
       }
     } catch (e) {
+      if (version !== dashboardLoadVersion.current) return;
       console.error(e);
       setError(e.message || "Failed to load teacher dashboard.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (version === dashboardLoadVersion.current) { setLoading(false); setRefreshing(false); }
     }
   };
 
   useEffect(() => {
     loadDashboard(false);
+    return () => { dashboardLoadVersion.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -919,6 +931,7 @@ export default function TeacherDashboard() {
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
+          disabled={refreshing || progressLoading}
           onClick={() => loadDashboard(true, true)}
           fullWidth={isMobile}
         >
@@ -927,6 +940,9 @@ export default function TeacherDashboard() {
       }
     >
       <Stack spacing={2.25}>
+        {!progressReady && <Alert severity="info" action={<Button disabled={refreshing || progressLoading} onClick={() => loadDashboard(true, false, true)}>Load term statistics</Button>}>
+          Term statistics load only when requested. You can open SBA or enter marks without loading them.
+        </Alert>}
         {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
         {marksEntryDisabled ? (
           <Alert severity="warning" icon={<LockRoundedIcon />}>
@@ -1001,7 +1017,7 @@ export default function TeacherDashboard() {
                 {currentTerm ? <Chip label={academicDisplay(buildTermLabel(currentTerm))} color="primary" /> : null}
                 <Chip label={academicDisplay(`Subject Assignments: ${subjectRows.length}`)} />
                 <Chip label={academicDisplay(`Class Teacher Roles: ${classTeacherData ? 1 : 0}`)} />
-                {progressLoading ? <Chip label="Stats syncing" color="info" variant="outlined" /> : null}
+                {progressPending ? <Chip label={progressLabel} color="info" variant="outlined" /> : null}
               </Stack>
             </Grid>
           </Grid>
@@ -1022,16 +1038,16 @@ export default function TeacherDashboard() {
                 <StatusChip
                   status="completed"
                   label={
-                    academicDisplay(progressLoading
-                      ? "syncing"
+                    academicDisplay(progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.completed} completed`)
                   }
                 />
                 <StatusChip
                   status="pending"
                   label={
-                    academicDisplay(progressLoading
-                      ? "syncing"
+                    academicDisplay(progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.pending} pending`)
                   }
                 />
@@ -1059,7 +1075,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Completed"
-                value={progressLoading ? "..." : subjectProgressSummary.completed}
+                value={progressPending ? "..." : subjectProgressSummary.completed}
                 icon={<CheckCircleRoundedIcon />}
                 color="success"
               />
@@ -1067,7 +1083,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Pending"
-                value={progressLoading ? "..." : subjectProgressSummary.pending}
+                value={progressPending ? "..." : subjectProgressSummary.pending}
                 icon={<HourglassBottomRoundedIcon />}
                 color="warning"
               />
@@ -1103,8 +1119,8 @@ export default function TeacherDashboard() {
                   ) : null}
                   <Chip
                     label={
-                      academicDisplay(progressLoading
-                        ? "Progress syncing"
+                      academicDisplay(progressPending
+                        ? progressLabel
                         : `${classTeacherData.progress}% Completed`)
                     }
                     color={classTeacherData.progress === 100 ? "success" : "warning"}
@@ -1125,7 +1141,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="secondary"
                   onClick={handleExportPdf}
-                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressLoading}
+                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressPending}
                   startIcon={<PictureAsPdfIcon />}
                 >
                   {exportingPdf ? "Exporting PDF..." : "Export PDF"}
@@ -1134,7 +1150,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="info"
                   onClick={handleExportExcel}
-                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressLoading}
+                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressPending}
                   startIcon={<TableViewRoundedIcon />}
                 >
                   {exportingExcel ? "Exporting Excel..." : "Export Excel"}
@@ -1144,7 +1160,7 @@ export default function TeacherDashboard() {
                     variant="outlined"
                     color="success"
                     onClick={handleExportEmis}
-                    disabled={!assignedClassroom || !currentTerm || progressLoading}
+                    disabled={!assignedClassroom || !currentTerm || progressPending}
                     startIcon={<TableViewRoundedIcon />}
                   >
                     Export EMIS NP
@@ -1156,16 +1172,16 @@ export default function TeacherDashboard() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <StatusChip
                     status="active"
-                    label={academicDisplay(progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`)}
+                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.totalStudents} students`)}
                   />
                   <StatusChip status="saved" label={academicDisplay(`${classTeacherData.totalSubjects} subjects`)} />
                   <StatusChip
                     status="completed"
-                    label={academicDisplay(progressLoading ? "syncing" : `${classTeacherData.completed} completed`)}
+                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.completed} completed`)}
                   />
                   <StatusChip
                     status="pending"
-                    label={academicDisplay(progressLoading ? "syncing" : `${classTeacherData.pending} pending`)}
+                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.pending} pending`)}
                   />
                 </Stack>
               ) : (
@@ -1173,7 +1189,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Students"
-                      value={progressLoading ? "..." : classTeacherData.totalStudents}
+                      value={progressPending ? "..." : classTeacherData.totalStudents}
                       icon={<GroupRoundedIcon />}
                       color="primary"
                       sx={{ boxShadow: "none" }}
@@ -1191,7 +1207,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Completed"
-                      value={progressLoading ? "..." : classTeacherData.completed}
+                      value={progressPending ? "..." : classTeacherData.completed}
                       icon={<CheckCircleRoundedIcon />}
                       color="success"
                       sx={{ boxShadow: "none" }}
@@ -1200,7 +1216,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Pending"
-                      value={progressLoading ? "..." : classTeacherData.pending}
+                      value={progressPending ? "..." : classTeacherData.pending}
                       icon={<HourglassBottomRoundedIcon />}
                       color="error"
                       sx={{ boxShadow: "none" }}
@@ -1216,8 +1232,8 @@ export default function TeacherDashboard() {
                   sx={{ height: 8, borderRadius: 5 }}
                 />
                 <Typography variant="body2" color="text.secondary" mt={0.75}>
-                  {progressLoading
-                    ? "Calculating overall class completion"
+                  {progressPending
+                    ? progressLabel
                     : `${classTeacherData.progress}% overall class completion`}
                 </Typography>
               </Box>
@@ -1233,16 +1249,16 @@ export default function TeacherDashboard() {
                         compact
                         title={academicDisplay(`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`)}
                         subtitle={
-                          academicDisplay(subject.progressLoading
-                            ? "Progress syncing"
+                          academicDisplay(progressPending
+                            ? progressLabel
                             : `${subject.done}/${subject.total} students`)
                         }
                         right={
                           <StatusChip
-                            status={subject.progressLoading ? "active" : subject.completed ? "completed" : "pending"}
+                            status={progressPending ? "active" : subject.completed ? "completed" : "pending"}
                             label={
-                              academicDisplay(subject.progressLoading
-                                ? "Syncing"
+                              academicDisplay(progressPending
+                                ? progressLabel
                                 : subject.completed
                                 ? "Completed"
                                 : "Pending")
@@ -1257,7 +1273,7 @@ export default function TeacherDashboard() {
                             <Chip
                               size="small"
                               variant="outlined"
-                              label={academicDisplay(subject.progressLoading ? "Syncing" : `${subject.progress}%`)}
+                              label={academicDisplay(progressPending ? progressLabel : `${subject.progress}%`)}
                             />
                             <Chip size="small" variant="outlined" label={academicDisplay(subject.teacherName)} />
                           </Stack>
@@ -1346,8 +1362,8 @@ export default function TeacherDashboard() {
                                 ) : null}
                               </Stack>
                               <Typography variant="body2" color="text.secondary">
-                                {academicDisplay(subject.progressLoading
-                                  ? "Progress syncing"
+                                {academicDisplay(progressPending
+                                  ? progressLabel
                                   : `${subject.done}/${subject.total} students`)}
                               </Typography>
                             </Box>
@@ -1366,7 +1382,7 @@ export default function TeacherDashboard() {
                             useFlexGap
                           >
                             <Typography variant="body2" color="text.secondary">
-                              {academicDisplay(subject.progressLoading ? "Syncing" : `${subject.progress}%`)}
+                              {academicDisplay(progressPending ? progressLabel : `${subject.progress}%`)}
                             </Typography>
 
                             <Typography variant="body2" color="text.secondary">
@@ -1447,8 +1463,8 @@ export default function TeacherDashboard() {
                 <Chip
                   icon={<TimelineRoundedIcon />}
                   label={
-                    academicDisplay(progressLoading
-                      ? "Stats syncing"
+                    academicDisplay(progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.pending} Pending`)
                   }
                   color="warning"
@@ -1488,24 +1504,24 @@ export default function TeacherDashboard() {
                       footer={
                         <Stack spacing={1}>
                           <Typography variant="body2" color="text.secondary">
-                            {row.progressLoading
-                              ? "Progress syncing"
+                            {progressPending
+                              ? progressLabel
                               : `${row.done}/${row.total} students completed`}
                           </Typography>
 
                           <LinearProgress
-                            variant={row.progressLoading ? "indeterminate" : "determinate"}
-                            value={row.progressLoading ? undefined : row.progress}
+                            variant={progressLoading ? "indeterminate" : "determinate"}
+                            value={progressLoading ? undefined : row.progress}
                             sx={{ height: 6, borderRadius: 5 }}
                           />
 
                           <Stack direction="row" justifyContent="space-between">
                             <Typography variant="body2">
-                              {row.progressLoading ? "Syncing" : `${row.progress}%`}
+                              {progressPending ? progressLabel : `${row.progress}%`}
                             </Typography>
 
                             <Typography variant="body2">
-                              {row.progressLoading ? "" : `${row.done}/${row.total}`}
+                              {progressPending ? "" : `${row.done}/${row.total}`}
                             </Typography>
                           </Stack>
 

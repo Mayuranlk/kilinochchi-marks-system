@@ -87,3 +87,21 @@ SBA entry no longer requests the complete students or studentSubjectEnrollments 
 Entry reads SBA marks by class/term scope AND subject. The register reads the full class scope. The term prerequisite listener and server recheck also filter by subject, and subject changes invalidate earlier verification. Saves retain transaction conflict detection and security checks. No schema, stored marks, or security rules changed.
 
 This reduces entry reads, but is not a claim that all application-wide scans have been removed: the teacher dashboard and existing term entry loaders still have broader reads. Production savings require deploying the frontend and measuring usage with comparable user activity.
+
+
+### Follow-up read spike corrections
+
+- A failed dashboard aggregation now displays `Unavailable`; it never falls back to downloading marks/enrollments just to count them.
+- Enrollment queries are cached per subject for five minutes, shared across classes, entry and register. Concurrent matching reads are deduplicated. Student-ID batches are cached too. Existing collection invalidation and sign-out clear or invalidate these caches; explicit SBA Refresh bypasses them.
+- Selected-year enrollments with complete class information are filtered before student documents are requested. Legacy rows missing class information still fetch their linked student for the existing fallback matching; no incomplete roster is silently accepted.
+- If the existing `REACT_APP_ENABLE_CANONICAL_SCOPED_READS` reconciliation gate is enabled, enrollment queries additionally filter by canonical class and year on the server. This change does NOT enable that gate or migrate production records. In legacy mode a cold subject read still spans years/classes; the cache and prefetch filtering reduce repeated reads, not that initial enrollment query.
+- Local diagnostics: run `console.table(window.getFirestoreReadDiagnostics())` in the browser console after reproducing a session. It holds at most 200 query result/cache events and contains no student records. `documents` counts documents returned to these instrumented loaders, NOT exact billed reads (rule reads, retries, minimum charges and other loaders are not included). A reload/sign-out clears these diagnostics. No diagnostic data is written to Firebase.
+
+The admin dashboard still loads students and users for its visible summaries. These changes do not prove the origin of any historical usage spike. Verify the deployed build and compare a fresh SBA session, class switches, and register navigation using diagnostics plus Firebase usage.
+
+
+### Teacher landing-page containment
+
+Teacher Dashboard no longer starts school-wide term-mark/enrollment progress reads on login, term selection, or Refresh. Users can enter SBA without requesting term statistics. Statistics remain explicitly unloaded (not zero/completed), and dashboard report exports are disabled until complete statistics are available.
+
+The optional **Load term statistics** action uses cached bounded queries: at most 1,001 documents per collection, stopping immediately if the 1,000-document complete-result threshold is exceeded. It reports an error rather than presenting truncated totals. This temporarily limits dashboard statistics/exports for larger datasets until a reconciled scoped report loader is implemented. A small complete dataset still supports the existing statistics and exports. This is not required for SBA entry. Old asynchronous responses are ignored after navigation or term changes.

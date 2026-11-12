@@ -256,9 +256,9 @@ export default function Dashboard() {
           await Promise.all([
             getCollectionRows(db, "students"),
             getCollectionRows(db, "users"),
-            getCollectionCount(db, "marks"),
-            getCollectionCount(db, "subjects"),
-            getCollectionCount(db, "studentSubjectEnrollments"),
+            getCollectionCount(db, "marks").catch(() => "Unavailable"),
+            getCollectionCount(db, "subjects").catch(() => "Unavailable"),
+            getCollectionCount(db, "studentSubjectEnrollments").catch(() => "Unavailable"),
             getDoc(doc(db, "systemSettings", "marksEntry")),
           ]);
 

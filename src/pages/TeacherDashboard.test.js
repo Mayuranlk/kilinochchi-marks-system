@@ -1,0 +1,30 @@
+import { ThemeProvider } from "@mui/material/styles";
+import { createAppTheme } from "../theme/appTheme";
+import React from "react";
+import "@testing-library/jest-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import TeacherDashboard from "./TeacherDashboard";
+import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadTeacherProgress } from "../services/teacherProgressService";
+jest.mock("react-router-dom", () => ({ useNavigate: () => jest.fn() }), { virtual: true });
+jest.mock("../firebase", () => ({ db: {}, auth: { currentUser: { uid: "t1", email: "t@example.test" } } }));
+jest.mock("firebase/firestore", () => ({ doc: jest.fn(), onSnapshot: () => jest.fn() }));
+jest.mock("../services/firestoreReadCache", () => ({ getCollectionRows: jest.fn() }));
+jest.mock("../services/teacherProgressService", () => ({ loadTeacherProgress: jest.fn() }));
+jest.mock("../utils/classMarksExportUtils", () => ({ isClassMarksEmisExportSupported: () => false }));
+beforeEach(() => {
+  jest.clearAllMocks();
+  getCollectionRows.mockImplementation(async (_db, name) => name === "academicTerms" ? [{ id: "term", term: "Term 2", year: "2026", isActive: true }] : []);
+  loadTeacherProgress.mockResolvedValue({ enrollments: [], marks: [] });
+});
+test("teacher landing and refresh never download marks or enrollments automatically", async () => {
+  render(<ThemeProvider theme={createAppTheme("light")}><TeacherDashboard /></ThemeProvider>);
+  await screen.findByRole("button", { name: "Load term statistics" });
+  expect(loadTeacherProgress).not.toHaveBeenCalled();
+  expect(getCollectionRows.mock.calls.every(([, name]) => !["marks", "studentSubjectEnrollments", "students"].includes(name))).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled());
+  expect(loadTeacherProgress).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Load term statistics" }));
+  await waitFor(() => expect(loadTeacherProgress).toHaveBeenCalledTimes(1));
+});

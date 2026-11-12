@@ -58,6 +58,6 @@ test("opening entry never requests complete student or enrollment collections", 
   render(<SBAMarks />);
   await screen.findByRole("textbox", { name: "SBA mark for Student One" });
   expect(getCollectionRows.mock.calls.map((call) => call[1])).toEqual(["teacherAssignments", "academicTerms"]);
-  expect(loadSbaRosterData).toHaveBeenCalledWith(["maths"], expect.objectContaining({ id: "t1" }));
+  expect(loadSbaRosterData).toHaveBeenCalledWith(["maths"], expect.objectContaining({ id: "t1" }), expect.objectContaining({ grade: 10 }), { forceRefresh: false });
   expect(loadSbaRecords).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }), expect.any(Object), "maths");
 });
