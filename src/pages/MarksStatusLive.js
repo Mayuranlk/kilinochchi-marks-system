@@ -22,6 +22,7 @@ import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import {
   filterStudentsForClass,
   matchesReportClass,
@@ -479,8 +480,8 @@ export default function MarksStatusLive() {
       try {
         const [students, enrollments, marks, classrooms, terms, assignments] = await Promise.all([
           getCollectionRows(db, "students"),
-          getCollectionRows(db, "studentSubjectEnrollments"),
-          getCollectionRows(db, "marks"),
+          loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
+          loadRowsForAcademicYear("marks", selectedYear),
           getCollectionRows(db, "classrooms"),
           getCollectionRows(db, "academicTerms"),
           getCollectionRows(db, "teacherAssignments"),
@@ -502,7 +503,7 @@ export default function MarksStatusLive() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [selectedYear]);
 
   useEffect(() => {
     const activeTerm = data.terms.find((term) => term.isActive) || data.terms[0] || null;

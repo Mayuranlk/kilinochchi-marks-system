@@ -26,6 +26,7 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadSbaRosterData } from "../services/sbaService";
 import { EmptyState, PageContainer } from "../components/ui";
 import { normalizeText } from "../constants";
 import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, isSameTeacher, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
@@ -234,8 +235,6 @@ export default function SBAForm() {
 
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [terms, setTerms] = useState([]);
-  const [allEnrollments, setAllEnrollments] = useState([]);
-  const [allStudents, setAllStudents] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
   const [selectedTermKey, setSelectedTermKey] = useState("");
@@ -397,11 +396,9 @@ export default function SBAForm() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [allAssignments, allTerms, enrollments, students] = await Promise.all([
+      const [allAssignments, allTerms] = await Promise.all([
         getCollectionRows(db, "teacherAssignments", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
-        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-        getCollectionRows(db, "students", { forceRefresh }),
       ]);
 
       const scopedAssignments = isAdmin
@@ -423,8 +420,6 @@ export default function SBAForm() {
 
       setTeacherAssignments(scopedAssignments);
       setTerms(sortedTerms);
-      setAllEnrollments(enrollments);
-      setAllStudents(students);
 
       const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       if (defaultTerm) {
@@ -456,11 +451,26 @@ export default function SBAForm() {
         return;
       }
 
-      const studentMap = new Map(allStudents.map((student) => [String(student.id), student]));
-
       const termYear = normalizeAcademicYear(
         pick(activeTerm.year, activeTerm.academicYear, "")
       );
+      const scopeAssignment = {
+        ...selectedClassRow,
+        ...selectedSubject,
+        subjectId: selectedSubject.subjectId,
+        subjectName: selectedSubject.subjectName,
+        fullClassName: selectedClassRow?.fullClassName || selectedClass,
+      };
+      const {
+        students: scopedStudents,
+        enrollments: scopedEnrollments,
+      } = await loadSbaRosterData(
+        [selectedSubject.subjectId],
+        activeTerm,
+        scopeAssignment
+      );
+
+      const studentMap = new Map(scopedStudents.map((student) => [String(student.id), student]));
 
       const targetClassContext = selectedClassRow
         ? {
@@ -473,7 +483,7 @@ export default function SBAForm() {
           }
         : null;
 
-      const relevantEnrollments = allEnrollments.filter((enrollment) => {
+      const relevantEnrollments = scopedEnrollments.filter((enrollment) => {
         const student = studentMap.get(String(pick(enrollment.studentId, ""))) || {};
 
         const enrollmentContext = {
@@ -559,7 +569,7 @@ export default function SBAForm() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, allEnrollments, allStudents, selectedClass, selectedClassRow, selectedSubject]);
+  }, [activeTerm, selectedClass, selectedClassRow, selectedSubject]);
 
   useEffect(() => {
     loadBase();

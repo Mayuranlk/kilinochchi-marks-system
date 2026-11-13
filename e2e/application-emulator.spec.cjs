@@ -127,7 +127,7 @@ test("teacher can load assigned routes and save a canonical mark", async ({ page
   for (const [path, title] of [
     ["/teacher", "Teacher Dashboard"],
     ["/teacher/marks", "Marks Entry"],
-    ["/teacher/sba", "SBA Assessment Sheets"],
+    ["/teacher/sba-marks", "SBA Marks Entry"],
     ["/teacher/class-report", "Class Report"],
     ["/teacher/report/student-001", "Synthetic Student One"],
   ]) await visit(page, monitor, path, title);
@@ -253,7 +253,8 @@ test("admin completes backup download, validation, upload, and restore through t
   expect(downloadPath).toBeTruthy();
   const payload = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
   expect(payload.projectId).toBe(EXPECTED_PROJECT_ID);
-  expect(Object.keys(payload.collections)).toHaveLength(17);
+  expect(Object.keys(payload.collections)).toContain("sbaMarks");
+  expect(Object.keys(payload.collections).length).toBeGreaterThanOrEqual(18);
   expect(payload.summary.documentCount).toBeGreaterThan(0);
   await expect(page.getByText(/Backup downloaded successfully/)).toBeVisible();
 

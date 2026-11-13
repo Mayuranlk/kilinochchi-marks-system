@@ -26,6 +26,7 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadRowsForGrades } from "../services/firestoreScopedReads";
 import { useAuth } from "../context/AuthContext";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
@@ -75,11 +76,21 @@ export default function SectionalHeadDashboard() {
         setLoading(true);
         setError("");
 
+        const grades = (assignedGrades || []).map(Number).filter(Number.isFinite);
+        if (!grades.length) {
+          setStudents([]);
+          setClassrooms([]);
+          setEnrollments([]);
+          setMarks([]);
+          setTerms([]);
+          return;
+        }
+
         const [studentRows, classroomRows, enrollmentRows, markRows, termRows] = await Promise.all([
-          getCollectionRows(db, "students"),
-          getCollectionRows(db, "classrooms"),
-          getCollectionRows(db, "studentSubjectEnrollments"),
-          getCollectionRows(db, "marks"),
+          loadRowsForGrades("students", grades),
+          loadRowsForGrades("classrooms", grades),
+          loadRowsForGrades("studentSubjectEnrollments", grades),
+          loadRowsForGrades("marks", grades),
           getCollectionRows(db, "academicTerms"),
         ]);
 
@@ -97,7 +108,7 @@ export default function SectionalHeadDashboard() {
     }
 
     loadData();
-  }, []);
+  }, [assignedGrades]);
 
   const gradeSet = useMemo(() => new Set((assignedGrades || []).map(Number)), [assignedGrades]);
   const activeTerm = useMemo(() => terms.find((term) => term.isActive) || terms[0] || null, [terms]);

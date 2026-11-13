@@ -32,6 +32,8 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadRowsForGrades } from "../services/firestoreScopedReads";
+import { loadMarksForStudents } from "../services/marksEntryDataService";
 import { useAuth } from "../context/AuthContext";
 import { SCHOOL_NAME, SCHOOL_SUBTITLE, buildALClassName, isALGrade } from "../constants";
 import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
@@ -367,14 +369,10 @@ export default function ClassReport() {
       setLoadError("");
 
       try {
-        const [allTerms, studentRows, markRows, classroomRows, enrollmentRows] =
-          await Promise.all([
-            getCollectionRows(db, "academicTerms"),
-            getCollectionRows(db, "students"),
-            getCollectionRows(db, "marks"),
-            getCollectionRows(db, "classrooms"),
-            getCollectionRows(db, "studentSubjectEnrollments"),
-          ]);
+        const [allTerms, classroomRows] = await Promise.all([
+          getCollectionRows(db, "academicTerms"),
+          getCollectionRows(db, "classrooms"),
+        ]);
 
         const sortedTerms = [...allTerms].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
         const active = allTerms.find((term) => term.isActive === true) || null;
@@ -397,6 +395,11 @@ export default function ClassReport() {
         }
 
         const className = matchedClassroom.className;
+        const grade = parseGrade(matchedClassroom.grade);
+        const [studentRows, enrollmentRows] = await Promise.all([
+          loadRowsForGrades("students", [grade]),
+          loadRowsForGrades("studentSubjectEnrollments", [grade]),
+        ]);
 
         const allStudents = studentRows.filter(isStudentActive);
 
@@ -408,6 +411,9 @@ export default function ClassReport() {
           .filter(isEnrollmentActive)
           .filter((enrollment) => getEnrollmentClassName(enrollment) === className);
 
+        const markRows = await loadMarksForStudents(
+          classStudents.map((student) => student.id)
+        );
         const classMarks = markRows
           .filter((mark) => getMarkClassName(mark) === className);
 

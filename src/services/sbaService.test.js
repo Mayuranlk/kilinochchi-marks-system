@@ -1,5 +1,5 @@
 import { clearFirestoreReadCache } from "./firestoreReadCache";
-import { doc, runTransaction, setDoc, getDocs } from "firebase/firestore";
+import { doc, runTransaction, setDoc, getDocs, getDocFromServer } from "firebase/firestore";
 import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
 
 jest.mock("../firebase", () => ({ db: {} }));
@@ -44,6 +44,8 @@ test("partial saves return successes and retain failed rows for review", async (
   expect(result.saved).toHaveLength(1);
   expect(result.failed).toHaveLength(1);
   expect(result.failed[0].studentId).toBe("s2");
+  expect(getDocFromServer).toHaveBeenCalledTimes(1);
+  expect(transaction.get).toHaveBeenCalledTimes(1);
 });
 test("SBA controls write only their own settings and store a Sri Lanka deadline", async () => {
   await saveSbaSettings({ teacherEntryEnabled: true, teacherEntryDeadline: "2026-11-03" }, "admin");
@@ -62,7 +64,7 @@ test("roster reads are bounded to the selected legacy class scope", async () => 
   });
   const result = await loadSbaRosterData(["maths", "maths"], context.term, context.assignment);
   const enrollmentQueries = getDocs.mock.calls.map(([request]) => request).filter((request) => request[0] === "studentSubjectEnrollments");
-  expect(enrollmentQueries).toHaveLength(8);
+  expect(enrollmentQueries).toHaveLength(1);
   enrollmentQueries.forEach((request) => {
     expect(request).toContainEqual(["subjectId", "==", "maths"]);
     expect(request).toContainEqual(["limit", 201]);
@@ -84,7 +86,7 @@ test("teacher assignments use identity-scoped queries instead of a collection sc
     : { docs: [] });
   const rows = await loadSbaTeacherAssignments({ uid: "teacher", email: "teacher@example.test" });
   expect(rows.map((row) => row.id)).toEqual(["a1"]);
-  expect(getDocs).toHaveBeenCalledTimes(5);
+  expect(getDocs).toHaveBeenCalledTimes(1);
   getDocs.mock.calls.forEach(([request]) => {
     expect(request[0]).toBe("teacherAssignments");
     expect(request).toContainEqual(["limit", 201]);

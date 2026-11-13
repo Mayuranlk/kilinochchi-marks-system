@@ -38,6 +38,7 @@ import { useAuth } from "../context/AuthContext";
 import { loadTeacherProgress } from "../services/teacherProgressService";
 import { loadSbaTeacherAssignments } from "../services/sbaService";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { loadRowsForGrades } from "../services/firestoreScopedReads";
 import {
   EmptyState,
   MobileListRow,
@@ -802,10 +803,13 @@ export default function TeacherDashboard() {
   const ensureStudentsLoaded = useCallback(async () => {
     if (students.length > 0) return students;
 
-    const studentsData = await getCollectionRows(db, "students");
+    const grade = Number(assignedClassroom?.grade || 0);
+    const studentsData = grade
+      ? await loadRowsForGrades("students", [grade])
+      : [];
     setStudents(studentsData);
     return studentsData;
-  }, [students]);
+  }, [assignedClassroom?.grade, students]);
 
   const buildAssignedClassReportData = useCallback((studentRows = students) => {
     if (!assignedClassroom || !currentTerm || !studentRows.length) return null;

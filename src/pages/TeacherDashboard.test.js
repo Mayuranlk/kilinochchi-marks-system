@@ -6,8 +6,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import TeacherDashboard from "./TeacherDashboard";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import { loadTeacherProgress } from "../services/teacherProgressService";
+import { loadSbaTeacherAssignments } from "../services/sbaService";
 jest.mock("react-router-dom", () => ({ useNavigate: () => jest.fn() }), { virtual: true });
 jest.mock("../firebase", () => ({ db: {}, auth: { currentUser: { uid: "t1", email: "t@example.test" } } }));
+jest.mock("../context/AuthContext", () => ({ useAuth: () => ({ profile: { id: "t1", uid: "t1", email: "t@example.test", name: "Teacher" } }) }));
+jest.mock("../services/sbaService", () => ({ loadSbaTeacherAssignments: jest.fn() }));
+jest.mock("../services/firestoreScopedReads", () => ({ loadRowsForGrades: jest.fn(async () => []) }));
 jest.mock("firebase/firestore", () => ({ doc: jest.fn(), onSnapshot: () => jest.fn() }));
 jest.mock("../services/firestoreReadCache", () => ({ getCollectionRows: jest.fn() }));
 jest.mock("../services/teacherProgressService", () => ({ loadTeacherProgress: jest.fn() }));
@@ -16,6 +20,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getCollectionRows.mockImplementation(async (_db, name) => name === "academicTerms" ? [{ id: "term", term: "Term 2", year: "2026", isActive: true }] : []);
   loadTeacherProgress.mockResolvedValue({ enrollments: [], marks: [] });
+  loadSbaTeacherAssignments.mockResolvedValue([]);
 });
 test("teacher landing and refresh never download marks or enrollments automatically", async () => {
   render(<ThemeProvider theme={createAppTheme("light")}><TeacherDashboard /></ThemeProvider>);

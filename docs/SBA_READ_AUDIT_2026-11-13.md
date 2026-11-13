@@ -20,7 +20,23 @@ The production data audit also showed that canonical fields were not yet complet
 - Teacher assignments are loaded by the logged-in teacher's UID/email fields instead of scanning every assignment.
 - The teacher dashboard reuses those scoped assignment queries and the authenticated profile; it no longer scans all users and assignments on login.
 - Teachers see only SBA Marks Entry. A3 Register and Blank Assessment Sheet remain available to administrators, and old teacher URLs redirect to `/teacher/sba-marks`.
-- Composite index definitions for both legacy year field names are included in `firestore.indexes.json`.
+- SBA saves read the entry-control document once for the save set instead of once per changed student. Firestore rules still enforce the control on every write.
+
+## System-wide second pass
+
+The later review found that the teacher term-marks page was still loading the complete `marks`, `students`, and `studentSubjectEnrollments` collections when it opened. That page is part of the same teacher workflow and can overlap an SBA session in the project-wide usage graph. It was a separate broad-read source even though SBA records remained isolated correctly.
+
+The following automatic reads are now bounded:
+
+- Term marks entry loads the logged-in teacher's assignments, the selected class roster, and marks for only those student IDs and the selected academic scope.
+- SBA blank-sheet generation loads the selected class roster only. The A3 and blank-sheet tools remain admin-only.
+- Class reports, sectional-head views, live marks status, and academic-data health checks query their selected grades or academic year. The data-health audit runs only after an administrator selects **Run audit**.
+- Compatibility queries use the canonical field first and try legacy field names/types only when the primary query is empty. This prevents every normal page load from paying for every legacy variant.
+- Admin deletion loads mark history for the selected student only. It no longer requires loading the whole `marks` collection.
+
+No new mark-query composite indexes are required by this change. The scoped queries contain equality filters, which Firestore can serve by merging its automatic single-field indexes. Avoiding unnecessary indexes also avoids extra index-entry writes on every mark save.
+
+Security-rule dependent reads remain billable. For SBA, they are bounded checks of the authenticated profile, settings, assignment, enrollment, term, and student documents. They can add a small fixed/read-per-row cost, but they cannot explain a 60,000-179,000 read burst from one class. The reviewed rules also do not allow a teacher to delete SBA records; delete activity in the project graph must come from an administrator, maintenance operation, or Firebase console action.
 
 ## Emulator evidence
 
@@ -46,12 +62,14 @@ For the tested 36-student shape, 15 simultaneous cold teacher sessions are appro
 ## Verification
 
 - Production build: passed.
-- Focused Jest suites: 17 tests passed.
+- Focused Jest suites: 4 suites and 17 tests passed.
 - Local Auth/Firestore emulator and Chrome flow: passed with the current reviewed rules.
-- The rules suite previously completed with 13 tests passed.
+- Firestore rules suite: 13 tests passed.
 
 ## Deployment and monitoring
 
-Push the application change so Vercel builds the new bundle. Deploy `firestore.indexes.json` through Firebase as a separate Firebase operation; a Vercel deployment does not deploy Firestore indexes. After production deployment, use one controlled teacher session and check the one-hour Firestore graph plus `window.getFirestoreReadDiagnostics()` before inviting all teachers.
+Push the application change so Vercel builds the new bundle. No Firestore schema, collection, or index deployment is needed for this correction. After production deployment, use one controlled teacher session and check the one-hour Firestore graph plus `window.getFirestoreReadDiagnostics()` before inviting all teachers.
+
+The application cannot reverse reads that Firebase has already billed. If the Spark daily quota is already exhausted, saves may remain unavailable until Firebase resets the daily quota; upgrading the billing plan is the other immediate recovery option. The corrected bundle prevents the identified automatic whole-collection scans from repeating after deployment.
 
 The Firebase graph is project-wide, so unrelated admin reports, term-entry scans, data-health audits, console browsing, writes, and deletes can appear in the same interval. A production spike after this release should be correlated with Query Insights or a controlled timestamp before attributing it to SBA.

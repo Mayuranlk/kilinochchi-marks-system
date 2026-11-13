@@ -35,12 +35,15 @@ export async function loadSbaTeacherAssignments(user, options = {}) {
     ...(["teacherId", "teacherUid", "userId"].map((field) => [field, uid]).filter(([, value]) => value)),
     ...(["teacherEmail", "email"].map((field) => [field, email]).filter(([, value]) => value)),
   ];
-  const results = await Promise.all(identities.map(async ([field, value]) => {
+  const readIdentity = async ([field, value]) => {
     const rows = await getScopedRows("teacherAssignments", ["sba-teacher", field, value],
       () => getDocs(query(collection(db, "teacherAssignments"), where(field, "==", value), limit(MAX_SBA_SCOPE_ROWS + 1))), options);
     return assertBounded(rows, "Teacher assignments");
-  }));
-  return [...new Map(results.flat().map((row) => [row.id, row])).values()];
+  };
+  const primary = await readIdentity(identities[0]);
+  if (primary.length) return primary;
+  const fallbacks = await Promise.all(identities.slice(1).map(readIdentity));
+  return [...new Map(fallbacks.flat().map((row) => [row.id, row])).values()];
 }
 
 export async function loadSbaRosterData(subjectIds, term, assignment = null, options = {}) {
@@ -63,7 +66,7 @@ export async function loadSbaRosterData(subjectIds, term, assignment = null, opt
           for (const sectionValue of sectionValues)
             variants.push({ yearField, yearValue, gradeValue, sectionValue });
 
-    const batches = await Promise.all(variants.map(async ({ yearField, yearValue, gradeValue, sectionValue }) => {
+    const readVariant = async ({ yearField, yearValue, gradeValue, sectionValue }) => {
       const key = ["sba-class-scope", yearField, yearValue, gradeValue, sectionValue, subjectId];
       const rows = await getScopedRows("studentSubjectEnrollments", key, () => getDocs(query(
         collection(db, "studentSubjectEnrollments"),
@@ -73,8 +76,12 @@ export async function loadSbaRosterData(subjectIds, term, assignment = null, opt
         where("subjectId", "==", subjectId),
         limit(MAX_SBA_SCOPE_ROWS + 1)
       )), options);
-      return assertBounded(rows, `SBA ${year} ${context.grade}${context.section} ${subjectId}`);
-    }));
+      return assertBounded(rows, "SBA " + year + " " + context.grade + context.section + " " + subjectId);
+    };
+    const primary = await readVariant(variants[0]);
+    const batches = primary.length
+      ? [primary]
+      : await Promise.all(variants.slice(1).map(readVariant));
     batches.flat().forEach((row) => enrollmentsById.set(row.id, row));
   }
 
@@ -105,14 +112,16 @@ export async function saveSbaSettings(settings, uid) {
   return normalized;
 }
 
-export async function saveSbaChange({ term, assignment, row, value, previous, uid, isAdmin, remove = false }) {
+export async function saveSbaChange({ term, assignment, row, value, previous, uid, isAdmin, remove = false, skipSettingsCheck = false }) {
   const id = sbaRecordId(term.id, row.studentId, assignment.subjectId);
   const ref = doc(db, SBA_COLLECTION, id);
   const parsed = parseSbaValue(value.mark, value.absent);
   return runTransaction(db, async (transaction) => {
     const current = await transaction.get(ref);
-    const settings = await transaction.get(settingsRef());
-    if (!isAdmin && sbaEntryLocked(settings.data())) throw new Error("SBA entry is closed. Refresh to see the current controls.");
+    if (!isAdmin && !skipSettingsCheck) {
+      const settings = await transaction.get(settingsRef());
+      if (sbaEntryLocked(settings.data())) throw new Error("SBA entry is closed. Refresh to see the current controls.");
+    }
     const actualRevision = current.exists() ? current.data().revision : null;
     if (actualRevision !== (previous?.revision ?? null)) throw new Error(`${row.studentName}: SBA marks changed in another session. Refresh before editing again.`);
     if (remove) {
@@ -136,9 +145,17 @@ export async function saveSbaChange({ term, assignment, row, value, previous, ui
 // transaction low. Successful rows are returned even if another row conflicts.
 export async function saveSbaChanges(context, changes) {
   const saved = [], failed = [];
+  if (!context.isAdmin && changes.length) {
+    const settings = await getDocFromServer(settingsRef());
+    if (sbaEntryLocked(settings?.data?.() || {})) {
+      throw new Error("SBA entry is closed. Refresh to see the current controls.");
+    }
+  }
   for (let index = 0; index < changes.length; index += 4) {
     const chunk = changes.slice(index, index + 4);
-    const results = await Promise.allSettled(chunk.map((change) => saveSbaChange({ ...context, ...change })));
+    const results = await Promise.allSettled(chunk.map((change) =>
+      saveSbaChange({ ...context, ...change, skipSettingsCheck: !context.isAdmin })
+    ));
     results.forEach((result, offset) => {
       if (result.status === "fulfilled") saved.push(result.value);
       else failed.push({ studentId: chunk[offset].row.studentId, message: result.reason.message });
