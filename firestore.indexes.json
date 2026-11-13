@@ -24,6 +24,26 @@
       "collectionGroup": "studentSubjectEnrollments",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "academicYear", "order": "ASCENDING" },
+        { "fieldPath": "grade", "order": "ASCENDING" },
+        { "fieldPath": "section", "order": "ASCENDING" },
+        { "fieldPath": "subjectId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "studentSubjectEnrollments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "year", "order": "ASCENDING" },
+        { "fieldPath": "grade", "order": "ASCENDING" },
+        { "fieldPath": "section", "order": "ASCENDING" },
+        { "fieldPath": "subjectId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "studentSubjectEnrollments",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "academicYearKey", "order": "ASCENDING" },
         { "fieldPath": "classKey", "order": "ASCENDING" },
         { "fieldPath": "subjectKey", "order": "ASCENDING" },

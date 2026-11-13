@@ -1,11 +1,11 @@
 import { clearFirestoreReadCache } from "./firestoreReadCache";
 import { doc, runTransaction, setDoc, getDocs } from "firebase/firestore";
-import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaRosterData, loadSbaRecords } from "./sbaService";
+import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
 
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("firebase/firestore", () => ({
   doc: jest.fn((_db, collection, id) => ({ collection, id })),
-  collection: (_db, name) => name, documentId: () => "__name__", getDocs: jest.fn(), getDocFromServer: jest.fn(), query: (...args) => args, where: (...args) => args,
+  collection: (_db, name) => name, documentId: () => "__name__", getDocs: jest.fn(), getDocFromServer: jest.fn(), query: (...args) => args, where: (...args) => args, limit: (value) => ["limit", value],
   runTransaction: jest.fn(), setDoc: jest.fn(), serverTimestamp: () => "server-time",
   Timestamp: { fromDate: (date) => date.toISOString() },
 }));
@@ -51,17 +51,25 @@ test("SBA controls write only their own settings and store a Sri Lanka deadline"
   expect(setDoc.mock.calls[0][1].teacherEntryDeadlineAt).toBe("2026-11-03T18:29:59.999Z");
 });
 
-test("roster reads only selected subjects and linked current-year students", async () => {
+test("roster reads are bounded to the selected legacy class scope", async () => {
   const wrap = (id, data) => ({ id, data: () => data });
-  getDocs.mockResolvedValueOnce({ docs: [
-    wrap("e1", { subjectId: "maths", studentId: "s1", academicYear: "2026" }),
-    wrap("e2", { subjectId: "maths", studentId: "old", year: "2025" }),
-  ] }).mockResolvedValueOnce({ docs: [wrap("s1", { name: "One" })] });
-  const result = await loadSbaRosterData(["maths", "maths"], context.term);
-  expect(getDocs.mock.calls).toEqual([
-    [["studentSubjectEnrollments", ["subjectId", "==", "maths"]]],
-    [["students", ["__name__", "in", ["s1"]]]],
-  ]);
+  getDocs.mockImplementation(async (request) => {
+    if (request[0] === "students") return { docs: [wrap("s1", { name: "One" })] };
+    const has = (field, value) => request.some((item) => item[0] === field && item[2] === value);
+    return has("academicYear", "2026") && has("grade", 10) && has("section", "A")
+      ? { docs: [wrap("e1", { subjectId: "maths", studentId: "s1", academicYear: "2026", grade: 10, section: "A", fullClassName: "10A" })] }
+      : { docs: [] };
+  });
+  const result = await loadSbaRosterData(["maths", "maths"], context.term, context.assignment);
+  const enrollmentQueries = getDocs.mock.calls.map(([request]) => request).filter((request) => request[0] === "studentSubjectEnrollments");
+  expect(enrollmentQueries).toHaveLength(8);
+  enrollmentQueries.forEach((request) => {
+    expect(request).toContainEqual(["subjectId", "==", "maths"]);
+    expect(request).toContainEqual(["limit", 201]);
+    expect(request.some((item) => ["academicYear", "year"].includes(item[0]))).toBe(true);
+    expect(request.some((item) => item[0] === "grade")).toBe(true);
+    expect(request.some((item) => item[0] === "section")).toBe(true);
+  });
   expect(result.enrollments.map((row) => row.id)).toEqual(["e1"]);
   expect(result.students.map((row) => row.id)).toEqual(["s1"]);
 });
@@ -69,40 +77,23 @@ test("empty subject selection performs no reads", async () => {
   expect(await loadSbaRosterData([], context.term)).toEqual({ students: [], enrollments: [] });
   expect(getDocs).not.toHaveBeenCalled();
 });
+test("teacher assignments use identity-scoped queries instead of a collection scan", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  getDocs.mockImplementation(async (request) => request.some((item) => item[0] === "teacherId")
+    ? { docs: [wrap("a1", { teacherId: "teacher", subjectId: "maths" })] }
+    : { docs: [] });
+  const rows = await loadSbaTeacherAssignments({ uid: "teacher", email: "teacher@example.test" });
+  expect(rows.map((row) => row.id)).toEqual(["a1"]);
+  expect(getDocs).toHaveBeenCalledTimes(5);
+  getDocs.mock.calls.forEach(([request]) => {
+    expect(request[0]).toBe("teacherAssignments");
+    expect(request).toContainEqual(["limit", 201]);
+  });
+});
 test("entry scopes marks by subject while register retains all class subjects", async () => {
   getDocs.mockResolvedValue({ docs: [] });
   await loadSbaRecords(context.term, context.assignment, "maths");
-  expect(getDocs.mock.calls[0][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["subjectId", "==", "maths"]]);
+  expect(getDocs.mock.calls[0][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["subjectId", "==", "maths"], ["limit", 201]]);
   await loadSbaRecords(context.term, context.assignment);
   expect(getDocs.mock.calls[1][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"]]);
-});
-
-test("changing classes reuses subject enrollments and excludes other-class student reads", async () => {
-  const wrap = (id, data) => ({ id, data: () => data });
-  getDocs.mockResolvedValueOnce({ docs: [
-    wrap("a", { subjectId: "maths", studentId: "s1", academicYear: "2026", grade: 10, section: "A", fullClassName: "10A" }),
-    wrap("b", { subjectId: "maths", studentId: "s2", academicYear: "2026", grade: 10, section: "B", fullClassName: "10B" }),
-    wrap("legacy", { subjectId: "maths", studentId: "s3", academicYear: "2026" }),
-  ] }).mockResolvedValue({ docs: [] });
-  await loadSbaRosterData(["maths"], context.term, context.assignment);
-  await loadSbaRosterData(["maths"], context.term, { ...context.assignment, section: "B" });
-  expect(getDocs.mock.calls.filter(([q]) => q[0] === "studentSubjectEnrollments")).toHaveLength(1);
-  expect(getDocs.mock.calls[1][0][1]).toEqual(["__name__", "in", ["s1", "s3"]]);
-  expect(getDocs.mock.calls[2][0][1]).toEqual(["__name__", "in", ["s2", "s3"]]);
-  await loadSbaRosterData(["maths"], context.term, context.assignment);
-  expect(getDocs).toHaveBeenCalledTimes(3);
-});
-
-test("reconciled mode queries the selected canonical class and year", async () => {
-  const previous = process.env.REACT_APP_ENABLE_CANONICAL_SCOPED_READS;
-  process.env.REACT_APP_ENABLE_CANONICAL_SCOPED_READS = "true";
-  try {
-    getDocs.mockResolvedValue({ docs: [] });
-    await loadSbaRosterData(["maths"], context.term, { ...context.assignment, fullClassName: "10A" });
-    expect(getDocs.mock.calls[0][0]).toEqual(["studentSubjectEnrollments",
-      ["academicYearKey", "==", "2026"], ["classKey", "==", "10a"], ["subjectId", "==", "maths"]]);
-  } finally {
-    if (previous === undefined) delete process.env.REACT_APP_ENABLE_CANONICAL_SCOPED_READS;
-    else process.env.REACT_APP_ENABLE_CANONICAL_SCOPED_READS = previous;
-  }
 });

@@ -242,8 +242,6 @@ export default function Layout() {
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
-      { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/teacher/sba-register" },
-      { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
     ];
     if (canAccessAllReports) {
       items.push(
@@ -271,9 +269,7 @@ export default function Layout() {
     if (isTeacher) {
       items.push(
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
-        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
-        { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/teacher/sba-register" },
-        { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" }
+        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" }
       );
     }
     if (isClassTeacher) {

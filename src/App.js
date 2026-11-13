@@ -702,7 +702,7 @@ export default function App() {
               }
             >
               <Route path="sba-marks" element={<TeacherRoute><LazyRoute><SBAMarks /></LazyRoute></TeacherRoute>} />
-              <Route path="sba-register" element={<TeacherRoute><LazyRoute><SBAMarks registerMode /></LazyRoute></TeacherRoute>} />
+              <Route path="sba-register" element={<Navigate to="/teacher/sba-marks" replace />} />
               <Route
                 index
                 element={
@@ -724,17 +724,7 @@ export default function App() {
                   </TeacherRoute>
                 }
               />
-
-              <Route
-                path="sba"
-                element={
-                  <TeacherRoute>
-                    <LazyRoute>
-                      <SBAForm />
-                    </LazyRoute>
-                  </TeacherRoute>
-                }
-              />
+              <Route path="sba" element={<Navigate to="/teacher/sba-marks" replace />} />
 
               <Route
                 path="class-report"

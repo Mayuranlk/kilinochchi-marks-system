@@ -55,4 +55,7 @@ test("teachers do not receive administrator pages", () => {
   mount("/teacher");
   expect(screen.queryByRole("button", { name: "Administration" })).not.toBeInTheDocument();
   expect(screen.queryByText("Backup & Restore")).not.toBeInTheDocument();
+  expect(screen.getByText("SBA Marks Entry")).toBeInTheDocument();
+  expect(screen.queryByText("SBA Class Register")).not.toBeInTheDocument();
+  expect(screen.queryByText("SBA Blank Sheet")).not.toBeInTheDocument();
 });

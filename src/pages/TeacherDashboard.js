@@ -34,7 +34,9 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import { loadTeacherProgress } from "../services/teacherProgressService";
+import { loadSbaTeacherAssignments } from "../services/sbaService";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
@@ -379,8 +381,8 @@ const buildTeacherDashboardData = ({
   const myAssignments = assignments.filter(
     (assignment) =>
       isActiveStatus(assignment.status) &&
-      (normalize(assignment.teacherId) === normalize(user.uid) ||
-        normalize(assignment.teacherEmail) === normalize(user.email))
+      (normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
+        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email))
   );
 
   const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
@@ -467,8 +469,8 @@ const buildTeacherDashboardData = ({
   const assignedClassroom =
     classrooms.find(
       (c) =>
-        normalize(c.classTeacherId) === normalize(user.uid) ||
-        normalize(c.classTeacherEmail) === normalize(user.email)
+        normalize(pick(c.classTeacherId, c.classTeacherUid, c.teacherId)) === normalize(user.uid) ||
+        normalize(pick(c.classTeacherEmail, c.teacherEmail)) === normalize(user.email)
     ) || null;
 
   let classTeacherData = null;
@@ -550,8 +552,8 @@ const buildTeacherDashboardData = ({
       if (progressReady && progressInfo.total === 0) return;
 
       const isMine =
-        normalize(assignment.teacherId) === normalize(user.uid) ||
-        normalize(assignment.teacherEmail) === normalize(user.email);
+        normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
+        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email);
 
       const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
         getResolvedStream(assignment)
@@ -618,6 +620,7 @@ const buildTeacherDashboardData = ({
 
 export default function TeacherDashboard() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
   const [loading, setLoading] = useState(true);
@@ -679,13 +682,12 @@ export default function TeacherDashboard() {
 
       const user = auth.currentUser;
       if (!user) throw new Error("User is not logged in.");
-
-      const [users, assignments, classrooms, loadedTerms] = await Promise.all([
-        getCollectionRows(db, "users", { forceRefresh }),
-        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+      const [assignments, classrooms, loadedTerms] = await Promise.all([
+        loadSbaTeacherAssignments(user, { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
+      const users = [{ ...profile, id: profile?.id || user.uid, uid: user.uid, email: user.email }];
 
       if (version !== dashboardLoadVersion.current) return;
       setClassrooms(classrooms);

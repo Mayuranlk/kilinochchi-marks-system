@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
 import { PageContainer, EmptyState } from "../components/ui";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaRecords, loadSbaRosterData, loadSbaSettings, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
+import { loadSbaRecords, loadSbaRosterData, loadSbaSettings, loadSbaTeacherAssignments, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
 import { activeSbaRow, buildSbaRegister, buildSbaRoster, indexSbaRosterData, parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { buildTermLabel, getDisplayClassName, isActiveTerm, isSameTeacher } from "../utils/sbaContext";
 import { buildSbaRegisterHtml, printSbaRegister } from "../utils/sbaRegisterPrint";
@@ -20,6 +20,8 @@ const sameValue = (left, right) => String(left.mark) === String(right.mark) && l
 export default function SBAMarks({ registerMode = false }) {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const userId = user?.uid || "";
+  const userEmail = user?.email || "";
   const [base, setBase] = useState(emptyData);
   const [loading, setLoading] = useState(true);
   const [baseError, setBaseError] = useState("");
@@ -52,7 +54,7 @@ export default function SBAMarks({ registerMode = false }) {
     setLoading(true); setBaseError(""); setError("");
     try {
       const [assignments, terms, controls] = await Promise.all([
-        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+        isAdmin ? getCollectionRows(db, "teacherAssignments", { forceRefresh }) : loadSbaTeacherAssignments({ uid: userId, email: userEmail }, { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
         loadSbaSettings(),
       ]);
@@ -68,7 +70,7 @@ export default function SBAMarks({ registerMode = false }) {
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
-  }, []);
+  }, [isAdmin, userId, userEmail]);
   useEffect(() => { loadBase(); return () => { loadVersion.current += 1; }; }, [loadBase]);
 
   const term = useMemo(() => base.terms.find((item) => item.id === termId), [base.terms, termId]);
@@ -193,15 +195,15 @@ export default function SBAMarks({ registerMode = false }) {
   return <PageContainer title={academicDisplay(registerMode ? "SBA Class Register" : "SBA Marks Entry")} subtitle={academicDisplay(registerMode ? "A3 landscape register · Final school-based assessment marks out of 20" : "Enter final SBA marks for your assigned classes and subjects.")}>
     <Stack spacing={2}>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Button variant="outlined" onClick={openMode} disabled={saving}>{registerMode ? "Enter SBA marks" : "A3 class register"}</Button>
-        <Button onClick={() => { if (window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) navigate(`${isAdmin ? "" : "/teacher"}/sba`); }} disabled={saving}>Blank assessment sheet</Button>
+        {isAdmin && <Button variant="outlined" onClick={openMode} disabled={saving}>{registerMode ? "Enter SBA marks" : "A3 class register"}</Button>}
+        {isAdmin && <Button onClick={() => { if (window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) navigate("/sba"); }} disabled={saving}>Blank assessment sheet</Button>}
         <Button onClick={() => loadBase(true)} disabled={busy || dirty || settingsDirty}>Refresh</Button>
       </Stack>
       {baseError && <Alert severity="error">{academicDisplay(baseError)}</Alert>}
       {loaded.error && <Alert severity="error">{academicDisplay(loaded.error)}</Alert>}
       {error && <Alert severity="error">{academicDisplay(error)}</Alert>}
       {success && <Alert severity="success">{academicDisplay(success)}</Alert>}
-      {locked && !loading && <Alert severity="info">SBA entry is closed. You can view saved SBA marks and print the register.</Alert>}
+      {locked && !loading && <Alert severity="info">{isAdmin ? "SBA entry is closed. You can view saved SBA marks and print the register." : "SBA entry is closed. You can view saved SBA marks."}</Alert>}
       {isAdmin && settingsDraft && !registerMode && <Paper variant="outlined" sx={{ p: 2 }}><Stack spacing={2}>
         <Typography fontWeight={700}>SBA entry controls</Typography>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>

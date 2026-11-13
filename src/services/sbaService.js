@@ -1,46 +1,85 @@
-import { collection, doc, documentId, getDocs, getDocFromServer, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, getDocFromServer, limit, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
 import { getScopedRows, recordRead } from "./firestoreReadCache";
 import { getClassContext, matchesClassContext } from "../utils/sbaContext";
-import { buildCanonicalEnrollmentFields } from "../utils/firestoreCanonical";
-import { canonicalScopedReadsEnabled } from "./firestoreScopedRepository";
 import { db } from "../firebase";
 import { parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { normalizeMarksEntrySettings } from "../utils/marksEntryAccess";
 
 export const SBA_COLLECTION = "sbaMarks";
 export const SBA_SETTINGS_ID = "sbaEntry";
+const MAX_SBA_SCOPE_ROWS = 200;
 const settingsRef = () => doc(db, "systemSettings", SBA_SETTINGS_ID);
 
 // SBA never reads or writes the term/practice marks collection or its cache.
 export async function loadSbaRecords(term, assignment, subjectId = "") {
-  const snapshot = await getDocs(query(collection(db, SBA_COLLECTION), where("scopeKey", "==", sbaScopeKey(term, assignment)), ...(subjectId ? [where("subjectId", "==", subjectId)] : [])));
+  const snapshot = await getDocs(query(collection(db, SBA_COLLECTION), where("scopeKey", "==", sbaScopeKey(term, assignment)), ...(subjectId ? [where("subjectId", "==", subjectId), limit(MAX_SBA_SCOPE_ROWS + 1)] : [])));
+  if (subjectId && snapshot.docs.length > MAX_SBA_SCOPE_ROWS) throw new Error(`The selected SBA subject has more than ${MAX_SBA_SCOPE_ROWS} saved rows. Ask an administrator to check duplicate data.`);
   recordRead("sbaMarks: selected scope", snapshot.docs.length);
   return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
 }
-// Query existing subject IDs rather than scanning every enrollment/student.
-// Filter years locally to retain compatibility with legacy year field formats.
+// Existing production enrollments use legacy academicYear/year, grade and
+// section fields. Query their exact class scope so opening SBA never scans an
+// entire subject. The small type variants preserve compatibility during data
+// migration while every individual query remains bounded.
+const distinctValues = (values) => [...new Map(values.filter((value) => value !== "" && value !== null && value !== undefined).map((value) => [`${typeof value}:${value}`, value])).values()];
+const assertBounded = (rows, label) => {
+  if (rows.length > MAX_SBA_SCOPE_ROWS) throw new Error(`${label} returned more than ${MAX_SBA_SCOPE_ROWS} rows. Ask an administrator to check duplicate enrollment data.`);
+  return rows;
+};
+
+export async function loadSbaTeacherAssignments(user, options = {}) {
+  const uid = String(user?.uid || "").trim();
+  const email = String(user?.email || "").trim();
+  if (!uid && !email) return [];
+  const identities = [
+    ...(["teacherId", "teacherUid", "userId"].map((field) => [field, uid]).filter(([, value]) => value)),
+    ...(["teacherEmail", "email"].map((field) => [field, email]).filter(([, value]) => value)),
+  ];
+  const results = await Promise.all(identities.map(async ([field, value]) => {
+    const rows = await getScopedRows("teacherAssignments", ["sba-teacher", field, value],
+      () => getDocs(query(collection(db, "teacherAssignments"), where(field, "==", value), limit(MAX_SBA_SCOPE_ROWS + 1))), options);
+    return assertBounded(rows, "Teacher assignments");
+  }));
+  return [...new Map(results.flat().map((row) => [row.id, row])).values()];
+}
+
 export async function loadSbaRosterData(subjectIds, term, assignment = null, options = {}) {
   const ids = [...new Set(subjectIds.filter(Boolean))].sort();
-  const enrollments = [];
-  const canonical = canonicalScopedReadsEnabled() && assignment;
-  const scope = canonical ? buildCanonicalEnrollmentFields({ ...assignment, academicYear: sbaYear(term) }) : null;
-  // Per-subject keys are reused across class changes and between entry/register.
-  for (const subjectId of ids) {
-    const constraints = canonical ? [where("academicYearKey", "==", scope.academicYearKey), where("classKey", "==", scope.classKey), where("subjectId", "==", subjectId)] : [where("subjectId", "==", subjectId)];
-    const key = canonical ? [scope.academicYearKey, scope.classKey, subjectId] : [subjectId];
-    const rows = await getScopedRows("studentSubjectEnrollments", key,
-      () => getDocs(query(collection(db, "studentSubjectEnrollments"), ...constraints)), options);
-    enrollments.push(...rows.filter((row) => sbaYear(row) === sbaYear(term)));
-  }
+  if (!ids.length) return { students: [], enrollments: [] };
+  const year = sbaYear(term);
   const context = assignment ? getClassContext(assignment) : null;
-  // Only exclude a row before fetching students when it has a complete class.
-  // Missing legacy fields must still be resolved using the student record.
-  const candidates = enrollments.filter((row) => {
-    if (!context) return true;
-    const own = getClassContext(row);
-    const complete = (row.fullClassName || row.alClassName || row.className) && own.grade && own.section && (own.grade < 12 || own.stream);
-    return !complete || matchesClassContext(row, context);
-  });
+  if (!year || !context?.grade || !context?.section) throw new Error("The selected assignment is missing its academic year, grade, or section.");
+
+  const yearValues = distinctValues([year, Number.isFinite(Number(year)) ? Number(year) : ""]);
+  const gradeValues = distinctValues([context.grade, String(context.grade)]);
+  const sectionValues = distinctValues([context.section, String(assignment?.section || "").trim()]);
+  const enrollmentsById = new Map();
+
+  for (const subjectId of ids) {
+    const variants = [];
+    for (const yearField of ["academicYear", "year"])
+      for (const yearValue of yearValues)
+        for (const gradeValue of gradeValues)
+          for (const sectionValue of sectionValues)
+            variants.push({ yearField, yearValue, gradeValue, sectionValue });
+
+    const batches = await Promise.all(variants.map(async ({ yearField, yearValue, gradeValue, sectionValue }) => {
+      const key = ["sba-class-scope", yearField, yearValue, gradeValue, sectionValue, subjectId];
+      const rows = await getScopedRows("studentSubjectEnrollments", key, () => getDocs(query(
+        collection(db, "studentSubjectEnrollments"),
+        where(yearField, "==", yearValue),
+        where("grade", "==", gradeValue),
+        where("section", "==", sectionValue),
+        where("subjectId", "==", subjectId),
+        limit(MAX_SBA_SCOPE_ROWS + 1)
+      )), options);
+      return assertBounded(rows, `SBA ${year} ${context.grade}${context.section} ${subjectId}`);
+    }));
+    batches.flat().forEach((row) => enrollmentsById.set(row.id, row));
+  }
+
+  const candidates = [...enrollmentsById.values()].filter((row) =>
+    sbaYear(row) === year && activeEnrollment(row) && matchesClassContext(row, context));
   const studentIds = [...new Set(candidates.map((row) => row.studentId).filter(Boolean))].sort();
   const students = [];
   for (let start = 0; start < studentIds.length; start += 30) {
@@ -50,6 +89,8 @@ export async function loadSbaRosterData(subjectIds, term, assignment = null, opt
   }
   return { students, enrollments: candidates };
 }
+
+const activeEnrollment = (row) => !row.status || ["active", "true"].includes(String(row.status).toLowerCase());
 export async function loadSbaSettings() {
   const snapshot = await getDocFromServer(settingsRef());
   return normalizeMarksEntrySettings(snapshot.exists() ? snapshot.data() : {});
