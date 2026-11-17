@@ -8,12 +8,24 @@ import { normalizeMarksEntrySettings } from "../utils/marksEntryAccess";
 export const SBA_COLLECTION = "sbaMarks";
 export const SBA_SETTINGS_ID = "sbaEntry";
 const MAX_SBA_SCOPE_ROWS = 200;
+const MAX_SBA_REGISTER_ROWS = 2000;
+const MAX_SBA_ADMIN_ASSIGNMENTS = 2500;
 const settingsRef = () => doc(db, "systemSettings", SBA_SETTINGS_ID);
 
 // SBA never reads or writes the term/practice marks collection or its cache.
 export async function loadSbaRecords(term, assignment, subjectId = "") {
-  const snapshot = await getDocs(query(collection(db, SBA_COLLECTION), where("scopeKey", "==", sbaScopeKey(term, assignment)), ...(subjectId ? [where("subjectId", "==", subjectId), limit(MAX_SBA_SCOPE_ROWS + 1)] : [])));
-  if (subjectId && snapshot.docs.length > MAX_SBA_SCOPE_ROWS) throw new Error(`The selected SBA subject has more than ${MAX_SBA_SCOPE_ROWS} saved rows. Ask an administrator to check duplicate data.`);
+  const rowLimit = subjectId ? MAX_SBA_SCOPE_ROWS : MAX_SBA_REGISTER_ROWS;
+  const snapshot = await getDocs(query(
+    collection(db, SBA_COLLECTION),
+    where("scopeKey", "==", sbaScopeKey(term, assignment)),
+    ...(subjectId ? [where("subjectId", "==", subjectId)] : []),
+    limit(rowLimit + 1)
+  ));
+  if (snapshot.docs.length > rowLimit) {
+    throw new Error(subjectId
+      ? `The selected SBA subject has more than ${MAX_SBA_SCOPE_ROWS} saved rows. Ask an administrator to check duplicate data.`
+      : `The selected SBA class register has more than ${MAX_SBA_REGISTER_ROWS} saved rows. Narrow the register or check duplicate data.`);
+  }
   recordRead("sbaMarks: selected scope", snapshot.docs.length);
   return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
 }
@@ -43,6 +55,37 @@ export async function loadSbaTeacherAssignments(user, options = {}) {
   const primary = await readIdentity(identities[0]);
   if (primary.length) return primary;
   const fallbacks = await Promise.all(identities.slice(1).map(readIdentity));
+  return [...new Map(fallbacks.flat().map((row) => [row.id, row])).values()];
+}
+
+export async function loadSbaAdminAssignments(term, options = {}) {
+  const year = sbaYear(term);
+  if (!year) return [];
+  const yearValues = distinctValues([year, Number.isFinite(Number(year)) ? Number(year) : ""]);
+  const variants = [
+    ...yearValues.map((value) => ["academicYear", value]),
+    ...yearValues.map((value) => ["year", value]),
+    ["academicYearKey", year],
+  ];
+  const readVariant = async ([field, value]) => {
+    const rows = await getScopedRows(
+      "teacherAssignments",
+      ["sba-admin-year", field, value],
+      () => getDocs(query(
+        collection(db, "teacherAssignments"),
+        where(field, "==", value),
+        limit(MAX_SBA_ADMIN_ASSIGNMENTS + 1)
+      )),
+      options
+    );
+    if (rows.length > MAX_SBA_ADMIN_ASSIGNMENTS) {
+      throw new Error(`Teacher assignments for ${year} exceed ${MAX_SBA_ADMIN_ASSIGNMENTS} rows. Check duplicate assignment data before opening SBA.`);
+    }
+    return rows;
+  };
+  const primary = await readVariant(variants[0]);
+  if (primary.length) return primary;
+  const fallbacks = await Promise.all(variants.slice(1).map(readVariant));
   return [...new Map(fallbacks.flat().map((row) => [row.id, row])).values()];
 }
 

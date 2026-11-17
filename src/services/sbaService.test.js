@@ -1,6 +1,6 @@
 import { clearFirestoreReadCache } from "./firestoreReadCache";
 import { doc, runTransaction, setDoc, getDocs, getDocFromServer } from "firebase/firestore";
-import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
+import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaAdminAssignments, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
 
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("firebase/firestore", () => ({
@@ -92,10 +92,21 @@ test("teacher assignments use identity-scoped queries instead of a collection sc
     expect(request).toContainEqual(["limit", 201]);
   });
 });
+test("admin assignments are bounded to the selected academic year", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  getDocs.mockImplementation(async (request) => request.some((item) => item[0] === "academicYear" && item[2] === "2026")
+    ? { docs: [wrap("a1", { academicYear: "2026", subjectId: "maths" })] }
+    : { docs: [] });
+  const rows = await loadSbaAdminAssignments(context.term);
+  expect(rows.map((row) => row.id)).toEqual(["a1"]);
+  expect(getDocs).toHaveBeenCalledTimes(1);
+  expect(getDocs.mock.calls[0][0]).toContainEqual(["limit", 2501]);
+});
+
 test("entry scopes marks by subject while register retains all class subjects", async () => {
   getDocs.mockResolvedValue({ docs: [] });
   await loadSbaRecords(context.term, context.assignment, "maths");
   expect(getDocs.mock.calls[0][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["subjectId", "==", "maths"], ["limit", 201]]);
   await loadSbaRecords(context.term, context.assignment);
-  expect(getDocs.mock.calls[1][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"]]);
+  expect(getDocs.mock.calls[1][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["limit", 2001]]);
 });

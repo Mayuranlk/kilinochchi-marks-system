@@ -26,10 +26,10 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaRosterData } from "../services/sbaService";
+import { loadSbaAdminAssignments, loadSbaRosterData, loadSbaTeacherAssignments } from "../services/sbaService";
 import { EmptyState, PageContainer } from "../components/ui";
 import { normalizeText } from "../constants";
-import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, isSameTeacher, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
+import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
 
 const ROWS_PER_PAGE = 40;
 
@@ -230,10 +230,12 @@ export default function SBAForm() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
   const [bootLoading, setBootLoading] = useState(true);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [loadingRows, setLoadingRows] = useState(false);
   const [error, setError] = useState("");
 
   const [teacherAssignments, setTeacherAssignments] = useState([]);
+  const [assignmentYear, setAssignmentYear] = useState("");
   const [terms, setTerms] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
@@ -396,15 +398,7 @@ export default function SBAForm() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const [allAssignments, allTerms] = await Promise.all([
-        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
-        getCollectionRows(db, "academicTerms", { forceRefresh }),
-      ]);
-
-      const scopedAssignments = isAdmin
-        ? allAssignments
-        : allAssignments.filter((item) => isSameTeacher(item, currentUser));
-
+      const allTerms = await getCollectionRows(db, "academicTerms", { forceRefresh });
       const sortedTerms = [...allTerms].sort((a, b) => {
         const yearDiff =
           Number(pick(b.year, b.academicYear, 0)) -
@@ -418,12 +412,17 @@ export default function SBAForm() {
         );
       });
 
+      const defaultTerm = sortedTerms.find((term) => buildTermKey(term) === selectedTermKey) || sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+      const scopedAssignments = isAdmin
+        ? await loadSbaAdminAssignments(defaultTerm, { forceRefresh })
+        : await loadSbaTeacherAssignments({ uid: currentUser.uid, email: currentUser.email }, { forceRefresh });
+
       setTeacherAssignments(scopedAssignments);
+      setAssignmentYear(isAdmin ? normalizeAcademicYear(pick(defaultTerm?.year, defaultTerm?.academicYear, "")) : "");
       setTerms(sortedTerms);
 
-      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       if (defaultTerm) {
-        setSelectedTermKey((prev) => prev || buildTermKey(defaultTerm));
+        setSelectedTermKey(buildTermKey(defaultTerm));
       }
 
       if (scopedAssignments.length > 0) {
@@ -439,7 +438,7 @@ export default function SBAForm() {
     } finally {
       setBootLoading(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, selectedTermKey]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -573,7 +572,27 @@ export default function SBAForm() {
 
   useEffect(() => {
     loadBase();
-  }, [loadBase]);
+    // The selected term is intentionally handled by the scoped assignment effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const year = normalizeAcademicYear(pick(activeTerm?.year, activeTerm?.academicYear, ""));
+    if (!isAdmin || !activeTerm || bootLoading || assignmentYear === year) return undefined;
+    let cancelled = false;
+    setAssignmentLoading(true);
+    setError("");
+    loadSbaAdminAssignments(activeTerm)
+      .then((assignments) => {
+        if (!cancelled) {
+          setTeacherAssignments(assignments);
+          setAssignmentYear(year);
+        }
+      })
+      .catch((err) => { if (!cancelled) setError(err.message || "Failed to load SBA assignments."); })
+      .finally(() => { if (!cancelled) setAssignmentLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTerm, assignmentYear, bootLoading, isAdmin]);
 
   useEffect(() => {
     if (subjectOptions.length === 0) {
@@ -591,9 +610,10 @@ export default function SBAForm() {
   }, [selectedSubjectKey, subjectOptions]);
 
   useEffect(() => {
-    if (bootLoading) return;
+    const activeYear = normalizeAcademicYear(pick(activeTerm?.year, activeTerm?.academicYear, ""));
+    if (bootLoading || assignmentLoading || (isAdmin && activeYear && assignmentYear !== activeYear)) return;
     loadStudents();
-  }, [bootLoading, loadStudents]);
+  }, [activeTerm, assignmentYear, bootLoading, assignmentLoading, isAdmin, loadStudents]);
 
   const buildPrintableHtml = () => {
     const pagesHtml = printablePages

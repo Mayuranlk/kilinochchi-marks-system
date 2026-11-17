@@ -1,6 +1,6 @@
 import MaintenanceControls from "../components/MaintenanceControls";
 import React, { useEffect, useMemo, useState } from "react";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getCountFromServer, getDoc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -42,7 +42,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { auth, db } from "../firebase";
-import { getCollectionCount, getCollectionRows } from "../services/firestoreReadCache";
+import { getCollectionCount, getScopedRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
   LoadingState,
@@ -235,7 +235,11 @@ export default function Dashboard() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [students, setStudents] = useState([]);
-  const [teachers, setTeachers] = useState([]);
+  const [studentsCount, setStudentsCount] = useState(0);
+  const [activeStudentsCount, setActiveStudentsCount] = useState(0);
+  const [leftStudentsCount, setLeftStudentsCount] = useState(0);
+  const [teachersCount, setTeachersCount] = useState(0);
+  const [classesCount, setClassesCount] = useState(0);
   const [marksCount, setMarksCount] = useState(0);
   const [subjectsCount, setSubjectsCount] = useState(0);
   const [enrollmentsCount, setEnrollmentsCount] = useState(0);
@@ -252,10 +256,19 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [loadedStudents, loadedUsers, loadedMarksCount, loadedSubjectsCount, loadedEnrollmentsCount, marksEntrySettingsSnap] =
+        const [loadedStudents, loadedStudentsCount, loadedLeftCount, loadedTeachersCount, loadedClassesCount, loadedMarksCount, loadedSubjectsCount, loadedEnrollmentsCount, marksEntrySettingsSnap] =
           await Promise.all([
-            getCollectionRows(db, "students"),
-            getCollectionRows(db, "users"),
+            getScopedRows(
+              "students",
+              ["admin-dashboard-sample", 6],
+              () => getDocs(query(collection(db, "students"), limit(6)))
+            ),
+            getCollectionCount(db, "students"),
+            getCountFromServer(query(collection(db, "students"), where("status", "in", ["left", "Left", "LEFT"])))
+              .then((snapshot) => snapshot.data().count),
+            getCountFromServer(query(collection(db, "users"), where("role", "in", ["teacher", "Teacher", "TEACHER"])))
+              .then((snapshot) => snapshot.data().count),
+            getCollectionCount(db, "classrooms").catch(() => "Unavailable"),
             getCollectionCount(db, "marks").catch(() => "Unavailable"),
             getCollectionCount(db, "subjects").catch(() => "Unavailable"),
             getCollectionCount(db, "studentSubjectEnrollments").catch(() => "Unavailable"),
@@ -263,7 +276,11 @@ export default function Dashboard() {
           ]);
 
         setStudents(sortStudents(loadedStudents));
-        setTeachers(loadedUsers.filter((user) => normalizeLower(user.role) === "teacher"));
+        setStudentsCount(loadedStudentsCount);
+        setLeftStudentsCount(loadedLeftCount);
+        setActiveStudentsCount(Math.max(0, loadedStudentsCount - loadedLeftCount));
+        setTeachersCount(loadedTeachersCount);
+        setClassesCount(loadedClassesCount);
         setMarksCount(loadedMarksCount);
         setSubjectsCount(loadedSubjectsCount);
         setEnrollmentsCount(loadedEnrollmentsCount);
@@ -313,37 +330,21 @@ export default function Dashboard() {
     }
   }
 
-  const activeStudents = useMemo(
-    () => students.filter((student) => isActiveStudent(student)),
-    [students]
-  );
-
-  const leftStudents = useMemo(
-    () => students.filter((student) => normalizeLower(getStudentStatus(student)) === "left"),
-    [students]
-  );
-
-  const activeClassesCount = useMemo(() => {
-    return new Set(
-      activeStudents.map((student) => `${parseGrade(student.grade)}-${getStudentSection(student)}`)
-    ).size;
-  }, [activeStudents]);
-
   const recentStudents = useMemo(() => students.slice(0, isMobile ? 4 : 6), [isMobile, students]);
-  const activePercent = students.length ? Math.round((activeStudents.length / students.length) * 100) : 0;
+  const activePercent = studentsCount ? Math.round((activeStudentsCount / studentsCount) * 100) : 0;
 
   const metricCards = [
     {
       title: "Students",
-      value: students.length,
-      helperText: `${activeStudents.length} active`,
+      value: studentsCount,
+      helperText: `${activeStudentsCount} active`,
       icon: <PeopleRoundedIcon fontSize="small" />,
       color: "primary",
       onClick: () => navigate("/students"),
     },
     {
       title: "Teachers",
-      value: teachers.length,
+      value: teachersCount,
       helperText: "User accounts",
       icon: <PersonRoundedIcon fontSize="small" />,
       color: "secondary",
@@ -359,8 +360,8 @@ export default function Dashboard() {
     },
     {
       title: "Classes",
-      value: activeClassesCount,
-      helperText: "Active sections",
+      value: classesCount,
+      helperText: "Configured sections",
       icon: <AssessmentRoundedIcon fontSize="small" />,
       color: "success",
       onClick: () => navigate("/students"),
@@ -452,7 +453,7 @@ export default function Dashboard() {
                 <Box>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Student coverage</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {activeStudents.length} of {students.length} students active
+                    {activeStudentsCount} of {studentsCount} students active
                   </Typography>
                 </Box>
               </Stack>
@@ -472,8 +473,8 @@ export default function Dashboard() {
               </Box>
 
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ minWidth: { lg: 360 }, justifyContent: { lg: "flex-end" } }}>
-                <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudents.length} active`} color="success" />
-                <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudents.length} left`} color="warning" />
+                <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudentsCount} active`} color="success" />
+                <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudentsCount} left`} color="warning" />
                 <Chip label={`${subjectsCount} subjects`} variant="outlined" color="primary" />
                 <Chip label={`${enrollmentsCount} enrollments`} variant="outlined" color="secondary" />
               </Stack>
@@ -606,10 +607,10 @@ export default function Dashboard() {
         <Grid container spacing={1.25} alignItems="stretch">
           <Grid size={{ xs: 12, lg: 7 }}>
             <SectionCard
-              title="Recent Students"
-              subtitle="Latest student records currently in the system."
+              title="Student Sample"
+              subtitle="A small bounded sample of student records."
               action={
-                students.length > 0 ? (
+                studentsCount > 0 ? (
                   <Button variant="outlined" onClick={() => navigate("/students")}>
                     View All
                   </Button>
@@ -732,9 +733,9 @@ export default function Dashboard() {
               sx={{ height: "100%" }}
             >
               <Stack spacing={1.25}>
-                <SnapshotRow label="Active students" value={activeStudents.length} />
-                <SnapshotRow label="Left students" value={leftStudents.length} />
-                <SnapshotRow label="Teachers" value={teachers.length} />
+                <SnapshotRow label="Active students" value={activeStudentsCount} />
+                <SnapshotRow label="Left students" value={leftStudentsCount} />
+                <SnapshotRow label="Teachers" value={teachersCount} />
                 <SnapshotRow label="Subject definitions" value={subjectsCount} />
                 <SnapshotRow label="Subject enrollments" value={enrollmentsCount} />
                 <SnapshotRow label="Marks documents" value={marksCount} />

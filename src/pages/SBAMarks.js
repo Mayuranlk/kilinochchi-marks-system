@@ -6,14 +6,14 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
 import { PageContainer, EmptyState } from "../components/ui";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaRecords, loadSbaRosterData, loadSbaSettings, loadSbaTeacherAssignments, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
+import { loadSbaAdminAssignments, loadSbaRecords, loadSbaRosterData, loadSbaSettings, loadSbaTeacherAssignments, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
 import { activeSbaRow, buildSbaRegister, buildSbaRoster, indexSbaRosterData, parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { buildTermLabel, getDisplayClassName, isActiveTerm, isSameTeacher } from "../utils/sbaContext";
 import { buildSbaRegisterHtml, printSbaRegister } from "../utils/sbaRegisterPrint";
 
 import { createSbaRegisterPdf, canShareSbaPdf, downloadSbaPdf } from "../utils/sbaRegisterPdf";
 
-const emptyData = { assignments: [], terms: [], enrollments: [], students: [] };
+const emptyData = { assignments: [], assignmentYear: "", terms: [], enrollments: [], students: [] };
 const valueOf = (record) => ({ mark: record?.mark ?? "", absent: record?.absent === true });
 const sameValue = (left, right) => String(left.mark) === String(right.mark) && left.absent === right.absent;
 
@@ -24,6 +24,7 @@ export default function SBAMarks({ registerMode = false }) {
   const userEmail = user?.email || "";
   const [base, setBase] = useState(emptyData);
   const [loading, setLoading] = useState(true);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [baseError, setBaseError] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -42,10 +43,11 @@ export default function SBAMarks({ registerMode = false }) {
   const [shareBusy, setShareBusy] = useState(false);
   const [deleteRow, setDeleteRow] = useState(null);
   const loadVersion = useRef(0);
+  const termIdRef = useRef("");
   const forceRosterRefresh = useRef(false);
   const inputRefs = useRef({});
   const dirty = Object.keys(drafts).length > 0;
-  const busy = loading || saving;
+  const busy = loading || assignmentLoading || saving;
   const settingsDirty = settings && settingsDraft && JSON.stringify(settings) !== JSON.stringify(settingsDraft);
 
   const loadBase = useCallback(async (forceRefresh = false) => {
@@ -53,17 +55,24 @@ export default function SBAMarks({ registerMode = false }) {
     forceRosterRefresh.current = forceRefresh;
     setLoading(true); setBaseError(""); setError("");
     try {
-      const [assignments, terms, controls] = await Promise.all([
-        isAdmin ? getCollectionRows(db, "teacherAssignments", { forceRefresh }) : loadSbaTeacherAssignments({ uid: userId, email: userEmail }, { forceRefresh }),
+      const [terms, controls, teacherAssignments] = await Promise.all([
         getCollectionRows(db, "academicTerms", { forceRefresh }),
         loadSbaSettings(),
+        isAdmin ? Promise.resolve([]) : loadSbaTeacherAssignments({ uid: userId, email: userEmail }, { forceRefresh }),
       ]);
       if (version !== loadVersion.current) return;
       const termOptions = terms.filter((term) => String(term.assessmentType || "").toLowerCase() !== "practice" && !/practice/i.test(term.term || term.termName || term.name || ""))
         .sort((a, b) => sbaYear(b).localeCompare(sbaYear(a)) || buildTermLabel(a).localeCompare(buildTermLabel(b), undefined, { numeric: true }));
-      setBase({ assignments: assignments.filter(activeSbaRow), terms: termOptions, enrollments: [], students: [] });
+      const selectedTerm = termOptions.find((item) => item.id === termIdRef.current) || termOptions.find(isActiveTerm) || termOptions[0] || null;
+      const assignments = isAdmin && selectedTerm
+        ? await loadSbaAdminAssignments(selectedTerm, { forceRefresh })
+        : teacherAssignments;
+      if (version !== loadVersion.current) return;
+      setBase({ assignments: assignments.filter(activeSbaRow), assignmentYear: isAdmin ? sbaYear(selectedTerm || {}) : "", terms: termOptions, enrollments: [], students: [] });
       setSettings(controls); setSettingsDraft(controls);
-      setTermId((previous) => termOptions.some((term) => term.id === previous) ? previous : (termOptions.find(isActiveTerm) || termOptions[0])?.id || "");
+      const nextTermId = selectedTerm?.id || "";
+      termIdRef.current = nextTermId;
+      setTermId(nextTermId);
       setRefreshVersion((value) => value + 1);
     } catch (failure) {
       if (version === loadVersion.current) { setBaseError(`Could not load SBA: ${failure.message}`); setSettings(null); }
@@ -73,7 +82,28 @@ export default function SBAMarks({ registerMode = false }) {
   }, [isAdmin, userId, userEmail]);
   useEffect(() => { loadBase(); return () => { loadVersion.current += 1; }; }, [loadBase]);
 
+  useEffect(() => { termIdRef.current = termId; }, [termId]);
   const term = useMemo(() => base.terms.find((item) => item.id === termId), [base.terms, termId]);
+  useEffect(() => {
+    if (!isAdmin || !term || loading || base.assignmentYear === sbaYear(term)) return undefined;
+    let cancelled = false;
+    setAssignmentLoading(true);
+    setBaseError("");
+    setLoaded({ key: "", records: [], error: "" });
+    loadSbaAdminAssignments(term)
+      .then((assignments) => {
+        if (!cancelled) setBase((previous) => ({
+          ...previous,
+          assignments: assignments.filter(activeSbaRow),
+          assignmentYear: sbaYear(term),
+        }));
+      })
+      .catch((failure) => {
+        if (!cancelled) setBaseError(`Could not load SBA assignments: ${failure.message}`);
+      })
+      .finally(() => { if (!cancelled) setAssignmentLoading(false); });
+    return () => { cancelled = true; };
+  }, [isAdmin, term, loading, base.assignmentYear]);
   const yearAssignments = useMemo(() => base.assignments.filter((item) => !sbaYear(item) || sbaYear(item) === sbaYear(term || {})), [base.assignments, term]);
   const mine = useMemo(() => yearAssignments.filter((item) => isAdmin || isSameTeacher(item, user)), [yearAssignments, isAdmin, user]);
   const classes = useMemo(() => [...new Map(mine.map((item) => [sbaClassKey(item), item])).entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })), [mine]);
@@ -89,7 +119,7 @@ export default function SBAMarks({ registerMode = false }) {
   useEffect(() => {
     let cancelled = false;
     setLoaded({ key: "", records: [], error: "" });
-    if (readKey && !loading && !baseError) {
+    if (readKey && !loading && !assignmentLoading && !baseError && (!isAdmin || base.assignmentYear === sbaYear(term || {}))) {
       const [selectedTerm, selectedClass] = [term, classAssignment];
       Promise.all([
         loadSbaRecords(selectedTerm, selectedClass, registerMode ? "" : assignment.subjectId),
@@ -104,10 +134,10 @@ export default function SBAMarks({ registerMode = false }) {
     return () => { cancelled = true; };
     // term and classAssignment are represented by scopeKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readKey, refreshVersion, loading, baseError]);
+  }, [readKey, refreshVersion, loading, assignmentLoading, baseError, isAdmin, base.assignmentYear]);
   useEffect(() => { setDrafts({}); setError(""); setSuccess(""); }, [scopeKey, assignmentId, registerMode]);
   useEffect(() => { setSettingsDraft(settings); }, [settings, registerMode]);
-  const ready = Boolean(readKey && loaded.key === readKey && !loaded.error && !baseError && !loading);
+  const ready = Boolean(readKey && loaded.key === readKey && !loaded.error && !baseError && !loading && !assignmentLoading && (!isAdmin || base.assignmentYear === sbaYear(term || {})));
   const locked = !isAdmin && (!settings || sbaEntryLocked(settings));
   const canEdit = ready && !saving && !locked && !registerMode;
   const rosterIndex = useMemo(() => indexSbaRosterData(loaded.students || [], loaded.enrollments || []), [loaded.students, loaded.enrollments]);

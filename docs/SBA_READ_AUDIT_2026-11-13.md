@@ -1,4 +1,4 @@
-# SBA read audit - 13 November 2026
+﻿# SBA read audit - 13 November 2026
 
 ## Result
 
@@ -73,3 +73,21 @@ Push the application change so Vercel builds the new bundle. No Firestore schema
 The application cannot reverse reads that Firebase has already billed. If the Spark daily quota is already exhausted, saves may remain unavailable until Firebase resets the daily quota; upgrading the billing plan is the other immediate recovery option. The corrected bundle prevents the identified automatic whole-collection scans from repeating after deployment.
 
 The Firebase graph is project-wide, so unrelated admin reports, term-entry scans, data-health audits, console browsing, writes, and deletes can appear in the same interval. A production spike after this release should be correlated with Query Insights or a controlled timestamp before attributing it to SBA.
+
+## Follow-up - 17 November 2026
+
+A controlled production observation still showed about 10,000 reads in one minute when an administrator opened SBA from the Dashboard. The deployed bundle was confirmed current. A second route-level trace found two collection scans surrounding the already-bounded SBA roster query:
+
+- The admin Dashboard downloaded every `students` document and every `users` document to calculate summary cards.
+- Admin SBA Marks, the A3 register, and the blank assessment sheet downloaded the complete `teacherAssignments` history before filtering the selected academic year in the browser.
+
+Those reads are now bounded at the Firestore query:
+
+- Dashboard downloads a six-document student sample. Student, teacher, classroom, marks, subject, and enrollment totals use server aggregation queries.
+- Admin SBA assignment reads use the selected academic year and stop at 2,501 returned rows. More than 2,500 produces a data-quality error instead of consuming an unbounded quota.
+- SBA subject entry remains capped at 201 returned mark documents.
+- The class-wide A3 register now has an explicit 2,001-document query limit.
+- Changing to a term in another year loads that year only and blocks roster reads until the matching assignment query finishes.
+- The teacher path remains identity-scoped and does not gain access to the admin-only A3 or blank-sheet tools.
+
+No database collection, SBA/term mark separation, schema, or Firestore rule change is required. The production build passed, 25 focused Jest tests passed, and all 9 Auth/Firestore application emulator flows passed under the reviewed rules.
