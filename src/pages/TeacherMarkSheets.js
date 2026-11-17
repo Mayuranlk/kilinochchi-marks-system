@@ -1,4 +1,5 @@
 import { academicDisplay, academicExport } from "../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
@@ -289,7 +290,7 @@ export default function TeacherMarkSheets() {
     try {
       const [loadedStudents, enrollmentRows, loadedTerms] = await Promise.all([
         getCollectionRows(db, "students", { forceRefresh }),
-        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        loadRowsForAcademicYear("studentSubjectEnrollments", String(new Date().getFullYear()), { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
       const loadedEnrollments = enrollmentRows.filter((row) => isEnrollmentActive(row));
@@ -321,6 +322,17 @@ export default function TeacherMarkSheets() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear)
+      .then((rows) => {
+        if (!cancelled) setEnrollments(rows.filter((row) => isEnrollmentActive(row)));
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError.message || "Failed to load enrollment year data.");
+      });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   const studentMap = useMemo(() => {
     return new Map(students.map((student) => [normalizeText(student.id), student]));
   }, [students]);

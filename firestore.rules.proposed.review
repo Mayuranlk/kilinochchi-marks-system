@@ -311,6 +311,26 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    function validTeacherStatsIncrement() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'marksCount', 'updatedAt'
+        ]) &&
+        resource.data.get('initialized', false) == true &&
+        request.resource.data.get('initialized', false) == true &&
+        request.resource.data.marksCount is int &&
+        request.resource.data.marksCount >= resource.data.get('marksCount', 0) &&
+        request.resource.data.marksCount <= resource.data.get('marksCount', 0) + 8 &&
+        request.resource.data.get('studentSubjectEnrollmentsCount', 0) ==
+          resource.data.get('studentSubjectEnrollmentsCount', 0) &&
+        request.resource.data.updatedAt == request.time;
+    }
+
+    match /systemStats/{statsId} {
+      allow read: if isAcademicReader();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (statsId == 'overview' && isSubjectTeacher() && validTeacherStatsIncrement());
+    }
     match /studentFeeAccounts/{accountId} {
       allow read, create, update: if isAdmin() || isAccount();
       allow delete: if isAdmin();

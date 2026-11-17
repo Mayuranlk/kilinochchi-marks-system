@@ -41,7 +41,6 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import {
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   serverTimestamp,
@@ -87,6 +86,12 @@ import {
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
 import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
+import {
+  addSystemStatsDeltaToBatch,
+  deleteWithSystemStats,
+  noteSystemStatsDeltaCommitted,
+  systemStatsAreInitialized,
+} from "../services/systemStatsService";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -1379,7 +1384,7 @@ export default function MarksEntry() {
       setError("");
       setSuccess("");
 
-      await deleteDoc(doc(db, "marks", mark.id));
+      await deleteWithSystemStats(doc(db, "marks", mark.id), { marks: -1 });
 
       setAdminStudentMarks((previous) => previous.filter((item) => item.id !== mark.id));
       invalidateCollectionRows("marks");
@@ -1434,6 +1439,7 @@ export default function MarksEntry() {
       }
 
       await sbaGate.verifyBeforeSave(studentRows);
+      const maintainStats = await systemStatsAreInitialized();
       const batches = [];
       let batch;
       let group;
@@ -1448,7 +1454,7 @@ export default function MarksEntry() {
 
       for (const row of dirtyRows) {
         if (!group || group.marks.length === 8) {
-          batch = writeBatch(db); group = { batch, marks: [] }; batches.push(group);
+          batch = writeBatch(db); group = { batch, marks: [], newMarks: 0 }; batches.push(group);
         }
         const markValue = asNumber(row.mark);
         const absent = Boolean(row.absent);
@@ -1505,13 +1511,21 @@ export default function MarksEntry() {
             createdAt: serverTimestamp(),
           });
           group.marks.push({ id: newRef.id, ...payload });
+          group.newMarks += 1;
         }
       }
 
       let saveFailure;
       for (const item of batches) {
-        try { await item.batch.commit(); savedMarks.push(...item.marks); }
-        catch (failure) { saveFailure = failure; break; }
+        addSystemStatsDeltaToBatch(item.batch, { marks: item.newMarks }, { enabled: maintainStats });
+        try {
+          await item.batch.commit();
+          savedMarks.push(...item.marks);
+          if (maintainStats && item.newMarks) noteSystemStatsDeltaCommitted({ marks: item.newMarks });
+        } catch (failure) {
+          saveFailure = failure;
+          break;
+        }
       }
       const savedByStudent = new Map(savedMarks.map((mark) => [String(mark.studentId), mark]));
       if (saveFailure) retainedSaveRows.current = new Map(studentRows.filter((row) => row.isDirty && !savedByStudent.has(String(row.studentId))).map((row) => [row.key, row]));

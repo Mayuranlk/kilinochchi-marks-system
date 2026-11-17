@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import firebaseApp, { db } from "../firebase";
 import { clearFirestoreReadCache } from "./firestoreReadCache";
+import { rebuildSystemStatsOverview } from "./systemStatsService";
 
 export const BACKUP_FORMAT = "kilinochchi-marks-system-backup";
 export const BACKUP_VERSION = 1;
@@ -33,6 +34,7 @@ export const SYSTEM_COLLECTIONS = [
   "studentSubjectEnrollments",
   "subjects",
   "systemSettings",
+  "systemStats",
   "teacherAssignments",
   "teachers",
   "users",
@@ -262,6 +264,7 @@ export async function restoreSystemBackup(backup, { onProgress } = {}) {
     onProgress?.({ restoredCount, documentCount: validation.documentCount });
   }
 
+  await rebuildSystemStatsOverview();
   clearFirestoreReadCache();
   return { ...validation, restoredCount };
 }

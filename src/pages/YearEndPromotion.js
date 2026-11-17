@@ -1,4 +1,5 @@
 import { academicDisplay } from "../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   collection,
@@ -142,13 +143,15 @@ export default function YearEndPromotion() {
 
   useEffect(() => {
     loadBaseData();
-  }, []);
+    // loadBaseData is intentionally keyed by the selected source year.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromYear]);
 
   const loadBaseData = async () => {
     try {
       const [classroomSnap, enrollmentSnap] = await Promise.all([
         getDocs(collection(db, "classrooms")),
-        getDocs(collection(db, "studentSubjectEnrollments")),
+        loadRowsForAcademicYear("studentSubjectEnrollments", fromYear),
       ]);
 
       const classrooms = classroomSnap.docs.map((d) => ({
@@ -156,10 +159,7 @@ export default function YearEndPromotion() {
         ...d.data(),
       }));
 
-      const enrollments = enrollmentSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
+      const enrollments = enrollmentSnap;
 
       setAllClassrooms(classrooms);
       setAllEnrollments(enrollments);

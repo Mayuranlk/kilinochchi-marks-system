@@ -1,4 +1,5 @@
 import { academicWorksheet, academicExport, academicDisplay } from "../../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
@@ -711,8 +712,8 @@ export default function ClassCompletionReport() {
 
       const [studentsData, enrollmentsData, marksData, classroomsData, termsData] = await Promise.all([
         getCollectionRows(db, "students", { forceRefresh }),
-        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-        getCollectionRows(db, "marks", { forceRefresh }),
+        loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
+        loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
@@ -733,6 +734,21 @@ export default function ClassCompletionReport() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
+      loadRowsForAcademicYear("marks", selectedYear),
+    ]).then(([enrollmentRows, markRows]) => {
+      if (!cancelled) {
+        setEnrollments(enrollmentRows);
+        setMarks(markRows);
+      }
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError.message || "Failed to load report year data.");
+    });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   const availableYears = useMemo(() => {
     const years = new Set([
       ...classrooms.map((item) => Number(item.year || item.academicYear || 0)),

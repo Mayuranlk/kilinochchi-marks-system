@@ -91,3 +91,11 @@ Those reads are now bounded at the Firestore query:
 - The teacher path remains identity-scoped and does not gain access to the admin-only A3 or blank-sheet tools.
 
 No database collection, SBA/term mark separation, schema, or Firestore rule change is required. The production build passed, 25 focused Jest tests passed, and all 9 Auth/Firestore application emulator flows passed under the reviewed rules.
+
+## Query Insights correction - 17 November 2026
+
+The earlier Dashboard follow-up above said marks and enrollment totals used server aggregations as a mitigation. Query Insights later confirmed that those two full-collection aggregations still scanned about 17,861 and 10,128 index entries on every fresh Dashboard execution. They were inexpensive compared with downloading every document, but they were still repeated work and were the exact aggregation rows shown by Query Insights.
+
+The final implementation replaces both automatic aggregations with one cached read of `systemStats/overview`. Mark and enrollment create/delete batches maintain that document with atomic increments. The only remaining full `marks` and `studentSubjectEnrollments` count is the explicit administrator **Initialize / Repair summary counts** action. Normal Dashboard, SBA, term-entry, report, deletion, and identity-repair paths use equality-scoped queries instead of full historical collection reads.
+
+See [the complete Firestore aggregation and broad-read audit](FIRESTORE_AGGREGATION_AUDIT_2026-11-17.md) for the exact callers, before/after query map, rule boundaries, cache behavior, verification, and deployment order.

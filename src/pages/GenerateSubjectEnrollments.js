@@ -28,6 +28,12 @@ import {
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { invalidateCollectionRows } from "../services/firestoreReadCache";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
+import {
+  addSystemStatsDeltaToBatch,
+  noteSystemStatsDeltaCommitted,
+  systemStatsAreInitialized,
+} from "../services/systemStatsService";
 import {
   ActionBar,
   MobileListRow,
@@ -262,25 +268,26 @@ function buildErrorSummary(mode, error) {
   };
 }
 
-async function commitDeleteOperations(refs = []) {
+async function commitDeleteOperations(refs = [], statsField = "") {
+  const maintainStats = refs.length > 0 && await systemStatsAreInitialized();
   for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);
     const chunk = refs.slice(i, i + BATCH_LIMIT);
     chunk.forEach((ref) => batch.delete(ref));
+    const delta = statsField ? { [statsField]: -chunk.length } : {};
+    addSystemStatsDeltaToBatch(batch, delta, { enabled: maintainStats });
     await batch.commit();
+    if (maintainStats) noteSystemStatsDeltaCommitted(delta);
   }
 }
 
 async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
   const normalizedYear = normalizeAcademicYear(academicYear);
 
-  const [enrollmentsSnap, marksSnap] = await Promise.all([
-    getDocs(collection(db, "studentSubjectEnrollments")),
-    getDocs(collection(db, "marks")),
+  const [enrollments, marks] = await Promise.all([
+    loadRowsForAcademicYear("studentSubjectEnrollments", normalizedYear, { forceRefresh: true }),
+    loadRowsForAcademicYear("marks", normalizedYear, { forceRefresh: true }),
   ]);
-
-  const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
   const targetEnrollments = enrollments.filter(
     (row) => normalizeAcademicYear(row?.academicYear || row?.year) === normalizedYear
@@ -353,8 +360,8 @@ async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
     });
   }
 
-  await commitDeleteOperations(enrollmentRefsToDelete);
-  await commitDeleteOperations(markRefsToDelete);
+  await commitDeleteOperations(enrollmentRefsToDelete, "studentSubjectEnrollments");
+  await commitDeleteOperations(markRefsToDelete, "marks");
   if (enrollmentRefsToDelete.length || markRefsToDelete.length) {
     invalidateCollectionRows("studentSubjectEnrollments", "marks");
   }

@@ -9,6 +9,12 @@ import {
 } from "firebase/firestore";
 import { buildCanonicalEnrollmentFields } from "../utils/firestoreCanonical";
 import { invalidateCollectionRows } from "./firestoreReadCache";
+import { loadRowsForAcademicYear } from "./firestoreScopedReads";
+import {
+  addSystemStatsDeltaToBatch,
+  noteSystemStatsDeltaCommitted,
+  systemStatsAreInitialized,
+} from "./systemStatsService";
 import { db } from "../firebase";
 import {
   COMPULSORY_CORE_6_9,
@@ -770,11 +776,9 @@ async function fetchSubjects() {
 }
 
 async function fetchEnrollmentsByYear(academicYear) {
-  const normalizedYear = normalizeAcademicYear(academicYear);
-  const snap = await getDocs(collection(db, ENROLLMENTS_COLLECTION));
-  return mapDocs(snap).filter(
-    (enrollment) =>
-      normalizeAcademicYear(enrollment?.academicYear || enrollment?.year) === normalizedYear
+  return loadRowsForAcademicYear(
+    ENROLLMENTS_COLLECTION,
+    normalizeAcademicYear(academicYear)
   );
 }
 
@@ -833,12 +837,30 @@ function hasPayloadChanged(existingEnrollment, payload) {
 /* Batch commit                                                                */
 /* -------------------------------------------------------------------------- */
 
+function enrollmentOperation(write, documentDelta = 0) {
+  write.enrollmentDocumentDelta = documentDelta;
+  return write;
+}
+
 async function commitOperations(operations) {
+  const maintainStats = operations.length > 0 && await systemStatsAreInitialized();
   for (let i = 0; i < operations.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);
     const chunk = operations.slice(i, i + BATCH_LIMIT);
     chunk.forEach((fn) => fn(batch));
+    const documentDelta = chunk.reduce(
+      (total, operation) => total + Number(operation.enrollmentDocumentDelta || 0),
+      0
+    );
+    addSystemStatsDeltaToBatch(
+      batch,
+      { studentSubjectEnrollments: documentDelta },
+      { enabled: maintainStats }
+    );
     await batch.commit();
+    if (maintainStats && documentDelta) {
+      noteSystemStatsDeltaCommitted({ studentSubjectEnrollments: documentDelta });
+    }
   }
   if (operations.length) invalidateCollectionRows(ENROLLMENTS_COLLECTION);
 }
@@ -913,13 +935,13 @@ export async function generateMissingEnrollments({ academicYear }) {
 
         if (!existingEnrollment) {
           created += 1;
-          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
+          operations.push(enrollmentOperation((batch) => batch.set(canonicalRef, payload, { merge: true }), 1));
           continue;
         }
 
         if (existingEnrollment.status === "inactive") {
           reactivated += 1;
-          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
+          operations.push(enrollmentOperation((batch) => batch.set(canonicalRef, payload, { merge: true }), existingEnrollment.id !== canonicalRef.id ? 1 : 0));
 
           if (existingEnrollment.id !== canonicalRef.id) {
             const oldRef = doc(db, ENROLLMENTS_COLLECTION, existingEnrollment.id);
@@ -939,7 +961,7 @@ export async function generateMissingEnrollments({ academicYear }) {
           existingEnrollment.id !== canonicalRef.id
         ) {
           updated += 1;
-          operations.push((batch) => batch.set(canonicalRef, payload, { merge: true }));
+          operations.push(enrollmentOperation((batch) => batch.set(canonicalRef, payload, { merge: true }), existingEnrollment.id !== canonicalRef.id ? 1 : 0));
 
           if (existingEnrollment.id !== canonicalRef.id) {
             const oldRef = doc(db, ENROLLMENTS_COLLECTION, existingEnrollment.id);
@@ -1098,7 +1120,7 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     else if (existing.status === "inactive") reactivated += 1;
     else updated += 1;
 
-    operations.push((batch) => batch.set(ref, payload, { merge: true }));
+    operations.push(enrollmentOperation((batch) => batch.set(ref, payload, { merge: true }), !existing || existing.id !== ref.id ? 1 : 0));
 
     if (existing?.id && existing.id !== ref.id && !deactivatedEnrollmentIds.has(existing.id)) {
       deactivated += 1;
@@ -1227,7 +1249,7 @@ export async function fullRebuildEnrollments({ academicYear }) {
         else if (found.status === "inactive") reactivated += 1;
         else updated += 1;
 
-        operations.push((batch) => batch.set(ref, payload, { merge: true }));
+        operations.push(enrollmentOperation((batch) => batch.set(ref, payload, { merge: true }), !found || found.id !== ref.id ? 1 : 0));
       }
     } catch (error) {
       errors += 1;

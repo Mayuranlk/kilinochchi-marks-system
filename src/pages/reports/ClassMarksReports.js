@@ -1,4 +1,5 @@
 import { academicDisplay } from "../../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../../services/firestoreScopedReads";
 // src/pages/reports/ClassMarksReports.js
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -568,8 +569,8 @@ export default function ClassMarksReports() {
       const [studentsData, enrollmentsData, marksData, classroomsData, termsData] =
         await Promise.all([
           getCollectionRows(db, "students", { forceRefresh }),
-          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-          getCollectionRows(db, "marks", { forceRefresh }),
+          loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
+          loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
           getCollectionRows(db, "classrooms", { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
         ]);
@@ -619,6 +620,21 @@ export default function ClassMarksReports() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
+      loadRowsForAcademicYear("marks", selectedYear),
+    ]).then(([enrollmentRows, markRows]) => {
+      if (!cancelled) {
+        setEnrollments(enrollmentRows);
+        setMarks(markRows);
+      }
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError.message || "Failed to load report year data.");
+    });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   async function handleBulkExport() {
     try {
       setBulkLoading(true);

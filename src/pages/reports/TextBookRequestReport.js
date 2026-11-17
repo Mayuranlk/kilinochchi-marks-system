@@ -1,4 +1,5 @@
 import { academicDisplay } from "../../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -157,7 +158,7 @@ export default function TextBookRequestReport() {
       setError("");
       const [studentRows, enrollmentRows, subjectRows, classroomRows] = await Promise.all([
         getCollectionRows(db, "students", { forceRefresh }),
-        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
         getCollectionRows(db, "subjects", { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
       ]);
@@ -181,6 +182,15 @@ export default function TextBookRequestReport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadRowsForAcademicYear("studentSubjectEnrollments", academicYear)
+      .then((rows) => { if (!cancelled) setEnrollments(rows); })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError.message || "Failed to load enrollment year data.");
+      });
+    return () => { cancelled = true; };
+  }, [academicYear]);
   const availableYears = useMemo(
     () => [...new Set(classrooms.map(getYear).filter(Boolean))].sort((a, b) => b - a),
     [classrooms]

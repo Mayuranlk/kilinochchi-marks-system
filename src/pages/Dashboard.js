@@ -43,6 +43,7 @@ import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { auth, db } from "../firebase";
 import { getCollectionCount, getScopedRows } from "../services/firestoreReadCache";
+import { getSystemStatsOverview, rebuildSystemStatsOverview } from "../services/systemStatsService";
 import {
   EmptyState,
   LoadingState,
@@ -240,9 +241,11 @@ export default function Dashboard() {
   const [leftStudentsCount, setLeftStudentsCount] = useState(0);
   const [teachersCount, setTeachersCount] = useState(0);
   const [classesCount, setClassesCount] = useState(0);
-  const [marksCount, setMarksCount] = useState(0);
+  const [marksCount, setMarksCount] = useState(null);
   const [subjectsCount, setSubjectsCount] = useState(0);
-  const [enrollmentsCount, setEnrollmentsCount] = useState(0);
+  const [enrollmentsCount, setEnrollmentsCount] = useState(null);
+  const [statsInitialized, setStatsInitialized] = useState(false);
+  const [rebuildingStats, setRebuildingStats] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
@@ -256,7 +259,7 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [loadedStudents, loadedStudentsCount, loadedLeftCount, loadedTeachersCount, loadedClassesCount, loadedMarksCount, loadedSubjectsCount, loadedEnrollmentsCount, marksEntrySettingsSnap] =
+        const [loadedStudents, loadedStudentsCount, loadedLeftCount, loadedTeachersCount, loadedClassesCount, loadedSubjectsCount, statsOverview, marksEntrySettingsSnap] =
           await Promise.all([
             getScopedRows(
               "students",
@@ -269,9 +272,8 @@ export default function Dashboard() {
             getCountFromServer(query(collection(db, "users"), where("role", "in", ["teacher", "Teacher", "TEACHER"])))
               .then((snapshot) => snapshot.data().count),
             getCollectionCount(db, "classrooms").catch(() => "Unavailable"),
-            getCollectionCount(db, "marks").catch(() => "Unavailable"),
             getCollectionCount(db, "subjects").catch(() => "Unavailable"),
-            getCollectionCount(db, "studentSubjectEnrollments").catch(() => "Unavailable"),
+            getSystemStatsOverview().catch(() => ({ initialized: false, marksCount: null, studentSubjectEnrollmentsCount: null })),
             getDoc(doc(db, "systemSettings", "marksEntry")),
           ]);
 
@@ -281,9 +283,10 @@ export default function Dashboard() {
         setActiveStudentsCount(Math.max(0, loadedStudentsCount - loadedLeftCount));
         setTeachersCount(loadedTeachersCount);
         setClassesCount(loadedClassesCount);
-        setMarksCount(loadedMarksCount);
+        setMarksCount(statsOverview.marksCount);
         setSubjectsCount(loadedSubjectsCount);
-        setEnrollmentsCount(loadedEnrollmentsCount);
+        setEnrollmentsCount(statsOverview.studentSubjectEnrollmentsCount);
+        setStatsInitialized(statsOverview.initialized === true);
         setMarksEntrySettings(
           marksEntrySettingsSnap.exists()
             ? normalizeMarksEntrySettings(marksEntrySettingsSnap.data())
@@ -330,6 +333,21 @@ export default function Dashboard() {
     }
   }
 
+  async function rebuildDashboardStats() {
+    setRebuildingStats(true);
+    setLoadError("");
+    try {
+      const overview = await rebuildSystemStatsOverview();
+      setMarksCount(overview.marksCount);
+      setEnrollmentsCount(overview.studentSubjectEnrollmentsCount);
+      setStatsInitialized(true);
+    } catch (error) {
+      console.error("System stats rebuild error:", error);
+      setLoadError(error.message || "Failed to initialize dashboard statistics.");
+    } finally {
+      setRebuildingStats(false);
+    }
+  }
   const recentStudents = useMemo(() => students.slice(0, isMobile ? 4 : 6), [isMobile, students]);
   const activePercent = studentsCount ? Math.round((activeStudentsCount / studentsCount) * 100) : 0;
 
@@ -352,7 +370,7 @@ export default function Dashboard() {
     },
     {
       title: "Marks",
-      value: marksCount,
+      value: marksCount ?? "—",
       helperText: "Saved records",
       icon: <GradingRoundedIcon fontSize="small" />,
       color: "warning",
@@ -476,7 +494,7 @@ export default function Dashboard() {
                 <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudentsCount} active`} color="success" />
                 <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudentsCount} left`} color="warning" />
                 <Chip label={`${subjectsCount} subjects`} variant="outlined" color="primary" />
-                <Chip label={`${enrollmentsCount} enrollments`} variant="outlined" color="secondary" />
+                <Chip label={`${enrollmentsCount ?? "—"} enrollments`} variant="outlined" color="secondary" />
               </Stack>
             </Stack>
           </CardContent>
@@ -737,8 +755,17 @@ export default function Dashboard() {
                 <SnapshotRow label="Left students" value={leftStudentsCount} />
                 <SnapshotRow label="Teachers" value={teachersCount} />
                 <SnapshotRow label="Subject definitions" value={subjectsCount} />
-                <SnapshotRow label="Subject enrollments" value={enrollmentsCount} />
-                <SnapshotRow label="Marks documents" value={marksCount} />
+                <SnapshotRow label="Subject enrollments" value={enrollmentsCount ?? "—"} />
+                <SnapshotRow label="Marks documents" value={marksCount ?? "—"} />
+                {!statsInitialized ? (
+                  <Alert severity="info" action={<Button size="small" onClick={rebuildDashboardStats} disabled={rebuildingStats}>{rebuildingStats ? "Initializing..." : "Initialize"}</Button>}>
+                    Initialize the one-document summary once. This explicit action replaces automatic full collection counts.
+                  </Alert>
+                ) : (
+                  <Button size="small" variant="text" onClick={rebuildDashboardStats} disabled={rebuildingStats}>
+                    {rebuildingStats ? "Refreshing summary..." : "Repair summary counts"}
+                  </Button>
+                )}
               </Stack>
 
               <Divider sx={{ my: 2 }} />

@@ -1,4 +1,5 @@
 import { academicDisplay, academicExport } from "../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -2097,8 +2098,8 @@ export default function SubjectAnalysis() {
         await Promise.all([
           getCollectionRows(db, "students", { forceRefresh }),
           getCollectionRows(db, "subjects", { forceRefresh }),
-          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-          getCollectionRows(db, "marks", { forceRefresh }),
+          loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
+          loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
           getCollectionRows(db, "classrooms", { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
           getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
@@ -2139,6 +2140,21 @@ export default function SubjectAnalysis() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
+      loadRowsForAcademicYear("marks", selectedYear),
+    ]).then(([enrollmentRows, markRows]) => {
+      if (!cancelled) {
+        setEnrollments(enrollmentRows);
+        setMarks(markRows);
+      }
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError.message || "Failed to load analysis year data.");
+    });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   const studentsById = useMemo(
     () => new Map(students.map((student) => [clean(student.id), student])),
     [students]

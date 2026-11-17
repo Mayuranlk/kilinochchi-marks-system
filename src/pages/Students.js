@@ -6,7 +6,6 @@ import {
   addDoc,
   updateDoc,
   doc,
-  getDocs,
   writeBatch,
   serverTimestamp,
 } from "firebase/firestore";
@@ -15,6 +14,7 @@ import {
   getCollectionRows,
   invalidateCollectionRows,
 } from "../services/firestoreReadCache";
+import { loadRowsWhereIn } from "../services/firestoreScopedReads";
 import {
   Alert,
   Avatar,
@@ -1950,9 +1950,10 @@ export default function Students() {
       let markPatchCount = 0;
 
       if (updates.length > 0) {
-        const [enrollmentSnap, markSnap] = await Promise.all([
-          getDocs(collection(db, "studentSubjectEnrollments")),
-          getDocs(collection(db, "marks")),
+        const targetStudentIds = updates.map((item) => item.studentId);
+        const [enrollmentRows, markRows] = await Promise.all([
+          loadRowsWhereIn("studentSubjectEnrollments", "studentId", targetStudentIds, { forceRefresh: true }),
+          loadRowsWhereIn("marks", "studentId", targetStudentIds, { forceRefresh: true }),
         ]);
 
         const updateByStudentId = new Map(updates.map((item) => [item.studentId, item]));
@@ -1968,15 +1969,15 @@ export default function Students() {
           );
         });
 
-        enrollmentSnap.docs.forEach((docSnap) => {
-          const data = docSnap.data();
+        enrollmentRows.forEach((data) => {
+          const docRef = doc(db, "studentSubjectEnrollments", data.id);
           const item = updateByStudentId.get(normalizeText(data.studentId));
           if (!item) return;
 
           enrollmentPatchCount += 1;
           operations.push((batch) =>
             batch.set(
-              docSnap.ref,
+              docRef,
               {
                 admissionNo: item.admissionNo,
                 studentName: item.studentName || data.studentName || "",
@@ -1987,15 +1988,15 @@ export default function Students() {
           );
         });
 
-        markSnap.docs.forEach((docSnap) => {
-          const data = docSnap.data();
+        markRows.forEach((data) => {
+          const docRef = doc(db, "marks", data.id);
           const item = updateByStudentId.get(normalizeText(data.studentId));
           if (!item) return;
 
           markPatchCount += 1;
           operations.push((batch) =>
             batch.set(
-              docSnap.ref,
+              docRef,
               {
                 admissionNo: item.admissionNo,
                 studentName: item.studentName || data.studentName || "",

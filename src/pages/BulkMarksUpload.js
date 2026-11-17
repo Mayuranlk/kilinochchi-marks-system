@@ -60,6 +60,12 @@ import {
   getCollectionRows,
   invalidateCollectionRows,
 } from "../services/firestoreReadCache";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
+import {
+  addSystemStatsDeltaToBatch,
+  noteSystemStatsDeltaCommitted,
+  systemStatsAreInitialized,
+} from "../services/systemStatsService";
 
 const TEMPLATE_HEADERS = [
   "studentId",
@@ -1448,7 +1454,7 @@ export default function BulkMarksUpload() {
     try {
       const [studentRows, enrollmentRows, terms] = await Promise.all([
         getCollectionRows(db, "students"),
-        getCollectionRows(db, "studentSubjectEnrollments"),
+        loadRowsForAcademicYear("studentSubjectEnrollments", getCurrentYear()),
         getCollectionRows(db, "academicTerms"),
       ]);
 
@@ -1475,6 +1481,17 @@ export default function BulkMarksUpload() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear)
+      .then((rows) => {
+        if (!cancelled) setAllEnrollments(rows.filter((row) => isActiveStatus(row?.status || "active")));
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError.message || "Failed to load enrollment year data.");
+      });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   const studentsById = useMemo(() => {
     return new Map(allStudents.map((student) => [normalizeText(student.id), student]));
   }, [allStudents]);
@@ -1912,7 +1929,8 @@ export default function BulkMarksUpload() {
     setSuccess("");
 
     try {
-      const existingMarks = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const existingMarks = await loadRowsForAcademicYear("marks", selectedYear, { forceRefresh: true });
+      const maintainStats = await systemStatsAreInitialized();
       const existingMarksByStudent = buildMarksByStudentId(existingMarks);
       const currentUser = auth.currentUser;
       const teacherName = currentUser?.displayName || currentUser?.email || "Bulk Upload";
@@ -1920,6 +1938,7 @@ export default function BulkMarksUpload() {
       for (let i = 0; i < validRows.length; i += MAX_BATCH_WRITES) {
         const batch = writeBatch(db);
         const chunk = validRows.slice(i, i + MAX_BATCH_WRITES);
+        let newMarks = 0;
 
         chunk.forEach((row) => {
           const existing = (existingMarksByStudent.get(normalizeText(row.studentId)) || []).find((markDoc) => {
@@ -1991,6 +2010,7 @@ export default function BulkMarksUpload() {
           if (existing?.id) {
             batch.set(doc(db, "marks", existing.id), payload, { merge: true });
           } else {
+            newMarks += 1;
             batch.set(doc(collection(db, "marks")), {
               ...payload,
               createdAt: serverTimestamp(),
@@ -1998,7 +2018,9 @@ export default function BulkMarksUpload() {
           }
         });
 
+        addSystemStatsDeltaToBatch(batch, { marks: newMarks }, { enabled: maintainStats });
         await batch.commit();
+        if (maintainStats && newMarks) noteSystemStatsDeltaCommitted({ marks: newMarks });
       }
 
       setSuccess(`Saved ${validRows.length} mark row${validRows.length === 1 ? "" : "s"} successfully.`);
@@ -2032,7 +2054,8 @@ export default function BulkMarksUpload() {
     setSuccess("");
 
     try {
-      const marksRows = await getCollectionRows(db, "marks", { forceRefresh: true });
+      const marksRows = await loadRowsForAcademicYear("marks", selectedYear, { forceRefresh: true });
+      const maintainStats = await systemStatsAreInitialized();
       const matchingDocs = marksRows.filter((markDoc) => {
         const markClass = markDoc.alClassName || markDoc.fullClassName || markDoc.className || "";
         const markTerm = markDoc.termName || markDoc.term || "";
@@ -2059,10 +2082,13 @@ export default function BulkMarksUpload() {
 
       for (let i = 0; i < matchingDocs.length; i += MAX_BATCH_WRITES) {
         const batch = writeBatch(db);
-        matchingDocs.slice(i, i + MAX_BATCH_WRITES).forEach((docSnap) => {
+        const chunk = matchingDocs.slice(i, i + MAX_BATCH_WRITES);
+        chunk.forEach((docSnap) => {
           batch.delete(doc(db, "marks", docSnap.id));
         });
+        addSystemStatsDeltaToBatch(batch, { marks: -chunk.length }, { enabled: maintainStats });
         await batch.commit();
+        if (maintainStats && chunk.length) noteSystemStatsDeltaCommitted({ marks: -chunk.length });
       }
 
       setSuccess(

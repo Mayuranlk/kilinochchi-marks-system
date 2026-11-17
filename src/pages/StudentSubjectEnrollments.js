@@ -1,4 +1,5 @@
 import { academicDisplay } from "../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -185,7 +186,7 @@ export default function StudentSubjectEnrollments() {
 
       try {
         const [enrollmentRows, studentRows, subjectRows] = await Promise.all([
-          getCollectionRows(db, "studentSubjectEnrollments"),
+          loadRowsForAcademicYear("studentSubjectEnrollments", String(new Date().getFullYear())),
           getCollectionRows(db, "students"),
           getCollectionRows(db, "subjects"),
         ]);

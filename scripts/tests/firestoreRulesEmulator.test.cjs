@@ -39,6 +39,7 @@ const COLLECTIONS = {
   enrollments: "studentSubjectEnrollments",
   marks: "marks",
   settings: "systemSettings",
+  stats: "systemStats",
   fees: "studentFeeAccounts",
   late: "lateArrivalRecords",
   elections: "elections",
@@ -341,6 +342,45 @@ test("teacher updates preserve mark identity and teacher delete remains denied",
   await assertSucceeds(setDoc(doc(dbFor(IDS.itFlag), COLLECTIONS.marks, "it-flag-write"), validMark(IDS.itFlag, "it-flag-write")));
 });
 
+test("system summary permits bounded teacher mark increments and reserves initialization and enrollment totals for admins", async () => {
+  const adminDb = dbFor(IDS.admin);
+  const teacherDb = dbFor(IDS.teacher);
+  const statsRef = doc(adminDb, COLLECTIONS.stats, "overview");
+  await setDoc(statsRef, {
+    initialized: true,
+    marksCount: 100,
+    studentSubjectEnrollmentsCount: 200,
+    updatedAt: serverTimestamp(),
+  });
+
+  await assertSucceeds(getDoc(doc(teacherDb, COLLECTIONS.stats, "overview")));
+  await assertSucceeds(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
+    marksCount: 108,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
+    marksCount: 117,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
+    marksCount: 107,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
+    studentSubjectEnrollmentsCount: 201,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(teacherDb, COLLECTIONS.stats, "teacher-created"), {
+    initialized: true,
+    marksCount: 1,
+    studentSubjectEnrollmentsCount: 0,
+    updatedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(statsRef, {
+    studentSubjectEnrollmentsCount: 201,
+    updatedAt: serverTimestamp(),
+  }));
+});
 test("account fee workflow and prefect late-arrival workflow enforce their write boundaries", async () => {
   const accountDb = dbFor(IDS.account);
   const feeRef = doc(accountDb, COLLECTIONS.fees, "account-fee");

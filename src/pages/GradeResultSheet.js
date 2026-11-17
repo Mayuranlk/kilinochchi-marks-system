@@ -1,4 +1,5 @@
 import { academicDisplay, academicExport } from "../utils/academicDisplay";
+import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
@@ -107,8 +108,8 @@ export default function GradeResultSheet() {
       try {
         const [studentRows, enrollmentRows, markRows, classroomRows, termRows] = await Promise.all([
           getCollectionRows(db, "students"),
-          getCollectionRows(db, "studentSubjectEnrollments"),
-          getCollectionRows(db, "marks"),
+          loadRowsForAcademicYear("studentSubjectEnrollments", currentYear),
+          loadRowsForAcademicYear("marks", currentYear),
           getCollectionRows(db, "classrooms"),
           getCollectionRows(db, "academicTerms"),
         ]);
@@ -137,8 +138,27 @@ export default function GradeResultSheet() {
     }
     loadData();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentYear]);
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
+      loadRowsForAcademicYear("marks", selectedYear),
+    ]).then(([enrollmentRows, markRows]) => {
+      if (cancelled) return;
+      setEnrollments(enrollmentRows);
+      setMarks(markRows.filter((item) =>
+        text(item.assessmentType).toLowerCase() !== "practice" &&
+        !item.practiceExamId && !item.assessmentId &&
+        !item.practiceExamName && !item.assessmentName &&
+        !text(item.assessmentKey).toLowerCase().startsWith("practice")
+      ));
+    }).catch((loadError) => {
+      if (!cancelled) setError(`Failed to load result data: ${loadError.message}`);
+    });
+    return () => { cancelled = true; };
+  }, [selectedYear]);
   const availableClassrooms = useMemo(() => classroomsForYear(classrooms, selectedYear).filter((room) => [10, 11].includes(room.grade)), [classrooms, selectedYear]);
   const availableYears = useMemo(() => [...new Set([currentYear, selectedYear, ...terms.map(academicYear), ...classrooms.map(academicYear)].filter(Boolean))].sort(), [classrooms, currentYear, selectedYear, terms]);
   const availableGrades = useMemo(() => [...new Set(availableClassrooms.map((room) => room.grade))], [availableClassrooms]);

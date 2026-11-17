@@ -1,5 +1,6 @@
 import {
   collection,
+  doc,
   getDocs,
   serverTimestamp,
   writeBatch,
@@ -7,6 +8,12 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { invalidateCollectionRows } from "./firestoreReadCache";
+import { loadRowsWhereIn } from "./firestoreScopedReads";
+import {
+  addSystemStatsDeltaToBatch,
+  noteSystemStatsDeltaCommitted,
+  systemStatsAreInitialized,
+} from "./systemStatsService";
 
 const DELETE_BATCH_SIZE = 350;
 
@@ -175,10 +182,11 @@ const matchesClassroomToClass = (classroom, grade, section, academicYear = "", s
   return !roomYear || roomYear === normalizedYear;
 };
 
-async function chunkDeleteDocs(docRefs = []) {
+async function chunkDeleteDocs(docRefs = [], { statsField = "" } = {}) {
   if (!docRefs.length) return 0;
 
   let deletedCount = 0;
+  const maintainStats = Boolean(statsField) && await systemStatsAreInitialized();
 
   for (let i = 0; i < docRefs.length; i += DELETE_BATCH_SIZE) {
     const chunk = docRefs.slice(i, i + DELETE_BATCH_SIZE);
@@ -188,7 +196,10 @@ async function chunkDeleteDocs(docRefs = []) {
       batch.delete(docRef);
     });
 
+    const delta = statsField ? { [statsField]: -chunk.length } : {};
+    addSystemStatsDeltaToBatch(batch, delta, { enabled: maintainStats });
     await batch.commit();
+    if (maintainStats) noteSystemStatsDeltaCommitted(delta);
     deletedCount += chunk.length;
   }
 
@@ -225,21 +236,27 @@ async function getEnrollmentsForClass({
   stream = "",
   studentIds = [],
 }) {
-  const enrollments = await getAllDocs("studentSubjectEnrollments");
+  if (!studentIds.length) return [];
+  const enrollments = await loadRowsWhereIn("studentSubjectEnrollments", "studentId", studentIds);
   const studentIdSet = new Set(studentIds.map((id) => String(id)));
 
-  return enrollments.filter((enrollment) =>
-    matchesEnrollmentToClass(enrollment, grade, section, academicYear, stream, studentIdSet)
-  );
+  return enrollments
+    .map((enrollment) => ({ ...enrollment, ref: doc(db, "studentSubjectEnrollments", enrollment.id) }))
+    .filter((enrollment) =>
+      matchesEnrollmentToClass(enrollment, grade, section, academicYear, stream, studentIdSet)
+    );
 }
 
 async function getMarksForClass({ grade, section, academicYear = "", stream = "", studentIds = [] }) {
+  if (!studentIds.length) return [];
   const studentIdSet = new Set(studentIds.map((id) => String(id)));
-  const marks = await getAllDocs("marks");
+  const marks = await loadRowsWhereIn("marks", "studentId", studentIds);
 
-  return marks.filter((markDoc) =>
-    matchesMarkToClass(markDoc, grade, section, academicYear, stream, studentIdSet)
-  );
+  return marks
+    .map((markDoc) => ({ ...markDoc, ref: doc(db, "marks", markDoc.id) }))
+    .filter((markDoc) =>
+      matchesMarkToClass(markDoc, grade, section, academicYear, stream, studentIdSet)
+    );
 }
 
 async function getTeacherAssignmentsForClass({ grade, section, academicYear = "", stream = "" }) {
@@ -307,8 +324,8 @@ async function getStudentRelatedDocs(studentIds = []) {
   const studentIdSet = new Set(studentIds.map((id) => String(id)));
 
   const [enrollments, marks] = await Promise.all([
-    getAllDocs("studentSubjectEnrollments"),
-    getAllDocs("marks"),
+    loadRowsWhereIn("studentSubjectEnrollments", "studentId", studentIds),
+    loadRowsWhereIn("marks", "studentId", studentIds),
   ]);
 
   const matchedEnrollments = enrollments.filter(
@@ -344,12 +361,12 @@ export async function deleteStudentsAndRelated({
   const { enrollments, marks } = await getStudentRelatedDocs(studentIds);
 
   const studentRefs = studentsToDelete.map((item) => item.ref);
-  const enrollmentRefs = enrollments.map((item) => item.ref);
-  const markRefs = marks.map((item) => item.ref);
+  const enrollmentRefs = enrollments.map((item) => item.ref || doc(db, "studentSubjectEnrollments", item.id));
+  const markRefs = marks.map((item) => item.ref || doc(db, "marks", item.id));
 
   const deletedStudents = await chunkDeleteDocs(studentRefs);
-  const deletedEnrollments = await chunkDeleteDocs(enrollmentRefs);
-  const deletedMarks = await chunkDeleteDocs(markRefs);
+  const deletedEnrollments = await chunkDeleteDocs(enrollmentRefs, { statsField: "studentSubjectEnrollments" });
+  const deletedMarks = await chunkDeleteDocs(markRefs, { statsField: "marks" });
 
   await addDoc(collection(db, "auditLogs"), {
     action: reason,
@@ -399,8 +416,8 @@ export async function resetClassData({
     ? preview.classrooms.map((item) => item.ref)
     : [];
 
-  const deletedMarks = await chunkDeleteDocs(markRefs);
-  const deletedEnrollments = await chunkDeleteDocs(enrollmentRefs);
+  const deletedMarks = await chunkDeleteDocs(markRefs, { statsField: "marks" });
+  const deletedEnrollments = await chunkDeleteDocs(enrollmentRefs, { statsField: "studentSubjectEnrollments" });
   const deletedStudents = await chunkDeleteDocs(studentRefs);
   const deletedTeacherAssignments = await chunkDeleteDocs(teacherAssignmentRefs);
   const deletedClassrooms = await chunkDeleteDocs(classroomRefs);
