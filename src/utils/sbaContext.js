@@ -61,10 +61,13 @@ const getClassIdentity = (item = {}) =>
 const getResolvedStream = (item = {}, fallback = {}) =>
   normalizeText(pick(item.stream, fallback.stream, ""));
 
-const getResolvedSection = (item = {}, fallback = {}) =>
-  normalizeSection(
-    pick(item.section, item.className, fallback.section, fallback.className, "")
-  );
+const getResolvedSection = (item = {}, fallback = {}) => {
+  const grade = parseGrade(pick(item.grade, fallback.grade, ""));
+  if (isALGrade(grade) && Object.prototype.hasOwnProperty.call(item, "section")) {
+    return normalizeSection(item.section || "");
+  }
+  return normalizeSection(pick(item.section, item.className, fallback.section, fallback.className, ""));
+};
 
 const getResolvedGrade = (item = {}, fallback = {}) =>
   parseGrade(pick(item.grade, fallback.grade, ""));

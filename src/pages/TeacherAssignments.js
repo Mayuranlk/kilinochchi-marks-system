@@ -187,7 +187,10 @@ const subjectKey = (row) => {
 const getAssignmentSubjectName = (row) =>
   safeString(row.subjectName || row.subject);
 
-const getClassroomSection = (row) => normalizeSection(row.section || row.className);
+const getClassroomSection = (row) =>
+  isALGrade(normalizeGrade(row.grade)) && Object.prototype.hasOwnProperty.call(row, "section")
+    ? normalizeSection(row.section || "")
+    : normalizeSection(row.section || row.className);
 
 const getClassroomFullClassName = (row) => {
   const explicitName = safeString(row.fullClassName || row.alClassName);

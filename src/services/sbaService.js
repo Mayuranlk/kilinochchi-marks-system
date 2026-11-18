@@ -102,11 +102,13 @@ export async function loadSbaRosterData(subjectIds, term, assignment = null, opt
   if (!ids.length) return { students: [], enrollments: [] };
   const year = sbaYear(term);
   const context = assignment ? getClassContext(assignment) : null;
-  if (!year || !context?.grade || !context?.section) throw new Error("The selected assignment is missing its academic year, grade, or section.");
+  if (!year || !context?.grade || (context.grade < 12 && !context.section)) throw new Error("The selected assignment is missing its academic year, grade, or section.");
 
   const yearValues = distinctValues([year, Number.isFinite(Number(year)) ? Number(year) : ""]);
   const gradeValues = distinctValues([context.grade, String(context.grade)]);
-  const sectionValues = distinctValues([context.section, String(assignment?.section || "").trim()]);
+  const sectionValues = context.section
+    ? distinctValues([context.section, String(assignment?.section || "").trim()])
+    : [""];
   const enrollmentsById = new Map();
 
   for (const subjectId of ids) {

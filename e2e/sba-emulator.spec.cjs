@@ -170,3 +170,25 @@ test("admin SBA prerequisite locks and unlocks teacher term entry without mixing
   await expect(teacherPage.locator('input[value="83"]').first()).toBeEnabled();
   await context.close();
 });
+
+test("sectionless A/L class loads a roster and saves SBA marks", async ({ page }) => {
+  const termId = "term-al-2028", studentId = "student-al-empty", subjectId = "subject-al-commerce";
+  const cls = { grade: 12, section: "", stream: "Commerce", batchYear: 2028, intakeYear: 2026, className: "2028 Commerce", fullClassName: "2028 Commerce", alClassName: "2028 Commerce" };
+  const batch = db.batch();
+  batch.set(db.collection("systemSettings").doc("sbaEntry"), { teacherEntryEnabled: true });
+  batch.set(db.collection("academicTerms").doc(termId), { term: "1st Term", year: 2028, academicYear: 2028, termSystem: "al", termSequence: 1, batchYear: 2028, intakeYear: 2026, calendarYear: 2026, calendarTerm: 3, status: "active" });
+  batch.set(db.collection("students").doc(studentId), { ...cls, name: "Sectionless AL Student", fullName: "Sectionless AL Student", status: "active" });
+  batch.set(db.collection("teacherAssignments").doc("assignment-al-empty"), { ...cls, teacherId: "app-teacher", subjectId, subjectName: "Commerce", academicYear: 2028, status: "active" });
+  batch.set(db.collection("studentSubjectEnrollments").doc("enrollment-al-empty"), { ...cls, studentId, subjectId, academicYear: 2028, status: "active" });
+  await batch.commit();
+  await login(page, "teacher");
+  await page.goto("/teacher/sba-marks");
+  await expect(page.getByRole("combobox").first()).toContainText("2028 Batch");
+  await expect(page.getByRole("combobox").nth(1)).toContainText("2028 Commerce");
+  const mark = page.getByRole("textbox", { name: "SBA mark for Sectionless AL Student", exact: true });
+  await expect(mark).toBeEnabled();
+  await mark.fill("16");
+  await page.getByRole("button", { name: "Save SBA marks", exact: true }).click();
+  await expect(page.getByText("1 SBA record(s) saved.", { exact: true })).toBeVisible();
+  expect((await db.collection("sbaMarks").doc(`${termId}~${studentId}~${subjectId}`).get()).data().mark).toBe(16);
+});

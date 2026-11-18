@@ -65,3 +65,5 @@ Legacy Grade 12 or Grade 13 classrooms continue to load. Their stored year is tr
 
 Before production release, deploy the updated proposed Firestore rules because new SBA records include the additional batch and calendar metadata.
 
+
+Sectionless A/L classes retain an empty section through teacher assignments, enrollment generation, SBA and marks entry. SBA queries explicitly include the empty section and retain stream and batch separation.

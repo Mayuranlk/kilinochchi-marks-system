@@ -527,3 +527,18 @@ test("A/L SBA permits matching batch and rejects a different batch", async () =>
   await assertFails(setDoc(doc(teacher, "sbaMarks", id), { ...value, classKey: "12|A|commerce|2029", scopeKey: `${termId}|12|A|commerce|2029`, revision: 2 }));
   await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), { mark: 19, revision: 2, updatedAt: serverTimestamp() }, { merge: true }));
 });
+
+test("sectionless A/L SBA accepts its exact empty-section batch scope", async () => {
+  const admin = dbFor(IDS.admin), teacher = dbFor(IDS.teacher);
+  const termId = "al-empty-term", studentId = "al-empty-student", subjectId = "al-empty-subject";
+  const id = `${termId}~${studentId}~${subjectId}`;
+  const cls = { grade: 12, section: "", stream: "Commerce", batchYear: 2028 };
+  await Promise.all([
+    setDoc(doc(admin, "academicTerms", termId), { year: 2028, term: "Term 1" }),
+    setDoc(doc(admin, "students", studentId), { ...cls, status: "active" }),
+    setDoc(doc(admin, "teacherAssignments", "al-empty-assignment"), { ...cls, teacherId: IDS.teacher, subjectId, academicYear: "2028", status: "active" }),
+    setDoc(doc(admin, "studentSubjectEnrollments", "al-empty-enrollment"), { ...cls, studentId, subjectId, academicYear: "2028", status: "active" }),
+  ]);
+  const value = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2028", classKey: "12||commerce|2028", scopeKey: `${termId}|12||commerce|2028`, subjectId, studentId, assignmentId: "al-empty-assignment", enrollmentId: "al-empty-enrollment", mark: 18, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() };
+  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), value));
+});

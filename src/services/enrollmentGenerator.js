@@ -181,6 +181,9 @@ function getStudentName(student) {
 }
 
 function getStudentSection(student) {
+  if (parseGrade(student?.grade) >= 12 && Object.prototype.hasOwnProperty.call(student || {}, "section")) {
+    return normalizeSection(student.section || "");
+  }
   return normalizeSection(student?.section || student?.className);
 }
 

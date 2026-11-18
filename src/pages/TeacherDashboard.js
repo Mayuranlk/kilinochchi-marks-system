@@ -114,8 +114,13 @@ const normalizeAcademicYear = (value) => {
 const getResolvedStream = (row = {}, fallback = {}) =>
   normalizeText(pick(row.stream, fallback.stream, ""));
 
-const getResolvedSection = (row = {}, fallback = {}) =>
-  normalizeSection(pick(row.section, row.className, fallback.section, fallback.className, ""));
+const getResolvedSection = (row = {}, fallback = {}) => {
+  const grade = parseGrade(pick(row.grade, fallback.grade, ""));
+  if (isALGrade(grade) && Object.prototype.hasOwnProperty.call(row, "section")) {
+    return normalizeSection(row.section || "");
+  }
+  return normalizeSection(pick(row.section, row.className, fallback.section, fallback.className, ""));
+};
 
 const getResolvedGrade = (row = {}, fallback = {}) =>
   parseGrade(pick(row.grade, fallback.grade, ""));

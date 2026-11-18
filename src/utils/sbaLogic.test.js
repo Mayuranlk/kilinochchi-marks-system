@@ -59,3 +59,7 @@ test("A3 printing escapes names, uses English headings, and paginates 35 student
   expect(html).not.toContain("<script>");
   expect(html).toContain(">0</td>");
 });
+
+test("sectionless A/L class keeps an empty section in its SBA scope", () => {
+  expect(sbaClassKey({ grade: 12, section: "", stream: "Commerce", batchYear: 2028, className: "2028 Commerce" })).toBe("12||commerce|2028");
+});

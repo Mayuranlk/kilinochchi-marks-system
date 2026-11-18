@@ -175,3 +175,19 @@ test("editing a legacy SBA record preserves immutable academic fields", async ()
   expect(update).not.toHaveProperty("classKey");
   expect(result).toMatchObject({ ...existing, mark: 20, revision: 3 });
 });
+
+test("sectionless A/L roster queries the empty section and preserves batch identity", async () => {
+  const assignment = { id: "al-a", grade: 12, section: "", stream: "Commerce", batchYear: 2028, className: "2028 Commerce", subjectId: "commerce" };
+  const term = { id: "al-term", year: 2028, batchYear: 2028 };
+  const wrap = (id, data) => ({ id, data: () => data });
+  const enrollment = { ...assignment, studentId: "s-al", academicYear: "2028", status: "active" };
+  getDocs.mockImplementation(async (request) => {
+    if (request[0] === "students") return { docs: [wrap("s-al", { ...assignment, name: "Student" })] };
+    const filters = request.filter((part) => Array.isArray(part) && part[1] === "==");
+    return { docs: filters.every(([field, , value]) => enrollment[field] === value) ? [wrap("e-al", enrollment)] : [] };
+  });
+  const result = await loadSbaRosterData(["commerce"], term, assignment);
+  expect(result.enrollments.map((row) => row.id)).toEqual(["e-al"]);
+  expect(result.students.map((row) => row.id)).toEqual(["s-al"]);
+  expect(getDocs.mock.calls.some(([q]) => q.some((part) => Array.isArray(part) && part[0] === "section" && part[2] === ""))).toBe(true);
+});
