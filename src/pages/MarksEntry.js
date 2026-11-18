@@ -80,6 +80,16 @@ import {
   matchesAcademicMedium,
 } from "../utils/academicMediumUtils";
 import {
+  getAcademicTermKey,
+  getAcademicTermLabel,
+  getCalendarSlotForTerm,
+  getTermCalendarNumber,
+  getTermCalendarYear,
+  getTermSequence,
+  getTermSystem,
+  termAppliesToClass,
+} from "../utils/alAcademicCycle";
+import {
   DEFAULT_MARKS_ENTRY_SETTINGS,
   getTeacherMarksEntryLockReason,
   isTeacherMarksEntryLocked,
@@ -281,14 +291,9 @@ const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
   return itemGrade === targetGrade && itemSection === targetSection;
 };
 
-const buildTermKey = (term = {}) =>
-  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
+const buildTermKey = (term = {}) => getAcademicTermKey(term);
 
-const buildTermLabel = (term) => {
-  const termName = pick(term.term, term.termName, term.name, "Term");
-  const year = pick(term.year, term.academicYear, "");
-  return year ? `${termName} - ${year}` : termName;
-};
+const buildTermLabel = (term = {}) => getAcademicTermLabel(term);
 
 const LEGACY_PRACTICE_ASSESSMENT_PREFIX = "__LEGACY_PRACTICE_TERM__:";
 
@@ -464,20 +469,6 @@ export default function MarksEntry() {
     [terms, selectedTermKey]
   );
 
-  const termOptions = useMemo(() => {
-    const baseTermKeys = new Set(
-      terms
-        .filter((term) => !getLegacyPracticeTermInfo(term))
-        .map((term) => `${normalizeText(pick(term.term, term.termName, ""))}__${Number(pick(term.year, term.academicYear, 0))}`)
-    );
-
-    return terms.filter((term) => {
-      const legacyInfo = getLegacyPracticeTermInfo(term);
-      if (!legacyInfo) return true;
-      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
-    });
-  }, [terms]);
-
   const classOptions = useMemo(() => {
     const map = new Map();
 
@@ -495,6 +486,11 @@ export default function MarksEntry() {
           section: context.section,
           stream: normalizeText(context.stream),
           alClassName: pick(assignment.alClassName, ""),
+          batchYear: isALGrade(context.grade)
+            ? Number(pick(assignment.batchYear, assignment.academicYear, assignment.year, 0)) || 0
+            : 0,
+          intakeYear: Number(pick(assignment.intakeYear, 0)) || 0,
+          academicScopeKey: pick(assignment.academicScopeKey, ""),
         });
       }
     });
@@ -515,6 +511,38 @@ export default function MarksEntry() {
     [classOptions, selectedClass]
   );
 
+  const termOptions = useMemo(() => {
+    const baseTermKeys = new Set(
+      terms
+        .filter((term) => !getLegacyPracticeTermInfo(term))
+        .map((term) => `${normalizeText(pick(term.term, term.termName, ""))}__${Number(pick(term.year, term.academicYear, 0))}`)
+    );
+
+    return terms.filter((term) => {
+      if (selectedClassRow && !termAppliesToClass(term, selectedClassRow)) {
+        return false;
+      }
+      const legacyInfo = getLegacyPracticeTermInfo(term);
+      if (!legacyInfo) return true;
+      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
+    });
+  }, [terms, selectedClassRow]);
+
+  useEffect(() => {
+    if (!selectedClassRow) return;
+    const applicableTerms = terms.filter((term) =>
+      termAppliesToClass(term, selectedClassRow)
+    );
+    const selectedIsApplicable = applicableTerms.some(
+      (term) => buildTermKey(term) === selectedTermKey
+    );
+    if (selectedIsApplicable) return;
+
+    const nextTerm =
+      applicableTerms.find(isActiveTerm) || applicableTerms[0] || null;
+    setSelectedTermKey(nextTerm ? buildTermKey(nextTerm) : "");
+  }, [selectedClassRow, selectedTermKey, terms]);
+
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
@@ -526,6 +554,9 @@ export default function MarksEntry() {
           fullClassName: selectedClassRow.fullClassName,
           className: selectedClassRow.className,
           alClassName: selectedClassRow.alClassName,
+          batchYear: selectedClassRow.batchYear,
+          intakeYear: selectedClassRow.intakeYear,
+          academicScopeKey: selectedClassRow.academicScopeKey,
         }
       : null;
 
@@ -1485,6 +1516,19 @@ export default function MarksEntry() {
           academicTermId: activeTerm.id,
           academicYear: row.academicYear,
           year: row.academicYear,
+          batchYear: selectedClassRow?.batchYear || row.batchYear || 0,
+          intakeYear: selectedClassRow?.intakeYear || row.intakeYear || 0,
+          academicScopeKey:
+            activeTerm.academicScopeKey ||
+            selectedClassRow?.academicScopeKey ||
+            "",
+          termSystem: getTermSystem(activeTerm),
+          termSequence: getTermSequence(activeTerm),
+          calendarYear: getTermCalendarYear(activeTerm),
+          calendarTerm: getTermCalendarNumber(activeTerm),
+          calendarSlotKey: getCalendarSlotForTerm(activeTerm),
+          termScopeKey: activeTerm.termScopeKey || getAcademicTermKey(activeTerm),
+          phaseGrade: Number(activeTerm.phaseGrade) || 0,
           assessmentType: row.assessmentId ? "practice" : "term",
           assessmentId: row.assessmentId || "",
           assessmentName: row.assessmentName || "",

@@ -10,11 +10,18 @@ import { db } from "../firebase";
 import { getCollectionRows, invalidateCollectionRows } from "../services/firestoreReadCache";
 import { GRADES } from "../constants";
 import {
+  AL_TERM_SYSTEM,
+  SCHOOL_TERM_SYSTEM,
+  buildALAcademicScopeKey,
+  buildALBatchClassName,
+  buildSchoolAcademicScopeKey,
+  deriveALBatchYear,
+  deriveALIntakeYear,
+} from "../utils/alAcademicCycle";
+import {
   AL_STREAM_OPTIONS,
   AL_STREAM_CODES,
   AL_STREAM_SHORT_NAMES,
-  buildALClassName,
-  buildALDisplayClassName,
   isALGrade,
   normalizeText,
 } from "../constants";
@@ -64,7 +71,8 @@ import {
   StatusChip,
 } from "../components/ui";
 
-const YEARS = [2026, 2025, 2024];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 9 }, (_, index) => CURRENT_YEAR + 4 - index);
 const ALL_SECTIONS = [
   "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
   "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
@@ -78,7 +86,11 @@ const emptyForm = {
   alClassName: "",
   fullClassName: "",
   classTeacherId: "",
-  year: 2026,
+  year: CURRENT_YEAR,
+  intakeYear: CURRENT_YEAR,
+  batchYear: CURRENT_YEAR + 2,
+  termSystem: SCHOOL_TERM_SYSTEM,
+  academicScopeKey: buildSchoolAcademicScopeKey(CURRENT_YEAR),
   notes: "",
 };
 
@@ -98,19 +110,22 @@ const normalizeYear = (value) => {
 const buildRegularClassName = (grade, section) =>
   `${normalizeGrade(grade)}${upper(section)}`;
 
-const buildStoredClassValues = (grade, section, stream = "") => {
+const buildStoredClassValues = (grade, section, stream = "", batchYear = 0) => {
   const g = normalizeGrade(grade);
   const s = upper(section);
   const st = normalizeText(stream);
+  const resolvedBatchYear = normalizeYear(batchYear);
 
   if (isALGrade(g) && st) {
-    const alClassName = buildALClassName(g, st, s);
+    const alClassName = buildALBatchClassName(resolvedBatchYear, st, s);
     return {
-      className: buildRegularClassName(g, s),
+      className: alClassName,
       fullClassName: alClassName,
       alClassName,
       streamCode: AL_STREAM_CODES[st] || "",
-      displayClassName: buildALDisplayClassName(g, st, s) || alClassName,
+      displayClassName:
+        buildALBatchClassName(resolvedBatchYear, st, s, { shortStream: true }) ||
+        alClassName,
     };
   }
 
@@ -171,9 +186,15 @@ const normalizeTeacher = (id, data = {}, source = "users") => {
 const normalizeClassroom = (id, data = {}) => {
   const grade = normalizeGrade(data.grade);
   const section = upper(data.section || data.classSection || "");
-  const year = normalizeYear(data.year || data.academicYear || new Date().getFullYear());
+  const year = normalizeYear(data.year || data.academicYear || CURRENT_YEAR);
   const stream = safeString(data.stream);
-  const built = buildStoredClassValues(grade, section, stream);
+  const batchYear = isALGrade(grade)
+    ? normalizeYear(data.batchYear || data.academicYear || data.year)
+    : 0;
+  const intakeYear = isALGrade(grade)
+    ? normalizeYear(data.intakeYear || deriveALIntakeYear(batchYear))
+    : 0;
+  const built = buildStoredClassValues(grade, section, stream, batchYear);
 
   return {
     id,
@@ -181,6 +202,14 @@ const normalizeClassroom = (id, data = {}) => {
     grade,
     section,
     year,
+    batchYear,
+    intakeYear,
+    termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : SCHOOL_TERM_SYSTEM,
+    academicScopeKey:
+      safeString(data.academicScopeKey) ||
+      (isALGrade(grade)
+        ? buildALAcademicScopeKey(batchYear)
+        : buildSchoolAcademicScopeKey(year)),
     className: safeString(data.className) || built.className,
     fullClassName: safeString(data.fullClassName) || built.fullClassName,
     alClassName: safeString(data.alClassName) || built.alClassName,
@@ -336,15 +365,17 @@ export default function ClassroomManagement() {
 
   const getAvailableSections = () => {
     const currentGrade = normalizeGrade(form.grade);
-    const currentYear = normalizeYear(form.year);
+    const currentYear = normalizeYear(
+      isALGrade(currentGrade) ? form.batchYear : form.year
+    );
     const currentStream = normalizeText(form.stream);
 
     const existingForScope = classrooms.filter((c) => {
-      if (c.grade !== currentGrade || c.year !== currentYear) return false;
+      if (c.grade !== currentGrade) return false;
       if (isALGrade(currentGrade)) {
-        return safeString(c.stream) === currentStream;
+        return c.batchYear === currentYear && safeString(c.stream) === currentStream;
       }
-      return true;
+      return c.year === currentYear;
     });
 
     const existingSections = existingForScope.map((c) => c.section);
@@ -377,6 +408,9 @@ export default function ClassroomManagement() {
 
     const grade = normalizeGrade(form.grade);
     const year = normalizeYear(form.year);
+    const intakeYear = normalizeYear(form.intakeYear);
+    const batchYear = normalizeYear(form.batchYear);
+    const scopeYear = isALGrade(grade) ? batchYear : year;
     const stream = safeString(form.stream);
 
     if (isALGrade(grade) && !stream) {
@@ -385,9 +419,11 @@ export default function ClassroomManagement() {
     }
 
     const existingForScope = classrooms.filter((c) => {
-      if (c.grade !== grade || c.year !== year) return false;
-      if (isALGrade(grade)) return safeString(c.stream) === stream;
-      return true;
+      if (c.grade !== grade) return false;
+      if (isALGrade(grade)) {
+        return c.batchYear === batchYear && safeString(c.stream) === stream;
+      }
+      return c.year === year;
     });
 
     const nextSection = ALL_SECTIONS.find(
@@ -407,14 +443,14 @@ export default function ClassroomManagement() {
       (c) =>
         c.grade === grade &&
         c.section === nextSection &&
-        c.year === year &&
+        (isALGrade(grade) ? c.batchYear === batchYear : c.year === year) &&
         (isALGrade(grade) ? safeString(c.stream) === stream : true)
     );
 
     if (duplicate) {
       setError(
         isALGrade(grade)
-          ? `${buildALClassName(grade, stream, nextSection)} already exists for ${year}.`
+          ? `${buildALBatchClassName(batchYear, stream, nextSection)} already exists for ${year}.`
           : `Grade ${grade}-${nextSection} already exists for ${year}.`
       );
       return;
@@ -423,7 +459,7 @@ export default function ClassroomManagement() {
     setCreatingSection(true);
 
     try {
-      const built = buildStoredClassValues(grade, nextSection, stream);
+      const built = buildStoredClassValues(grade, nextSection, stream, batchYear);
 
       await addDoc(collection(db, "classrooms"), {
         grade,
@@ -439,8 +475,14 @@ export default function ClassroomManagement() {
         classTeacherEmail: "",
         classTeacherPhone: "",
         classTeacherSignatureNo: "",
-        year,
-        academicYear: year,
+        year: scopeYear,
+        academicYear: scopeYear,
+        intakeYear: isALGrade(grade) ? intakeYear : 0,
+        batchYear: isALGrade(grade) ? batchYear : 0,
+        termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : SCHOOL_TERM_SYSTEM,
+        academicScopeKey: isALGrade(grade)
+          ? buildALAcademicScopeKey(batchYear)
+          : buildSchoolAcademicScopeKey(year),
         notes: "",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -472,31 +514,39 @@ export default function ClassroomManagement() {
     const grade = normalizeGrade(form.grade);
     const section = upper(form.section);
     const year = normalizeYear(form.year);
+    const intakeYear = normalizeYear(form.intakeYear);
+    const batchYear = normalizeYear(form.batchYear);
+    const scopeYear = isALGrade(grade) ? batchYear : year;
     const stream = safeString(form.stream);
 
-    if (!grade || !section) {
-      setError("Grade and Section are required.");
+    if (!grade || (!section && !isALGrade(grade))) {
+      setError("Grade and Section are required for Grades 6-11.");
       return;
     }
 
     if (isALGrade(grade) && !stream) {
-      setError("Stream is required for Grade 12-13 classrooms.");
+      setError("Stream is required for A/L batch classrooms.");
+      return;
+    }
+
+    if (isALGrade(grade) && (!intakeYear || !batchYear || batchYear < intakeYear)) {
+      setError("Enter a valid intake year and A/L batch year.");
       return;
     }
 
     const duplicate = classrooms.find((c) => {
       if (c.id === editId) return false;
-      if (c.grade !== grade || c.section !== section || c.year !== year) return false;
+      if (c.grade !== grade || c.section !== section) return false;
       if (isALGrade(grade)) {
-        return safeString(c.stream) === stream;
+        return c.batchYear === batchYear && safeString(c.stream) === stream;
       }
-      return true;
+      return c.year === year;
     });
 
     if (duplicate) {
       setError(
         isALGrade(grade)
-          ? `${buildALClassName(grade, stream, section)} already exists for ${year}.`
+          ? `${buildALBatchClassName(batchYear, stream, section)} already exists for ${year}.`
           : `Grade ${grade}-${section} already exists for ${year}.`
       );
       return;
@@ -505,7 +555,7 @@ export default function ClassroomManagement() {
     const selectedTeacher =
       teachers.find((teacher) => teacher.id === form.classTeacherId) || null;
 
-    const built = buildStoredClassValues(grade, section, stream);
+    const built = buildStoredClassValues(grade, section, stream, batchYear);
 
     const payload = {
       grade,
@@ -521,8 +571,14 @@ export default function ClassroomManagement() {
       classTeacherEmail: selectedTeacher?.email || "",
       classTeacherPhone: selectedTeacher?.phone || "",
       classTeacherSignatureNo: selectedTeacher?.signatureNo || "",
-      year,
-      academicYear: year,
+      year: scopeYear,
+      academicYear: scopeYear,
+      intakeYear: isALGrade(grade) ? intakeYear : 0,
+      batchYear: isALGrade(grade) ? batchYear : 0,
+      termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : SCHOOL_TERM_SYSTEM,
+      academicScopeKey: isALGrade(grade)
+        ? buildALAcademicScopeKey(batchYear)
+        : buildSchoolAcademicScopeKey(year),
       notes: safeString(form.notes),
       updatedAt: new Date().toISOString(),
     };
@@ -568,7 +624,18 @@ export default function ClassroomManagement() {
       alClassName: classroom.alClassName || "",
       fullClassName: classroom.fullClassName || "",
       classTeacherId: teacher?.id || classroom.classTeacherId || "",
-      year: classroom.year || 2026,
+      year: isALGrade(classroom.grade) ? CURRENT_YEAR : classroom.year || CURRENT_YEAR,
+      intakeYear:
+        classroom.intakeYear ||
+        deriveALIntakeYear(classroom.batchYear || classroom.year) ||
+        CURRENT_YEAR,
+      batchYear:
+        classroom.batchYear ||
+        (isALGrade(classroom.grade)
+          ? classroom.year
+          : deriveALBatchYear(CURRENT_YEAR)),
+      termSystem: isALGrade(classroom.grade) ? AL_TERM_SYSTEM : SCHOOL_TERM_SYSTEM,
+      academicScopeKey: classroom.academicScopeKey || "",
       notes: classroom.notes || "",
     });
 
@@ -969,7 +1036,8 @@ export default function ClassroomManagement() {
                     const built = buildStoredClassValues(
                       nextGrade,
                       "A",
-                      isALGrade(nextGrade) ? form.stream : ""
+                      isALGrade(nextGrade) ? form.stream : "",
+                      isALGrade(nextGrade) ? form.batchYear : form.year
                     );
 
                     setForm((prev) => ({
@@ -993,14 +1061,21 @@ export default function ClassroomManagement() {
             </Grid>
 
             <Grid size={{ xs: 12, sm: 4 }}>
-              <FormControl fullWidth required>
-                <InputLabel>Section</InputLabel>
+              <FormControl fullWidth required={!isALGrade(form.grade)}>
+                <InputLabel>
+                  {isALGrade(form.grade) ? "Section (optional)" : "Section"}
+                </InputLabel>
                 <Select
                   value={form.section}
-                  label="Section"
+                  label={isALGrade(form.grade) ? "Section (optional)" : "Section"}
                   onChange={(e) => {
                     const nextSection = upper(e.target.value);
-                    const built = buildStoredClassValues(form.grade, nextSection, form.stream);
+                    const built = buildStoredClassValues(
+                      form.grade,
+                      nextSection,
+                      form.stream,
+                      form.batchYear
+                    );
 
                     setForm((prev) => ({
                       ...prev,
@@ -1011,6 +1086,9 @@ export default function ClassroomManagement() {
                     }));
                   }}
                 >
+                  {isALGrade(form.grade) && (
+                    <MenuItem value=""><em>No section</em></MenuItem>
+                  )}
                   {availableSections.map((section) => (
                     <MenuItem key={section} value={section}>
                       Section {section}
@@ -1024,24 +1102,85 @@ export default function ClassroomManagement() {
               </Typography>
             </Grid>
 
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <FormControl fullWidth>
-                <InputLabel>Year</InputLabel>
-                <Select
-                  value={form.year}
-                  label="Year"
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, year: Number(e.target.value) }))
-                  }
-                >
-                  {YEARS.map((year) => (
-                    <MenuItem key={year} value={year}>
-                      {year}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+            {isALGrade(form.grade) ? (
+              <>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Intake Year"
+                    value={form.intakeYear}
+                    onChange={(e) => {
+                      const intakeYear = normalizeYear(e.target.value);
+                      const batchYear = deriveALBatchYear(intakeYear);
+                      const built = buildStoredClassValues(
+                        form.grade,
+                        form.section,
+                        form.stream,
+                        batchYear
+                      );
+                      setForm((prev) => ({
+                        ...prev,
+                        intakeYear,
+                        batchYear,
+                        year: batchYear,
+                        streamCode: built.streamCode,
+                        alClassName: built.alClassName,
+                        fullClassName: built.fullClassName,
+                      }));
+                    }}
+                    helperText="Year students enter A/L"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="A/L Batch / Exam Year"
+                    value={form.batchYear}
+                    onChange={(e) => {
+                      const batchYear = normalizeYear(e.target.value);
+                      const built = buildStoredClassValues(
+                        form.grade,
+                        form.section,
+                        form.stream,
+                        batchYear
+                      );
+                      setForm((prev) => ({
+                        ...prev,
+                        batchYear,
+                        year: batchYear,
+                        streamCode: built.streamCode,
+                        alClassName: built.alClassName,
+                        fullClassName: built.fullClassName,
+                      }));
+                    }}
+                    helperText="Defaults to intake year + 2"
+                  />
+                </Grid>
+              </>
+            ) : (
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <FormControl fullWidth>
+                  <InputLabel>School Year</InputLabel>
+                  <Select
+                    value={form.year}
+                    label="School Year"
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        year: Number(e.target.value),
+                        academicScopeKey: buildSchoolAcademicScopeKey(e.target.value),
+                      }))
+                    }
+                  >
+                    {YEARS.map((year) => (
+                      <MenuItem key={year} value={year}>{year}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
 
             <Grid size={{ xs: 12, sm: 6 }}>
               <FormControl fullWidth disabled={!isALGrade(form.grade)}>
@@ -1051,7 +1190,12 @@ export default function ClassroomManagement() {
                   label="Stream"
                   onChange={(e) => {
                     const nextStream = e.target.value || "";
-                    const built = buildStoredClassValues(form.grade, form.section, nextStream);
+                    const built = buildStoredClassValues(
+                      form.grade,
+                      form.section,
+                      nextStream,
+                      form.batchYear
+                    );
 
                     setForm((prev) => ({
                       ...prev,
@@ -1091,7 +1235,12 @@ export default function ClassroomManagement() {
                 label="Full Class Name"
                 value={
                   form.fullClassName ||
-                  buildStoredClassValues(form.grade, form.section, form.stream).fullClassName
+                  buildStoredClassValues(
+                    form.grade,
+                    form.section,
+                    form.stream,
+                    form.batchYear
+                  ).fullClassName
                 }
                 InputProps={{ readOnly: true }}
               />

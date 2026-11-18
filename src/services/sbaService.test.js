@@ -1,4 +1,4 @@
-import { clearFirestoreReadCache } from "./firestoreReadCache";
+﻿import { clearFirestoreReadCache } from "./firestoreReadCache";
 import { doc, runTransaction, setDoc, getDocs, getDocFromServer } from "firebase/firestore";
 import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaAdminAssignments, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
 
@@ -64,7 +64,7 @@ test("roster reads are bounded to the selected legacy class scope", async () => 
   });
   const result = await loadSbaRosterData(["maths", "maths"], context.term, context.assignment);
   const enrollmentQueries = getDocs.mock.calls.map(([request]) => request).filter((request) => request[0] === "studentSubjectEnrollments");
-  expect(enrollmentQueries).toHaveLength(1);
+  expect(enrollmentQueries).toHaveLength(8);
   enrollmentQueries.forEach((request) => {
     expect(request).toContainEqual(["subjectId", "==", "maths"]);
     expect(request).toContainEqual(["limit", 201]);
@@ -86,7 +86,7 @@ test("teacher assignments use identity-scoped queries instead of a collection sc
     : { docs: [] });
   const rows = await loadSbaTeacherAssignments({ uid: "teacher", email: "teacher@example.test" });
   expect(rows.map((row) => row.id)).toEqual(["a1"]);
-  expect(getDocs).toHaveBeenCalledTimes(1);
+  expect(getDocs).toHaveBeenCalledTimes(5);
   getDocs.mock.calls.forEach(([request]) => {
     expect(request[0]).toBe("teacherAssignments");
     expect(request).toContainEqual(["limit", 201]);
@@ -99,7 +99,7 @@ test("admin assignments are bounded to the selected academic year", async () => 
     : { docs: [] });
   const rows = await loadSbaAdminAssignments(context.term);
   expect(rows.map((row) => row.id)).toEqual(["a1"]);
-  expect(getDocs).toHaveBeenCalledTimes(1);
+  expect(getDocs).toHaveBeenCalledTimes(5);
   expect(getDocs.mock.calls[0][0]).toContainEqual(["limit", 2501]);
 });
 
@@ -109,4 +109,69 @@ test("entry scopes marks by subject while register retains all class subjects", 
   expect(getDocs.mock.calls[0][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["subjectId", "==", "maths"], ["limit", 201]]);
   await loadSbaRecords(context.term, context.assignment);
   expect(getDocs.mock.calls[1][0]).toEqual(["sbaMarks", ["scopeKey", "==", "t1|10|A|"], ["limit", 2001]]);
+});
+
+test("revisiting a subject reuses SBA results, while refresh and saves reload them", async () => {
+  const wrap = (id, revision) => ({ id, data: () => ({ revision }) });
+  getDocs.mockResolvedValueOnce({ docs: [wrap("mark-1", 1)] })
+    .mockResolvedValueOnce({ docs: [wrap("mark-1", 2)] })
+    .mockResolvedValueOnce({ docs: [wrap("mark-1", 3)] });
+  expect((await loadSbaRecords(context.term, context.assignment, "maths"))[0].revision).toBe(1);
+  expect((await loadSbaRecords(context.term, context.assignment, "maths"))[0].revision).toBe(1);
+  expect(getDocs).toHaveBeenCalledTimes(1);
+  expect((await loadSbaRecords(context.term, context.assignment, "maths", { forceRefresh: true }))[0].revision).toBe(2);
+  await saveSbaChange(context);
+  expect((await loadSbaRecords(context.term, context.assignment, "maths"))[0].revision).toBe(3);
+  expect(getDocs).toHaveBeenCalledTimes(3);
+});
+
+test("mixed legacy enrollment formats are merged without losing or duplicating students", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  const rows = [
+    wrap("e1", { studentId: "s1", subjectId: "maths", academicYear: "2026", year: "2026", grade: 10, section: "A" }),
+    wrap("e2", { studentId: "s2", subjectId: "maths", year: 2026, grade: "10", section: "A" }),
+  ];
+  getDocs.mockImplementation(async (request) => {
+    if (request[0] === "students") return { docs: [wrap("s1", { name: "One" }), wrap("s2", { name: "Two" })] };
+    const filters = request.filter((part) => Array.isArray(part) && part[1] === "==");
+    return { docs: rows.filter((row) => filters.every(([field, , value]) => row.data()[field] === value)) };
+  });
+  const result = await loadSbaRosterData(["maths"], context.term, context.assignment);
+  expect(result.enrollments.map((row) => row.id).sort()).toEqual(["e1", "e2"]);
+  expect(result.students.map((row) => row.id).sort()).toEqual(["s1", "s2"]);
+  const calls = getDocs.mock.calls.length;
+  await loadSbaRosterData(["maths"], context.term, context.assignment);
+  expect(getDocs).toHaveBeenCalledTimes(calls);
+});
+
+test("mixed teacher identity fields are merged even when the primary query matches", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  getDocs.mockImplementation(async (request) => {
+    const [field, , value] = request.find((part) => Array.isArray(part) && part[1] === "==");
+    const rows = [wrap("a1", { teacherId: "teacher", email: "teacher@example.test" }), wrap("a2", { teacherUid: "teacher" })];
+    return { docs: rows.filter((row) => row.data()[field] === value) };
+  });
+  expect((await loadSbaTeacherAssignments({ uid: "teacher", email: "teacher@example.test" })).map((row) => row.id).sort()).toEqual(["a1", "a2"]);
+});
+
+
+test("admin assignments include mixed year aliases and deduplicate overlaps", async () => {
+  const wrap = (id, data) => ({ id, data: () => data });
+  const rows = [wrap("a1", { academicYear: "2026", year: "2026" }), wrap("a2", { year: 2026 })];
+  getDocs.mockImplementation(async (request) => {
+    const [field, , value] = request.find((part) => Array.isArray(part) && part[1] === "==");
+    return { docs: rows.filter((row) => row.data()[field] === value) };
+  });
+  expect((await loadSbaAdminAssignments(context.term)).map((row) => row.id).sort()).toEqual(["a1", "a2"]);
+});
+
+test("editing a legacy SBA record preserves immutable academic fields", async () => {
+  const existing = { revision: 2, termId: "t1", year: "2026", classKey: "10|A|", mark: 10 };
+  transaction.get.mockImplementation(async (ref) => ({ exists: () => ref.collection === "sbaMarks", data: () => ref.collection === "sbaMarks" ? existing : {} }));
+  const result = await saveSbaChange({ ...context, previous: { revision: 2 } });
+  const [, update, options] = transaction.set.mock.calls[0];
+  expect(options).toEqual({ merge: true });
+  expect(update).not.toHaveProperty("academicYear");
+  expect(update).not.toHaveProperty("classKey");
+  expect(result).toMatchObject({ ...existing, mark: 20, revision: 3 });
 });

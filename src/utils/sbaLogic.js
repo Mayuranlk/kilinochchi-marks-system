@@ -12,7 +12,15 @@ export function sbaEntryLocked(settings = {}, now = new Date()) {
 }
 export function sbaClassKey(row) {
   const context = getClassContext(row);
-  return `${context.grade}|${context.section.toUpperCase()}|${context.grade >= 12 ? context.stream.toLowerCase() : ""}`;
+  const parts = [
+    context.grade,
+    context.section.toUpperCase(),
+    context.grade >= 12 ? context.stream.toLowerCase() : "",
+  ];
+  if (context.grade >= 12 && context.batchYear) {
+    parts.push(String(context.batchYear));
+  }
+  return parts.join("|");
 }
 export const sbaScopeKey = (term, assignment) => `${term.id}|${sbaClassKey(assignment)}`;
 export function sbaRecordId(termId, studentId, subjectId) {

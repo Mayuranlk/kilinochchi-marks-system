@@ -105,3 +105,15 @@ The admin dashboard still loads students and users for its visible summaries. Th
 Teacher Dashboard no longer starts school-wide term-mark/enrollment progress reads on login, term selection, or Refresh. Users can enter SBA without requesting term statistics. Statistics remain explicitly unloaded (not zero/completed), and dashboard report exports are disabled until complete statistics are available.
 
 The optional **Load term statistics** action uses cached bounded queries: at most 1,001 documents per collection, stopping immediately if the 1,000-document complete-result threshold is exceeded. It reports an error rather than presenting truncated totals. This temporarily limits dashboard statistics/exports for larger datasets until a reconciled scoped report loader is implemented. A small complete dataset still supports the existing statistics and exports. This is not required for SBA entry. Old asynchronous responses are ignored after navigation or term changes.
+
+### SBA read and compatibility changes — 18 November 2026
+
+SBA result queries use the existing five-minute in-memory scoped cache. Explicit Refresh bypasses it, successful SBA writes invalidate it, and save transactions continue to detect conflicting revisions. Other sessions' changes may remain unseen until Refresh or expiry; this cache does not change security rules.
+
+Teacher assignment identity aliases, administrator year aliases, and bounded enrollment year/grade/section variants are merged and deduplicated rather than stopping after the first nonempty result. Each enrollment query is limited to 201 documents and the combined unique subject scope is limited to 200. These compatibility queries may read overlapping documents and bill minimum reads for empty queries; correctness can therefore cost more on a cold load. They do not resolve records missing the queried year, grade, section, subject, or identity fields. Canonical data reconciliation is needed before reducing these queries safely. All caches reset at sign-out and last at most five minutes.
+
+Existing SBA record edits preserve historical identity and optional academic metadata; only editable fields are merged. New records use the current A/L metadata schema and need the compatible reviewed rules. The current live rules do not accept those new fields. Do not release the local A/L changes to production until rules and application are verified and released together.
+
+Actual production savings remain unmeasured and project-wide Firestore usage cannot identify a particular page. Compare Query Insights and controlled user sessions before asserting a reduction in billing.
+
+The term-entry prerequisite also requires school classes to retain a zero A/L batch year. The entry page now derives a batch from assignment years only for A/L grades, so ordinary Grade 6–11 terms are not filtered out as A/L terms.

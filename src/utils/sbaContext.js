@@ -6,6 +6,12 @@ import {
   normalizeText,
   parseGrade,
 } from "../constants";
+import {
+  buildALBatchClassName,
+  getAcademicTermKey,
+  getAcademicTermLabel,
+  getClassBatchYear,
+} from "./alAcademicCycle";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -71,8 +77,10 @@ const getComparableALClassName = (item = {}, fallback = {}) => {
   const section = getResolvedSection(item, fallback);
   const stream = getResolvedStream(item, fallback);
 
-  if (isALGrade(grade) && stream && section) {
-    return buildALClassName(grade, stream, section);
+  if (isALGrade(grade) && stream) {
+    const batchYear = getClassBatchYear(item) || getClassBatchYear(fallback);
+    if (batchYear) return buildALBatchClassName(batchYear, stream, section);
+    if (section) return buildALClassName(grade, stream, section);
   }
 
   return "";
@@ -83,8 +91,10 @@ const getClassFallback = (item = {}, fallback = {}) => {
   const section = getResolvedSection(item, fallback);
   const stream = getResolvedStream(item, fallback);
 
-  if (isALGrade(grade) && stream && section) {
-    return buildALClassName(grade, stream, section);
+  if (isALGrade(grade) && stream) {
+    const batchYear = getClassBatchYear(item) || getClassBatchYear(fallback);
+    if (batchYear) return buildALBatchClassName(batchYear, stream, section);
+    if (section) return buildALClassName(grade, stream, section);
   }
 
   return pick(
@@ -112,8 +122,15 @@ const getDisplayClassName = (item = {}, fallback = {}) => {
     const section = getResolvedSection(item, fallback);
     const stream = getResolvedStream(item, fallback);
 
-    if (isALGrade(grade) && stream && section) {
-      return buildALDisplayClassName(grade, stream, section) || explicit;
+    if (isALGrade(grade) && stream) {
+      const batchYear = getClassBatchYear(item) || getClassBatchYear(fallback);
+      if (batchYear) {
+        return (
+          buildALBatchClassName(batchYear, stream, section, { shortStream: true }) ||
+          explicit
+        );
+      }
+      if (section) return buildALDisplayClassName(grade, stream, section) || explicit;
     }
 
     return explicit;
@@ -126,6 +143,9 @@ const getClassContext = (item = {}, fallback = {}) => ({
   grade: getResolvedGrade(item, fallback),
   section: getResolvedSection(item, fallback),
   stream: getResolvedStream(item, fallback),
+  batchYear: getClassBatchYear(item) || getClassBatchYear(fallback),
+  intakeYear: Number(pick(item.intakeYear, fallback.intakeYear, 0)) || 0,
+  academicScopeKey: pick(item.academicScopeKey, fallback.academicScopeKey, ""),
   fullClassName:
     getComparableALClassName(item, fallback) ||
     getClassIdentity(item) ||
@@ -142,6 +162,8 @@ const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
   const targetGrade = parseGrade(target.grade);
   const targetSection = normalizeSection(target.section);
   const targetStream = normalize(target.stream);
+  const itemBatchYear = getClassBatchYear(item) || getClassBatchYear(fallback);
+  const targetBatchYear = getClassBatchYear(target);
 
   const itemIdentity = normalize(
     getComparableALClassName(item, fallback) ||
@@ -153,7 +175,11 @@ const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
     pick(target.fullClassName, target.alClassName, target.className, "")
   );
 
-  if (isALGrade(targetGrade)) {
+  if (isALGrade(targetGrade) || targetBatchYear) {
+    if (targetBatchYear && itemBatchYear && targetBatchYear !== itemBatchYear) {
+      return false;
+    }
+
     if (itemIdentity && targetIdentity && itemIdentity === targetIdentity) {
       return true;
     }
@@ -191,14 +217,9 @@ const buildEnrollmentDedupKey = (item = {}, fallback = {}) => {
   ].join("__");
 };
 
-const buildTermKey = (term = {}) =>
-  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
+const buildTermKey = (term = {}) => getAcademicTermKey(term);
 
-const buildTermLabel = (term = {}) => {
-  const termName = pick(term.term, term.termName, term.name, "Term");
-  const year = pick(term.year, term.academicYear, "");
-  return year ? `${termName} - ${year}` : termName;
-};
+const buildTermLabel = (term = {}) => getAcademicTermLabel(term);
 
 const isActiveTerm = (term = {}) => {
   const raw = pick(term.isActive, term.active, term.status);

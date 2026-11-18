@@ -30,6 +30,9 @@ import { loadSbaAdminAssignments, loadSbaRosterData, loadSbaTeacherAssignments }
 import { EmptyState, PageContainer } from "../components/ui";
 import { normalizeText } from "../constants";
 import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
+import {
+  termAppliesToClass,
+} from "../utils/alAcademicCycle";
 
 const ROWS_PER_PAGE = 40;
 
@@ -264,6 +267,9 @@ export default function SBAForm() {
           section: context.section,
           stream: normalizeText(context.stream),
           alClassName: pick(assignment.alClassName, ""),
+          batchYear: context.batchYear || 0,
+          intakeYear: context.intakeYear || 0,
+          academicScopeKey: context.academicScopeKey || "",
         });
       }
     });
@@ -284,6 +290,24 @@ export default function SBAForm() {
     [classOptions, selectedClass]
   );
 
+  const termOptions = useMemo(
+    () =>
+      selectedClassRow
+        ? terms.filter((term) => termAppliesToClass(term, selectedClassRow))
+        : terms,
+    [selectedClassRow, terms]
+  );
+
+  useEffect(() => {
+    if (!selectedClassRow) return;
+    const selectedIsApplicable = termOptions.some(
+      (term) => buildTermKey(term) === selectedTermKey
+    );
+    if (selectedIsApplicable) return;
+    const nextTerm = termOptions.find(isActiveTerm) || termOptions[0] || null;
+    setSelectedTermKey(nextTerm ? buildTermKey(nextTerm) : "");
+  }, [selectedClassRow, selectedTermKey, termOptions]);
+
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
@@ -295,6 +319,9 @@ export default function SBAForm() {
           fullClassName: selectedClassRow.fullClassName,
           className: selectedClassRow.className,
           alClassName: selectedClassRow.alClassName,
+          batchYear: selectedClassRow.batchYear,
+          intakeYear: selectedClassRow.intakeYear,
+          academicScopeKey: selectedClassRow.academicScopeKey,
         }
       : null;
 
@@ -413,12 +440,24 @@ export default function SBAForm() {
       });
 
       const defaultTerm = sortedTerms.find((term) => buildTermKey(term) === selectedTermKey) || sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
-      const scopedAssignments = isAdmin
-        ? await loadSbaAdminAssignments(defaultTerm, { forceRefresh })
-        : await loadSbaTeacherAssignments({ uid: currentUser.uid, email: currentUser.email }, { forceRefresh });
+      const activeContexts = sortedTerms.filter(isActiveTerm);
+      const adminContexts = activeContexts.length ? activeContexts : (defaultTerm ? [defaultTerm] : []);
+      const assignmentGroups = isAdmin
+        ? await Promise.all(
+            adminContexts.map((term) =>
+              loadSbaAdminAssignments(term, { forceRefresh })
+            )
+          )
+        : [await loadSbaTeacherAssignments(
+            { uid: currentUser.uid, email: currentUser.email },
+            { forceRefresh }
+          )];
+      const scopedAssignments = Array.from(
+        new Map(assignmentGroups.flat().map((assignment) => [assignment.id, assignment])).values()
+      );
 
       setTeacherAssignments(scopedAssignments);
-      setAssignmentYear(isAdmin ? normalizeAcademicYear(pick(defaultTerm?.year, defaultTerm?.academicYear, "")) : "");
+      setAssignmentYear(isAdmin ? "*" : "");
       setTerms(sortedTerms);
 
       if (defaultTerm) {
@@ -578,7 +617,13 @@ export default function SBAForm() {
 
   useEffect(() => {
     const year = normalizeAcademicYear(pick(activeTerm?.year, activeTerm?.academicYear, ""));
-    if (!isAdmin || !activeTerm || bootLoading || assignmentYear === year) return undefined;
+    if (
+      !isAdmin ||
+      !activeTerm ||
+      bootLoading ||
+      assignmentYear === "*" ||
+      assignmentYear === year
+    ) return undefined;
     let cancelled = false;
     setAssignmentLoading(true);
     setError("");
@@ -934,7 +979,7 @@ export default function SBAForm() {
                   value={selectedTermKey}
                   onChange={(event) => setSelectedTermKey(event.target.value)}
                 >
-                  {terms.map((term) => (
+                  {termOptions.map((term) => (
                     <MenuItem key={term.id} value={buildTermKey(term)}>
                       {academicDisplay(buildTermLabel(term))}
                     </MenuItem>

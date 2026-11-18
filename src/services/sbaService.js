@@ -1,9 +1,17 @@
 import { collection, doc, documentId, getDocs, getDocFromServer, limit, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
-import { getScopedRows, recordRead } from "./firestoreReadCache";
+import { getScopedRows, invalidateCollectionRows } from "./firestoreReadCache";
 import { getClassContext, matchesClassContext } from "../utils/sbaContext";
 import { db } from "../firebase";
 import { parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { normalizeMarksEntrySettings } from "../utils/marksEntryAccess";
+import {
+  getAcademicTermKey,
+  getCalendarSlotForTerm,
+  getTermCalendarNumber,
+  getTermCalendarYear,
+  getTermSequence,
+  getTermSystem,
+} from "../utils/alAcademicCycle";
 
 export const SBA_COLLECTION = "sbaMarks";
 export const SBA_SETTINGS_ID = "sbaEntry";
@@ -13,21 +21,21 @@ const MAX_SBA_ADMIN_ASSIGNMENTS = 2500;
 const settingsRef = () => doc(db, "systemSettings", SBA_SETTINGS_ID);
 
 // SBA never reads or writes the term/practice marks collection or its cache.
-export async function loadSbaRecords(term, assignment, subjectId = "") {
+export async function loadSbaRecords(term, assignment, subjectId = "", options = {}) {
   const rowLimit = subjectId ? MAX_SBA_SCOPE_ROWS : MAX_SBA_REGISTER_ROWS;
-  const snapshot = await getDocs(query(
+  const scope = sbaScopeKey(term, assignment);
+  const rows = await getScopedRows(SBA_COLLECTION, ["sba-records", scope, subjectId], () => getDocs(query(
     collection(db, SBA_COLLECTION),
-    where("scopeKey", "==", sbaScopeKey(term, assignment)),
+    where("scopeKey", "==", scope),
     ...(subjectId ? [where("subjectId", "==", subjectId)] : []),
     limit(rowLimit + 1)
-  ));
-  if (snapshot.docs.length > rowLimit) {
+  )), options);
+  if (rows.length > rowLimit) {
     throw new Error(subjectId
       ? `The selected SBA subject has more than ${MAX_SBA_SCOPE_ROWS} saved rows. Ask an administrator to check duplicate data.`
       : `The selected SBA class register has more than ${MAX_SBA_REGISTER_ROWS} saved rows. Narrow the register or check duplicate data.`);
   }
-  recordRead("sbaMarks: selected scope", snapshot.docs.length);
-  return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+  return rows;
 }
 // Existing production enrollments use legacy academicYear/year, grade and
 // section fields. Query their exact class scope so opening SBA never scans an
@@ -52,10 +60,8 @@ export async function loadSbaTeacherAssignments(user, options = {}) {
       () => getDocs(query(collection(db, "teacherAssignments"), where(field, "==", value), limit(MAX_SBA_SCOPE_ROWS + 1))), options);
     return assertBounded(rows, "Teacher assignments");
   };
-  const primary = await readIdentity(identities[0]);
-  if (primary.length) return primary;
-  const fallbacks = await Promise.all(identities.slice(1).map(readIdentity));
-  return [...new Map(fallbacks.flat().map((row) => [row.id, row])).values()];
+  const batches = await Promise.all(identities.map(readIdentity));
+  return assertBounded([...new Map(batches.flat().map((row) => [row.id, row])).values()], "Teacher assignments");
 }
 
 export async function loadSbaAdminAssignments(term, options = {}) {
@@ -83,10 +89,12 @@ export async function loadSbaAdminAssignments(term, options = {}) {
     }
     return rows;
   };
-  const primary = await readVariant(variants[0]);
-  if (primary.length) return primary;
-  const fallbacks = await Promise.all(variants.slice(1).map(readVariant));
-  return [...new Map(fallbacks.flat().map((row) => [row.id, row])).values()];
+  const batches = await Promise.all(variants.map(readVariant));
+  const rows = [...new Map(batches.flat().map((row) => [row.id, row])).values()];
+  if (rows.length > MAX_SBA_ADMIN_ASSIGNMENTS) {
+    throw new Error(`Teacher assignments for ${year} exceed ${MAX_SBA_ADMIN_ASSIGNMENTS} rows. Check duplicate assignment data before opening SBA.`);
+  }
+  return rows;
 }
 
 export async function loadSbaRosterData(subjectIds, term, assignment = null, options = {}) {
@@ -121,11 +129,12 @@ export async function loadSbaRosterData(subjectIds, term, assignment = null, opt
       )), options);
       return assertBounded(rows, "SBA " + year + " " + context.grade + context.section + " " + subjectId);
     };
-    const primary = await readVariant(variants[0]);
-    const batches = primary.length
-      ? [primary]
-      : await Promise.all(variants.slice(1).map(readVariant));
-    batches.flat().forEach((row) => enrollmentsById.set(row.id, row));
+    // A nonempty result in one legacy format does not prove other formats are
+    // empty. Merge every bounded variant and deduplicate document IDs.
+    const batches = await Promise.all(variants.map(readVariant));
+    const subjectRows = [...new Map(batches.flat().map((row) => [row.id, row])).values()];
+    assertBounded(subjectRows, "SBA " + year + " " + context.grade + context.section + " " + subjectId);
+    subjectRows.forEach((row) => enrollmentsById.set(row.id, row));
   }
 
   const candidates = [...enrollmentsById.values()].filter((row) =>
@@ -159,7 +168,7 @@ export async function saveSbaChange({ term, assignment, row, value, previous, ui
   const id = sbaRecordId(term.id, row.studentId, assignment.subjectId);
   const ref = doc(db, SBA_COLLECTION, id);
   const parsed = parseSbaValue(value.mark, value.absent);
-  return runTransaction(db, async (transaction) => {
+  const saved = await runTransaction(db, async (transaction) => {
     const current = await transaction.get(ref);
     if (!isAdmin && !skipSettingsCheck) {
       const settings = await transaction.get(settingsRef());
@@ -172,9 +181,35 @@ export async function saveSbaChange({ term, assignment, row, value, previous, ui
       transaction.delete(ref);
       return { id, deleted: true };
     }
+    // Existing records can predate optional academic-cycle fields. Preserve
+    // their immutable identity and metadata so teacher edits remain compatible
+    // with the rules instead of silently rewriting historical scope.
+    if (current.exists()) {
+      const changes = {
+        ...parsed, revision: actualRevision + 1, updatedBy: uid,
+        updatedAt: serverTimestamp(), assignmentId: assignment.id,
+        enrollmentId: row.enrollmentId,
+      };
+      transaction.set(ref, changes, { merge: true });
+      return { ...current.data(), ...changes, id };
+    }
     const payload = {
       schemaVersion: 1, assessmentType: "sba", maxMark: 20,
-      termId: term.id, year: sbaYear(term), classKey: sbaClassKey(assignment), scopeKey: sbaScopeKey(term, assignment),
+      termId: term.id,
+      year: sbaYear(term),
+      academicYear: sbaYear(term),
+      termSystem: getTermSystem(term),
+      termSequence: getTermSequence(term),
+      termScopeKey: term.termScopeKey || getAcademicTermKey(term),
+      calendarYear: getTermCalendarYear(term),
+      calendarTerm: getTermCalendarNumber(term),
+      calendarSlotKey: getCalendarSlotForTerm(term),
+      phaseGrade: Number(term.phaseGrade) || 0,
+      batchYear: Number(term.batchYear || assignment.batchYear || 0) || 0,
+      intakeYear: Number(term.intakeYear || assignment.intakeYear || 0) || 0,
+      academicScopeKey: term.academicScopeKey || assignment.academicScopeKey || "",
+      classKey: sbaClassKey(assignment),
+      scopeKey: sbaScopeKey(term, assignment),
       subjectId: assignment.subjectId, studentId: row.studentId,
       assignmentId: assignment.id, enrollmentId: row.enrollmentId,
       ...parsed, revision: (actualRevision || 0) + 1, updatedBy: uid, updatedAt: serverTimestamp(),
@@ -182,6 +217,8 @@ export async function saveSbaChange({ term, assignment, row, value, previous, ui
     transaction.set(ref, payload);
     return { ...payload, id };
   });
+  invalidateCollectionRows(SBA_COLLECTION);
+  return saved;
 }
 
 // Small, bounded concurrency keeps Firestore rule document-access limits per

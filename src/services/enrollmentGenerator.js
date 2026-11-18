@@ -709,11 +709,22 @@ function uniqueEnrollmentId(studentId, subjectId, academicYear) {
   return `${academicYear}_${studentId}_${subjectId}`;
 }
 
+function getStudentEnrollmentYear(student, fallbackYear) {
+  const grade = parseGrade(student?.grade);
+  if (grade >= 12) {
+    return normalizeAcademicYear(
+      student?.batchYear || student?.academicYear || student?.year || fallbackYear
+    );
+  }
+  return normalizeAcademicYear(fallbackYear);
+}
+
 function enrollmentPayload(student, subject, academicYear) {
   const gradeNumber = parseGrade(student?.grade);
   const section = getStudentSection(student);
   const fullClass = getStudentFullClass(student);
 
+  const resolvedAcademicYear = getStudentEnrollmentYear(student, academicYear);
   const payload = {
     studentId: student.id,
     studentName: getStudentName(student),
@@ -730,7 +741,13 @@ function enrollmentPayload(student, subject, academicYear) {
     fullClassName: fullClass,
     alClassName: gradeNumber >= 12 ? fullClass : "",
 
-    academicYear: normalizeAcademicYear(academicYear),
+    academicYear: resolvedAcademicYear,
+    year: resolvedAcademicYear,
+    batchYear: gradeNumber >= 12 ? Number(student?.batchYear || resolvedAcademicYear) || 0 : 0,
+    intakeYear: gradeNumber >= 12 ? Number(student?.intakeYear || 0) || 0 : 0,
+    academicScopeKey: student?.academicScopeKey || "",
+    termSystem: gradeNumber >= 12 ? (student?.termSystem || "al") : "school",
+    classroomId: student?.classroomId || "",
 
     subjectId: getSubjectId(subject),
     subjectName: getSubjectName(subject),
@@ -929,7 +946,11 @@ export async function generateMissingEnrollments({ academicYear }) {
         const canonicalRef = doc(
           db,
           ENROLLMENTS_COLLECTION,
-          uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
+          uniqueEnrollmentId(
+            student.id,
+            getSubjectId(subject),
+            getStudentEnrollmentYear(student, normalizedYear)
+          )
         );
         const payload = enrollmentPayload(student, subject, normalizedYear);
 
@@ -1112,7 +1133,11 @@ export async function regenerateSingleStudent({ academicYear, studentId }) {
     const ref = doc(
       db,
       ENROLLMENTS_COLLECTION,
-      uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
+      uniqueEnrollmentId(
+            student.id,
+            getSubjectId(subject),
+            getStudentEnrollmentYear(student, normalizedYear)
+          )
     );
     const payload = enrollmentPayload(student, subject, normalizedYear);
 
@@ -1241,7 +1266,11 @@ export async function fullRebuildEnrollments({ academicYear }) {
         const ref = doc(
           db,
           ENROLLMENTS_COLLECTION,
-          uniqueEnrollmentId(student.id, getSubjectId(subject), normalizedYear)
+          uniqueEnrollmentId(
+            student.id,
+            getSubjectId(subject),
+            getStudentEnrollmentYear(student, normalizedYear)
+          )
         );
         const payload = enrollmentPayload(student, subject, normalizedYear);
 

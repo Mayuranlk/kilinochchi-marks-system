@@ -9,6 +9,7 @@ import { getCollectionRows } from "../services/firestoreReadCache";
 import { loadSbaAdminAssignments, loadSbaRecords, loadSbaRosterData, loadSbaSettings, loadSbaTeacherAssignments, saveSbaChanges, saveSbaSettings } from "../services/sbaService";
 import { activeSbaRow, buildSbaRegister, buildSbaRoster, indexSbaRosterData, parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { buildTermLabel, getDisplayClassName, isActiveTerm, isSameTeacher } from "../utils/sbaContext";
+import { termAppliesToClass } from "../utils/alAcademicCycle";
 import { buildSbaRegisterHtml, printSbaRegister } from "../utils/sbaRegisterPrint";
 
 import { createSbaRegisterPdf, canShareSbaPdf, downloadSbaPdf } from "../utils/sbaRegisterPdf";
@@ -61,8 +62,15 @@ export default function SBAMarks({ registerMode = false }) {
         isAdmin ? Promise.resolve([]) : loadSbaTeacherAssignments({ uid: userId, email: userEmail }, { forceRefresh }),
       ]);
       if (version !== loadVersion.current) return;
-      const termOptions = terms.filter((term) => String(term.assessmentType || "").toLowerCase() !== "practice" && !/practice/i.test(term.term || term.termName || term.name || ""))
+      const allTermOptions = terms.filter((term) => String(term.assessmentType || "").toLowerCase() !== "practice" && !/practice/i.test(term.term || term.termName || term.name || ""))
         .sort((a, b) => sbaYear(b).localeCompare(sbaYear(a)) || buildTermLabel(a).localeCompare(buildTermLabel(b), undefined, { numeric: true }));
+      const termOptions = isAdmin
+        ? allTermOptions
+        : allTermOptions.filter((term) =>
+            teacherAssignments.some((assignment) =>
+              termAppliesToClass(term, assignment)
+            )
+          );
       const selectedTerm = termOptions.find((item) => item.id === termIdRef.current) || termOptions.find(isActiveTerm) || termOptions[0] || null;
       const assignments = isAdmin && selectedTerm
         ? await loadSbaAdminAssignments(selectedTerm, { forceRefresh })
@@ -122,7 +130,7 @@ export default function SBAMarks({ registerMode = false }) {
     if (readKey && !loading && !assignmentLoading && !baseError && (!isAdmin || base.assignmentYear === sbaYear(term || {}))) {
       const [selectedTerm, selectedClass] = [term, classAssignment];
       Promise.all([
-        loadSbaRecords(selectedTerm, selectedClass, registerMode ? "" : assignment.subjectId),
+        loadSbaRecords(selectedTerm, selectedClass, registerMode ? "" : assignment.subjectId, { forceRefresh: forceRosterRefresh.current }),
         loadSbaRosterData(JSON.parse(rosterSubjects), selectedTerm, selectedClass, { forceRefresh: forceRosterRefresh.current }),
       ]).then(([records, rosterData]) => {
         if (!cancelled) forceRosterRefresh.current = false;

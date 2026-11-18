@@ -69,6 +69,11 @@ import {
   isTeacherMarksEntryLocked,
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
+import {
+  getAcademicTermKey,
+  getAcademicTermLabel,
+  termAppliesToClass,
+} from "../utils/alAcademicCycle";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -77,14 +82,9 @@ const normalize = (value) => String(value || "").trim().toLowerCase();
 
 const sanitizePhone = (phone) => String(phone || "").replace(/[^\d+]/g, "");
 
-const buildTermKey = (term) =>
-  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
+const buildTermKey = (term) => getAcademicTermKey(term);
 
-const buildTermLabel = (term) => {
-  const termName = pick(term.term, term.termName, term.name, "Term");
-  const year = pick(term.year, term.academicYear, "");
-  return year ? `${termName} - ${year}` : termName;
-};
+const buildTermLabel = (term) => getAcademicTermLabel(term);
 
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
@@ -370,21 +370,36 @@ const buildTeacherDashboardData = ({
     "Teacher"
   );
 
-  const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+  const allMyAssignments = assignments.filter(
+    (assignment) =>
+      isActiveStatus(assignment.status) &&
+      (normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
+        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email))
+  );
+
+  const applicableTerms = sortedTerms.filter((term) =>
+    allMyAssignments.some((assignment) => termAppliesToClass(term, assignment))
+  );
+  const defaultTerm =
+    applicableTerms.find(isActiveTerm) ||
+    applicableTerms[0] ||
+    sortedTerms.find(isActiveTerm) ||
+    sortedTerms[0] ||
+    null;
   const chosenTerm =
-    sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
+    applicableTerms.find((term) => buildTermKey(term) === effectiveTermKey) ||
+    defaultTerm;
 
   const targetTerm = {
     term: pick(chosenTerm?.term, chosenTerm?.termName, ""),
     year: String(pick(chosenTerm?.year, chosenTerm?.academicYear, "")),
   };
 
-  const myAssignments = assignments.filter(
-    (assignment) =>
-      isActiveStatus(assignment.status) &&
-      (normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
-        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email))
-  );
+  const myAssignments = chosenTerm
+    ? allMyAssignments.filter((assignment) =>
+        termAppliesToClass(chosenTerm, assignment)
+      )
+    : allMyAssignments;
 
   const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
     const classIdentity = normalize(getClassDisplayName(assignment));
@@ -703,9 +718,17 @@ export default function TeacherDashboard() {
         );
       });
 
-      setTerms(sortedTerms);
+      const teacherTerms = sortedTerms.filter((term) =>
+        assignments.some((assignment) => termAppliesToClass(term, assignment))
+      );
+      setTerms(teacherTerms);
 
-      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
+      const defaultTerm =
+        teacherTerms.find(isActiveTerm) ||
+        teacherTerms[0] ||
+        sortedTerms.find(isActiveTerm) ||
+        sortedTerms[0] ||
+        null;
       const effectiveTermKey =
         selectedTermKey || (defaultTerm ? buildTermKey(defaultTerm) : "");
 

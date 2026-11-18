@@ -510,3 +510,20 @@ test("optional SBA prerequisite enforces matching saved SBA on term create/updat
     await assertSucceeds(setDoc(markRef, termMark));
   } finally { await deleteDoc(settingsRef); }
 });
+
+test("A/L SBA permits matching batch and rejects a different batch", async () => {
+  const admin = dbFor(IDS.admin), teacher = dbFor(IDS.teacher);
+  const termId = "al-sba-term", subjectId = "al-sba-subject", studentId = "al-sba-student";
+  const id = `${termId}~${studentId}~${subjectId}`;
+  const cls = { grade: 12, section: "A", stream: "Commerce", batchYear: 2028 };
+  await Promise.all([
+    setDoc(doc(admin, "academicTerms", termId), { year: 2028, academicYear: "2028", term: "Term 1" }),
+    setDoc(doc(admin, "students", studentId), { ...cls, status: "active" }),
+    setDoc(doc(admin, "teacherAssignments", "al-sba-assignment"), { ...cls, teacherId: IDS.teacher, subjectId, academicYear: "2028", status: "active" }),
+    setDoc(doc(admin, "studentSubjectEnrollments", "al-sba-enrollment"), { ...cls, studentId, subjectId, academicYear: "2028", status: "active" }),
+  ]);
+  const value = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2028", academicYear: "2028", termSystem: "al", termSequence: 1, termScopeKey: "al:2028:T1", calendarYear: 2026, calendarTerm: 3, calendarSlotKey: "calendar:2026:T3", phaseGrade: 12, batchYear: 2028, intakeYear: 2026, academicScopeKey: "al:2028", classKey: "12|A|commerce|2028", scopeKey: `${termId}|12|A|commerce|2028`, subjectId, studentId, assignmentId: "al-sba-assignment", enrollmentId: "al-sba-enrollment", mark: 18, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() };
+  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), value));
+  await assertFails(setDoc(doc(teacher, "sbaMarks", id), { ...value, classKey: "12|A|commerce|2029", scopeKey: `${termId}|12|A|commerce|2029`, revision: 2 }));
+  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), { mark: 19, revision: 2, updatedAt: serverTimestamp() }, { merge: true }));
+});

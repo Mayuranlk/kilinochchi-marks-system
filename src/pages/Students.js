@@ -94,6 +94,11 @@ import {
 import { regenerateSingleStudent } from "../services/enrollmentGenerator";
 import { normalizeStudentName } from "../utils/studentNameUtils";
 import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
+import {
+  AL_TERM_SYSTEM,
+  buildALBatchClassName,
+  getClassBatchYear,
+} from "../utils/alAcademicCycle";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
@@ -117,6 +122,12 @@ const emptyForm = {
   stream: "",
   streamCode: "",
   alClassName: "",
+  fullClassName: "",
+  classroomId: "",
+  batchYear: 0,
+  intakeYear: 0,
+  academicScopeKey: "",
+  termSystem: "",
   alSubjectChoiceNumbers: [],
   alSubjectChoices: [],
   medium: "",
@@ -464,22 +475,34 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
 const getStudentName = (student) =>
   normalizeStudentName(student.name || student.fullName || "");
 
-const buildALMetadata = (grade, stream, section) => {
+const buildALMetadata = (grade, stream, section, batchYear = 0) => {
   if (!isALGrade(grade)) {
     return {
       stream: "",
       streamCode: "",
       alClassName: "",
+      fullClassName: "",
+      batchYear: 0,
+      intakeYear: 0,
+      academicScopeKey: "",
+      termSystem: "",
     };
   }
 
   const cleanStream = normalizeText(stream);
   const cleanSection = normalizeSectionValue(section);
+  const resolvedBatchYear = Number(batchYear) || 0;
+  const alClassName = resolvedBatchYear
+    ? buildALBatchClassName(resolvedBatchYear, cleanStream, cleanSection)
+    : buildALClassName(grade, cleanStream, cleanSection);
 
   return {
     stream: cleanStream,
     streamCode: AL_STREAM_CODES[cleanStream] || "",
-    alClassName: buildALClassName(grade, cleanStream, cleanSection),
+    alClassName,
+    fullClassName: alClassName,
+    batchYear: resolvedBatchYear,
+    termSystem: AL_TERM_SYSTEM,
   };
 };
 
@@ -790,6 +813,22 @@ export default function Students() {
     });
   }, [classrooms, filterGrade]);
 
+  const alClassOptionsForForm = useMemo(() => {
+    if (!isALGrade(form.grade)) return [];
+    return classrooms
+      .filter((classroom) => {
+        const grade = normalizeGradeValue(classroom.grade);
+        return isALGrade(grade);
+      })
+      .sort((a, b) =>
+        normalizeText(a.fullClassName || a.alClassName).localeCompare(
+          normalizeText(b.fullClassName || b.alClassName),
+          undefined,
+          { numeric: true, sensitivity: "base" }
+        )
+      );
+  }, [classrooms, form.grade]);
+
   const sectionOptionsForForm = useMemo(() => {
     if (!form.grade) return [];
 
@@ -1063,18 +1102,33 @@ export default function Students() {
     fetchData();
   }, [fetchData]);
 
-  const isValidClassroom = (grade, section, stream = "") => {
-    if (!grade || !section) return false;
+  const isValidClassroom = (
+    grade,
+    section,
+    stream = "",
+    classroomId = "",
+    batchYear = 0
+  ) => {
+    if (!grade) return false;
 
     const g = Number(grade);
     const s = normalizeSectionValue(section);
     const st = normalizeText(stream);
 
-    if (isALGrade(g) && st) {
-      if (classroomLookup.has(`${g}__${s}__${st}`)) return true;
+    if (isALGrade(g)) {
+      return classrooms.some((classroom) => {
+        if (classroomId && classroom.id === classroomId) return true;
+        if (!isALGrade(normalizeGradeValue(classroom.grade))) return false;
+        if (st && normalizeText(classroom.stream) !== st) return false;
+        if (batchYear && getClassBatchYear(classroom) !== Number(batchYear)) {
+          return false;
+        }
+        return normalizeSectionValue(classroom.section || "") === s;
+      });
     }
 
-    return classroomLookup.has(`${g}__${s}`);
+    if (!s) return false;
+    return classroomLookup.has([g, s].join("__"));
   };
 
   const cleanFormByGrade = useCallback((data) => {
@@ -1109,7 +1163,17 @@ export default function Students() {
         .map(normalizeText)
         .filter(Boolean);
 
-      const alMeta = buildALMetadata(grade, cleaned.stream, data.section);
+      const alMeta = {
+        ...buildALMetadata(
+          grade,
+          cleaned.stream,
+          data.section,
+          data.batchYear
+        ),
+        intakeYear: Number(data.intakeYear || 0) || 0,
+        academicScopeKey: normalizeText(data.academicScopeKey),
+        classroomId: normalizeText(data.classroomId),
+      };
 
       return {
         ...cleaned,
@@ -1125,6 +1189,12 @@ export default function Students() {
       stream: "",
       streamCode: "",
       alClassName: "",
+      fullClassName: "",
+      classroomId: "",
+      batchYear: 0,
+      intakeYear: 0,
+      academicScopeKey: "",
+      termSystem: "",
       alSubjectChoiceNumbers: [],
       alSubjectChoices: [],
     };
@@ -1134,7 +1204,12 @@ export default function Students() {
     const cleaned = cleanFormByGrade(form);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
-    const alMeta = buildALMetadata(grade, cleaned.stream, section);
+    const alMeta = buildALMetadata(
+      grade,
+      cleaned.stream,
+      section,
+      cleaned.batchYear
+    );
     const identity = normalizeStudentIdentityFields({
       admissionNo: cleaned.admissionNo,
       emisStudentId: cleaned.emisStudentId,
@@ -1164,6 +1239,12 @@ export default function Students() {
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
+      fullClassName: alMeta.fullClassName,
+      classroomId: normalizeText(cleaned.classroomId),
+      batchYear: Number(cleaned.batchYear || 0) || 0,
+      intakeYear: Number(cleaned.intakeYear || 0) || 0,
+      academicScopeKey: normalizeText(cleaned.academicScopeKey),
+      termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : "",
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
@@ -1175,7 +1256,12 @@ export default function Students() {
     };
     return {
       ...payload,
-      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
+      ...buildCanonicalStudentFields({
+        ...payload,
+        academicYear: isALGrade(grade) && payload.batchYear
+          ? String(payload.batchYear)
+          : currentAcademicYear(),
+      }),
     };
   };
 
@@ -1261,7 +1347,7 @@ export default function Students() {
     if (!normalizeText(form.name)) return "Student name is required.";
     if (!normalizeText(form.admissionNo)) return "Admission number is required.";
     if (!form.grade) return "Grade is required.";
-    if (!form.section) return "Section is required.";
+    if (!form.section && !isALGrade(form.grade)) return "Section is required.";
 
     const grade = Number(form.grade);
 
@@ -1271,7 +1357,13 @@ export default function Students() {
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
-      if (!isValidClassroom(form.grade, form.section, form.stream)) {
+      if (!isValidClassroom(
+        form.grade,
+        form.section,
+        form.stream,
+        form.classroomId,
+        form.batchYear
+      )) {
         return "Selected A/L grade, section, and stream do not match an existing classroom.";
       }
     } else {
@@ -1517,6 +1609,12 @@ export default function Students() {
       stream: s.stream || "",
       streamCode: s.streamCode || "",
       alClassName: s.alClassName || "",
+      fullClassName: s.fullClassName || s.alClassName || "",
+      classroomId: s.classroomId || "",
+      batchYear: Number(s.batchYear || (isALGrade(s.grade) ? s.academicYear || s.year : 0)) || 0,
+      intakeYear: Number(s.intakeYear || 0) || 0,
+      academicScopeKey: s.academicScopeKey || "",
+      termSystem: s.termSystem || (isALGrade(s.grade) ? AL_TERM_SYSTEM : ""),
       alSubjectChoiceNumbers: choiceNumbers,
       alSubjectChoices: choiceNames,
       medium: s.medium || "",
@@ -1581,6 +1679,14 @@ export default function Students() {
       basketBChoice: normalizeText(row["Basket B Choice"] || row.basketBChoice || row["Basket 2"] || row.basket2),
       basketCChoice: normalizeText(row["Basket C Choice"] || row.basketCChoice || row["Basket 3"] || row.basket3),
       stream: normalizeText(row["Stream"] || row.stream),
+      batchYear: Number(
+        row["A/L Batch Year"] || row["Batch Year"] || row.batchYear || 0
+      ) || 0,
+      intakeYear: Number(row["Intake Year"] || row.intakeYear || 0) || 0,
+      academicScopeKey: normalizeText(
+        row["Academic Scope Key"] || row.academicScopeKey
+      ),
+      classroomId: normalizeText(row["Classroom ID"] || row.classroomId),
       alSubjectChoiceNumbers: [al1Number, al2Number, al3Number].filter(Boolean),
       alSubjectChoices: [al1, al2, al3].filter(Boolean),
       medium: normalizeText(row["Medium"] || row.medium),
@@ -1623,7 +1729,9 @@ export default function Students() {
     }
 
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
-    if (!student.section) return `Row ${rowNumber}: Section is required.`;
+    if (!student.section && !isALGrade(student.grade)) {
+      return "Row " + rowNumber + ": Section is required.";
+    }
     if (usesSeparateMediumRanking(grade) && !normalizeAcademicMedium(student.medium)) {
       return `Row ${rowNumber} (${band}): Medium must be Tamil or English.`;
     }
@@ -1633,7 +1741,13 @@ export default function Students() {
         return `Row ${rowNumber} (Grades 12-13 A/L): Stream is required. Use values like Physical Science, Arts, Commerce.`;
       }
 
-      if (!isValidClassroom(student.grade, student.section, student.stream)) {
+      if (!isValidClassroom(
+        student.grade,
+        student.section,
+        student.stream,
+        student.classroomId,
+        student.batchYear
+      )) {
         return `Row ${rowNumber} (Grades 12-13 A/L): Classroom does not exist for Grade ${student.grade}, Section ${student.section}, Stream ${student.stream}. Create the classroom first.`;
       }
 
@@ -1709,7 +1823,12 @@ export default function Students() {
     const cleaned = cleanFormByGrade(student);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
-    const alMeta = buildALMetadata(grade, cleaned.stream, section);
+    const alMeta = buildALMetadata(
+      grade,
+      cleaned.stream,
+      section,
+      cleaned.batchYear
+    );
     const identity = normalizeStudentIdentityFields({
       admissionNo: cleaned.admissionNo,
       emisStudentId: cleaned.emisStudentId,
@@ -1739,6 +1858,12 @@ export default function Students() {
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
+      fullClassName: alMeta.fullClassName,
+      classroomId: normalizeText(cleaned.classroomId),
+      batchYear: Number(cleaned.batchYear || 0) || 0,
+      intakeYear: Number(cleaned.intakeYear || 0) || 0,
+      academicScopeKey: normalizeText(cleaned.academicScopeKey),
+      termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : "",
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
@@ -1750,7 +1875,12 @@ export default function Students() {
     };
     return {
       ...payload,
-      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
+      ...buildCanonicalStudentFields({
+        ...payload,
+        academicYear: isALGrade(grade) && payload.batchYear
+          ? String(payload.batchYear)
+          : currentAcademicYear(),
+      }),
     };
   };
 
@@ -2717,6 +2847,12 @@ export default function Students() {
                                 stream: "",
                                 streamCode: "",
                                 alClassName: "",
+                                fullClassName: "",
+                                classroomId: "",
+                                batchYear: 0,
+                                intakeYear: 0,
+                                academicScopeKey: "",
+                                termSystem: "",
                                 alSubjectChoiceNumbers: [],
                                 alSubjectChoices: [],
                               })
@@ -2736,15 +2872,26 @@ export default function Students() {
                     </Grid>
 
                     <Grid size={{ xs: 12, sm: 4 }}>
-                      <FormControl fullWidth required disabled={!form.grade}>
-                        <InputLabel>Section</InputLabel>
+                      <FormControl
+                        fullWidth
+                        required={!isALGrade(form.grade)}
+                        disabled={!form.grade || isALGrade(form.grade)}
+                      >
+                        <InputLabel>
+                          {isALGrade(form.grade) ? "Section (optional)" : "Section"}
+                        </InputLabel>
                         <Select
                           value={form.section}
-                          label="Section"
+                          label={isALGrade(form.grade) ? "Section (optional)" : "Section"}
                           onChange={(e) =>
                             setForm((prev) => {
                               const nextSection = e.target.value;
-                              const alMeta = buildALMetadata(prev.grade, prev.stream, nextSection);
+                              const alMeta = buildALMetadata(
+                                prev.grade,
+                                prev.stream,
+                                nextSection,
+                                prev.batchYear
+                              );
                               return {
                                 ...prev,
                                 section: nextSection,
@@ -3022,8 +3169,75 @@ export default function Students() {
 
                         {shouldShowALFields(form.grade) && (
                           <>
-                            <Grid size={{ xs: 12, md: 4 }}>
+                            <Grid size={{ xs: 12 }}>
                               <FormControl fullWidth required>
+                                <InputLabel>A/L Batch Class</InputLabel>
+                                <Select
+                                  value={form.classroomId || ""}
+                                  label="A/L Batch Class"
+                                  onChange={(e) => {
+                                    const classroom = alClassOptionsForForm.find(
+                                      (item) => item.id === e.target.value
+                                    );
+                                    if (!classroom) return;
+                                    const batchYear = getClassBatchYear(classroom);
+                                    const section = normalizeSectionValue(
+                                      classroom.section || ""
+                                    );
+                                    const stream = normalizeText(classroom.stream);
+                                    const alMeta = buildALMetadata(
+                                      classroom.grade || form.grade,
+                                      stream,
+                                      section,
+                                      batchYear
+                                    );
+                                    setForm((previous) => ({
+                                      ...previous,
+                                      grade: classroom.grade || previous.grade,
+                                      section,
+                                      stream,
+                                      streamCode: alMeta.streamCode,
+                                      alClassName:
+                                        classroom.fullClassName ||
+                                        classroom.alClassName ||
+                                        alMeta.alClassName,
+                                      fullClassName:
+                                        classroom.fullClassName ||
+                                        classroom.alClassName ||
+                                        alMeta.fullClassName,
+                                      classroomId: classroom.id,
+                                      batchYear,
+                                      intakeYear: Number(classroom.intakeYear || 0) || 0,
+                                      academicScopeKey:
+                                        classroom.academicScopeKey || "",
+                                      termSystem: AL_TERM_SYSTEM,
+                                      alSubjectChoiceNumbers: [],
+                                      alSubjectChoices: [],
+                                    }));
+                                  }}
+                                >
+                                  {alClassOptionsForForm.map((classroom) => (
+                                    <MenuItem key={classroom.id} value={classroom.id}>
+                                      {academicDisplay(
+                                        classroom.fullClassName ||
+                                        classroom.alClassName
+                                      )}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                                {alClassOptionsForForm.length === 0 && (
+                                  <FormHelperText error>
+                                    Create the A/L batch classroom first.
+                                  </FormHelperText>
+                                )}
+                              </FormControl>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 4 }}>
+                              <FormControl
+                                fullWidth
+                                required
+                                disabled={Boolean(form.classroomId)}
+                              >
                                 <InputLabel>Stream</InputLabel>
                                 <Select
                                   value={form.stream}
@@ -3031,7 +3245,12 @@ export default function Students() {
                                   onChange={(e) =>
                                     setForm((prev) => {
                                       const nextStream = e.target.value;
-                                      const alMeta = buildALMetadata(prev.grade, nextStream, prev.section);
+                                      const alMeta = buildALMetadata(
+                                        prev.grade,
+                                        nextStream,
+                                        prev.section,
+                                        prev.batchYear
+                                      );
                                       return {
                                         ...prev,
                                         stream: nextStream,
@@ -3066,8 +3285,14 @@ export default function Students() {
                                 fullWidth
                                 label="A/L Class Name"
                                 value={
+                                  form.fullClassName ||
                                   form.alClassName ||
-                                  buildALClassName(form.grade, form.stream, form.section)
+                                  buildALMetadata(
+                                    form.grade,
+                                    form.stream,
+                                    form.section,
+                                    form.batchYear
+                                  ).alClassName
                                 }
                                 InputProps={{ readOnly: true }}
                               />

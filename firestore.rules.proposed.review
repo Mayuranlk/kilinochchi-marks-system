@@ -234,8 +234,11 @@ service cloud.firestore {
 
     // SBA is a separate assessment store. No SBA operation grants access to marks.
     function sbaClassKey(data) {
-      return string(int(data.grade)) + '|' + data.section.upper() + '|' +
+      let base = string(int(data.grade)) + '|' + data.section.upper() + '|' +
         (int(data.grade) >= 12 ? data.get('stream', '').lower() : '');
+      return int(data.grade) >= 12 && int(data.get('batchYear', 0)) > 0
+        ? base + '|' + string(int(data.batchYear))
+        : base;
     }
 
     function sbaOpen() {
@@ -250,8 +253,12 @@ service cloud.firestore {
           'termId', 'year', 'classKey', 'scopeKey', 'subjectId', 'studentId',
           'assignmentId', 'enrollmentId', 'mark', 'absent', 'revision', 'updatedBy', 'updatedAt']) &&
         data.keys().hasOnly(['schemaVersion', 'assessmentType', 'maxMark',
-          'termId', 'year', 'classKey', 'scopeKey', 'subjectId', 'studentId',
-          'assignmentId', 'enrollmentId', 'mark', 'absent', 'revision', 'updatedBy', 'updatedAt']) &&
+          'termId', 'year', 'academicYear', 'termSystem', 'termSequence',
+          'termScopeKey', 'calendarYear', 'calendarTerm', 'calendarSlotKey',
+          'phaseGrade', 'batchYear', 'intakeYear', 'academicScopeKey',
+          'classKey', 'scopeKey', 'subjectId', 'studentId',
+          'assignmentId', 'enrollmentId', 'mark', 'absent', 'revision',
+          'updatedBy', 'updatedAt']) &&
         data.schemaVersion == 1 && data.assessmentType == 'sba' && data.maxMark == 20 &&
         data.termId is string && data.termId.size() > 0 && !data.termId.matches('.*[~/].*') &&
         data.studentId is string && data.studentId.size() > 0 && !data.studentId.matches('.*[~/].*') &&

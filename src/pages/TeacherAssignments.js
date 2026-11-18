@@ -249,7 +249,8 @@ const getAssignmentGroupKey = (assignment) => {
   const grade = normalizeGrade(assignment.grade) || "";
   const section = normalizeSection(assignment.section);
   const stream = safeString(assignment.stream);
-  return `${grade}-${section}-${stream}`;
+  const classIdentity = getAssignmentFullClassName(assignment);
+  return [grade, section, stream, classIdentity].join("-");
 };
 
 const groupAssignmentsByClass = (teacherAssignments = []) => {
@@ -490,6 +491,13 @@ export default function TeacherAssignments() {
             alClassName: isALGrade(grade) ? fullClassName : "",
             fullClassName,
             displayClassName,
+            classroomId: safeString(classroom.id),
+            year: Number(classroom.year || classroom.academicYear || 0) || 0,
+            academicYear: Number(classroom.academicYear || classroom.year || 0) || 0,
+            batchYear: Number(classroom.batchYear || 0) || 0,
+            intakeYear: Number(classroom.intakeYear || 0) || 0,
+            termSystem: safeString(classroom.termSystem),
+            academicScopeKey: safeString(classroom.academicScopeKey),
             subjectId: subject.id,
             subjectName: getSubjectName(subject),
             subjectCode: getSubjectCode(subject),
@@ -715,6 +723,22 @@ export default function TeacherAssignments() {
           if (!sameGrade || !sameSection) return false;
 
           if (isALGrade(combo.grade)) {
+            const existingBatchYear = Number(
+              assignment.batchYear || assignment.academicYear || assignment.year || 0
+            );
+            if (combo.batchYear && existingBatchYear !== Number(combo.batchYear)) {
+              return false;
+            }
+            const existingClassIdentity = safeString(
+              assignment.fullClassName || assignment.alClassName
+            );
+            if (
+              combo.fullClassName &&
+              existingClassIdentity &&
+              existingClassIdentity !== combo.fullClassName
+            ) {
+              return false;
+            }
             const existingStream = safeString(assignment.stream);
             if (existingStream !== safeString(combo.stream)) return false;
           }
@@ -784,6 +808,13 @@ export default function TeacherAssignments() {
             className: safeString(row.className),
             fullClassName: safeString(row.fullClassName),
             alClassName: safeString(row.alClassName),
+            classroomId: safeString(row.classroomId),
+            year: Number(row.year || row.academicYear || 0) || 0,
+            academicYear: Number(row.academicYear || row.year || 0) || 0,
+            batchYear: Number(row.batchYear || 0) || 0,
+            intakeYear: Number(row.intakeYear || 0) || 0,
+            termSystem: safeString(row.termSystem),
+            academicScopeKey: safeString(row.academicScopeKey),
 
             stream: safeString(row.stream),
             streamCode: safeString(row.streamCode),
