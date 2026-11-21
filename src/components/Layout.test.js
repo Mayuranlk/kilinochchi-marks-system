@@ -55,7 +55,19 @@ test("teachers do not receive administrator pages", () => {
   mount("/teacher");
   expect(screen.queryByRole("button", { name: "Administration" })).not.toBeInTheDocument();
   expect(screen.queryByText("Backup & Restore")).not.toBeInTheDocument();
-  expect(screen.getByText("SBA Marks Entry")).toBeInTheDocument();
-  expect(screen.queryByText("SBA Class Register")).not.toBeInTheDocument();
-  expect(screen.queryByText("SBA Blank Sheet")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "SBA Marks Entry" })).toBeInTheDocument();
+});
+
+test("admin SBA marks page appears under Marks & Assessments", () => {
+  mount("/sba-marks");
+  const nav = within(screen.getByRole("navigation", { name: "Primary navigation" }));
+  expect(nav.getByRole("button", { name: "Marks & Assessments" })).toHaveAttribute("aria-expanded", "true");
+  expect(nav.getByRole("button", { name: "SBA Marks Entry" })).toHaveAttribute("aria-current", "page");
+});
+
+test("SBA completion report is grouped with the other reports", () => {
+  mount("/sba-class-completion-report");
+  const nav = within(screen.getByRole("navigation", { name: "Primary navigation" }));
+  expect(nav.getByRole("button", { name: "Reports & Analysis" })).toHaveAttribute("aria-expanded", "true");
+  expect(nav.getByRole("button", { name: "SBA Class Completion" })).toHaveAttribute("aria-current", "page");
 });

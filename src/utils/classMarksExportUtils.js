@@ -1,4 +1,3 @@
-import { academicDisplay, academicExport } from "./academicDisplay";
 // src/utils/classMarksExportUtils.js
 
 import jsPDF from "jspdf";
@@ -114,10 +113,10 @@ function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
   doc.setTextColor(32, 44, 58);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10.5);
-  doc.text(academicDisplay("Kilinochchi Central College"), centerX, 31, { align: "center" });
+  doc.text("Kilinochchi Central College", centerX, 31, { align: "center" });
 
   doc.setFontSize(16);
-  doc.text(academicDisplay(OL_TITLE), centerX, 43, { align: "center" });
+  doc.text(OL_TITLE, centerX, 43, { align: "center" });
 
   const detailRows = [
     ["Examination", OL_TITLE],
@@ -137,9 +136,9 @@ function drawOlResultHeader(doc, reportData, row, logoDataUrl = "") {
   let detailY = 59;
   detailRows.forEach(([label, value]) => {
     doc.setFont("helvetica", "normal");
-    doc.text(academicDisplay(label), centerX - 12, detailY, { align: "right" });
+    doc.text(label, centerX - 12, detailY, { align: "right" });
     doc.setFont("helvetica", label === "Name" ? "bold" : "normal");
-    doc.text(academicDisplay(value), centerX + 5, detailY, { maxWidth: 64 });
+    doc.text(value, centerX + 5, detailY, { maxWidth: 64 });
     detailY += 5.5;
   });
 }
@@ -151,13 +150,13 @@ function drawOlResultFooter(doc) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.8);
   doc.text(
-    academicDisplay("Please note that this school result sheet is generated for internal academic use only."),
+    "Please note that this school result sheet is generated for internal academic use only.",
     pageWidth / 2,
     pageHeight - 24,
     { align: "center" }
   );
   doc.text(
-    academicDisplay("Copyright (c) Kilinochchi Central College"),
+    "Copyright (c) Kilinochchi Central College",
     pageWidth / 2,
     pageHeight - 17,
     { align: "center" }
@@ -168,7 +167,7 @@ function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
   drawOlResultHeader(doc, reportData, row, logoDataUrl);
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 98,
     head: [["Subject", "Marks", "Result"]],
     body: getStudentResultRows(reportData, row),
@@ -206,7 +205,7 @@ function addOlStudentResultPage(doc, reportData, row, logoDataUrl = "") {
         data.cell.styles.cellPadding = { top: 2.1, right: 1, bottom: 2.1, left: 1 };
       }
     },
-  }));
+  });
 
   drawOlResultFooter(doc);
 }
@@ -407,12 +406,12 @@ function drawHeader(doc, title, reportData) {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11.5);
-  doc.text(academicDisplay(`${SCHOOL_NAME} - ${title}`), pageWidth / 2, 9, { align: "center" });
+  doc.text(`${SCHOOL_NAME} - ${title}`, pageWidth / 2, 9, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9.5);
   doc.text(
-    academicDisplay(`Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(reportData.termName)}`),
+    `Grade - ${reportData.className} Year - ${reportData.year} Term - ${termToRoman(reportData.termName)}`,
     pageWidth / 2,
     14.5,
     { align: "center" }
@@ -436,16 +435,16 @@ function drawFooter(doc, reportData, options = {}) {
   if (overallExclusionNote) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
-    doc.text(academicDisplay(overallExclusionNote), 10, y - 4, {
+    doc.text(overallExclusionNote, 10, y - 4, {
       maxWidth: pageWidth - 20,
     });
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
   }
 
-  doc.text(academicDisplay(classTeacher), 10, y);
-  doc.text(academicDisplay(sectionalHead), pageWidth / 2, y, { align: "center" });
-  doc.text(academicDisplay("Principal"), pageWidth - 10, y, { align: "right" });
+  doc.text(classTeacher, 10, y);
+  doc.text(sectionalHead, pageWidth / 2, y, { align: "center" });
+  doc.text("Principal", pageWidth - 10, y, { align: "right" });
 }
 
 function getScheduleTableSettings(reportData) {
@@ -588,7 +587,7 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
 
   drawHeader(doc, colorSchedule ? "Color Mark Schedule" : "Mark Schedule", reportData);
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: scheduleSettings.startY,
     head: buildGroupedHeaderRows(reportData),
     body: buildScheduleBody(reportData),
@@ -659,21 +658,21 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
         }
       }
     },
-  }));
+  });
 
   const scheduleNoteY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 4 : doc.internal.pageSize.getHeight() - 20;
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.text(
-    academicDisplay(colorSchedule
+    colorSchedule
       ? "Mark colors: 0-40 Red | 41-54 Light Orange | 55-64 Yellow | 65-74 Light Green | 75-100 Dark Green."
-      : "Highest marks are highlighted in yellow in the Mark Schedule."),
+      : "Highest marks are highlighted in yellow in the Mark Schedule.",
     scheduleSettings.marginLeft,
     scheduleNoteY
   );
   if (reportData.hasSeparateOverallTotal) {
     doc.text(
-      academicDisplay("A/L rank uses main 3 subjects. Overall total includes held general subjects."),
+      "A/L rank uses main 3 subjects. Overall total includes held general subjects.",
       scheduleSettings.marginLeft,
       scheduleNoteY + 4
     );
@@ -687,7 +686,7 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
 
   drawHeader(doc, "Mark Analysis", reportData);
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: analysisSettings.startY,
     head: buildAnalysisHead(reportData),
     body: buildAnalysisBody(reportData),
@@ -721,7 +720,7 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
         data.cell.styles.overflow = "linebreak";
       }
     },
-  }));
+  });
 
   if (Array.isArray(reportData.optimiStudents) && reportData.optimiStudents.length > 0) {
     doc.addPage("a4", "landscape");
@@ -738,7 +737,7 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
       student.religionMark,
     ]);
 
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: 18,
       head: [[
         "Rank",
@@ -784,12 +783,12 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
       },
       pageBreak: "auto",
       rowPageBreak: "avoid",
-    }));
+    });
   } else {
     doc.addPage("a4", "landscape");
     drawHeader(doc, "Optimi Students", reportData);
     doc.setFontSize(9);
-    doc.text(academicDisplay("No Optimi students qualified for this class."), 14, 26);
+    doc.text("No Optimi students qualified for this class.", 14, 26);
   }
 
   drawFooter(doc, reportData);
@@ -799,12 +798,12 @@ function buildPdfDoc(reportData, { colorSchedule = false } = {}) {
 
 export function exportClassMarksPdf(reportData) {
   const { doc, fileName } = createClassMarksPdfDoc(reportData);
-  doc.save(academicDisplay(fileName));
+  doc.save(fileName);
 }
 
 export function exportColorClassMarksPdf(reportData) {
   const { doc, fileName } = createColorClassMarksPdfDoc(reportData);
-  doc.save(academicDisplay(fileName));
+  doc.save(fileName);
 }
 
 export function createClassMarksPdfDoc(reportData) {
@@ -889,7 +888,7 @@ export async function exportGradeElevenOlResultSheetsZip(reportData) {
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_OL_Result_Sheets.zip`;
 
-  saveAs(zipBlob, academicDisplay(zipName));
+  saveAs(zipBlob, zipName);
 }
 
 function makeScheduleSheetRows(reportData, scheduleTitle = "Mark Schedule") {
@@ -1208,7 +1207,7 @@ export function exportClassMarksExcel(reportData) {
   const flatColumns = flattenSchemaColumns(reportData.schema);
   const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
-  const scheduleSheet = XLSX.utils.aoa_to_sheet(academicExport(makeScheduleSheetRows(reportData)));
+  const scheduleSheet = XLSX.utils.aoa_to_sheet(makeScheduleSheetRows(reportData));
   setExcelCols(
     scheduleSheet,
     4 + flatColumns.length + (showOverallTotal ? 5 : 3),
@@ -1225,14 +1224,14 @@ export function exportClassMarksExcel(reportData) {
     ]
   );
 
-  const analysisSheet = XLSX.utils.aoa_to_sheet(academicExport(makeAnalysisSheetRows(reportData)));
+  const analysisSheet = XLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));
   setExcelCols(
     analysisSheet,
     1 + flatColumns.length,
     [22, ...flatColumns.map(() => 12)]
   );
 
-  const optimiSheet = XLSX.utils.aoa_to_sheet(academicExport(makeOptimiSheetRows(reportData)));
+  const optimiSheet = XLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
   setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
 
   XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Mark Schedule");
@@ -1243,7 +1242,7 @@ export function exportClassMarksExcel(reportData) {
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_Marks_Report.xlsx`;
 
-  XLSX.writeFile(workbook, academicDisplay(fileName));
+  XLSX.writeFile(workbook, fileName);
 }
 
 function applyColorScheduleSheetStyles(worksheet, reportData) {
@@ -1293,7 +1292,7 @@ export async function createColorClassMarksWorkbook(reportData) {
   const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
   const scheduleSheet = StyledXLSX.utils.aoa_to_sheet(
-    academicExport(makeScheduleSheetRows(reportData, "Color Mark Schedule"))
+    makeScheduleSheetRows(reportData, "Color Mark Schedule")
   );
   setExcelCols(
     scheduleSheet,
@@ -1312,10 +1311,10 @@ export async function createColorClassMarksWorkbook(reportData) {
   );
   applyColorScheduleSheetStyles(scheduleSheet, reportData);
 
-  const analysisSheet = StyledXLSX.utils.aoa_to_sheet(academicExport(makeAnalysisSheetRows(reportData)));
+  const analysisSheet = StyledXLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));
   setExcelCols(analysisSheet, 1 + flatColumns.length, [22, ...flatColumns.map(() => 12)]);
 
-  const optimiSheet = StyledXLSX.utils.aoa_to_sheet(academicExport(makeOptimiSheetRows(reportData)));
+  const optimiSheet = StyledXLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
   setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
 
   StyledXLSX.utils.book_append_sheet(workbook, scheduleSheet, "Color Mark Schedule");
@@ -1331,12 +1330,12 @@ export async function exportColorClassMarksExcel(reportData) {
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_Color_Marks_Report.xlsx`;
 
-  StyledXLSX.writeFile(workbook, academicDisplay(fileName));
+  StyledXLSX.writeFile(workbook, fileName);
 }
 
 export function exportClassMarksEmisExcel(reportData) {
   const workbook = XLSX.utils.book_new();
-  const emisSheet = XLSX.utils.aoa_to_sheet(academicExport(makeEmisNpSheetRows(reportData)));
+  const emisSheet = XLSX.utils.aoa_to_sheet(makeEmisNpSheetRows(reportData));
 
   setExcelCols(
     emisSheet,
@@ -1352,7 +1351,7 @@ export function exportClassMarksEmisExcel(reportData) {
     reportData.year
   )}_${sanitizeFilenamePart(reportData.termName)}_NP_EMIS.xlsx`;
 
-  XLSX.writeFile(workbook, academicDisplay(fileName));
+  XLSX.writeFile(workbook, fileName);
 }
 
 export async function exportAllClassesReportsZip(reportDataList = [], options = {}) {
@@ -1385,7 +1384,7 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
       const flatColumns = flattenSchemaColumns(reportData.schema);
       const showOverallTotal = Boolean(reportData.hasSeparateOverallTotal);
 
-      const scheduleSheet = XLSX.utils.aoa_to_sheet(academicExport(makeScheduleSheetRows(reportData)));
+      const scheduleSheet = XLSX.utils.aoa_to_sheet(makeScheduleSheetRows(reportData));
       setExcelCols(
         scheduleSheet,
         4 + flatColumns.length + (showOverallTotal ? 5 : 3),
@@ -1402,14 +1401,14 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
         ]
       );
 
-      const analysisSheet = XLSX.utils.aoa_to_sheet(academicExport(makeAnalysisSheetRows(reportData)));
+      const analysisSheet = XLSX.utils.aoa_to_sheet(makeAnalysisSheetRows(reportData));
       setExcelCols(
         analysisSheet,
         1 + flatColumns.length,
         [22, ...flatColumns.map(() => 12)]
       );
 
-      const optimiSheet = XLSX.utils.aoa_to_sheet(academicExport(makeOptimiSheetRows(reportData)));
+      const optimiSheet = XLSX.utils.aoa_to_sheet(makeOptimiSheetRows(reportData));
       setExcelCols(optimiSheet, 8, [8, 16, 16, 28, 12, 12, 12, 12]);
 
       XLSX.utils.book_append_sheet(workbook, scheduleSheet, "Mark Schedule");
@@ -1429,5 +1428,5 @@ export async function exportAllClassesReportsZip(reportDataList = [], options = 
     reportDataList[0]?.year || ""
   )}_${sanitizeFilenamePart(reportDataList[0]?.termName || "")}.zip`;
 
-  saveAs(zipBlob, academicDisplay(zipName));
+  saveAs(zipBlob, zipName);
 }

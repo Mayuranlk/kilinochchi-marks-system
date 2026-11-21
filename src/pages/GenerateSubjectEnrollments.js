@@ -1,4 +1,3 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -28,12 +27,6 @@ import {
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { invalidateCollectionRows } from "../services/firestoreReadCache";
-import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
-import {
-  addSystemStatsDeltaToBatch,
-  noteSystemStatsDeltaCommitted,
-  systemStatsAreInitialized,
-} from "../services/systemStatsService";
 import {
   ActionBar,
   MobileListRow,
@@ -268,26 +261,25 @@ function buildErrorSummary(mode, error) {
   };
 }
 
-async function commitDeleteOperations(refs = [], statsField = "") {
-  const maintainStats = refs.length > 0 && await systemStatsAreInitialized();
+async function commitDeleteOperations(refs = []) {
   for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);
     const chunk = refs.slice(i, i + BATCH_LIMIT);
     chunk.forEach((ref) => batch.delete(ref));
-    const delta = statsField ? { [statsField]: -chunk.length } : {};
-    addSystemStatsDeltaToBatch(batch, delta, { enabled: maintainStats });
     await batch.commit();
-    if (maintainStats) noteSystemStatsDeltaCommitted(delta);
   }
 }
 
 async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
   const normalizedYear = normalizeAcademicYear(academicYear);
 
-  const [enrollments, marks] = await Promise.all([
-    loadRowsForAcademicYear("studentSubjectEnrollments", normalizedYear, { forceRefresh: true }),
-    loadRowsForAcademicYear("marks", normalizedYear, { forceRefresh: true }),
+  const [enrollmentsSnap, marksSnap] = await Promise.all([
+    getDocs(collection(db, "studentSubjectEnrollments")),
+    getDocs(collection(db, "marks")),
   ]);
+
+  const enrollments = enrollmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const marks = marksSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
   const targetEnrollments = enrollments.filter(
     (row) => normalizeAcademicYear(row?.academicYear || row?.year) === normalizedYear
@@ -360,8 +352,8 @@ async function cleanupDuplicateEnrollmentAndMarkEntries({ academicYear }) {
     });
   }
 
-  await commitDeleteOperations(enrollmentRefsToDelete, "studentSubjectEnrollments");
-  await commitDeleteOperations(markRefsToDelete, "marks");
+  await commitDeleteOperations(enrollmentRefsToDelete);
+  await commitDeleteOperations(markRefsToDelete);
   if (enrollmentRefsToDelete.length || markRefsToDelete.length) {
     invalidateCollectionRows("studentSubjectEnrollments", "marks");
   }
@@ -765,7 +757,7 @@ export default function GenerateSubjectEnrollments() {
               options={sortedStudents}
               value={selectedStudent}
               onChange={(_, value) => setSelectedStudent(value)}
-              getOptionLabel={(...args) => academicDisplay(((option) => getStudentOptionLabel(option))(...args))}
+              getOptionLabel={(option) => getStudentOptionLabel(option)}
               isOptionEqualToValue={(option, value) => option.id === value.id}
               renderInput={(params) => (
                 <TextField
@@ -780,9 +772,9 @@ export default function GenerateSubjectEnrollments() {
             </Grid>
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <StatusChip status="active" label={academicDisplay(`Year ${academicYear}`)} />
-              <StatusChip status={selectedStudent ? "saved" : "pending"} label={academicDisplay(selectedStudent ? "Student selected" : "All students")} />
-              <StatusChip status={isAdmin ? "completed" : "pending"} label={academicDisplay(isAdmin ? "Admin access" : "Standard access")} />
+              <StatusChip status="active" label={`Year ${academicYear}`} />
+              <StatusChip status={selectedStudent ? "saved" : "pending"} label={selectedStudent ? "Student selected" : "All students"} />
+              <StatusChip status={isAdmin ? "completed" : "pending"} label={isAdmin ? "Admin access" : "Standard access"} />
             </Stack>
           </Stack>
         </Paper>
@@ -796,12 +788,12 @@ export default function GenerateSubjectEnrollments() {
             {operationCards.map((card) => (
               <Grid size={{ xs: 12, md: card.key === "cleanup_duplicates" ? 6 : 4, lg: card.key === "cleanup_duplicates" ? 4 : 4 }} key={card.key}>
                 <MobileListRow
-                  title={academicDisplay(card.title)}
+                  title={card.title}
                   right={
                     card.badge ? (
                       <Chip
                         size="small"
-                        label={academicDisplay(card.badge)}
+                        label={card.badge}
                         color={isAdmin ? "success" : "default"}
                       />
                     ) : null
@@ -811,14 +803,14 @@ export default function GenerateSubjectEnrollments() {
                       {card.icon}
                       <StatusChip
                         status={running === card.key ? "draft" : card.disabled ? "pending" : "saved"}
-                        label={academicDisplay(running === card.key ? "Running" : card.disabled ? "Unavailable" : "Ready")}
+                        label={running === card.key ? "Running" : card.disabled ? "Unavailable" : "Ready"}
                       />
                     </Stack>
                   }
                   footer={
                     <Stack spacing={1.25}>
                       <Typography variant="body2" color="text.secondary">
-                        {academicDisplay(card.description)}
+                        {card.description}
                       </Typography>
                       <Button
                         variant="contained"
@@ -854,7 +846,7 @@ export default function GenerateSubjectEnrollments() {
           <Grid container spacing={2}>
             {quickStats.map((item) => (
               <Grid size={{ xs: 6, md: 3 }} key={item.title}>
-                <SharedStatCard title={academicDisplay(item.title)} value={item.value} />
+                <SharedStatCard title={item.title} value={item.value} />
               </Grid>
             ))}
           </Grid>
@@ -869,7 +861,7 @@ export default function GenerateSubjectEnrollments() {
         <Grid container spacing={2}>
           {summaryStats.map((item) => (
             <Grid size={{ xs: 6, md: item.title.includes("Duplicate") ? 3 : 2 }} key={item.title}>
-              <SharedStatCard title={academicDisplay(item.title)} value={item.value} />
+              <SharedStatCard title={item.title} value={item.value} />
             </Grid>
           ))}
         </Grid>
@@ -897,11 +889,11 @@ export default function GenerateSubjectEnrollments() {
                   }
                 >
                   <Typography variant="body2" fontWeight={600}>
-                    {academicDisplay(log.message || "Log")}
+                    {log.message || "Log"}
                   </Typography>
                   {log.details ? (
                     <Typography variant="caption" display="block">
-                      {academicDisplay(String(log.details))}
+                      {String(log.details)}
                     </Typography>
                   ) : null}
                 </Alert>
@@ -912,17 +904,17 @@ export default function GenerateSubjectEnrollments() {
 
         <ActionBar sticky>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <StatusChip status="active" label={academicDisplay(`Year ${academicYear}`)} />
+            <StatusChip status="active" label={`Year ${academicYear}`} />
             <StatusChip
               status={isRunning ? "draft" : "saved"}
-              label={academicDisplay(isRunning ? "Operation running" : "Ready")}
+              label={isRunning ? "Operation running" : "Ready"}
             />
           </Stack>
 
           <Typography variant="body2" color="text.secondary">
-            {academicDisplay(selectedStudent
+            {selectedStudent
               ? `Selected: ${getStudentOptionLabel(selectedStudent)}`
-              : "No student selected. General actions apply to all students.")}
+              : "No student selected. General actions apply to all students."}
           </Typography>
         </ActionBar>
       </Stack>

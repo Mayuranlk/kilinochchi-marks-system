@@ -1,5 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
+import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Box,
@@ -26,7 +26,6 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadRowsForGrades } from "../services/firestoreScopedReads";
 import { useAuth } from "../context/AuthContext";
 import { PageContainer, ResponsiveTableWrapper, StatCard } from "../components/ui";
 
@@ -76,21 +75,11 @@ export default function SectionalHeadDashboard() {
         setLoading(true);
         setError("");
 
-        const grades = (assignedGrades || []).map(Number).filter(Number.isFinite);
-        if (!grades.length) {
-          setStudents([]);
-          setClassrooms([]);
-          setEnrollments([]);
-          setMarks([]);
-          setTerms([]);
-          return;
-        }
-
         const [studentRows, classroomRows, enrollmentRows, markRows, termRows] = await Promise.all([
-          loadRowsForGrades("students", grades),
-          loadRowsForGrades("classrooms", grades),
-          loadRowsForGrades("studentSubjectEnrollments", grades),
-          loadRowsForGrades("marks", grades),
+          getCollectionRows(db, "students"),
+          getCollectionRows(db, "classrooms"),
+          getCollectionRows(db, "studentSubjectEnrollments"),
+          getCollectionRows(db, "marks"),
           getCollectionRows(db, "academicTerms"),
         ]);
 
@@ -108,7 +97,7 @@ export default function SectionalHeadDashboard() {
     }
 
     loadData();
-  }, [assignedGrades]);
+  }, []);
 
   const gradeSet = useMemo(() => new Set((assignedGrades || []).map(Number)), [assignedGrades]);
   const activeTerm = useMemo(() => terms.find((term) => term.isActive) || terms[0] || null, [terms]);
@@ -120,9 +109,10 @@ export default function SectionalHeadDashboard() {
       students.filter(
         (student) =>
           gradeSet.has(parseGrade(student.grade)) &&
-          normalizeStatus(student.status) === "active"
+          (normalizeStatus(student.status) === "active" || Boolean(student.leftDate || student.leavingDate)) &&
+          studentWasEnrolledDuringTerm(student, activeTerm)
       ),
-    [students, gradeSet]
+    [students, gradeSet, activeTerm]
   );
 
   const scopedClassrooms = useMemo(
@@ -135,15 +125,17 @@ export default function SectionalHeadDashboard() {
     [classrooms, gradeSet, activeYear]
   );
 
+  const studentsById = useMemo(() => new Map(students.map((student) => [String(student.id), student])), [students]);
   const scopedEnrollments = useMemo(
     () =>
       enrollments.filter(
         (enrollment) =>
           gradeSet.has(parseGrade(enrollment.grade || enrollment.className)) &&
           normalizeStatus(enrollment.status) !== "inactive" &&
+          studentWasEnrolledDuringTerm(studentsById.get(String(enrollment.studentId)), activeTerm) &&
           (!getYear(enrollment) || getYear(enrollment) === activeYear)
       ),
-    [enrollments, gradeSet, activeYear]
+    [enrollments, gradeSet, activeYear, activeTerm, studentsById]
   );
 
   const scopedMarks = useMemo(
@@ -184,7 +176,7 @@ export default function SectionalHeadDashboard() {
     return (
       <PageContainer title="Sectional Head Dashboard">
         <Alert severity="warning">
-          No assigned grades found for {academicDisplay(profile?.name || "this sectional head")}. Ask an admin to set assigned grades in the user profile.
+          No assigned grades found for {profile?.name || "this sectional head"}. Ask an admin to set assigned grades in the user profile.
         </Alert>
       </PageContainer>
     );
@@ -193,7 +185,7 @@ export default function SectionalHeadDashboard() {
   return (
     <PageContainer
       title="Sectional Head Dashboard"
-      subtitle={academicDisplay(`Assigned Grade(s): ${assignedGrades.join(", ")} | ${activeTermName || "No active exam"} ${activeYear || ""}`)}
+      subtitle={`Assigned Grade(s): ${assignedGrades.join(", ")} | ${activeTermName || "No active exam"} ${activeYear || ""}`}
     >
       <Stack spacing={2.5}>
         {loading ? (
@@ -201,7 +193,7 @@ export default function SectionalHeadDashboard() {
             <CircularProgress />
           </Box>
         ) : error ? (
-          <Alert severity="error">{academicDisplay(error)}</Alert>
+          <Alert severity="error">{error}</Alert>
         ) : (
           <>
             <Grid container spacing={2}>
@@ -256,7 +248,7 @@ export default function SectionalHeadDashboard() {
                     <TableBody>
                       {classRows.map((row) => (
                         <TableRow key={row.className}>
-                          <TableCell sx={{ fontWeight: 800 }}>{academicDisplay(row.className)}</TableCell>
+                          <TableCell sx={{ fontWeight: 800 }}>{row.className}</TableCell>
                           <TableCell>{row.classTeacher}</TableCell>
                           <TableCell align="right">{row.studentCount}</TableCell>
                           <TableCell align="right">{row.markCount}</TableCell>

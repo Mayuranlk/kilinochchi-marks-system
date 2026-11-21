@@ -1,5 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
+import { findAcademicTerm, schoolDate, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Accordion,
   AccordionDetails,
@@ -22,7 +22,6 @@ import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import {
   filterStudentsForClass,
   matchesReportClass,
@@ -127,31 +126,6 @@ function formatPercent(value) {
   return `${Math.round(Number(value))}%`;
 }
 
-function toDateKey(value) {
-  if (!value) return "";
-  if (typeof value?.toDate === "function") return value.toDate().toISOString().slice(0, 10);
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
-}
-
-function getStudentJoinDate(student = {}) {
-  return toDateKey(student.joinDate || student.admissionDate || student.joinedAt);
-}
-
-function getTermStartDate(terms = [], year, termName) {
-  const term = terms.find(
-    (item) =>
-      Number(item.year || item.academicYear || 0) === Number(year) &&
-      normalizeText(item.term || item.termName || item.name) === normalizeText(termName)
-  );
-  return toDateKey(term?.startDate);
-}
-
-function isStudentPresentForTerm(student, termStartDate) {
-  const joinDate = getStudentJoinDate(student);
-  return !joinDate || !termStartDate || joinDate <= termStartDate;
-}
-
 function hasMatchingTermMark({ enrollment, marksByStudentId, termName, year }) {
   const studentId = normalizeText(enrollment.studentId);
   return (marksByStudentId.get(studentId) || []).some((mark) => {
@@ -161,16 +135,6 @@ function hasMatchingTermMark({ enrollment, marksByStudentId, termName, year }) {
       normalizeText(mark.termName || mark.term) === normalizeText(termName) &&
       markYear === Number(year) &&
       subjectsMatch(mark, enrollment)
-    );
-  });
-}
-
-function hasAnyTermMark({ studentId, marksByStudentId, termName, year }) {
-  return (marksByStudentId.get(normalizeText(studentId)) || []).some((mark) => {
-    const markYear = Number(mark.academicYear || mark.year || 0);
-    return (
-      normalizeText(mark.termName || mark.term) === normalizeText(termName) &&
-      markYear === Number(year)
     );
   });
 }
@@ -318,7 +282,7 @@ export function buildLiveRows({ classrooms, students, enrollments, marks, assign
       const section = classroom.section;
       const stream = classroom.stream || "";
       const reportContext = { grade, section, className, stream };
-      const termStartDate = getTermStartDate(terms, year, termName);
+      const academicTerm = findAcademicTerm(terms, year, termName);
       const classMarks = marks.filter((mark) => {
         const markTerm = mark.termName || mark.term || "";
         const markYear = Number(mark.academicYear || mark.year || 0);
@@ -337,17 +301,18 @@ export function buildLiveRows({ classrooms, students, enrollments, marks, assign
         studentMarks.push(mark);
         marksByStudentId.set(studentId, studentMarks);
       });
+      const eligibleForTerm = (student) => {
+        if (!studentWasEnrolledDuringTerm(student, academicTerm)) return false;
+        // Preserve legacy start-date-only behavior where the end is unknown.
+        if (academicTerm && !schoolDate(academicTerm.endDate)) {
+          const joined = schoolDate(student?.joinDate || student?.admissionDate || student?.joinedAt);
+          const start = schoolDate(academicTerm.startDate);
+          if (joined && start && joined > start && !(marksByStudentId.get(normalizeText(student?.id)) || []).length) return false;
+        }
+        return true;
+      };
       const classStudents = filterStudentsForClass(students, grade, section, className, stream)
-        .filter(
-          (student) =>
-            isStudentPresentForTerm(student, termStartDate) ||
-            hasAnyTermMark({
-              studentId: student.id,
-              marksByStudentId,
-              termName,
-              year,
-            })
-        );
+        .filter(eligibleForTerm);
       const classEnrollments = enrollments.filter((enrollment) => {
         const enrollmentYear = Number(enrollment.academicYear || enrollment.year || 0);
         if (
@@ -358,18 +323,12 @@ export function buildLiveRows({ classrooms, students, enrollments, marks, assign
         }
 
         const student = studentsById.get(normalizeText(enrollment.studentId));
+        if (student && !eligibleForTerm(student)) return false;
         if (!isActiveStatus(enrollment.status)) {
           return hasMatchingTermMark({ enrollment, marksByStudentId, termName, year });
         }
 
         return (
-          (isStudentPresentForTerm(student, termStartDate) ||
-            hasAnyTermMark({
-              studentId: enrollment.studentId,
-              marksByStudentId,
-              termName,
-              year,
-            })) &&
           !isReplacementEnrollment({
             enrollment,
             historicalEnrollments: historicalEnrollmentsByStudent.get(normalizeText(enrollment.studentId)) || [],
@@ -444,7 +403,7 @@ function StatusPill({ status }) {
     <Chip
       size="small"
       color={getStatusColor(status)}
-      label={academicDisplay(`${getStatusLabel(status)} - ${getStatusText(status)}`)}
+      label={`${getStatusLabel(status)} - ${getStatusText(status)}`}
       sx={{ fontWeight: 900 }}
     />
   );
@@ -480,8 +439,8 @@ export default function MarksStatusLive() {
       try {
         const [students, enrollments, marks, classrooms, terms, assignments] = await Promise.all([
           getCollectionRows(db, "students"),
-          loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
-          loadRowsForAcademicYear("marks", selectedYear),
+          getCollectionRows(db, "studentSubjectEnrollments"),
+          getCollectionRows(db, "marks"),
           getCollectionRows(db, "classrooms"),
           getCollectionRows(db, "academicTerms"),
           getCollectionRows(db, "teacherAssignments"),
@@ -503,7 +462,7 @@ export default function MarksStatusLive() {
     return () => {
       active = false;
     };
-  }, [selectedYear]);
+  }, []);
 
   useEffect(() => {
     const activeTerm = data.terms.find((term) => term.isActive) || data.terms[0] || null;
@@ -605,14 +564,14 @@ export default function MarksStatusLive() {
               </Stack>
 
               <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Chip size="small" color="success" label={academicDisplay(`Green ${summary.done}`)} sx={{ fontWeight: 900 }} />
-                <Chip size="small" color="warning" label={academicDisplay(`Yellow ${summary.partial}`)} sx={{ fontWeight: 900 }} />
-                <Chip size="small" color="error" label={academicDisplay(`Red ${summary.missing}`)} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="success" label={`Green ${summary.done}`} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="warning" label={`Yellow ${summary.partial}`} sx={{ fontWeight: 900 }} />
+                <Chip size="small" color="error" label={`Red ${summary.missing}`} sx={{ fontWeight: 900 }} />
               </Stack>
             </Stack>
           </Paper>
 
-          {error ? <Alert severity="warning">{academicDisplay(error)}</Alert> : null}
+          {error ? <Alert severity="warning">{error}</Alert> : null}
 
           <Paper elevation={0} sx={{ p: 1.25, borderRadius: 1, border: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
             <Stack spacing={1.1}>
@@ -634,7 +593,7 @@ export default function MarksStatusLive() {
                   <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={year}>
-                        {academicDisplay(year)}
+                        {year}
                       </MenuItem>
                     ))}
                   </Select>
@@ -644,7 +603,7 @@ export default function MarksStatusLive() {
                   <Select value={selectedTerm} label="Term" onChange={(event) => setSelectedTerm(event.target.value)}>
                     {(data.terms.length ? data.terms : [{ id: DEFAULT_TERM, term: DEFAULT_TERM }]).map((term) => (
                       <MenuItem key={term.id} value={term.term}>
-                        {academicDisplay(term.term)}
+                        {term.term}
                       </MenuItem>
                     ))}
                   </Select>
@@ -669,9 +628,9 @@ export default function MarksStatusLive() {
           ) : (
             <>
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={academicDisplay(`${summary.total} classes`)} />
-                <Chip size="small" label={academicDisplay(`${formatPercent(summary.completionPercent)} complete`)} />
-                <Chip size="small" color="error" variant="outlined" label={academicDisplay(`${summary.missingMarks} marks missing`)} />
+                <Chip size="small" label={`${summary.total} classes`} />
+                <Chip size="small" label={`${formatPercent(summary.completionPercent)} complete`} />
+                <Chip size="small" color="error" variant="outlined" label={`${summary.missingMarks} marks missing`} />
               </Stack>
 
               <Stack spacing={0.8}>
@@ -702,10 +661,10 @@ export default function MarksStatusLive() {
                         <StatusDot status={row.status} />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: 900, lineHeight: 1.1 }} noWrap>
-                            {academicDisplay(row.className)}
+                            {row.className}
                           </Typography>
                           <Typography variant="caption" color="text.secondary" noWrap>
-                            {academicDisplay(row.completedSubjectCount)}/{academicDisplay(row.subjectCount)} subjects | {formatPercent(row.completionPercent)}
+                            {row.completedSubjectCount}/{row.subjectCount} subjects | {formatPercent(row.completionPercent)}
                           </Typography>
                         </Box>
                         <StatusPill status={row.status} />
@@ -715,7 +674,7 @@ export default function MarksStatusLive() {
                     <AccordionDetails sx={{ px: { xs: 1.1, sm: 1.5 }, pt: 0, pb: 1.25 }}>
                       <Stack spacing={0.8}>
                         <Typography variant="caption" color="text.secondary">
-                          {academicDisplay(row.classTeacherName || "Class teacher not set")}
+                          {row.classTeacherName || "Class teacher not set"}
                         </Typography>
 
                         {row.subjectSummaries.length ? (
@@ -735,16 +694,16 @@ export default function MarksStatusLive() {
                                 <StatusDot status={subject.status} />
                                 <Box sx={{ minWidth: 0, flex: 1 }}>
                                   <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>
-                                    {academicDisplay(subject.subjectName)}
+                                    {subject.subjectName}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary" noWrap>
-                                    {academicDisplay(subject.teacherName || "Teacher not assigned")}
+                                    {subject.teacherName || "Teacher not assigned"}
                                   </Typography>
                                 </Box>
                                 <Chip
                                   size="small"
                                   color={getStatusColor(subject.status)}
-                                  label={academicDisplay(`${subject.enteredCount}/${subject.enrolledCount}`)}
+                                  label={`${subject.enteredCount}/${subject.enrolledCount}`}
                                   sx={{ fontWeight: 900, flexShrink: 0 }}
                                 />
                               </Stack>

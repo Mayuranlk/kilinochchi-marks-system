@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -65,7 +66,7 @@ export default function AttendanceRegister() {
           getCollectionRows(db, "classrooms"),
         ]);
         if (cancelled) return;
-        setStudents(studentRows.filter(isActive));
+        setStudents(studentRows.filter((student) => isActive(student) || Boolean(student.leftDate || student.leavingDate)));
         setClassrooms(classroomRows);
       } catch (error) {
         if (!cancelled) setMessage({ type: "error", text: `Failed to load classes and students: ${error.message}` });
@@ -87,9 +88,15 @@ export default function AttendanceRegister() {
     [availableClassrooms, selectedClassId]
   );
   const days = useMemo(() => monthDays(selectedYear, selectedMonth), [selectedYear, selectedMonth]);
+  const monthStudents = useMemo(() => {
+    const year = Number(selectedYear), month = Number(selectedMonth);
+    const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+    const endDate = `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+    return students.filter((student) => studentWasEnrolledDuringTerm(student, { startDate, endDate }));
+  }, [students, selectedYear, selectedMonth]);
   const classStudents = useMemo(
-    () => students.filter((student) => selectedClassroom && matchesRegisterClass(student, selectedClassroom, selectedYear)).sort((a, b) => studentName(a).localeCompare(studentName(b))),
-    [students, selectedClassroom, selectedYear]
+    () => monthStudents.filter((student) => selectedClassroom && matchesRegisterClass(student, selectedClassroom, selectedYear)).sort((a, b) => studentName(a).localeCompare(studentName(b))),
+    [monthStudents, selectedClassroom, selectedYear]
   );
 
   function createPdf() {
@@ -194,7 +201,7 @@ export default function AttendanceRegister() {
             </Grid>
           </Grid>
         </Paper>
-        <ClassSheetExport classrooms={availableClassrooms} students={students} year={selectedYear} />
+        <ClassSheetExport classrooms={availableClassrooms} students={monthStudents} year={selectedYear} />
         <Stack direction="row" spacing={1} alignItems="center">
           <CalendarMonthRoundedIcon color="primary" />
           <Typography variant="body2" color="text.secondary">Blank daily cells are provided for marking attendance by hand.</Typography>

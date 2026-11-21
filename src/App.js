@@ -9,7 +9,6 @@ import { ColorModeContext } from "./theme/ColorModeContext";
 
 import Layout from "./components/Layout";
 import PageMeta from "./components/PageMeta";
-import MaintenanceGate from "./components/MaintenanceGate";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -39,6 +38,7 @@ const TeacherAssignments = lazy(() => import("./pages/TeacherAssignments"));
 const ClassTeacherAssignments = lazy(() => import("./pages/ClassTeacherAssignments"));
 
 const MarksEntry = lazy(() => import("./pages/MarksEntry"));
+const FreshSbaMarksEntry = lazy(() => import("./pages/FreshSbaMarksEntry"));
 const BulkMarksUpload = lazy(() => import("./pages/BulkMarksUpload"));
 const TeacherMarkSheets = lazy(() => import("./pages/TeacherMarkSheets"));
 const AttendanceRegister = lazy(() => import("./pages/AttendanceRegister"));
@@ -53,7 +53,6 @@ const SubjectAnalysis = lazy(() => import("./pages/SubjectAnalysis"));
 const YearEndPromotion = lazy(() => import("./pages/YearEndPromotion"));
 const ExportFirestoreSamples = lazy(() => import("./pages/ExportFirestoreSamples"));
 const SBAForm = lazy(() => import("./pages/SBAForm"));
-const SBAMarks = lazy(() => import("./pages/SBAMarks"));
 const ElectionCount = lazy(() => import("./pages/ElectionCount"));
 const ElectionLiveResults = lazy(() => import("./pages/ElectionLiveResults"));
 const MarksStatusLive = lazy(() => import("./pages/MarksStatusLive"));
@@ -223,7 +222,6 @@ export default function App() {
         <AuthProvider>
           <Router>
           <PageMeta />
-          <MaintenanceGate>
           <Routes>
             <Route
               path="/login"
@@ -464,8 +462,7 @@ export default function App() {
               />
 
               {/* Marks & Reports */}
-              <Route path="sba-marks" element={<AdminRoute><LazyRoute><SBAMarks /></LazyRoute></AdminRoute>} />
-              <Route path="sba-register" element={<AdminRoute><LazyRoute><SBAMarks registerMode /></LazyRoute></AdminRoute>} />
+              <Route path="sba-marks" element={<AdminRoute><LazyRoute><FreshSbaMarksEntry /></LazyRoute></AdminRoute>} />
               <Route
                 path="marks"
                 element={
@@ -546,6 +543,7 @@ export default function App() {
                   </ReportAccessRoute>
                 }
               />
+              <Route path="sba-class-completion-report" element={<ReportAccessRoute><LazyRoute><ClassCompletionReport sba /></LazyRoute></ReportAccessRoute>} />
               <Route
                 path="text-book-request"
                 element={
@@ -670,6 +668,7 @@ export default function App() {
                   </SectionalHeadRoute>
                 }
               />
+              <Route path="sba-class-completion-report" element={<SectionalHeadRoute><LazyRoute><ClassCompletionReport sba /></LazyRoute></SectionalHeadRoute>} />
               <Route
                 path="subject-analysis"
                 element={
@@ -701,8 +700,6 @@ export default function App() {
                 </PrivateRoute>
               }
             >
-              <Route path="sba-marks" element={<TeacherRoute><LazyRoute><SBAMarks /></LazyRoute></TeacherRoute>} />
-              <Route path="sba-register" element={<Navigate to="/teacher/sba-marks" replace />} />
               <Route
                 index
                 element={
@@ -724,7 +721,18 @@ export default function App() {
                   </TeacherRoute>
                 }
               />
-              <Route path="sba" element={<Navigate to="/teacher/sba-marks" replace />} />
+
+              <Route path="sba-marks" element={<TeacherRoute><LazyRoute><FreshSbaMarksEntry /></LazyRoute></TeacherRoute>} />
+              <Route
+                path="sba"
+                element={
+                  <TeacherRoute>
+                    <LazyRoute>
+                      <SBAForm />
+                    </LazyRoute>
+                  </TeacherRoute>
+                }
+              />
 
               <Route
                 path="class-report"
@@ -751,7 +759,6 @@ export default function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          </MaintenanceGate>
           </Router>
         </AuthProvider>
       </ThemeProvider>

@@ -103,20 +103,6 @@ test("admin can load every protected administration route under proposed Rules",
   for (const [path, title] of routes) await visit(page, monitor, path, title);
 });
 
-test("admin marks entry loads the full student list only for deletion search", async ({ page }) => {
-  await login(page, "admin");
-  await page.goto("/marks");
-  await expect(page.getByText("Delete Student Marks")).toBeVisible();
-  const fullStudentReads = () => page.evaluate(() =>
-    (window.getFirestoreReadDiagnostics?.() || []).filter((event) => event.query === "students: collection").length
-  );
-  await expect(page.getByRole("combobox", { name: "Type or select a student" })).toBeVisible();
-  expect(await fullStudentReads()).toBe(0);
-  await page.getByRole("combobox", { name: "Type or select a student" }).click();
-  await expect(page.getByRole("option", { name: /Synthetic Student One/i })).toBeVisible();
-  expect(await fullStudentReads()).toBe(1);
-});
-
 test("admin settings and secondary Auth staff creation workflows succeed locally", async ({ page }) => {
   const monitor = monitorSecurityFailures(page);
   await login(page, "admin");
@@ -141,7 +127,7 @@ test("teacher can load assigned routes and save a canonical mark", async ({ page
   for (const [path, title] of [
     ["/teacher", "Teacher Dashboard"],
     ["/teacher/marks", "Marks Entry"],
-    ["/teacher/sba-marks", "SBA Marks Entry"],
+    ["/teacher/sba", "SBA Assessment Sheets"],
     ["/teacher/class-report", "Class Report"],
     ["/teacher/report/student-001", "Synthetic Student One"],
   ]) await visit(page, monitor, path, title);
@@ -267,8 +253,7 @@ test("admin completes backup download, validation, upload, and restore through t
   expect(downloadPath).toBeTruthy();
   const payload = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
   expect(payload.projectId).toBe(EXPECTED_PROJECT_ID);
-  expect(Object.keys(payload.collections)).toContain("sbaMarks");
-  expect(Object.keys(payload.collections).length).toBeGreaterThanOrEqual(18);
+  expect(Object.keys(payload.collections)).toHaveLength(17);
   expect(payload.summary.documentCount).toBeGreaterThan(0);
   await expect(page.getByText(/Backup downloaded successfully/)).toBeVisible();
 

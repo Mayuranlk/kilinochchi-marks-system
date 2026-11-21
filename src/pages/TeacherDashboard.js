@@ -1,5 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Box,
@@ -34,11 +34,7 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { useAuth } from "../context/AuthContext";
-import { loadTeacherProgress } from "../services/teacherProgressService";
-import { loadSbaTeacherAssignments } from "../services/sbaService";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadRowsForGrades } from "../services/firestoreScopedReads";
 import {
   EmptyState,
   MobileListRow,
@@ -69,11 +65,6 @@ import {
   isTeacherMarksEntryLocked,
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
-import {
-  getAcademicTermKey,
-  getAcademicTermLabel,
-  termAppliesToClass,
-} from "../utils/alAcademicCycle";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -82,9 +73,14 @@ const normalize = (value) => String(value || "").trim().toLowerCase();
 
 const sanitizePhone = (phone) => String(phone || "").replace(/[^\d+]/g, "");
 
-const buildTermKey = (term) => getAcademicTermKey(term);
+const buildTermKey = (term) =>
+  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
 
-const buildTermLabel = (term) => getAcademicTermLabel(term);
+const buildTermLabel = (term) => {
+  const termName = pick(term.term, term.termName, term.name, "Term");
+  const year = pick(term.year, term.academicYear, "");
+  return year ? `${termName} - ${year}` : termName;
+};
 
 const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
@@ -114,13 +110,8 @@ const normalizeAcademicYear = (value) => {
 const getResolvedStream = (row = {}, fallback = {}) =>
   normalizeText(pick(row.stream, fallback.stream, ""));
 
-const getResolvedSection = (row = {}, fallback = {}) => {
-  const grade = parseGrade(pick(row.grade, fallback.grade, ""));
-  if (isALGrade(grade) && Object.prototype.hasOwnProperty.call(row, "section")) {
-    return normalizeSection(row.section || "");
-  }
-  return normalizeSection(pick(row.section, row.className, fallback.section, fallback.className, ""));
-};
+const getResolvedSection = (row = {}, fallback = {}) =>
+  normalizeSection(pick(row.section, row.className, fallback.section, fallback.className, ""));
 
 const getResolvedGrade = (row = {}, fallback = {}) =>
   parseGrade(pick(row.grade, fallback.grade, ""));
@@ -355,6 +346,7 @@ const buildTeacherDashboardData = ({
   assignments,
   classrooms,
   enrollments = [],
+  students = [],
   marks = [],
   sortedTerms,
   effectiveTermKey,
@@ -375,36 +367,23 @@ const buildTeacherDashboardData = ({
     "Teacher"
   );
 
-  const allMyAssignments = assignments.filter(
-    (assignment) =>
-      isActiveStatus(assignment.status) &&
-      (normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
-        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email))
-  );
-
-  const applicableTerms = sortedTerms.filter((term) =>
-    allMyAssignments.some((assignment) => termAppliesToClass(term, assignment))
-  );
-  const defaultTerm =
-    applicableTerms.find(isActiveTerm) ||
-    applicableTerms[0] ||
-    sortedTerms.find(isActiveTerm) ||
-    sortedTerms[0] ||
-    null;
+  const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
   const chosenTerm =
-    applicableTerms.find((term) => buildTermKey(term) === effectiveTermKey) ||
-    defaultTerm;
+    sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
 
   const targetTerm = {
     term: pick(chosenTerm?.term, chosenTerm?.termName, ""),
     year: String(pick(chosenTerm?.year, chosenTerm?.academicYear, "")),
   };
+  const studentsById = new Map(students.map((student) => [String(student.id), student]));
+  const eligibleEnrollments = enrollments.filter((row) => studentWasEnrolledDuringTerm(studentsById.get(String(row.studentId)), chosenTerm));
 
-  const myAssignments = chosenTerm
-    ? allMyAssignments.filter((assignment) =>
-        termAppliesToClass(chosenTerm, assignment)
-      )
-    : allMyAssignments;
+  const myAssignments = assignments.filter(
+    (assignment) =>
+      isActiveStatus(assignment.status) &&
+      (normalize(assignment.teacherId) === normalize(user.uid) ||
+        normalize(assignment.teacherEmail) === normalize(user.email))
+  );
 
   const dedupedAssignments = dedupeBy(myAssignments, (assignment) => {
     const classIdentity = normalize(getClassDisplayName(assignment));
@@ -429,7 +408,7 @@ const buildTeacherDashboardData = ({
 
     const progressInfo = progressReady
       ? isCompletedForSubject(
-          enrollments,
+          eligibleEnrollments,
           marks,
           classContext,
           {
@@ -490,8 +469,8 @@ const buildTeacherDashboardData = ({
   const assignedClassroom =
     classrooms.find(
       (c) =>
-        normalize(pick(c.classTeacherId, c.classTeacherUid, c.teacherId)) === normalize(user.uid) ||
-        normalize(pick(c.classTeacherEmail, c.teacherEmail)) === normalize(user.email)
+        normalize(c.classTeacherId) === normalize(user.uid) ||
+        normalize(c.classTeacherEmail) === normalize(user.email)
     ) || null;
 
   let classTeacherData = null;
@@ -502,7 +481,7 @@ const buildTeacherDashboardData = ({
     const classStream = normalizeText(assignedClassroom.stream);
 
     const classStudentsRaw = progressReady
-      ? enrollments.filter(
+      ? eligibleEnrollments.filter(
           (enrollment) =>
             isActiveStatus(enrollment.status) &&
             matchesClassContext(enrollment, classContext) &&
@@ -551,7 +530,7 @@ const buildTeacherDashboardData = ({
 
       const progressInfo = progressReady
         ? isCompletedForSubject(
-            enrollments,
+            eligibleEnrollments,
             marks,
             getClassContext(assignment),
             {
@@ -573,8 +552,8 @@ const buildTeacherDashboardData = ({
       if (progressReady && progressInfo.total === 0) return;
 
       const isMine =
-        normalize(pick(assignment.teacherId, assignment.teacherUid, assignment.userId)) === normalize(user.uid) ||
-        normalize(pick(assignment.teacherEmail, assignment.email)) === normalize(user.email);
+        normalize(assignment.teacherId) === normalize(user.uid) ||
+        normalize(assignment.teacherEmail) === normalize(user.email);
 
       const rowKey = `${getSubjectIdentity({ subjectId, subjectName, subjectNumber })}__${normalize(
         getResolvedStream(assignment)
@@ -641,7 +620,6 @@ const buildTeacherDashboardData = ({
 
 export default function TeacherDashboard() {
   const navigate = useNavigate();
-  const { profile } = useAuth();
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
   const [loading, setLoading] = useState(true);
@@ -660,14 +638,10 @@ export default function TeacherDashboard() {
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [progressLoading, setProgressLoading] = useState(false);
-  const [progressReady, setProgressReady] = useState(false);
-  const progressPending = progressLoading || !progressReady;
-  const progressLabel = progressLoading ? "Loading" : "Not loaded";
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
   const lastLoadedTermKey = useRef("");
-  const dashboardLoadVersion = useRef(0);
 
   const marksEntryDisabled = isTeacherMarksEntryLocked(marksEntrySettings);
   const marksEntryDisabledReason = getTeacherMarksEntryLockReason(marksEntrySettings);
@@ -691,26 +665,22 @@ export default function TeacherDashboard() {
     [subjectRows]
   );
 
-  const loadDashboard = async (silent = false, forceRefresh = false, includeProgress = false) => {
-    const version = ++dashboardLoadVersion.current;
+  const loadDashboard = async (silent = false, forceRefresh = false) => {
     try {
       setError("");
-      setProgressReady(false);
-      setProgressLoading(false);
-      setEnrollments([]); setMarks([]);
       if (silent) setRefreshing(true);
       else setLoading(true);
 
       const user = auth.currentUser;
       if (!user) throw new Error("User is not logged in.");
-      const [assignments, classrooms, loadedTerms] = await Promise.all([
-        loadSbaTeacherAssignments(user, { forceRefresh }),
+
+      const [users, assignments, classrooms, loadedTerms] = await Promise.all([
+        getCollectionRows(db, "users", { forceRefresh }),
+        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
-      const users = [{ ...profile, id: profile?.id || user.uid, uid: user.uid, email: user.email }];
 
-      if (version !== dashboardLoadVersion.current) return;
       setClassrooms(classrooms);
 
       const sortedTerms = [...loadedTerms].sort((a, b) => {
@@ -723,17 +693,9 @@ export default function TeacherDashboard() {
         );
       });
 
-      const teacherTerms = sortedTerms.filter((term) =>
-        assignments.some((assignment) => termAppliesToClass(term, assignment))
-      );
-      setTerms(teacherTerms);
+      setTerms(sortedTerms);
 
-      const defaultTerm =
-        teacherTerms.find(isActiveTerm) ||
-        teacherTerms[0] ||
-        sortedTerms.find(isActiveTerm) ||
-        sortedTerms[0] ||
-        null;
+      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       const effectiveTermKey =
         selectedTermKey || (defaultTerm ? buildTermKey(defaultTerm) : "");
 
@@ -758,16 +720,18 @@ export default function TeacherDashboard() {
       setAssignedClassroom(initialData.assignedClassroom);
       setLoading(false);
       setRefreshing(false);
-      if (!includeProgress) return;
       setProgressLoading(true);
 
       try {
-        const { enrollments: loadedEnrollments, marks: loadedMarks } = await loadTeacherProgress({ forceRefresh });
+        const [loadedEnrollments, loadedMarks, loadedStudents] = await Promise.all([
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "students", { forceRefresh }),
+        ]);
 
-        if (version !== dashboardLoadVersion.current) return;
         setEnrollments(loadedEnrollments);
         setMarks(loadedMarks);
-        setProgressReady(true);
+        setStudents(loadedStudents);
 
         const completedData = buildTeacherDashboardData({
           user,
@@ -775,6 +739,7 @@ export default function TeacherDashboard() {
           assignments,
           classrooms,
           enrollments: loadedEnrollments,
+          students: loadedStudents,
           marks: loadedMarks,
           sortedTerms,
           effectiveTermKey,
@@ -785,24 +750,22 @@ export default function TeacherDashboard() {
         setClassTeacherData(completedData.classTeacherData);
         setAssignedClassroom(completedData.assignedClassroom);
       } catch (statsError) {
-        if (version !== dashboardLoadVersion.current) return;
         console.error(statsError);
         setError(statsError.message || "Dashboard opened, but progress stats failed to load.");
       } finally {
-        if (version === dashboardLoadVersion.current) setProgressLoading(false);
+        setProgressLoading(false);
       }
     } catch (e) {
-      if (version !== dashboardLoadVersion.current) return;
       console.error(e);
       setError(e.message || "Failed to load teacher dashboard.");
     } finally {
-      if (version === dashboardLoadVersion.current) { setLoading(false); setRefreshing(false); }
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     loadDashboard(false);
-    return () => { dashboardLoadVersion.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -831,13 +794,10 @@ export default function TeacherDashboard() {
   const ensureStudentsLoaded = useCallback(async () => {
     if (students.length > 0) return students;
 
-    const grade = Number(assignedClassroom?.grade || 0);
-    const studentsData = grade
-      ? await loadRowsForGrades("students", [grade])
-      : [];
+    const studentsData = await getCollectionRows(db, "students");
     setStudents(studentsData);
     return studentsData;
-  }, [assignedClassroom?.grade, students]);
+  }, [students]);
 
   const buildAssignedClassReportData = useCallback((studentRows = students) => {
     if (!assignedClassroom || !currentTerm || !studentRows.length) return null;
@@ -858,6 +818,7 @@ export default function TeacherDashboard() {
           assignedClassroom.className,
         section: assignedClassroom.section,
         termName,
+        academicTerm: currentTerm,
         year,
       });
     } catch (err) {
@@ -918,7 +879,7 @@ export default function TeacherDashboard() {
   };
 
   const openMarks = useCallback(
-    (row) => {
+    (row, sba = false) => {
       const params = new URLSearchParams();
 
       params.set("fullClassName", row.fullClassName || "");
@@ -929,7 +890,7 @@ export default function TeacherDashboard() {
 
       if (selectedTermKey) params.set("termKey", selectedTermKey);
 
-      navigate(`/teacher/marks?${params.toString()}`);
+      navigate(`/teacher/${sba ? "sba-marks" : "marks"}?${params.toString()}`);
     },
     [navigate, selectedTermKey]
   );
@@ -960,12 +921,11 @@ export default function TeacherDashboard() {
   return (
     <PageContainer
       title="Teacher Dashboard"
-      subtitle={academicDisplay(`Welcome ${teacherName}`)}
+      subtitle={`Welcome ${teacherName}`}
       actions={
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
-          disabled={refreshing || progressLoading}
           onClick={() => loadDashboard(true, true)}
           fullWidth={isMobile}
         >
@@ -974,10 +934,7 @@ export default function TeacherDashboard() {
       }
     >
       <Stack spacing={2.25}>
-        {!progressReady && <Alert severity="info" action={<Button disabled={refreshing || progressLoading} onClick={() => loadDashboard(true, false, true)}>Load term statistics</Button>}>
-          Term statistics load only when requested. You can open SBA or enter marks without loading them.
-        </Alert>}
-        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
+        {error ? <Alert severity="error">{error}</Alert> : null}
         {marksEntryDisabled ? (
           <Alert severity="warning" icon={<LockRoundedIcon />}>
             <Typography component="span" sx={{ fontWeight: 900 }}>
@@ -1033,7 +990,7 @@ export default function TeacherDashboard() {
                 >
                   {terms.map((term) => (
                     <MenuItem key={term.id} value={buildTermKey(term)}>
-                      {academicDisplay(buildTermLabel(term))}
+                      {buildTermLabel(term)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1048,10 +1005,10 @@ export default function TeacherDashboard() {
                 useFlexGap
                 justifyContent={{ xs: "flex-start", md: "flex-end" }}
               >
-                {currentTerm ? <Chip label={academicDisplay(buildTermLabel(currentTerm))} color="primary" /> : null}
-                <Chip label={academicDisplay(`Subject Assignments: ${subjectRows.length}`)} />
-                <Chip label={academicDisplay(`Class Teacher Roles: ${classTeacherData ? 1 : 0}`)} />
-                {progressPending ? <Chip label={progressLabel} color="info" variant="outlined" /> : null}
+                {currentTerm ? <Chip label={buildTermLabel(currentTerm)} color="primary" /> : null}
+                <Chip label={`Subject Assignments: ${subjectRows.length}`} />
+                <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
+                {progressLoading ? <Chip label="Stats syncing" color="info" variant="outlined" /> : null}
               </Stack>
             </Grid>
           </Grid>
@@ -1066,23 +1023,23 @@ export default function TeacherDashboard() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <StatusChip
                   status="active"
-                  label={academicDisplay(`${subjectProgressSummary.assignedClasses.size} classes`)}
+                  label={`${subjectProgressSummary.assignedClasses.size} classes`}
                 />
-                <StatusChip status="saved" label={academicDisplay(`${subjectRows.length} subjects`)} />
+                <StatusChip status="saved" label={`${subjectRows.length} subjects`} />
                 <StatusChip
                   status="completed"
                   label={
-                    academicDisplay(progressPending
-                      ? progressLabel
-                      : `${subjectProgressSummary.completed} completed`)
+                    progressLoading
+                      ? "syncing"
+                      : `${subjectProgressSummary.completed} completed`
                   }
                 />
                 <StatusChip
                   status="pending"
                   label={
-                    academicDisplay(progressPending
-                      ? progressLabel
-                      : `${subjectProgressSummary.pending} pending`)
+                    progressLoading
+                      ? "syncing"
+                      : `${subjectProgressSummary.pending} pending`
                   }
                 />
               </Stack>
@@ -1109,7 +1066,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Completed"
-                value={progressPending ? "..." : subjectProgressSummary.completed}
+                value={progressLoading ? "..." : subjectProgressSummary.completed}
                 icon={<CheckCircleRoundedIcon />}
                 color="success"
               />
@@ -1117,7 +1074,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Pending"
-                value={progressPending ? "..." : subjectProgressSummary.pending}
+                value={progressLoading ? "..." : subjectProgressSummary.pending}
                 icon={<HourglassBottomRoundedIcon />}
                 color="warning"
               />
@@ -1139,23 +1096,23 @@ export default function TeacherDashboard() {
                     Class Monitoring
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {academicDisplay(classTeacherData.fullClassName)}
+                    {classTeacherData.fullClassName}
                   </Typography>
                 </Box>
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   {classTeacherData.stream ? (
                     <Chip
-                      label={academicDisplay(classTeacherData.stream)}
+                      label={classTeacherData.stream}
                       color="secondary"
                       variant="outlined"
                     />
                   ) : null}
                   <Chip
                     label={
-                      academicDisplay(progressPending
-                        ? progressLabel
-                        : `${classTeacherData.progress}% Completed`)
+                      progressLoading
+                        ? "Progress syncing"
+                        : `${classTeacherData.progress}% Completed`
                     }
                     color={classTeacherData.progress === 100 ? "success" : "warning"}
                   />
@@ -1175,7 +1132,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="secondary"
                   onClick={handleExportPdf}
-                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressPending}
+                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressLoading}
                   startIcon={<PictureAsPdfIcon />}
                 >
                   {exportingPdf ? "Exporting PDF..." : "Export PDF"}
@@ -1184,7 +1141,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="info"
                   onClick={handleExportExcel}
-                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressPending}
+                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressLoading}
                   startIcon={<TableViewRoundedIcon />}
                 >
                   {exportingExcel ? "Exporting Excel..." : "Export Excel"}
@@ -1194,7 +1151,7 @@ export default function TeacherDashboard() {
                     variant="outlined"
                     color="success"
                     onClick={handleExportEmis}
-                    disabled={!assignedClassroom || !currentTerm || progressPending}
+                    disabled={!assignedClassroom || !currentTerm || progressLoading}
                     startIcon={<TableViewRoundedIcon />}
                   >
                     Export EMIS NP
@@ -1206,16 +1163,16 @@ export default function TeacherDashboard() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <StatusChip
                     status="active"
-                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.totalStudents} students`)}
+                    label={progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`}
                   />
-                  <StatusChip status="saved" label={academicDisplay(`${classTeacherData.totalSubjects} subjects`)} />
+                  <StatusChip status="saved" label={`${classTeacherData.totalSubjects} subjects`} />
                   <StatusChip
                     status="completed"
-                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.completed} completed`)}
+                    label={progressLoading ? "syncing" : `${classTeacherData.completed} completed`}
                   />
                   <StatusChip
                     status="pending"
-                    label={academicDisplay(progressPending ? progressLabel : `${classTeacherData.pending} pending`)}
+                    label={progressLoading ? "syncing" : `${classTeacherData.pending} pending`}
                   />
                 </Stack>
               ) : (
@@ -1223,7 +1180,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Students"
-                      value={progressPending ? "..." : classTeacherData.totalStudents}
+                      value={progressLoading ? "..." : classTeacherData.totalStudents}
                       icon={<GroupRoundedIcon />}
                       color="primary"
                       sx={{ boxShadow: "none" }}
@@ -1241,7 +1198,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Completed"
-                      value={progressPending ? "..." : classTeacherData.completed}
+                      value={progressLoading ? "..." : classTeacherData.completed}
                       icon={<CheckCircleRoundedIcon />}
                       color="success"
                       sx={{ boxShadow: "none" }}
@@ -1250,7 +1207,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Pending"
-                      value={progressPending ? "..." : classTeacherData.pending}
+                      value={progressLoading ? "..." : classTeacherData.pending}
                       icon={<HourglassBottomRoundedIcon />}
                       color="error"
                       sx={{ boxShadow: "none" }}
@@ -1266,8 +1223,8 @@ export default function TeacherDashboard() {
                   sx={{ height: 8, borderRadius: 5 }}
                 />
                 <Typography variant="body2" color="text.secondary" mt={0.75}>
-                  {progressPending
-                    ? progressLabel
+                  {progressLoading
+                    ? "Calculating overall class completion"
                     : `${classTeacherData.progress}% overall class completion`}
                 </Typography>
               </Box>
@@ -1281,35 +1238,35 @@ export default function TeacherDashboard() {
                       <MobileListRow
                         key={`${subject.subjectId || `${subject.subjectName}_${subject.subjectNumber}`}__${subject.medium || "all"}`}
                         compact
-                        title={academicDisplay(`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`)}
+                        title={`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`}
                         subtitle={
-                          academicDisplay(progressPending
-                            ? progressLabel
-                            : `${subject.done}/${subject.total} students`)
+                          subject.progressLoading
+                            ? "Progress syncing"
+                            : `${subject.done}/${subject.total} students`
                         }
                         right={
                           <StatusChip
-                            status={progressPending ? "active" : subject.completed ? "completed" : "pending"}
+                            status={subject.progressLoading ? "active" : subject.completed ? "completed" : "pending"}
                             label={
-                              academicDisplay(progressPending
-                                ? progressLabel
+                              subject.progressLoading
+                                ? "Syncing"
                                 : subject.completed
                                 ? "Completed"
-                                : "Pending")
+                                : "Pending"
                             }
                           />
                         }
                         meta={
                           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                             {subject.subjectNumber ? (
-                              <Chip size="small" variant="outlined" label={academicDisplay(`No. ${subject.subjectNumber}`)} />
+                              <Chip size="small" variant="outlined" label={`No. ${subject.subjectNumber}`} />
                             ) : null}
                             <Chip
                               size="small"
                               variant="outlined"
-                              label={academicDisplay(progressPending ? progressLabel : `${subject.progress}%`)}
+                              label={subject.progressLoading ? "Syncing" : `${subject.progress}%`}
                             />
-                            <Chip size="small" variant="outlined" label={academicDisplay(subject.teacherName)} />
+                            <Chip size="small" variant="outlined" label={subject.teacherName} />
                           </Stack>
                         }
                         footer={
@@ -1327,7 +1284,7 @@ export default function TeacherDashboard() {
                                 }}
                               >
                                 <PhoneRoundedIcon sx={{ fontSize: 18 }} />
-                                {academicDisplay(subject.teacherPhone)}
+                                {subject.teacherPhone}
                               </Link>
                             ) : null}
 
@@ -1377,13 +1334,13 @@ export default function TeacherDashboard() {
                             <Box sx={{ minWidth: 0 }}>
                               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                 <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                                  {academicDisplay(subject.subjectName)}
+                                  {subject.subjectName}
                                 </Typography>
                                 {subject.subjectNumber ? (
                                   <Chip
                                     size="small"
                                     variant="outlined"
-                                    label={academicDisplay(`No. ${subject.subjectNumber}`)}
+                                    label={`No. ${subject.subjectNumber}`}
                                   />
                                 ) : null}
                                 {subject.medium ? (
@@ -1391,20 +1348,20 @@ export default function TeacherDashboard() {
                                     size="small"
                                     color="primary"
                                     variant="outlined"
-                                    label={academicDisplay(`${subject.medium} Medium`)}
+                                    label={`${subject.medium} Medium`}
                                   />
                                 ) : null}
                               </Stack>
                               <Typography variant="body2" color="text.secondary">
-                                {academicDisplay(progressPending
-                                  ? progressLabel
-                                  : `${subject.done}/${subject.total} students`)}
+                                {subject.progressLoading
+                                  ? "Progress syncing"
+                                  : `${subject.done}/${subject.total} students`}
                               </Typography>
                             </Box>
 
                             <StatusChip
                               status={subject.completed ? "completed" : "pending"}
-                              label={academicDisplay(subject.completed ? "Completed" : "Pending")}
+                              label={subject.completed ? "Completed" : "Pending"}
                             />
                           </Stack>
 
@@ -1416,11 +1373,11 @@ export default function TeacherDashboard() {
                             useFlexGap
                           >
                             <Typography variant="body2" color="text.secondary">
-                              {academicDisplay(progressPending ? progressLabel : `${subject.progress}%`)}
+                              {subject.progressLoading ? "Syncing" : `${subject.progress}%`}
                             </Typography>
 
                             <Typography variant="body2" color="text.secondary">
-                              {academicDisplay(subject.teacherName)}
+                              {subject.teacherName}
                             </Typography>
                           </Stack>
 
@@ -1437,7 +1394,7 @@ export default function TeacherDashboard() {
                               }}
                             >
                               <PhoneRoundedIcon sx={{ fontSize: 18 }} />
-                              {academicDisplay(subject.teacherPhone)}
+                              {subject.teacherPhone}
                             </Link>
                           ) : null}
 
@@ -1491,15 +1448,15 @@ export default function TeacherDashboard() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip
                   icon={<AutoStoriesRoundedIcon />}
-                  label={academicDisplay(`${subjectRows.length} Subjects`)}
+                  label={`${subjectRows.length} Subjects`}
                   variant="outlined"
                 />
                 <Chip
                   icon={<TimelineRoundedIcon />}
                   label={
-                    academicDisplay(progressPending
-                      ? progressLabel
-                      : `${subjectProgressSummary.pending} Pending`)
+                    progressLoading
+                      ? "Stats syncing"
+                      : `${subjectProgressSummary.pending} Pending`
                   }
                   color="warning"
                   variant="outlined"
@@ -1515,47 +1472,47 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 12, md: 6 }} key={`${row.fullClassName}_${row.subjectId}_${row.subjectName}_${row.medium}_${i}`}>
                     <MobileListRow
                       compact={isMobile}
-                      title={academicDisplay(`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`)}
+                      title={`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`}
                       right={
                         <StatusChip
                           status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
-                          label={academicDisplay(row.pending > 0 || row.total === 0 ? "Pending" : "Completed")}
+                          label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
                         />
                       }
                       meta={
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                           {row.stream ? (
-                            <Chip size="small" variant="outlined" label={academicDisplay(row.stream)} />
+                            <Chip size="small" variant="outlined" label={row.stream} />
                           ) : null}
                           {row.subjectNumber ? (
-                            <Chip size="small" variant="outlined" label={academicDisplay(`No. ${row.subjectNumber}`)} />
+                            <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
                           ) : null}
                           {row.medium ? (
-                            <Chip size="small" color="primary" variant="outlined" label={academicDisplay(`${row.medium} Medium`)} />
+                            <Chip size="small" color="primary" variant="outlined" label={`${row.medium} Medium`} />
                           ) : null}
                         </Stack>
                       }
                       footer={
                         <Stack spacing={1}>
                           <Typography variant="body2" color="text.secondary">
-                            {progressPending
-                              ? progressLabel
+                            {row.progressLoading
+                              ? "Progress syncing"
                               : `${row.done}/${row.total} students completed`}
                           </Typography>
 
                           <LinearProgress
-                            variant={progressLoading ? "indeterminate" : "determinate"}
-                            value={progressLoading ? undefined : row.progress}
+                            variant={row.progressLoading ? "indeterminate" : "determinate"}
+                            value={row.progressLoading ? undefined : row.progress}
                             sx={{ height: 6, borderRadius: 5 }}
                           />
 
                           <Stack direction="row" justifyContent="space-between">
                             <Typography variant="body2">
-                              {progressPending ? progressLabel : `${row.progress}%`}
+                              {row.progressLoading ? "Syncing" : `${row.progress}%`}
                             </Typography>
 
                             <Typography variant="body2">
-                              {progressPending ? "" : `${row.done}/${row.total}`}
+                              {row.progressLoading ? "" : `${row.done}/${row.total}`}
                             </Typography>
                           </Stack>
 
@@ -1567,6 +1524,15 @@ export default function TeacherDashboard() {
                             fullWidth={isMobile}
                           >
                             Enter Marks
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            size={isMobile ? "medium" : "small"}
+                            startIcon={<EditNoteRoundedIcon />}
+                            onClick={() => openMarks(row, true)}
+                            fullWidth={isMobile}
+                          >
+                            Enter SBA Marks
                           </Button>
                         </Stack>
                       }

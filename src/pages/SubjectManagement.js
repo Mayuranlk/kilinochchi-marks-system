@@ -1,4 +1,3 @@
-import { academicDisplay, academicSearch } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -538,11 +537,11 @@ function SubjectStatsCard({ title, value, icon }) {
         <Stack direction="row" spacing={1.5} alignItems="center" mb={1}>
           {icon}
           <Typography variant="body2" color="text.secondary">
-            {academicDisplay(title)}
+            {title}
           </Typography>
         </Stack>
         <Typography variant="h5" fontWeight={700}>
-          {academicDisplay(value)}
+          {value}
         </Typography>
       </CardContent>
     </Card>
@@ -619,16 +618,16 @@ export default function SubjectManagement() {
 
       const passesSearch =
         !normalizeText(search) ||
-        academicSearch(name.toLowerCase(), search.toLowerCase()) ||
-        academicSearch(code.toLowerCase(), search.toLowerCase()) ||
-        academicSearch(subjectNumber.toLowerCase(), search.toLowerCase()) ||
-        academicSearch(normalizedCategory.toLowerCase(), search.toLowerCase()) ||
-        academicSearch(categoryLabel.toLowerCase(), search.toLowerCase()) ||
-        academicSearch(normalizeText(subject.religion).toLowerCase(), search.toLowerCase()) ||
-        academicSearch(normalizeText(subject.stream).toLowerCase(), search.toLowerCase()) ||
-        academicSearch(normalizeText(subject.basketGroup).toLowerCase(), search.toLowerCase()) ||
+        name.toLowerCase().includes(search.toLowerCase()) ||
+        code.toLowerCase().includes(search.toLowerCase()) ||
+        subjectNumber.toLowerCase().includes(search.toLowerCase()) ||
+        normalizedCategory.toLowerCase().includes(search.toLowerCase()) ||
+        categoryLabel.toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.religion).toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.stream).toLowerCase().includes(search.toLowerCase()) ||
+        normalizeText(subject.basketGroup).toLowerCase().includes(search.toLowerCase()) ||
         (Array.isArray(subject.streams) &&
-          academicSearch(subject.streams.join(", ").toLowerCase(), search.toLowerCase()));
+          subject.streams.join(", ").toLowerCase().includes(search.toLowerCase()));
 
       const passesCategory =
         categoryFilter === "all" || normalizedCategory === categoryFilter;
@@ -899,8 +898,8 @@ export default function SubjectManagement() {
         </Alert>
       )}
 
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{academicDisplay(success)}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{academicDisplay(error)}</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={2} mb={3}>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -956,7 +955,7 @@ export default function SubjectManagement() {
                 <MenuItem value="all">All</MenuItem>
                 {CATEGORY_OPTIONS.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
-                    {academicDisplay(option.label)}
+                    {option.label}
                   </MenuItem>
                 ))}
               </Select>
@@ -989,7 +988,7 @@ export default function SubjectManagement() {
                 <MenuItem value="all">All</MenuItem>
                 {GRADE_OPTIONS.map((grade) => (
                   <MenuItem key={grade} value={grade}>
-                    Grade {academicDisplay(grade)}
+                    Grade {grade}
                   </MenuItem>
                 ))}
               </Select>
@@ -1027,30 +1026,30 @@ export default function SubjectManagement() {
                 <MobileListRow
                   key={subject.id}
                   compact
-                  title={academicDisplay(getSubjectName(subject))}
-                  subtitle={academicDisplay([
+                  title={getSubjectName(subject)}
+                  subtitle={[
                     getSubjectNumber(subject) ? `No. ${getSubjectNumber(subject)}` : null,
                     getSubjectCode(subject) ? `Code: ${getSubjectCode(subject)}` : null,
                   ]
                     .filter(Boolean)
-                    .join(" - "))}
+                    .join(" - ")}
                   right={
                     <Chip
                       size="small"
-                      label={academicDisplay(normalizeText(subject.status || "active").toUpperCase())}
+                      label={normalizeText(subject.status || "active").toUpperCase()}
                       color={getStatusColor(subject.status || "active")}
                     />
                   }
                   meta={
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                       <Chip
-                        label={academicDisplay(getCategoryLabel(subject.category, subject.basketGroup))}
+                        label={getCategoryLabel(subject.category, subject.basketGroup)}
                         size="small"
                         color="primary"
                         variant="outlined"
                       />
-                      <Chip size="small" variant="outlined" label={academicDisplay(buildGradeSummary(subject))} />
-                      <Chip size="small" variant="outlined" label={academicDisplay(scopeValue)} />
+                      <Chip size="small" variant="outlined" label={buildGradeSummary(subject)} />
+                      <Chip size="small" variant="outlined" label={scopeValue} />
                     </Stack>
                   }
                   actions={
@@ -1076,9 +1075,9 @@ export default function SubjectManagement() {
                         disabled={!isAdmin}
                         fullWidth
                       >
-                        {academicDisplay(normalizeLower(subject.status || "active") === "active"
+                        {normalizeLower(subject.status || "active") === "active"
                           ? "Deactivate"
-                          : "Activate")}
+                          : "Activate"}
                       </Button>
                     </Stack>
                   }
@@ -1116,31 +1115,31 @@ export default function SubjectManagement() {
 
               return (
                 <TableRow key={subject.id} hover>
-                  <TableCell>{academicDisplay(getSubjectNumber(subject) || "-")}</TableCell>
-                  <TableCell>{academicDisplay(getSubjectCode(subject) || "-")}</TableCell>
+                  <TableCell>{getSubjectNumber(subject) || "-"}</TableCell>
+                  <TableCell>{getSubjectCode(subject) || "-"}</TableCell>
                   <TableCell>
                     <Stack spacing={0.4}>
                       <Typography variant="body2" fontWeight={600}>
-                        {academicDisplay(getSubjectName(subject))}
+                        {getSubjectName(subject)}
                       </Typography>
                       {normalizeText(subject.shortName) && (
                         <Typography variant="caption" color="text.secondary">
-                          {academicDisplay(subject.shortName)}
+                          {subject.shortName}
                         </Typography>
                       )}
                     </Stack>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={academicDisplay(getCategoryLabel(subject.category, subject.basketGroup))}
+                      label={getCategoryLabel(subject.category, subject.basketGroup)}
                       size="small"
                       color="primary"
                       variant="outlined"
                     />
                   </TableCell>
-                  <TableCell>{academicDisplay(buildGradeSummary(subject))}</TableCell>
+                  <TableCell>{buildGradeSummary(subject)}</TableCell>
                   <TableCell>
-                    {academicDisplay(categoryForForm === "religion"
+                    {categoryForForm === "religion"
                       ? normalizeText(subject.religion || subject.religionGroup) || "-"
                       : categoryForForm === "al_main"
                       ? normalizeText(subject.stream) ||
@@ -1151,12 +1150,12 @@ export default function SubjectManagement() {
                       ? normalizeText(
                           canonicalBasketGroup(subject.category, subject.basketGroup)
                         ) || "-"
-                      : "-")}
+                      : "-"}
                   </TableCell>
                   <TableCell>
                     <Chip
                       size="small"
-                      label={academicDisplay(normalizeText(subject.status || "active").toUpperCase())}
+                      label={normalizeText(subject.status || "active").toUpperCase()}
                       color={getStatusColor(subject.status || "active")}
                     />
                   </TableCell>
@@ -1176,9 +1175,9 @@ export default function SubjectManagement() {
 
                       <Tooltip
                         title={
-                          academicDisplay(normalizeLower(subject.status || "active") === "active"
+                          normalizeLower(subject.status || "active") === "active"
                             ? "Set Inactive"
-                            : "Set Active")
+                            : "Set Active"
                         }
                       >
                         <span>
@@ -1193,9 +1192,9 @@ export default function SubjectManagement() {
                             onClick={() => toggleStatus(subject)}
                             disabled={!isAdmin}
                           >
-                            {academicDisplay(normalizeLower(subject.status || "active") === "active"
+                            {normalizeLower(subject.status || "active") === "active"
                               ? "Deactivate"
-                              : "Activate")}
+                              : "Activate"}
                           </Button>
                         </span>
                       </Tooltip>
@@ -1219,7 +1218,7 @@ export default function SubjectManagement() {
       )}
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
-        <DialogTitle>{academicDisplay(dialogTitle)}</DialogTitle>
+        <DialogTitle>{dialogTitle}</DialogTitle>
 
         <DialogContent dividers>
           <Stack spacing={3}>
@@ -1231,7 +1230,7 @@ export default function SubjectManagement() {
                   value={form.code}
                   onChange={(e) => updateForm("code", e.target.value)}
                   error={!!formErrors.code}
-                  helperText={academicDisplay(formErrors.code)}
+                  helperText={formErrors.code}
                 />
               </Grid>
 
@@ -1242,7 +1241,7 @@ export default function SubjectManagement() {
                   value={form.subjectNumber}
                   onChange={(e) => updateForm("subjectNumber", e.target.value)}
                   error={!!formErrors.subjectNumber}
-                  helperText={academicDisplay(formErrors.subjectNumber || "Needed especially for A/L")}
+                  helperText={formErrors.subjectNumber || "Needed especially for A/L"}
                   placeholder="e.g. 01, 02, 10, 20, 65"
                 />
               </Grid>
@@ -1251,10 +1250,10 @@ export default function SubjectManagement() {
                 <TextField
                   fullWidth
                   label="Subject Name"
-                  value={academicDisplay(form.name)}
+                  value={form.name}
                   onChange={(e) => updateForm("name", e.target.value)}
                   error={!!formErrors.name}
-                  helperText={academicDisplay(formErrors.name)}
+                  helperText={formErrors.name}
                 />
               </Grid>
 
@@ -1273,7 +1272,7 @@ export default function SubjectManagement() {
                 <TextField
                   fullWidth
                   label="Short Name"
-                  value={academicDisplay(form.shortName)}
+                  value={form.shortName}
                   onChange={(e) => updateForm("shortName", e.target.value)}
                 />
               </Grid>
@@ -1288,14 +1287,14 @@ export default function SubjectManagement() {
                   >
                     {CATEGORY_OPTIONS.map((option) => (
                       <MenuItem key={option.value} value={option.value}>
-                        {academicDisplay(option.label)}
+                        {option.label}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
                 {formErrors.category && (
                   <Typography variant="caption" color="error">
-                    {academicDisplay(formErrors.category)}
+                    {formErrors.category}
                   </Typography>
                 )}
               </Grid>
@@ -1349,14 +1348,14 @@ export default function SubjectManagement() {
                       >
                         {GRADE_OPTIONS.map((grade) => (
                           <MenuItem key={grade} value={grade}>
-                            Grade {academicDisplay(grade)}
+                            Grade {grade}
                           </MenuItem>
                         ))}
                       </Select>
                     </FormControl>
                     {formErrors.grade && (
                       <Typography variant="caption" color="error">
-                        {academicDisplay(formErrors.grade)}
+                        {formErrors.grade}
                       </Typography>
                     )}
                   </Grid>
@@ -1374,14 +1373,14 @@ export default function SubjectManagement() {
                         >
                           {GRADE_OPTIONS.map((grade) => (
                             <MenuItem key={grade} value={grade}>
-                              Grade {academicDisplay(grade)}
+                              Grade {grade}
                             </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                       {formErrors.minGrade && (
                         <Typography variant="caption" color="error">
-                          {academicDisplay(formErrors.minGrade)}
+                          {formErrors.minGrade}
                         </Typography>
                       )}
                     </Grid>
@@ -1396,14 +1395,14 @@ export default function SubjectManagement() {
                         >
                           {GRADE_OPTIONS.map((grade) => (
                             <MenuItem key={grade} value={grade}>
-                              Grade {academicDisplay(grade)}
+                              Grade {grade}
                             </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                       {formErrors.maxGrade && (
                         <Typography variant="caption" color="error">
-                          {academicDisplay(formErrors.maxGrade)}
+                          {formErrors.maxGrade}
                         </Typography>
                       )}
                     </Grid>
@@ -1419,20 +1418,20 @@ export default function SubjectManagement() {
                         value={form.grades}
                         label="Grades"
                         onChange={(e) => updateForm("grades", e.target.value)}
-                        renderValue={(...args) => academicDisplay(((selected) =>
-                          selected.map((g) => `Grade ${g}`).join(", "))(...args))
+                        renderValue={(selected) =>
+                          selected.map((g) => `Grade ${g}`).join(", ")
                         }
                       >
                         {GRADE_OPTIONS.map((grade) => (
                           <MenuItem key={grade} value={grade}>
-                            Grade {academicDisplay(grade)}
+                            Grade {grade}
                           </MenuItem>
                         ))}
                       </Select>
                     </FormControl>
                     {formErrors.grades && (
                       <Typography variant="caption" color="error">
-                        {academicDisplay(formErrors.grades)}
+                        {formErrors.grades}
                       </Typography>
                     )}
                   </Grid>
@@ -1459,14 +1458,14 @@ export default function SubjectManagement() {
                         >
                           {RELIGION_OPTIONS.map((item) => (
                             <MenuItem key={item} value={item}>
-                              {academicDisplay(item)}
+                              {item}
                             </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                       {formErrors.religion && (
                         <Typography variant="caption" color="error">
-                          {academicDisplay(formErrors.religion)}
+                          {formErrors.religion}
                         </Typography>
                       )}
                     </Grid>
@@ -1475,7 +1474,7 @@ export default function SubjectManagement() {
                       <TextField
                         fullWidth
                         label="Religion Group"
-                        value={academicDisplay(form.religionGroup)}
+                        value={form.religionGroup}
                         onChange={(e) => updateForm("religionGroup", e.target.value)}
                         placeholder="Optional alternate matching value"
                       />
@@ -1512,7 +1511,7 @@ export default function SubjectManagement() {
                       </FormControl>
                       {formErrors.basketGroup && (
                         <Typography variant="caption" color="error">
-                          {academicDisplay(formErrors.basketGroup)}
+                          {formErrors.basketGroup}
                         </Typography>
                       )}
                     </Grid>
@@ -1541,14 +1540,14 @@ export default function SubjectManagement() {
                           <MenuItem value="">None</MenuItem>
                           {STREAM_OPTIONS.map((item) => (
                             <MenuItem key={item} value={item}>
-                              {academicDisplay(item)}
+                              {item}
                             </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                       {formErrors.stream && (
                         <Typography variant="caption" color="error">
-                          {academicDisplay(formErrors.stream)}
+                          {formErrors.stream}
                         </Typography>
                       )}
                     </Grid>
@@ -1561,11 +1560,11 @@ export default function SubjectManagement() {
                           value={form.streams}
                           label="Additional Streams"
                           onChange={(e) => updateForm("streams", e.target.value)}
-                          renderValue={(...args) => academicDisplay(((selected) => selected.join(", "))(...args))}
+                          renderValue={(selected) => selected.join(", ")}
                         >
                           {STREAM_OPTIONS.map((item) => (
                             <MenuItem key={item} value={item}>
-                              {academicDisplay(item)}
+                              {item}
                             </MenuItem>
                           ))}
                         </Select>
@@ -1590,7 +1589,7 @@ export default function SubjectManagement() {
                     multiline
                     minRows={3}
                     label="Description"
-                    value={academicDisplay(form.description)}
+                    value={form.description}
                     onChange={(e) => updateForm("description", e.target.value)}
                   />
                 </Grid>

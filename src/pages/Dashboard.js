@@ -1,6 +1,5 @@
-import MaintenanceControls from "../components/MaintenanceControls";
 import React, { useEffect, useMemo, useState } from "react";
-import { collection, doc, getCountFromServer, getDoc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -42,8 +41,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { auth, db } from "../firebase";
-import { getCollectionCount, getScopedRows } from "../services/firestoreReadCache";
-import { getSystemStatsOverview, rebuildSystemStatsOverview } from "../services/systemStatsService";
+import { getCollectionCount, getCollectionRows } from "../services/firestoreReadCache";
 import {
   EmptyState,
   LoadingState,
@@ -236,16 +234,10 @@ export default function Dashboard() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [students, setStudents] = useState([]);
-  const [studentsCount, setStudentsCount] = useState(0);
-  const [activeStudentsCount, setActiveStudentsCount] = useState(0);
-  const [leftStudentsCount, setLeftStudentsCount] = useState(0);
-  const [teachersCount, setTeachersCount] = useState(0);
-  const [classesCount, setClassesCount] = useState(0);
-  const [marksCount, setMarksCount] = useState(null);
+  const [teachers, setTeachers] = useState([]);
+  const [marksCount, setMarksCount] = useState(0);
   const [subjectsCount, setSubjectsCount] = useState(0);
-  const [enrollmentsCount, setEnrollmentsCount] = useState(null);
-  const [statsInitialized, setStatsInitialized] = useState(false);
-  const [rebuildingStats, setRebuildingStats] = useState(false);
+  const [enrollmentsCount, setEnrollmentsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
@@ -259,34 +251,21 @@ export default function Dashboard() {
       setLoadError("");
 
       try {
-        const [loadedStudents, loadedStudentsCount, loadedLeftCount, loadedTeachersCount, loadedClassesCount, loadedSubjectsCount, statsOverview, marksEntrySettingsSnap] =
+        const [loadedStudents, loadedUsers, loadedMarksCount, loadedSubjectsCount, loadedEnrollmentsCount, marksEntrySettingsSnap] =
           await Promise.all([
-            getScopedRows(
-              "students",
-              ["admin-dashboard-sample", 6],
-              () => getDocs(query(collection(db, "students"), limit(6)))
-            ),
-            getCollectionCount(db, "students"),
-            getCountFromServer(query(collection(db, "students"), where("status", "in", ["left", "Left", "LEFT"])))
-              .then((snapshot) => snapshot.data().count),
-            getCountFromServer(query(collection(db, "users"), where("role", "in", ["teacher", "Teacher", "TEACHER"])))
-              .then((snapshot) => snapshot.data().count),
-            getCollectionCount(db, "classrooms").catch(() => "Unavailable"),
-            getCollectionCount(db, "subjects").catch(() => "Unavailable"),
-            getSystemStatsOverview().catch(() => ({ initialized: false, marksCount: null, studentSubjectEnrollmentsCount: null })),
+            getCollectionRows(db, "students"),
+            getCollectionRows(db, "users"),
+            getCollectionCount(db, "marks"),
+            getCollectionCount(db, "subjects"),
+            getCollectionCount(db, "studentSubjectEnrollments"),
             getDoc(doc(db, "systemSettings", "marksEntry")),
           ]);
 
         setStudents(sortStudents(loadedStudents));
-        setStudentsCount(loadedStudentsCount);
-        setLeftStudentsCount(loadedLeftCount);
-        setActiveStudentsCount(Math.max(0, loadedStudentsCount - loadedLeftCount));
-        setTeachersCount(loadedTeachersCount);
-        setClassesCount(loadedClassesCount);
-        setMarksCount(statsOverview.marksCount);
+        setTeachers(loadedUsers.filter((user) => normalizeLower(user.role) === "teacher"));
+        setMarksCount(loadedMarksCount);
         setSubjectsCount(loadedSubjectsCount);
-        setEnrollmentsCount(statsOverview.studentSubjectEnrollmentsCount);
-        setStatsInitialized(statsOverview.initialized === true);
+        setEnrollmentsCount(loadedEnrollmentsCount);
         setMarksEntrySettings(
           marksEntrySettingsSnap.exists()
             ? normalizeMarksEntrySettings(marksEntrySettingsSnap.data())
@@ -333,36 +312,37 @@ export default function Dashboard() {
     }
   }
 
-  async function rebuildDashboardStats() {
-    setRebuildingStats(true);
-    setLoadError("");
-    try {
-      const overview = await rebuildSystemStatsOverview();
-      setMarksCount(overview.marksCount);
-      setEnrollmentsCount(overview.studentSubjectEnrollmentsCount);
-      setStatsInitialized(true);
-    } catch (error) {
-      console.error("System stats rebuild error:", error);
-      setLoadError(error.message || "Failed to initialize dashboard statistics.");
-    } finally {
-      setRebuildingStats(false);
-    }
-  }
+  const activeStudents = useMemo(
+    () => students.filter((student) => isActiveStudent(student)),
+    [students]
+  );
+
+  const leftStudents = useMemo(
+    () => students.filter((student) => normalizeLower(getStudentStatus(student)) === "left"),
+    [students]
+  );
+
+  const activeClassesCount = useMemo(() => {
+    return new Set(
+      activeStudents.map((student) => `${parseGrade(student.grade)}-${getStudentSection(student)}`)
+    ).size;
+  }, [activeStudents]);
+
   const recentStudents = useMemo(() => students.slice(0, isMobile ? 4 : 6), [isMobile, students]);
-  const activePercent = studentsCount ? Math.round((activeStudentsCount / studentsCount) * 100) : 0;
+  const activePercent = students.length ? Math.round((activeStudents.length / students.length) * 100) : 0;
 
   const metricCards = [
     {
       title: "Students",
-      value: studentsCount,
-      helperText: `${activeStudentsCount} active`,
+      value: students.length,
+      helperText: `${activeStudents.length} active`,
       icon: <PeopleRoundedIcon fontSize="small" />,
       color: "primary",
       onClick: () => navigate("/students"),
     },
     {
       title: "Teachers",
-      value: teachersCount,
+      value: teachers.length,
       helperText: "User accounts",
       icon: <PersonRoundedIcon fontSize="small" />,
       color: "secondary",
@@ -370,7 +350,7 @@ export default function Dashboard() {
     },
     {
       title: "Marks",
-      value: marksCount ?? "—",
+      value: marksCount,
       helperText: "Saved records",
       icon: <GradingRoundedIcon fontSize="small" />,
       color: "warning",
@@ -378,8 +358,8 @@ export default function Dashboard() {
     },
     {
       title: "Classes",
-      value: classesCount,
-      helperText: "Configured sections",
+      value: activeClassesCount,
+      helperText: "Active sections",
       icon: <AssessmentRoundedIcon fontSize="small" />,
       color: "success",
       onClick: () => navigate("/students"),
@@ -471,7 +451,7 @@ export default function Dashboard() {
                 <Box>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Student coverage</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {activeStudentsCount} of {studentsCount} students active
+                    {activeStudents.length} of {students.length} students active
                   </Typography>
                 </Box>
               </Stack>
@@ -491,16 +471,14 @@ export default function Dashboard() {
               </Box>
 
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ minWidth: { lg: 360 }, justifyContent: { lg: "flex-end" } }}>
-                <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudentsCount} active`} color="success" />
-                <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudentsCount} left`} color="warning" />
+                <Chip icon={<CheckCircleRoundedIcon />} label={`${activeStudents.length} active`} color="success" />
+                <Chip icon={<WarningAmberRoundedIcon />} label={`${leftStudents.length} left`} color="warning" />
                 <Chip label={`${subjectsCount} subjects`} variant="outlined" color="primary" />
-                <Chip label={`${enrollmentsCount ?? "—"} enrollments`} variant="outlined" color="secondary" />
+                <Chip label={`${enrollmentsCount} enrollments`} variant="outlined" color="secondary" />
               </Stack>
             </Stack>
           </CardContent>
         </Card>
-
-        <MaintenanceControls />
 
         <Card
           sx={{
@@ -564,15 +542,6 @@ export default function Dashboard() {
                   sx={{ m: 0 }}
                 />
 
-                <FormControlLabel
-                  control={<Switch checked={marksEntrySettings.requireSbaCompletion === true}
-                    onChange={(event) => setMarksEntrySettings((current) => ({ ...current, requireSbaCompletion: event.target.checked }))} />}
-                  label="Require completed SBA before term marks"
-                />
-                <Typography variant="body2" color="text.secondary">
-                  Teachers must save SBA marks (or Absent) for every enrolled student in the selected term, class and subject. Practice exams and admin entry are exempt.
-                </Typography>
-
                 <TextField
                   type="date"
                   size="small"
@@ -625,10 +594,10 @@ export default function Dashboard() {
         <Grid container spacing={1.25} alignItems="stretch">
           <Grid size={{ xs: 12, lg: 7 }}>
             <SectionCard
-              title="Student Sample"
-              subtitle="A small bounded sample of student records."
+              title="Recent Students"
+              subtitle="Latest student records currently in the system."
               action={
-                studentsCount > 0 ? (
+                students.length > 0 ? (
                   <Button variant="outlined" onClick={() => navigate("/students")}>
                     View All
                   </Button>
@@ -751,21 +720,12 @@ export default function Dashboard() {
               sx={{ height: "100%" }}
             >
               <Stack spacing={1.25}>
-                <SnapshotRow label="Active students" value={activeStudentsCount} />
-                <SnapshotRow label="Left students" value={leftStudentsCount} />
-                <SnapshotRow label="Teachers" value={teachersCount} />
+                <SnapshotRow label="Active students" value={activeStudents.length} />
+                <SnapshotRow label="Left students" value={leftStudents.length} />
+                <SnapshotRow label="Teachers" value={teachers.length} />
                 <SnapshotRow label="Subject definitions" value={subjectsCount} />
-                <SnapshotRow label="Subject enrollments" value={enrollmentsCount ?? "—"} />
-                <SnapshotRow label="Marks documents" value={marksCount ?? "—"} />
-                {!statsInitialized ? (
-                  <Alert severity="info" action={<Button size="small" onClick={rebuildDashboardStats} disabled={rebuildingStats}>{rebuildingStats ? "Initializing..." : "Initialize"}</Button>}>
-                    Initialize the one-document summary once. This explicit action replaces automatic full collection counts.
-                  </Alert>
-                ) : (
-                  <Button size="small" variant="text" onClick={rebuildDashboardStats} disabled={rebuildingStats}>
-                    {rebuildingStats ? "Refreshing summary..." : "Repair summary counts"}
-                  </Button>
-                )}
+                <SnapshotRow label="Subject enrollments" value={enrollmentsCount} />
+                <SnapshotRow label="Marks documents" value={marksCount} />
               </Stack>
 
               <Divider sx={{ my: 2 }} />

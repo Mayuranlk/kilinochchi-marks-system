@@ -1,4 +1,3 @@
-import { academicWorksheet, academicDisplay, academicExport, academicSearch, storedReligion } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -6,6 +5,7 @@ import {
   addDoc,
   updateDoc,
   doc,
+  getDocs,
   writeBatch,
   serverTimestamp,
 } from "firebase/firestore";
@@ -14,7 +14,6 @@ import {
   getCollectionRows,
   invalidateCollectionRows,
 } from "../services/firestoreReadCache";
-import { loadRowsWhereIn } from "../services/firestoreScopedReads";
 import {
   Alert,
   Avatar,
@@ -94,15 +93,18 @@ import {
 import { regenerateSingleStudent } from "../services/enrollmentGenerator";
 import { normalizeStudentName } from "../utils/studentNameUtils";
 import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
-import {
-  AL_TERM_SYSTEM,
-  buildALBatchClassName,
-  getClassBatchYear,
-} from "../utils/alAcademicCycle";
+import { schoolDate } from "../utils/studentTermEligibility";
 
 const STUDENT_STATUSES = ["Active", "Left", "Graduated", "Suspended"];
 const GENDERS = ["Male", "Female", "Other"];
 const currentAcademicYear = () => String(new Date().getFullYear());
+const spreadsheetDate = (value) => {
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    return parsed ? `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}` : "";
+  }
+  return normalizeText(value);
+};
 
 const emptyForm = {
   name: "",
@@ -114,6 +116,8 @@ const emptyForm = {
   dob: "",
   status: "Active",
   joinDate: "",
+  leftDate: "",
+  leavingReason: "",
   religion: "",
   aestheticChoice: "",
   basketAChoice: "",
@@ -122,12 +126,6 @@ const emptyForm = {
   stream: "",
   streamCode: "",
   alClassName: "",
-  fullClassName: "",
-  classroomId: "",
-  batchYear: 0,
-  intakeYear: 0,
-  academicScopeKey: "",
-  termSystem: "",
   alSubjectChoiceNumbers: [],
   alSubjectChoices: [],
   medium: "",
@@ -380,11 +378,11 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
               fontWeight: 800,
             }}
           >
-            {academicDisplay(initials(getStudentName(s)))}
+            {initials(getStudentName(s))}
           </Avatar>
           <Box>
             <Typography variant="body2" fontWeight={700}>
-              {academicDisplay(getStudentName(s))}
+              {getStudentName(s)}
             </Typography>
             {s.gender && (
               <Typography variant="caption" color="text.secondary">
@@ -404,7 +402,7 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Chip
-          label={academicDisplay(`G${s.grade}-${s.section || s.className}`)}
+          label={`G${s.grade}-${s.section || s.className}`}
           size="small"
           color="primary"
           sx={{ fontWeight: 700, fontSize: 12 }}
@@ -412,7 +410,7 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Chip
-          label={academicDisplay(s.status || "Unknown")}
+          label={s.status || "Unknown"}
           size="small"
           color={statusColor(s.status)}
           sx={{ fontWeight: 600 }}
@@ -420,32 +418,32 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
       </TableCell>
       <TableCell>
         <Typography variant="caption" color="text.secondary" display="block">
-          {academicDisplay(s.religion || "-")}
+          {s.religion || "-"}
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block">
           {s.stream || "-"}
         </Typography>
         <Typography variant="caption" color="text.secondary" display="block">
-          {academicDisplay(s.alClassName || "-")}
+          {s.alClassName || "-"}
         </Typography>
       </TableCell>
       <TableCell>
         <Box display="flex" gap={0.5} flexWrap="wrap">
           {(s.aestheticChoice || s.aesthetic) && (
-            <Chip size="small" label={academicDisplay(`Aesthetic: ${s.aestheticChoice || s.aesthetic}`)} />
+            <Chip size="small" label={`Aesthetic: ${s.aestheticChoice || s.aesthetic}`} />
           )}
           {(s.basketAChoice || s.basket1) && (
-            <Chip size="small" label={academicDisplay(`A: ${s.basketAChoice || s.basket1}`)} color="warning" />
+            <Chip size="small" label={`A: ${s.basketAChoice || s.basket1}`} color="warning" />
           )}
           {(s.basketBChoice || s.basket2) && (
-            <Chip size="small" label={academicDisplay(`B: ${s.basketBChoice || s.basket2}`)} color="warning" />
+            <Chip size="small" label={`B: ${s.basketBChoice || s.basket2}`} color="warning" />
           )}
           {(s.basketCChoice || s.basket3) && (
-            <Chip size="small" label={academicDisplay(`C: ${s.basketCChoice || s.basket3}`)} color="warning" />
+            <Chip size="small" label={`C: ${s.basketCChoice || s.basket3}`} color="warning" />
           )}
           {Array.isArray(s.alSubjectChoices) &&
             s.alSubjectChoices.map((item, itemIdx) => (
-              <Chip key={`${s.id}-al-${itemIdx}`} size="small" label={academicDisplay(item)} color="success" />
+              <Chip key={`${s.id}-al-${itemIdx}`} size="small" label={item} color="success" />
             ))}
         </Box>
       </TableCell>
@@ -475,34 +473,22 @@ const StudentTableRow = React.memo(function StudentTableRow({ student: s, index,
 const getStudentName = (student) =>
   normalizeStudentName(student.name || student.fullName || "");
 
-const buildALMetadata = (grade, stream, section, batchYear = 0) => {
+const buildALMetadata = (grade, stream, section) => {
   if (!isALGrade(grade)) {
     return {
       stream: "",
       streamCode: "",
       alClassName: "",
-      fullClassName: "",
-      batchYear: 0,
-      intakeYear: 0,
-      academicScopeKey: "",
-      termSystem: "",
     };
   }
 
   const cleanStream = normalizeText(stream);
   const cleanSection = normalizeSectionValue(section);
-  const resolvedBatchYear = Number(batchYear) || 0;
-  const alClassName = resolvedBatchYear
-    ? buildALBatchClassName(resolvedBatchYear, cleanStream, cleanSection)
-    : buildALClassName(grade, cleanStream, cleanSection);
 
   return {
     stream: cleanStream,
     streamCode: AL_STREAM_CODES[cleanStream] || "",
-    alClassName,
-    fullClassName: alClassName,
-    batchYear: resolvedBatchYear,
-    termSystem: AL_TERM_SYSTEM,
+    alClassName: buildALClassName(grade, cleanStream, cleanSection),
   };
 };
 
@@ -571,14 +557,14 @@ const IDENTITY_FIX_HEADERS = [
 ];
 
 const downloadWorksheet = (rows, sheetName, fileName) => {
-  const ws = academicWorksheet(XLSX.utils.json_to_sheet(academicExport(rows)));
+  const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, academicDisplay(fileName));
+  XLSX.writeFile(wb, fileName);
 };
 
 const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
-  const ws = XLSX.utils.aoa_to_sheet(academicExport(rows));
+  const ws = XLSX.utils.aoa_to_sheet(rows);
 
   if (widths.length > 0) {
     ws["!cols"] = widths.map((wch) => ({ wch }));
@@ -586,7 +572,7 @@ const downloadAoAWorksheet = (rows, sheetName, fileName, widths = []) => {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, academicDisplay(fileName));
+  XLSX.writeFile(wb, fileName);
 };
 
 const buildIdentityFixWorksheetRows = (students = []) => {
@@ -621,6 +607,8 @@ const downloadJuniorTemplate = () => {
       DOB: "2012-01-15",
       Status: "Active",
       "Join Date": "2026-01-01",
+      "Leaving Date": "",
+      "Leaving Reason": "",
       Religion: "Hinduism",
       "Aesthetic Choice": "Art",
       Medium: "Tamil",
@@ -642,6 +630,8 @@ const downloadOLTemplate = () => {
       DOB: "2010-05-12",
       Status: "Active",
       "Join Date": "2026-01-01",
+      "Leaving Date": "",
+      "Leaving Reason": "",
       Religion: "Catholicism",
       "Basket A Choice": "Geography",
       "Basket B Choice": "Art",
@@ -665,6 +655,8 @@ const downloadALTemplate = () => {
       DOB: "2008-07-04",
       Status: "Active",
       "Join Date": "2026-01-01",
+      "Leaving Date": "",
+      "Leaving Reason": "",
       Stream: "Physical Science",
       "Stream Code": "MATHS",
       "A/L Class Name": "12 Physical Science A",
@@ -686,6 +678,8 @@ const downloadALTemplate = () => {
       DOB: "2008-06-10",
       Status: "Active",
       "Join Date": "2026-01-01",
+      "Leaving Date": "",
+      "Leaving Reason": "",
       Stream: "Arts",
       "Stream Code": "ARTS",
       "A/L Class Name": "12 Arts B",
@@ -812,22 +806,6 @@ export default function Students() {
       return normalizeSectionValue(a.section).localeCompare(normalizeSectionValue(b.section));
     });
   }, [classrooms, filterGrade]);
-
-  const alClassOptionsForForm = useMemo(() => {
-    if (!isALGrade(form.grade)) return [];
-    return classrooms
-      .filter((classroom) => {
-        const grade = normalizeGradeValue(classroom.grade);
-        return isALGrade(grade);
-      })
-      .sort((a, b) =>
-        normalizeText(a.fullClassName || a.alClassName).localeCompare(
-          normalizeText(b.fullClassName || b.alClassName),
-          undefined,
-          { numeric: true, sensitivity: "base" }
-        )
-      );
-  }, [classrooms, form.grade]);
 
   const sectionOptionsForForm = useMemo(() => {
     if (!form.grade) return [];
@@ -1102,33 +1080,18 @@ export default function Students() {
     fetchData();
   }, [fetchData]);
 
-  const isValidClassroom = (
-    grade,
-    section,
-    stream = "",
-    classroomId = "",
-    batchYear = 0
-  ) => {
-    if (!grade) return false;
+  const isValidClassroom = (grade, section, stream = "") => {
+    if (!grade || !section) return false;
 
     const g = Number(grade);
     const s = normalizeSectionValue(section);
     const st = normalizeText(stream);
 
-    if (isALGrade(g)) {
-      return classrooms.some((classroom) => {
-        if (classroomId && classroom.id === classroomId) return true;
-        if (!isALGrade(normalizeGradeValue(classroom.grade))) return false;
-        if (st && normalizeText(classroom.stream) !== st) return false;
-        if (batchYear && getClassBatchYear(classroom) !== Number(batchYear)) {
-          return false;
-        }
-        return normalizeSectionValue(classroom.section || "") === s;
-      });
+    if (isALGrade(g) && st) {
+      if (classroomLookup.has(`${g}__${s}__${st}`)) return true;
     }
 
-    if (!s) return false;
-    return classroomLookup.has([g, s].join("__"));
+    return classroomLookup.has(`${g}__${s}`);
   };
 
   const cleanFormByGrade = useCallback((data) => {
@@ -1163,17 +1126,7 @@ export default function Students() {
         .map(normalizeText)
         .filter(Boolean);
 
-      const alMeta = {
-        ...buildALMetadata(
-          grade,
-          cleaned.stream,
-          data.section,
-          data.batchYear
-        ),
-        intakeYear: Number(data.intakeYear || 0) || 0,
-        academicScopeKey: normalizeText(data.academicScopeKey),
-        classroomId: normalizeText(data.classroomId),
-      };
+      const alMeta = buildALMetadata(grade, cleaned.stream, data.section);
 
       return {
         ...cleaned,
@@ -1189,12 +1142,6 @@ export default function Students() {
       stream: "",
       streamCode: "",
       alClassName: "",
-      fullClassName: "",
-      classroomId: "",
-      batchYear: 0,
-      intakeYear: 0,
-      academicScopeKey: "",
-      termSystem: "",
       alSubjectChoiceNumbers: [],
       alSubjectChoices: [],
     };
@@ -1204,12 +1151,7 @@ export default function Students() {
     const cleaned = cleanFormByGrade(form);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
-    const alMeta = buildALMetadata(
-      grade,
-      cleaned.stream,
-      section,
-      cleaned.batchYear
-    );
+    const alMeta = buildALMetadata(grade, cleaned.stream, section);
     const identity = normalizeStudentIdentityFields({
       admissionNo: cleaned.admissionNo,
       emisStudentId: cleaned.emisStudentId,
@@ -1227,6 +1169,8 @@ export default function Students() {
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
+      leftDate: normalizeText(cleaned.leftDate),
+      leavingReason: normalizeText(cleaned.leavingReason),
       religion: normalizeText(cleaned.religion),
       aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
@@ -1239,12 +1183,6 @@ export default function Students() {
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
-      fullClassName: alMeta.fullClassName,
-      classroomId: normalizeText(cleaned.classroomId),
-      batchYear: Number(cleaned.batchYear || 0) || 0,
-      intakeYear: Number(cleaned.intakeYear || 0) || 0,
-      academicScopeKey: normalizeText(cleaned.academicScopeKey),
-      termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : "",
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
@@ -1256,12 +1194,7 @@ export default function Students() {
     };
     return {
       ...payload,
-      ...buildCanonicalStudentFields({
-        ...payload,
-        academicYear: isALGrade(grade) && payload.batchYear
-          ? String(payload.batchYear)
-          : currentAcademicYear(),
-      }),
+      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
     };
   };
 
@@ -1346,8 +1279,13 @@ export default function Students() {
   const validateForm = () => {
     if (!normalizeText(form.name)) return "Student name is required.";
     if (!normalizeText(form.admissionNo)) return "Admission number is required.";
+    if (!editId && !form.joinDate) return "Admission date is required for a new student.";
+    if (form.joinDate && !schoolDate(form.joinDate)) return "Enter a valid admission date.";
+    if (form.leftDate && !schoolDate(form.leftDate)) return "Enter a valid leaving date.";
     if (!form.grade) return "Grade is required.";
-    if (!form.section && !isALGrade(form.grade)) return "Section is required.";
+    if (!form.section) return "Section is required.";
+    if (form.status === "Left" && (!form.leftDate || !normalizeText(form.leavingReason))) return "Enter the leaving date and reason for a student who has left.";
+    if (form.joinDate && form.leftDate && form.leftDate < form.joinDate) return "The leaving date cannot be before the admission date.";
 
     const grade = Number(form.grade);
 
@@ -1357,13 +1295,7 @@ export default function Students() {
 
     if (shouldShowALFields(grade)) {
       if (!normalizeText(form.stream)) return "Stream is required for Grades 12 to 13.";
-      if (!isValidClassroom(
-        form.grade,
-        form.section,
-        form.stream,
-        form.classroomId,
-        form.batchYear
-      )) {
+      if (!isValidClassroom(form.grade, form.section, form.stream)) {
         return "Selected A/L grade, section, and stream do not match an existing classroom.";
       }
     } else {
@@ -1437,12 +1369,12 @@ export default function Students() {
 
       const matchSearch =
         !q ||
-        academicSearch(studentName, q) ||
-        academicSearch(normalizeText(s.admissionNo).toLowerCase(), q) ||
-        academicSearch(getEmisStudentId(s).toLowerCase(), q) ||
-        academicSearch(normalizeText(s.religion).toLowerCase(), q) ||
-        academicSearch(normalizeText(s.stream).toLowerCase(), q) ||
-        academicSearch(normalizeText(s.alClassName).toLowerCase(), q);
+        studentName.includes(q) ||
+        normalizeText(s.admissionNo).toLowerCase().includes(q) ||
+        getEmisStudentId(s).toLowerCase().includes(q) ||
+        normalizeText(s.religion).toLowerCase().includes(q) ||
+        normalizeText(s.stream).toLowerCase().includes(q) ||
+        normalizeText(s.alClassName).toLowerCase().includes(q);
 
       const matchGrade = !filterGrade || String(s.grade) === String(filterGrade);
       const matchSection = studentMatchesClassFilter(s, filterSection);
@@ -1550,7 +1482,7 @@ export default function Students() {
         savedStudentId = createdRef.id;
       }
 
-      if (savedStudentId) {
+      if (savedStudentId && payload.status !== "Left") {
         enrollmentSyncResult = await regenerateSingleStudent({
           academicYear: currentAcademicYear(),
           studentId: savedStudentId,
@@ -1570,7 +1502,9 @@ export default function Students() {
       const deactivatedCount = enrollmentSyncResult?.deactivated || 0;
       const actionText = editId ? "updated" : "added";
       setSuccess(
-        `Student ${actionText} successfully. Subject enrollments synced: ${syncedCount} active, ${deactivatedCount} old removed.`
+        payload.status === "Left"
+          ? `Student ${actionText} as Left. Historical subject enrollments were preserved.`
+          : `Student ${actionText} successfully. Subject enrollments synced: ${syncedCount} active, ${deactivatedCount} old removed.`
       );
     } catch (err) {
       setError("Save failed: " + err.message);
@@ -1600,7 +1534,9 @@ export default function Students() {
       gender: s.gender || "",
       dob: s.dob || "",
       status: s.status || "Active",
-      joinDate: s.joinDate || "",
+      joinDate: s.joinDate || s.admissionDate || "",
+      leftDate: s.leftDate || s.leavingDate || "",
+      leavingReason: s.leavingReason || s.leftReason || "",
       religion: s.religion || "",
       aestheticChoice: s.aestheticChoice || s.aesthetic || "",
       basketAChoice: s.basketAChoice || s.basket1 || "",
@@ -1609,12 +1545,6 @@ export default function Students() {
       stream: s.stream || "",
       streamCode: s.streamCode || "",
       alClassName: s.alClassName || "",
-      fullClassName: s.fullClassName || s.alClassName || "",
-      classroomId: s.classroomId || "",
-      batchYear: Number(s.batchYear || (isALGrade(s.grade) ? s.academicYear || s.year : 0)) || 0,
-      intakeYear: Number(s.intakeYear || 0) || 0,
-      academicScopeKey: s.academicScopeKey || "",
-      termSystem: s.termSystem || (isALGrade(s.grade) ? AL_TERM_SYSTEM : ""),
       alSubjectChoiceNumbers: choiceNumbers,
       alSubjectChoices: choiceNames,
       medium: s.medium || "",
@@ -1627,27 +1557,10 @@ export default function Students() {
     setOpen(true);
   }, [cleanFormByGrade, deriveALChoiceNamesFromNumbers]);
 
-  const handleInactivate = useCallback(async (student) => {
-    if (!window.confirm(academicDisplay(`Set student "${getStudentName(student)}" as Left?`))) return;
-
-    try {
-      await updateDoc(doc(db, "students", student.id), {
-        status: "Left",
-        updatedAt: new Date().toISOString(),
-      });
-      const result = await regenerateSingleStudent({
-        academicYear: currentAcademicYear(),
-        studentId: student.id,
-      });
-      invalidateCollectionRows("students", "studentSubjectEnrollments");
-      setSuccess(
-        `Student status updated to Left. Active subject enrollments removed: ${result.deactivated || 0}.`
-      );
-      await fetchData();
-    } catch (err) {
-      setError("Status update failed: " + err.message);
-    }
-  }, [fetchData]);
+  const handleInactivate = useCallback((student) => {
+    handleEdit(student);
+    setForm((current) => ({ ...current, status: "Left" }));
+  }, [handleEdit]);
 
   const mapExcelRowToStudent = (row) => {
     const al1Number = normalizeALSubjectNumber(row["AL Subject No 1"] || row["A/L Subject No 1"] || row["AL No 1"]);
@@ -1672,21 +1585,15 @@ export default function Students() {
       gender: normalizeText(row["Gender"] || row.gender),
       dob: normalizeText(row["DOB"] || row.dob),
       status: normalizeText(row["Status"] || row.status) || "Active",
-      joinDate: normalizeText(row["Join Date"] || row.joinDate),
-      religion: storedReligion(normalizeText(row["Religion"] || row.religion)),
+      joinDate: spreadsheetDate(row["Admission Date"] || row["Join Date"] || row.joinDate || row.admissionDate),
+      leftDate: spreadsheetDate(row["Leaving Date"] || row.leftDate || row.leavingDate),
+      leavingReason: normalizeText(row["Leaving Reason"] || row.leavingReason || row.leftReason),
+      religion: normalizeText(row["Religion"] || row.religion),
       aestheticChoice: normalizeText(row["Aesthetic Choice"] || row.aestheticChoice),
       basketAChoice: normalizeText(row["Basket A Choice"] || row.basketAChoice || row["Basket 1"] || row.basket1),
       basketBChoice: normalizeText(row["Basket B Choice"] || row.basketBChoice || row["Basket 2"] || row.basket2),
       basketCChoice: normalizeText(row["Basket C Choice"] || row.basketCChoice || row["Basket 3"] || row.basket3),
       stream: normalizeText(row["Stream"] || row.stream),
-      batchYear: Number(
-        row["A/L Batch Year"] || row["Batch Year"] || row.batchYear || 0
-      ) || 0,
-      intakeYear: Number(row["Intake Year"] || row.intakeYear || 0) || 0,
-      academicScopeKey: normalizeText(
-        row["Academic Scope Key"] || row.academicScopeKey
-      ),
-      classroomId: normalizeText(row["Classroom ID"] || row.classroomId),
       alSubjectChoiceNumbers: [al1Number, al2Number, al3Number].filter(Boolean),
       alSubjectChoices: [al1, al2, al3].filter(Boolean),
       medium: normalizeText(row["Medium"] || row.medium),
@@ -1696,6 +1603,10 @@ export default function Students() {
   };
 
   const validateBulkRow = (student, rowNumber, seenAdmissionNos, seenEmisStudentIds) => {
+    if (!student.joinDate) return `Row ${rowNumber}: Admission date (Join Date) is required.`;
+    if (!schoolDate(student.joinDate) || (student.leftDate && !schoolDate(student.leftDate))) return `Row ${rowNumber}: Dates must use YYYY-MM-DD.`;
+    if (normalizeLower(student.status) === "left" && (!student.leftDate || !student.leavingReason)) return `Row ${rowNumber}: Leaving Date and Leaving Reason are required for a student who has left.`;
+    if (student.leftDate && student.leftDate < student.joinDate) return `Row ${rowNumber}: Leaving date cannot be before admission date.`;
     const grade = Number(student.grade);
     const band = getGradeBandLabel(grade);
 
@@ -1729,9 +1640,7 @@ export default function Students() {
     }
 
     if (!student.grade) return `Row ${rowNumber}: Grade is required.`;
-    if (!student.section && !isALGrade(student.grade)) {
-      return "Row " + rowNumber + ": Section is required.";
-    }
+    if (!student.section) return `Row ${rowNumber}: Section is required.`;
     if (usesSeparateMediumRanking(grade) && !normalizeAcademicMedium(student.medium)) {
       return `Row ${rowNumber} (${band}): Medium must be Tamil or English.`;
     }
@@ -1741,13 +1650,7 @@ export default function Students() {
         return `Row ${rowNumber} (Grades 12-13 A/L): Stream is required. Use values like Physical Science, Arts, Commerce.`;
       }
 
-      if (!isValidClassroom(
-        student.grade,
-        student.section,
-        student.stream,
-        student.classroomId,
-        student.batchYear
-      )) {
+      if (!isValidClassroom(student.grade, student.section, student.stream)) {
         return `Row ${rowNumber} (Grades 12-13 A/L): Classroom does not exist for Grade ${student.grade}, Section ${student.section}, Stream ${student.stream}. Create the classroom first.`;
       }
 
@@ -1823,12 +1726,7 @@ export default function Students() {
     const cleaned = cleanFormByGrade(student);
     const grade = Number(cleaned.grade);
     const section = normalizeSectionValue(cleaned.section);
-    const alMeta = buildALMetadata(
-      grade,
-      cleaned.stream,
-      section,
-      cleaned.batchYear
-    );
+    const alMeta = buildALMetadata(grade, cleaned.stream, section);
     const identity = normalizeStudentIdentityFields({
       admissionNo: cleaned.admissionNo,
       emisStudentId: cleaned.emisStudentId,
@@ -1846,6 +1744,8 @@ export default function Students() {
       dob: normalizeText(cleaned.dob),
       status: normalizeText(cleaned.status) || "Active",
       joinDate: normalizeText(cleaned.joinDate),
+      leftDate: normalizeText(cleaned.leftDate),
+      leavingReason: normalizeText(cleaned.leavingReason),
       religion: normalizeText(cleaned.religion),
       aesthetic: normalizeText(cleaned.aestheticChoice),
       aestheticChoice: normalizeText(cleaned.aestheticChoice),
@@ -1858,12 +1758,6 @@ export default function Students() {
       stream: alMeta.stream,
       streamCode: alMeta.streamCode,
       alClassName: alMeta.alClassName,
-      fullClassName: alMeta.fullClassName,
-      classroomId: normalizeText(cleaned.classroomId),
-      batchYear: Number(cleaned.batchYear || 0) || 0,
-      intakeYear: Number(cleaned.intakeYear || 0) || 0,
-      academicScopeKey: normalizeText(cleaned.academicScopeKey),
-      termSystem: isALGrade(grade) ? AL_TERM_SYSTEM : "",
       alSubjectChoiceNumbers: Array.isArray(cleaned.alSubjectChoiceNumbers)
         ? cleaned.alSubjectChoiceNumbers
         : [],
@@ -1875,12 +1769,7 @@ export default function Students() {
     };
     return {
       ...payload,
-      ...buildCanonicalStudentFields({
-        ...payload,
-        academicYear: isALGrade(grade) && payload.batchYear
-          ? String(payload.batchYear)
-          : currentAcademicYear(),
-      }),
+      ...buildCanonicalStudentFields({ ...payload, academicYear: currentAcademicYear() }),
     };
   };
 
@@ -2080,10 +1969,9 @@ export default function Students() {
       let markPatchCount = 0;
 
       if (updates.length > 0) {
-        const targetStudentIds = updates.map((item) => item.studentId);
-        const [enrollmentRows, markRows] = await Promise.all([
-          loadRowsWhereIn("studentSubjectEnrollments", "studentId", targetStudentIds, { forceRefresh: true }),
-          loadRowsWhereIn("marks", "studentId", targetStudentIds, { forceRefresh: true }),
+        const [enrollmentSnap, markSnap] = await Promise.all([
+          getDocs(collection(db, "studentSubjectEnrollments")),
+          getDocs(collection(db, "marks")),
         ]);
 
         const updateByStudentId = new Map(updates.map((item) => [item.studentId, item]));
@@ -2099,15 +1987,15 @@ export default function Students() {
           );
         });
 
-        enrollmentRows.forEach((data) => {
-          const docRef = doc(db, "studentSubjectEnrollments", data.id);
+        enrollmentSnap.docs.forEach((docSnap) => {
+          const data = docSnap.data();
           const item = updateByStudentId.get(normalizeText(data.studentId));
           if (!item) return;
 
           enrollmentPatchCount += 1;
           operations.push((batch) =>
             batch.set(
-              docRef,
+              docSnap.ref,
               {
                 admissionNo: item.admissionNo,
                 studentName: item.studentName || data.studentName || "",
@@ -2118,15 +2006,15 @@ export default function Students() {
           );
         });
 
-        markRows.forEach((data) => {
-          const docRef = doc(db, "marks", data.id);
+        markSnap.docs.forEach((docSnap) => {
+          const data = docSnap.data();
           const item = updateByStudentId.get(normalizeText(data.studentId));
           if (!item) return;
 
           markPatchCount += 1;
           operations.push((batch) =>
             batch.set(
-              docRef,
+              docSnap.ref,
               {
                 admissionNo: item.admissionNo,
                 studentName: item.studentName || data.studentName || "",
@@ -2393,7 +2281,7 @@ export default function Students() {
             sx={{ mt: 1.5, borderRadius: 2 }}
             onClose={() => setBulkResults(null)}
           >
-            Uploaded {academicDisplay(bulkResults.successCount)} students
+            Uploaded {bulkResults.successCount} students
             {bulkResults.failCount > 0 && `, ${bulkResults.failCount} failed`}
             {bulkResults.errors.length > 0 && (
               <Box mt={0.5}>
@@ -2404,7 +2292,7 @@ export default function Students() {
                 ))}
                 {bulkResults.errors.length > 8 && (
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    + {academicDisplay(bulkResults.errors.length - 8)} more row error(s)
+                    + {bulkResults.errors.length - 8} more row error(s)
                   </Typography>
                 )}
               </Box>
@@ -2432,7 +2320,7 @@ export default function Students() {
                 ))}
                 {emisSyncResults.errors.length > 8 && (
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    + {academicDisplay(emisSyncResults.errors.length - 8)} more row error(s)
+                    + {emisSyncResults.errors.length - 8} more row error(s)
                   </Typography>
                 )}
               </Box>
@@ -2466,7 +2354,7 @@ export default function Students() {
               <MenuItem value="">All Grades</MenuItem>
               {gradeOptions.map((g) => (
                 <MenuItem key={g} value={g}>
-                  Grade {academicDisplay(g)}
+                  Grade {g}
                 </MenuItem>
               ))}
             </Select>
@@ -2482,7 +2370,7 @@ export default function Students() {
               <MenuItem value="">All Sections</MenuItem>
               {sectionOptionsForFilter.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
-                  {academicDisplay(option.label)}
+                  {option.label}
                 </MenuItem>
               ))}
             </Select>
@@ -2498,7 +2386,7 @@ export default function Students() {
               <MenuItem value="">All</MenuItem>
               {STUDENT_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>
-                  {academicDisplay(s)}
+                  {s}
                 </MenuItem>
               ))}
             </Select>
@@ -2541,7 +2429,7 @@ export default function Students() {
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {quickStats.map((item) => (
-                <StatusChip key={item.label} status={item.status} label={academicDisplay(item.label)} />
+                <StatusChip key={item.label} status={item.status} label={item.label} />
               ))}
             </Stack>
           </Stack>
@@ -2565,13 +2453,13 @@ export default function Students() {
 
       {success && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setSuccess("")}>
-          {academicDisplay(success)}
+          {success}
         </Alert>
       )}
 
       {error && !open && (
         <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setError("")}>
-          {academicDisplay(error)}
+          {error}
         </Alert>
       )}
 
@@ -2612,20 +2500,20 @@ export default function Students() {
                         fontWeight: 800,
                       }}
                     >
-                      {academicDisplay(initials(getStudentName(s)))}
+                      {initials(getStudentName(s))}
                     </Avatar>
                     <Box>
                       <Typography variant="subtitle2" fontWeight={800}>
-                        {academicDisplay(getStudentName(s))}
+                        {getStudentName(s)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         Admission: {s.admissionNo || "-"} | StudentID: {getEmisStudentId(s) || "-"} | Grade {s.grade}-
-                        {academicDisplay(s.section || s.className)}
+                        {s.section || s.className}
                       </Typography>
                     </Box>
                   </Box>
                   <Chip
-                    label={academicDisplay(s.status || "Unknown")}
+                    label={s.status || "Unknown"}
                     size="small"
                     color={statusColor(s.status)}
                     sx={{ fontWeight: 600 }}
@@ -2635,7 +2523,7 @@ export default function Students() {
                 <Box mt={0.8}>
                   {s.religion && (
                     <Typography variant="caption" color="text.secondary" display="block">
-                      Religion: {academicDisplay(s.religion)}
+                      Religion: {s.religion}
                     </Typography>
                   )}
                   {s.stream && (
@@ -2645,7 +2533,7 @@ export default function Students() {
                   )}
                   {s.alClassName && (
                     <Typography variant="caption" color="text.secondary" display="block">
-                      Class: {academicDisplay(s.alClassName)}
+                      Class: {s.alClassName}
                     </Typography>
                   )}
                 </Box>
@@ -2788,7 +2676,7 @@ export default function Students() {
         <DialogContent sx={{ pt: 2 }}>
           {error && (
             <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
-              {academicDisplay(error)}
+              {error}
             </Alert>
           )}
 
@@ -2847,12 +2735,6 @@ export default function Students() {
                                 stream: "",
                                 streamCode: "",
                                 alClassName: "",
-                                fullClassName: "",
-                                classroomId: "",
-                                batchYear: 0,
-                                intakeYear: 0,
-                                academicScopeKey: "",
-                                termSystem: "",
                                 alSubjectChoiceNumbers: [],
                                 alSubjectChoices: [],
                               })
@@ -2864,7 +2746,7 @@ export default function Students() {
                           </MenuItem>
                           {gradeOptions.map((g) => (
                             <MenuItem key={g} value={g}>
-                              Grade {academicDisplay(g)}
+                              Grade {g}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2872,26 +2754,15 @@ export default function Students() {
                     </Grid>
 
                     <Grid size={{ xs: 12, sm: 4 }}>
-                      <FormControl
-                        fullWidth
-                        required={!isALGrade(form.grade)}
-                        disabled={!form.grade || isALGrade(form.grade)}
-                      >
-                        <InputLabel>
-                          {isALGrade(form.grade) ? "Section (optional)" : "Section"}
-                        </InputLabel>
+                      <FormControl fullWidth required disabled={!form.grade}>
+                        <InputLabel>Section</InputLabel>
                         <Select
                           value={form.section}
-                          label={isALGrade(form.grade) ? "Section (optional)" : "Section"}
+                          label="Section"
                           onChange={(e) =>
                             setForm((prev) => {
                               const nextSection = e.target.value;
-                              const alMeta = buildALMetadata(
-                                prev.grade,
-                                prev.stream,
-                                nextSection,
-                                prev.batchYear
-                              );
+                              const alMeta = buildALMetadata(prev.grade, prev.stream, nextSection);
                               return {
                                 ...prev,
                                 section: nextSection,
@@ -2906,7 +2777,7 @@ export default function Students() {
                           </MenuItem>
                           {sectionOptionsForForm.map((s) => (
                             <MenuItem key={s} value={s}>
-                              {academicDisplay(s)}
+                              {s}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2926,7 +2797,7 @@ export default function Students() {
                         >
                           {STUDENT_STATUSES.map((s) => (
                             <MenuItem key={s} value={s}>
-                              {academicDisplay(s)}
+                              {s}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2956,7 +2827,7 @@ export default function Students() {
                           <MenuItem value="">—</MenuItem>
                           {GENDERS.map((g) => (
                             <MenuItem key={g} value={g}>
-                              {academicDisplay(g)}
+                              {g}
                             </MenuItem>
                           ))}
                         </Select>
@@ -2977,13 +2848,19 @@ export default function Students() {
                     <Grid size={{ xs: 12, sm: 4 }}>
                       <TextField
                         fullWidth
-                        label="Join Date"
+                        label="Admission Date"
                         type="date"
+                        required={!editId}
                         value={form.joinDate}
                         onChange={(e) => setForm({ ...form, joinDate: e.target.value })}
                         InputLabelProps={{ shrink: true }}
                       />
                     </Grid>
+
+                    {form.status === "Left" && <>
+                      <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth required label="Leaving Date" type="date" value={form.leftDate} onChange={(e) => setForm({ ...form, leftDate: e.target.value })} InputLabelProps={{ shrink: true }} /></Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth required label="Reason for Leaving" value={form.leavingReason} onChange={(e) => setForm({ ...form, leavingReason: e.target.value })} /></Grid>
+                    </>}
 
                     <Grid size={{ xs: 12, sm: 6 }}>
                       <FormControl fullWidth>
@@ -2999,7 +2876,7 @@ export default function Students() {
                             : MEDIUM_OPTIONS
                           ).map((item) => (
                             <MenuItem key={item} value={item}>
-                              {academicDisplay(item)}
+                              {item}
                             </MenuItem>
                           ))}
                         </Select>
@@ -3045,7 +2922,7 @@ export default function Students() {
                         <Alert severity="warning" sx={{ mb: 2 }}>
                           {enrollmentWarnings.map((warning, idx) => (
                             <Typography key={idx} variant="body2">
-                              {academicDisplay(warning)}
+                              {warning}
                             </Typography>
                           ))}
                         </Alert>
@@ -3063,7 +2940,7 @@ export default function Students() {
                               >
                                 {religionSubjectOptions.map((item) => (
                                   <MenuItem key={item} value={item}>
-                                    {academicDisplay(item)}
+                                    {item}
                                   </MenuItem>
                                 ))}
                               </Select>
@@ -3084,7 +2961,7 @@ export default function Students() {
                               >
                                 {aestheticOptions.map((subject) => (
                                   <MenuItem key={subject.id} value={subjectDisplayName(subject)}>
-                                    {academicDisplay(subjectDisplayName(subject))}
+                                    {subjectDisplayName(subject)}
                                   </MenuItem>
                                 ))}
                               </Select>
@@ -3111,7 +2988,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.A.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {academicDisplay(subjectName)}
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3133,7 +3010,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.B.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {academicDisplay(subjectName)}
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3155,7 +3032,7 @@ export default function Students() {
                                 >
                                   {basketMenuOptions.C.map((subjectName) => (
                                     <MenuItem key={subjectName} value={subjectName}>
-                                      {academicDisplay(subjectName)}
+                                      {subjectName}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3169,75 +3046,8 @@ export default function Students() {
 
                         {shouldShowALFields(form.grade) && (
                           <>
-                            <Grid size={{ xs: 12 }}>
-                              <FormControl fullWidth required>
-                                <InputLabel>A/L Batch Class</InputLabel>
-                                <Select
-                                  value={form.classroomId || ""}
-                                  label="A/L Batch Class"
-                                  onChange={(e) => {
-                                    const classroom = alClassOptionsForForm.find(
-                                      (item) => item.id === e.target.value
-                                    );
-                                    if (!classroom) return;
-                                    const batchYear = getClassBatchYear(classroom);
-                                    const section = normalizeSectionValue(
-                                      classroom.section || ""
-                                    );
-                                    const stream = normalizeText(classroom.stream);
-                                    const alMeta = buildALMetadata(
-                                      classroom.grade || form.grade,
-                                      stream,
-                                      section,
-                                      batchYear
-                                    );
-                                    setForm((previous) => ({
-                                      ...previous,
-                                      grade: classroom.grade || previous.grade,
-                                      section,
-                                      stream,
-                                      streamCode: alMeta.streamCode,
-                                      alClassName:
-                                        classroom.fullClassName ||
-                                        classroom.alClassName ||
-                                        alMeta.alClassName,
-                                      fullClassName:
-                                        classroom.fullClassName ||
-                                        classroom.alClassName ||
-                                        alMeta.fullClassName,
-                                      classroomId: classroom.id,
-                                      batchYear,
-                                      intakeYear: Number(classroom.intakeYear || 0) || 0,
-                                      academicScopeKey:
-                                        classroom.academicScopeKey || "",
-                                      termSystem: AL_TERM_SYSTEM,
-                                      alSubjectChoiceNumbers: [],
-                                      alSubjectChoices: [],
-                                    }));
-                                  }}
-                                >
-                                  {alClassOptionsForForm.map((classroom) => (
-                                    <MenuItem key={classroom.id} value={classroom.id}>
-                                      {academicDisplay(
-                                        classroom.fullClassName ||
-                                        classroom.alClassName
-                                      )}
-                                    </MenuItem>
-                                  ))}
-                                </Select>
-                                {alClassOptionsForForm.length === 0 && (
-                                  <FormHelperText error>
-                                    Create the A/L batch classroom first.
-                                  </FormHelperText>
-                                )}
-                              </FormControl>
-                            </Grid>
                             <Grid size={{ xs: 12, md: 4 }}>
-                              <FormControl
-                                fullWidth
-                                required
-                                disabled={Boolean(form.classroomId)}
-                              >
+                              <FormControl fullWidth required>
                                 <InputLabel>Stream</InputLabel>
                                 <Select
                                   value={form.stream}
@@ -3245,12 +3055,7 @@ export default function Students() {
                                   onChange={(e) =>
                                     setForm((prev) => {
                                       const nextStream = e.target.value;
-                                      const alMeta = buildALMetadata(
-                                        prev.grade,
-                                        nextStream,
-                                        prev.section,
-                                        prev.batchYear
-                                      );
+                                      const alMeta = buildALMetadata(prev.grade, nextStream, prev.section);
                                       return {
                                         ...prev,
                                         stream: nextStream,
@@ -3264,7 +3069,7 @@ export default function Students() {
                                 >
                                   {AL_STREAM_OPTIONS.map((item) => (
                                     <MenuItem key={item} value={item}>
-                                      {academicDisplay(item)}
+                                      {item}
                                     </MenuItem>
                                   ))}
                                 </Select>
@@ -3285,14 +3090,8 @@ export default function Students() {
                                 fullWidth
                                 label="A/L Class Name"
                                 value={
-                                  form.fullClassName ||
                                   form.alClassName ||
-                                  buildALMetadata(
-                                    form.grade,
-                                    form.stream,
-                                    form.section,
-                                    form.batchYear
-                                  ).alClassName
+                                  buildALClassName(form.grade, form.stream, form.section)
                                 }
                                 InputProps={{ readOnly: true }}
                               />
@@ -3327,10 +3126,10 @@ export default function Students() {
                                     });
                                   }}
                                   input={<OutlinedInput label="A/L Optional Subject Choice(s)" />}
-                                  renderValue={(...args) => academicDisplay(((selected) => {
+                                  renderValue={(selected) => {
                                     const names = deriveALChoiceNamesFromNumbers(selected);
                                     return names.join(", ");
-                                  })(...args))}
+                                  }}
                                 >
                                   {alOptionalChoiceOptions.map((subject) => (
                                     <MenuItem key={subject.subjectNumber} value={subject.subjectNumber}>
@@ -3340,7 +3139,7 @@ export default function Students() {
                                         }
                                       />
                                       <ListItemText
-                                        primary={academicDisplay(`${subject.subjectNumber} - ${subject.subjectName}`)}
+                                        primary={`${subject.subjectNumber} - ${subject.subjectName}`}
                                       />
                                     </MenuItem>
                                   ))}
@@ -3371,7 +3170,7 @@ export default function Students() {
                                         Main subjects will be generated from stream compulsory subjects + selected optional subject(s).
                                       </Typography>
                                       <Typography variant="caption" display="block">
-                                        Display class: {academicDisplay(buildALDisplayClassName(form.grade, form.stream, form.section) || "—")}
+                                        Display class: {buildALDisplayClassName(form.grade, form.stream, form.section) || "—"}
                                       </Typography>
                                     </>
                                   ) : (

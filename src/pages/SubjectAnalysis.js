@@ -1,6 +1,5 @@
-import { academicDisplay, academicExport } from "../utils/academicDisplay";
-import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Box,
@@ -123,8 +122,8 @@ const TAB_CONFIG = [
 const A3_SUBJECT_ORDER = [
   {
     groupKey: "religion",
-    aliases: ["saivam", "hinduism", "hindu", "saivanery"],
-    shortLabel: "Saivanery",
+    aliases: ["saivam", "hinduism", "hindu"],
+    shortLabel: "Saivam",
   },
   {
     groupKey: "religion",
@@ -644,21 +643,21 @@ function drawPdfHeader(doc, { title, context, pageLabel }) {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.text(academicDisplay("KILINOCHCHI CENTRAL COLLEGE"), pageWidth / 2, 12, { align: "center" });
+  doc.text("KILINOCHCHI CENTRAL COLLEGE", pageWidth / 2, 12, { align: "center" });
 
   doc.setFontSize(10.5);
-  doc.text(academicDisplay(title), pageWidth / 2, 18, { align: "center" });
+  doc.text(title, pageWidth / 2, 18, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   const metaY = 25;
-  doc.text(academicDisplay(getReportScopeLabel(context)), 10, metaY);
+  doc.text(getReportScopeLabel(context), 10, metaY);
   const termText =
     context.assessmentName && context.assessmentName !== "Main Term Exam"
       ? `Term: ${context.term || "-"} | Exam: ${context.assessmentName}`
       : `Term: ${context.term || "-"}`;
-  doc.text(academicDisplay(termText), pageWidth / 2, metaY, { align: "center" });
-  doc.text(academicDisplay(`Year: ${context.year || "-"}`), pageWidth - 10, metaY, { align: "right" });
+  doc.text(termText, pageWidth / 2, metaY, { align: "center" });
+  doc.text(`Year: ${context.year || "-"}`, pageWidth - 10, metaY, { align: "right" });
 }
 
 function addPdfFooter(doc) {
@@ -667,7 +666,7 @@ function addPdfFooter(doc) {
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.text(academicDisplay(`Generated: ${new Date().toLocaleString()}`), pageWidth - 10, pageHeight - 8, {
+  doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 10, pageHeight - 8, {
     align: "right",
   });
 }
@@ -677,7 +676,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [[
       "Subject",
@@ -718,7 +717,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
     },
     columnStyles: { 0: { cellWidth: 52, halign: "left", fontStyle: "bold" } },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -747,9 +746,9 @@ function createRangeStatsPdf({ title, context, rows }) {
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
-    doc.text(academicDisplay(`${row.subjectName}`), 10, 32);
+    doc.text(`${row.subjectName}`, 10, 32);
 
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: 36,
       head: [["Total Students", "Appeared", "Absent"]],
       body: [[row.enrolled, row.appeared, row.absent]],
@@ -771,9 +770,9 @@ function createRangeStatsPdf({ title, context, rows }) {
         lineColor: [30, 30, 30],
       },
       margin: { left: 42, right: 42 },
-    }));
+    });
 
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 8,
       head: [["Marks Range", "No. of Students"]],
       body,
@@ -799,13 +798,13 @@ function createRangeStatsPdf({ title, context, rows }) {
         1: { cellWidth: 45, halign: "center" },
       },
       margin: { left: 60, right: 60 },
-    }));
+    });
 
     addPdfFooter(doc);
     return doc;
   }
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["Subject", "Appeared", ...RANGE_BANDS.map((band) => band.key)]],
     body: rows.map((row) => [
@@ -835,7 +834,7 @@ function createRangeStatsPdf({ title, context, rows }) {
       1: { cellWidth: 16 },
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -865,9 +864,9 @@ function createSummaryRangeStatsPdf({ title, context, rows }) {
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
-    doc.text(academicDisplay(`${row.subjectName}`), 10, 32);
+    doc.text(`${row.subjectName}`, 10, 32);
 
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: 36,
       head: [["No", "Marks Range", "No. of Students"]],
       body,
@@ -894,13 +893,13 @@ function createSummaryRangeStatsPdf({ title, context, rows }) {
         2: { cellWidth: 42, halign: "center" },
       },
       margin: { left: 51, right: 51 },
-    }));
+    });
 
     addPdfFooter(doc);
     return doc;
   }
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["Subject", "Appeared", ...SUMMARY_RANGE_BANDS.map((band) => band.key)]],
     body: rows.map((row) => [
@@ -930,7 +929,7 @@ function createSummaryRangeStatsPdf({ title, context, rows }) {
       1: { cellWidth: 16 },
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -940,7 +939,7 @@ function createThreeCThreeSPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["No", "Name", "Grade", "Division", "Results", "W Subjects"]],
     body: rows.map((row, index) => [
@@ -978,7 +977,7 @@ function createThreeCThreeSPdf({ title, context, rows }) {
       }
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -988,7 +987,7 @@ function createALQualificationPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Landscape" });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["No", "Admission No", "Name", "Class", "Results", "Attendance %", "Failed Subject(s)"]],
     body: rows.map((row, index) => [
@@ -1026,7 +1025,7 @@ function createALQualificationPdf({ title, context, rows }) {
       6: { cellWidth: 75 },
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -1073,10 +1072,10 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
   doc.setTextColor(32, 44, 58);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(academicDisplay("Kilinochchi Central College"), centerX, 34, { align: "center" });
+  doc.text("Kilinochchi Central College", centerX, 34, { align: "center" });
 
   doc.setFontSize(17);
-  doc.text(academicDisplay("G.C.E A/L Examination"), centerX, 48, { align: "center" });
+  doc.text("G.C.E A/L Examination", centerX, 48, { align: "center" });
 
   const detailRows = [
     ["Examination", "G.C.E A/L Examination"],
@@ -1098,13 +1097,13 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
   let detailY = 67;
   detailRows.forEach(([label, value]) => {
     doc.setFont("helvetica", "normal");
-    doc.text(academicDisplay(label), centerX - 16, detailY, { align: "right" });
+    doc.text(label, centerX - 16, detailY, { align: "right" });
     doc.setFont("helvetica", label === "Name" || label === "Admission Status" ? "bold" : "normal");
-    doc.text(academicDisplay(value), centerX + 6, detailY, { maxWidth: 78 });
+    doc.text(value, centerX + 6, detailY, { maxWidth: 78 });
     detailY += 5.8;
   });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 128,
     head: [["Subject", "Marks", "Result"]],
     body: getALResultSubjectRows(row, subjects),
@@ -1136,17 +1135,17 @@ function addALResultSheetPage(doc, { context, row, subjects, logoDataUrl = "" })
       1: { halign: "center", cellWidth: 28, fontStyle: "bold" },
       2: { halign: "center", cellWidth: 34, fontStyle: "bold" },
     },
-  }));
+  });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.6);
   doc.text(
-    academicDisplay("A/L grade ranges: A 75-100, B 65-74, C 50-64, S 35-49, F 0-34. Admission attendance requirement: 80%."),
+    "A/L grade ranges: A 75-100, B 65-74, C 50-64, S 35-49, F 0-34. Admission attendance requirement: 80%.",
     centerX,
     265,
     { align: "center", maxWidth: pageWidth - 34 }
   );
-  doc.text(academicDisplay("Generated for internal academic use only."), centerX, 275, { align: "center" });
+  doc.text("Generated for internal academic use only.", centerX, 275, { align: "center" });
 }
 
 async function createALResultSheetsPdf({ context, rows, subjects }) {
@@ -1170,7 +1169,7 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["No", "Range", "Name", "Marks", "Grade", "Division"]],
     body: rows.map((row, index) => [
@@ -1202,7 +1201,7 @@ function createLowMarkStudentsPdf({ title, context, rows }) {
       2: { cellWidth: 72, halign: "left", fontStyle: "bold" },
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -1214,12 +1213,12 @@ function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortD
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text(academicDisplay(`Sort: Marks ${sortDirection === "asc" ? "Ascending" : "Descending"}`), 10, 32);
+  doc.text(`Sort: Marks ${sortDirection === "asc" ? "Ascending" : "Descending"}`, 10, 32);
 
   const summaryStartY = analysisRow ? 36 : 34;
 
   if (analysisRow) {
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: summaryStartY,
       head: [["Enrolled", "Appeared", "Absent", "Average", "Highest", "Lowest", "Pass %"]],
       body: [[
@@ -1249,9 +1248,9 @@ function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortD
         lineColor: [30, 30, 30],
       },
       margin: { left: 8, right: 8 },
-    }));
+    });
 
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 4,
       head: [["Range", ...RANGE_BANDS.map((band) => band.key)]],
       body: [[
@@ -1277,10 +1276,10 @@ function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortD
       },
       columnStyles: { 0: { fontStyle: "bold" } },
       margin: { left: 8, right: 8 },
-    }));
+    });
   }
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: analysisRow ? doc.lastAutoTable.finalY + 6 : 36,
     head: [["No", "Index No", "Name", "Marks", "Grade", "Division"]],
     body: rows.map((row, index) => [
@@ -1317,7 +1316,7 @@ function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortD
       5: { cellWidth: 20 },
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -1360,7 +1359,7 @@ function createAbsentStudentsPdf({ title, context, rows }) {
   drawPdfHeader(doc, { title, context, pageLabel: "A4 Portrait" });
   const groupedRows = buildGroupedAbsentRows(rows);
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 34,
     head: [["No", "Admission No", "Student Name", "Class", "Absent Subjects"]],
     body: groupedRows.map((row, index) => [
@@ -1398,7 +1397,7 @@ function createAbsentStudentsPdf({ title, context, rows }) {
     },
     margin: { left: 8, right: 8 },
     rowPageBreak: "avoid",
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -1410,14 +1409,14 @@ function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) 
 
   const totalStudents = rows.length;
   doc.setFontSize(8.5);
-  doc.text(academicDisplay(`Number of Students: ${totalStudents}`), 10, 34);
+  doc.text(`Number of Students: ${totalStudents}`, 10, 34);
   doc.text(
-    academicDisplay(`Qualified: ${qualifiedCount} (${totalStudents ? formatNumber((qualifiedCount / totalStudents) * 100) : "0"}%)`),
+    `Qualified: ${qualifiedCount} (${totalStudents ? formatNumber((qualifiedCount / totalStudents) * 100) : "0"}%)`,
     95,
     34
   );
   doc.text(
-    academicDisplay("Qualification requires passes in 6 subjects including Tamil and Mathematics. A/B/C/S are passes. W is fail."),
+    "Qualification requires passes in 6 subjects including Tamil and Mathematics. A/B/C/S are passes. W is fail.",
     10,
     39
   );
@@ -1446,7 +1445,7 @@ function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) 
     columnStyles[markColumnIndex + 1] = { cellWidth: subjectColumnWidth, fontStyle: "bold" };
   });
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 44,
     head: groupedHeaders.pdfHead,
     body: rows.map((row, index) => [
@@ -1494,7 +1493,7 @@ function createA3GradingPdf({ title, context, rows, subjects, qualifiedCount }) 
     margin: { left: 6, right: 6 },
     pageBreak: "auto",
     rowPageBreak: "avoid",
-  }));
+  });
 
   addPdfFooter(doc);
   return doc;
@@ -1600,13 +1599,14 @@ function hasTermMark(marksByStudentId, enrollment, termName, year, assessmentId 
   return Boolean(findMatchingMark(marksByStudentId, enrollment, termName, year, assessmentId));
 }
 
-function buildRecords({ enrollments, studentsById, marks, termName, year, assessmentId = "__TERM__" }) {
+function buildRecords({ enrollments, studentsById, marks, termName, year, academicTerm = null, assessmentId = "__TERM__" }) {
   // Index once instead of scanning every mark for every enrollment. This keeps
   // all legacy matching rules intact while reducing the dominant calculation
   // from O(enrollments * marks) to O(marks + relevant student marks).
   const marksByStudentId = buildMarksByStudentId(marks);
 
   return enrollments
+    .filter((enrollment) => studentWasEnrolledDuringTerm(studentsById.get(clean(enrollment.studentId)), academicTerm))
     .filter((enrollment) => !getAcademicYear(enrollment) || Number(getAcademicYear(enrollment)) === Number(year))
     .filter(
       (enrollment) =>
@@ -2098,8 +2098,8 @@ export default function SubjectAnalysis() {
         await Promise.all([
           getCollectionRows(db, "students", { forceRefresh }),
           getCollectionRows(db, "subjects", { forceRefresh }),
-          loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
-          loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
           getCollectionRows(db, "classrooms", { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
           getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
@@ -2140,21 +2140,6 @@ export default function SubjectAnalysis() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
-      loadRowsForAcademicYear("marks", selectedYear),
-    ]).then(([enrollmentRows, markRows]) => {
-      if (!cancelled) {
-        setEnrollments(enrollmentRows);
-        setMarks(markRows);
-      }
-    }).catch((loadError) => {
-      if (!cancelled) setError(loadError.message || "Failed to load analysis year data.");
-    });
-    return () => { cancelled = true; };
-  }, [selectedYear]);
   const studentsById = useMemo(
     () => new Map(students.map((student) => [clean(student.id), student])),
     [students]
@@ -2168,11 +2153,12 @@ export default function SubjectAnalysis() {
       studentsById,
       marks,
       termName: selectedTerm,
+      academicTerm: findAcademicTerm(terms, selectedYear, selectedTerm),
       year: selectedYear,
       assessmentId: selectedAssessmentId,
     })
       .filter((record) => !isSectionalHead || gradeSet.has(Number(record.grade)));
-  }, [enrollments, studentsById, marks, selectedTerm, selectedYear, selectedAssessmentId, isSectionalHead, assignedGrades]);
+  }, [enrollments, studentsById, marks, terms, selectedTerm, selectedYear, selectedAssessmentId, isSectionalHead, assignedGrades]);
 
   const yearOptions = useMemo(() => {
     const years = new Set([
@@ -2601,7 +2587,7 @@ export default function SubjectAnalysis() {
                   <InputLabel>Year</InputLabel>
                   <Select value={selectedYear} label="Year" onChange={(event) => setSelectedYear(Number(event.target.value))}>
                     {yearOptions.map((year) => (
-                      <MenuItem key={year} value={year}>{academicDisplay(year)}</MenuItem>
+                      <MenuItem key={year} value={year}>{year}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -2613,7 +2599,7 @@ export default function SubjectAnalysis() {
                     {termOptions.map((term) => {
                       const termName = clean(term.term || term.termName);
                       return (
-                        <MenuItem key={term.id} value={termName}>{academicDisplay(termName)}</MenuItem>
+                        <MenuItem key={term.id} value={termName}>{termName}</MenuItem>
                       );
                     })}
                   </Select>
@@ -2624,7 +2610,7 @@ export default function SubjectAnalysis() {
                   <InputLabel>Exam</InputLabel>
                   <Select value={selectedAssessmentId} label="Exam" onChange={(event) => setSelectedAssessmentId(event.target.value)}>
                     {assessmentOptions.map((exam) => (
-                      <MenuItem key={exam.id} value={exam.id}>{academicDisplay(exam.name)}</MenuItem>
+                      <MenuItem key={exam.id} value={exam.id}>{exam.name}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -2634,7 +2620,7 @@ export default function SubjectAnalysis() {
                   <InputLabel>Grade</InputLabel>
                   <Select value={selectedGrade} label="Grade" onChange={(event) => setSelectedGrade(Number(event.target.value))}>
                     {gradeOptions.map((grade) => (
-                      <MenuItem key={grade} value={grade}>Grade {academicDisplay(grade)}</MenuItem>
+                      <MenuItem key={grade} value={grade}>Grade {grade}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -2643,9 +2629,9 @@ export default function SubjectAnalysis() {
                 <FormControl fullWidth size="small">
                   <InputLabel>Division / Class</InputLabel>
                   <Select value={selectedClass} label="Division / Class" onChange={(event) => setSelectedClass(event.target.value)}>
-                    <MenuItem value={ALL}>Whole Grade {academicDisplay(selectedGrade)}</MenuItem>
+                    <MenuItem value={ALL}>Whole Grade {selectedGrade}</MenuItem>
                     {classOptions.map((className) => (
-                      <MenuItem key={className} value={className}>{academicDisplay(className)}</MenuItem>
+                      <MenuItem key={className} value={className}>{className}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -2656,7 +2642,7 @@ export default function SubjectAnalysis() {
                   <Select value={selectedSubject} label="Subject" onChange={(event) => setSelectedSubject(event.target.value)}>
                     <MenuItem value={ALL}>All Subjects</MenuItem>
                     {gradeSubjectOptions.map((subject) => (
-                      <MenuItem key={subject.subjectKey} value={subject.subjectKey}>{academicDisplay(subject.subjectName)}</MenuItem>
+                      <MenuItem key={subject.subjectKey} value={subject.subjectKey}>{subject.subjectName}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -2673,7 +2659,7 @@ export default function SubjectAnalysis() {
           sx={{ borderBottom: 1, borderColor: "divider" }}
         >
           {visibleTabs.map((item) => (
-            <Tab key={item.value} value={item.value} label={academicDisplay(item.label)} />
+            <Tab key={item.value} value={item.value} label={item.label} />
           ))}
         </Tabs>
 
@@ -2682,7 +2668,7 @@ export default function SubjectAnalysis() {
             <CircularProgress />
           </Box>
         ) : error ? (
-          <Alert severity="error">{academicDisplay(error)}</Alert>
+          <Alert severity="error">{error}</Alert>
         ) : (
           <>
             <Grid container spacing={2}>
@@ -2702,7 +2688,7 @@ export default function SubjectAnalysis() {
 
             {tab === "grade" && (
               <SubjectStatsTable
-                title={academicDisplay(`Whole Grade ${selectedGrade} - Subject Analysis`)}
+                title={`Whole Grade ${selectedGrade} - Subject Analysis`}
                 reportId="grade-subject-analysis"
                 activePrint={printTarget === "grade-subject-analysis"}
                 context={shareContext}
@@ -2714,7 +2700,7 @@ export default function SubjectAnalysis() {
 
             {tab === "class" && (
               <SubjectStatsTable
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Class Subject Analysis`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Class Subject Analysis`}
                 reportId="class-subject-analysis"
                 activePrint={printTarget === "class-subject-analysis"}
                 context={shareContext}
@@ -2726,9 +2712,9 @@ export default function SubjectAnalysis() {
 
             {tab === "subjectMarks" && (
               <SubjectMarkStudentsReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
                   selectedSubjectName || "Selected Subject"
-                } Marks List`)}
+                } Marks List`}
                 reportId="subject-marks-list"
                 activePrint={printTarget === "subject-marks-list"}
                 context={shareContext}
@@ -2743,7 +2729,7 @@ export default function SubjectAnalysis() {
 
             {tab === "range" && (
               <RangeStatsTable
-                title={academicDisplay(`Grade ${selectedGrade} ${selectedSubjectName ? `- ${selectedSubjectName}` : "- Subject Mark Range Analysis"}`)}
+                title={`Grade ${selectedGrade} ${selectedSubjectName ? `- ${selectedSubjectName}` : "- Subject Mark Range Analysis"}`}
                 reportId="subject-range-analysis"
                 activePrint={printTarget === "subject-range-analysis"}
                 context={shareContext}
@@ -2759,7 +2745,7 @@ export default function SubjectAnalysis() {
 
             {tab === "summaryRange" && (
               <SummaryRangeStatsTable
-                title={academicDisplay(`Grade ${selectedGrade} ${selectedSubjectName ? `- ${selectedSubjectName}` : "- Summary Mark Range"}`)}
+                title={`Grade ${selectedGrade} ${selectedSubjectName ? `- ${selectedSubjectName}` : "- Summary Mark Range"}`}
                 reportId="summary-mark-range"
                 activePrint={printTarget === "summary-mark-range"}
                 context={shareContext}
@@ -2775,7 +2761,7 @@ export default function SubjectAnalysis() {
 
             {tab === "threeCThreeS" && (
               <ThreeCThreeSReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Below 3C 3S List`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Below 3C 3S List`}
                 reportId="below-3c-3s-list"
                 activePrint={printTarget === "below-3c-3s-list"}
                 context={shareContext}
@@ -2786,7 +2772,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alThreeS80" && (
               <ALQualificationReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above with 80% Attendance`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above with 80% Attendance`}
                 reportId="al-3s-80-list"
                 activePrint={printTarget === "al-3s-80-list"}
                 context={shareContext}
@@ -2799,7 +2785,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alThreeSBelow80" && (
               <ALQualificationReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above Below 80% Attendance`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3S or Above Below 80% Attendance`}
                 reportId="al-3s-below-80-list"
                 activePrint={printTarget === "al-3s-below-80-list"}
                 context={shareContext}
@@ -2812,7 +2798,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alThreeA" && (
               <ALQualificationReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3A Students List`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3A Students List`}
                 reportId="al-3a-list"
                 activePrint={printTarget === "al-3a-list"}
                 context={shareContext}
@@ -2825,7 +2811,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alThreeF" && (
               <ALQualificationReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3F Students List`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - 3F Students List`}
                 reportId="al-3f-list"
                 activePrint={printTarget === "al-3f-list"}
                 context={shareContext}
@@ -2838,7 +2824,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alTwoPassOneFail" && (
               <ALQualificationReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Two Passes and One Fail`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - Two Passes and One Fail`}
                 reportId="al-two-pass-one-fail-list"
                 activePrint={printTarget === "al-two-pass-one-fail-list"}
                 context={shareContext}
@@ -2851,7 +2837,7 @@ export default function SubjectAnalysis() {
 
             {tab === "alResultSheets" && (
               <ALResultSheetsReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - A/L Result Sheets`)}
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - A/L Result Sheets`}
                 reportId="al-result-sheets"
                 activePrint={printTarget === "al-result-sheets"}
                 context={shareContext}
@@ -2863,9 +2849,9 @@ export default function SubjectAnalysis() {
 
             {tab === "lowMarks" && (
               <LowMarkStudentsReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
                   selectedSubjectName || "Selected Subject"
-                } Low Mark Students`)}
+                } Low Mark Students`}
                 reportId="low-mark-students"
                 activePrint={printTarget === "low-mark-students"}
                 context={shareContext}
@@ -2877,9 +2863,9 @@ export default function SubjectAnalysis() {
 
             {tab === "absent" && (
               <AbsentStudentsReport
-                title={academicDisplay(`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
+                title={`${selectedClass === ALL ? `Whole Grade ${selectedGrade}` : selectedClass} - ${
                   selectedSubjectName || "All Subjects"
-                } Absent Students`)}
+                } Absent Students`}
                 reportId="absent-students"
                 activePrint={printTarget === "absent-students"}
                 context={shareContext}
@@ -2937,7 +2923,7 @@ async function makePdfFile({ title, context, createPdf }) {
 
 async function handlePdfDownload({ title, context, createPdf }) {
   const { blob, fileName } = await makePdfFile({ title, context, createPdf });
-  saveAs(blob, academicDisplay(fileName));
+  saveAs(blob, fileName);
 }
 
 async function handleEmailShare({ title, context, rowsCount, extra, createPdf }) {
@@ -2967,13 +2953,13 @@ async function handleWhatsAppShare({ title, context, rowsCount, extra, createPdf
     console.warn("WhatsApp/share PDF fallback triggered:", err);
   }
 
-  saveAs(blob, academicDisplay(fileName));
+  saveAs(blob, fileName);
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(
     `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
   )}`;
   window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   window.alert(
-    academicDisplay("This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually.")
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
   );
 }
 
@@ -2984,7 +2970,7 @@ function ReportHeader({ title, context }) {
         KILINOCHCHI CENTRAL COLLEGE
       </Typography>
       <Typography sx={{ fontFamily: "Times New Roman, serif", fontWeight: 700 }}>
-        {academicDisplay(title)}
+        {title}
       </Typography>
       <Box
         sx={{
@@ -2996,13 +2982,13 @@ function ReportHeader({ title, context }) {
         }}
       >
         <Typography variant="body2" sx={{ textAlign: "left" }}>
-          {academicDisplay(getReportScopeLabel(context))}
+          {getReportScopeLabel(context)}
         </Typography>
         <Typography variant="body2" sx={{ textAlign: "center" }}>
           Term: {context.term || "-"}
-          {academicDisplay(context.assessmentName && context.assessmentName !== "Main Term Exam"
+          {context.assessmentName && context.assessmentName !== "Main Term Exam"
             ? ` | Exam: ${context.assessmentName}`
-            : "")}
+            : ""}
         </Typography>
         <Typography variant="body2" sx={{ textAlign: "right" }}>
           Year: {context.year || "-"}
@@ -3201,13 +3187,13 @@ function SubjectStatsTable({
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <ResponsiveTableWrapper minWidth={980} sx={rangeReportTableSx}>
           <Table size="small">
             <TableHead>
@@ -3227,7 +3213,7 @@ function SubjectStatsTable({
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.subjectKey} hover>
-                  <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.subjectName)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
                   <TableCell align="right">{row.enrolled}</TableCell>
                   <TableCell align="right">{row.appeared}</TableCell>
                   <TableCell align="right">{row.absent}</TableCell>
@@ -3265,17 +3251,17 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         {singleSubjectRow ? (
           <Box>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-              <Chip label={academicDisplay(`Subject: ${singleSubjectRow.subjectName}`)} variant="outlined" />
+              <Chip label={`Subject: ${singleSubjectRow.subjectName}`} variant="outlined" />
             </Stack>
             <ResponsiveTableWrapper minWidth={320} sx={{ ...borderedReportTableSx, mb: 1.5 }}>
               <Table size="small">
@@ -3288,9 +3274,9 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                 </TableHead>
                 <TableBody>
                   <TableRow hover>
-                    <TableCell align="right">{academicDisplay(singleSubjectRow.enrolled)}</TableCell>
-                    <TableCell align="right">{academicDisplay(singleSubjectRow.appeared)}</TableCell>
-                    <TableCell align="right">{academicDisplay(singleSubjectRow.absent)}</TableCell>
+                    <TableCell align="right">{singleSubjectRow.enrolled}</TableCell>
+                    <TableCell align="right">{singleSubjectRow.appeared}</TableCell>
+                    <TableCell align="right">{singleSubjectRow.absent}</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
@@ -3329,7 +3315,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.subjectKey} hover>
-                    <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.subjectName)}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
                     <TableCell align="right">{row.appeared}</TableCell>
                     {RANGE_BANDS.map((band) => (
                       <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
@@ -3364,17 +3350,17 @@ function SummaryRangeStatsTable({ title, rows, reportId, activePrint, context, o
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         {singleSubjectRow ? (
           <Box>
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-              <Chip label={academicDisplay(`Subject: ${singleSubjectRow.subjectName}`)} variant="outlined" />
+              <Chip label={`Subject: ${singleSubjectRow.subjectName}`} variant="outlined" />
             </Stack>
             <ResponsiveTableWrapper minWidth={360} sx={borderedReportTableSx}>
               <Table size="small">
@@ -3412,10 +3398,10 @@ function SummaryRangeStatsTable({ title, rows, reportId, activePrint, context, o
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.subjectKey} hover>
-                    <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.subjectName)}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
                     <TableCell align="right">{row.appeared}</TableCell>
                     {SUMMARY_RANGE_BANDS.map((band) => (
-                      <TableCell key={band.key} align="right">{academicDisplay(row.summaryRangeCounts[band.key])}</TableCell>
+                      <TableCell key={band.key} align="right">{row.summaryRangeCounts[band.key]}</TableCell>
                     ))}
                   </TableRow>
                 ))}
@@ -3444,14 +3430,14 @@ function ThreeCThreeSReport({ title, rows, reportId, activePrint, context, onPri
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
           extra="Below 3C 3S means fewer than 3 A/B/C results or fewer than 6 A/B/C/S passes."
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
           <Table size="small">
             <TableHead>
@@ -3468,7 +3454,7 @@ function ThreeCThreeSReport({ title, rows, reportId, activePrint, context, onPri
               {rows.map((row, index) => (
                 <TableRow key={row.studentId || `${row.studentName}-${index}`} hover>
                   <TableCell>{index + 1}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.studentName)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
                   <TableCell align="center">{row.grade}</TableCell>
                   <TableCell align="center">{row.division}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
@@ -3476,9 +3462,9 @@ function ThreeCThreeSReport({ title, rows, reportId, activePrint, context, onPri
                     {row.wSubjectItems?.length ? (
                       row.wSubjectItems.map((subject, subjectIndex) => (
                         <React.Fragment key={`${row.studentId}-${subject.name}-${subjectIndex}`}>
-                          {academicDisplay(subjectIndex > 0 ? ", " : "")}
+                          {subjectIndex > 0 ? ", " : ""}
                           <Box component="span" sx={{ fontWeight: subject.isCore ? 800 : 400 }}>
-                            {academicDisplay(subject.name)}
+                            {subject.name}
                           </Box>
                         </React.Fragment>
                       ))
@@ -3507,21 +3493,21 @@ function ALQualificationReport({
   emptyDescription,
 }) {
   if (!rows.length) {
-    return <EmptyState title={academicDisplay(emptyTitle)} description={emptyDescription} />;
+    return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
 
   return (
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={() => createALQualificationPdf({ title, context, rows })}
           extra="A/L grades use A:75-100, B:65-74, C:50-64, S:35-49, F:0-34. Attendance qualification is 80% and above."
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <ResponsiveTableWrapper minWidth={980} sx={borderedReportTableSx}>
           <Table size="small">
             <TableHead>
@@ -3540,15 +3526,15 @@ function ALQualificationReport({
                 <TableRow key={`${row.studentId}-${index}`} hover>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>{row.indexNo || row.studentId}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.studentName)}</TableCell>
-                  <TableCell align="center">{academicDisplay(row.className)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
+                  <TableCell align="center">{row.className}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 800 }}>{row.resultCode || "-"}</TableCell>
                   <TableCell align="right">
                     {Number.isFinite(Number(row.attendancePercentage))
                       ? `${formatNumber(row.attendancePercentage)}%`
                       : "-"}
                   </TableCell>
-                  <TableCell>{academicDisplay(row.failedSubjects || "-")}</TableCell>
+                  <TableCell>{row.failedSubjects || "-"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -3583,14 +3569,14 @@ function ALResultSheetsReport({
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
           extra="Individual A/L result sheets include subject marks, A/L result symbols, attendance percentage, and admission status."
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <Alert severity="info" className="analysis-no-print" sx={{ mb: 2 }}>
           This exports one A4 portrait page per student. Attendance status uses the 80%
           A/L admission rule.
@@ -3687,9 +3673,9 @@ function ALResultSheetPreview({ row, subjects, context }) {
           ["Admission Status", qualified ? "Qualified" : "Not Qualified"],
         ].map(([label, value]) => (
           <React.Fragment key={label}>
-            <Box sx={{ textAlign: "right" }}>{academicDisplay(label)}</Box>
+            <Box sx={{ textAlign: "right" }}>{label}</Box>
             <Box sx={{ fontWeight: label === "Name" || label === "Admission Status" ? 800 : 400 }}>
-              {academicDisplay(value)}
+              {value}
             </Box>
           </React.Fragment>
         ))}
@@ -3731,7 +3717,7 @@ function ALResultSheetPreview({ row, subjects, context }) {
         <tbody>
           {subjectRows.map(([subjectName, mark, symbol]) => (
             <tr key={`${row.studentId}-${subjectName}`}>
-              <td style={{ fontWeight: 800, textTransform: "uppercase" }}>{academicDisplay(subjectName)}</td>
+              <td style={{ fontWeight: 800, textTransform: "uppercase" }}>{subjectName}</td>
               <td style={{ textAlign: "center", fontWeight: 700 }}>{mark}</td>
               <td style={{ textAlign: "center", fontWeight: 800 }}>{symbol}</td>
             </tr>
@@ -3794,7 +3780,7 @@ function SubjectMarkStudentsReport({
             </Select>
           </FormControl>
           <ReportActions
-            title={academicDisplay(title)}
+            title={title}
             context={context}
             rowsCount={rows.length}
             onPrint={onPrint}
@@ -3802,7 +3788,7 @@ function SubjectMarkStudentsReport({
             extra={`Marks sorted ${sortDirection === "asc" ? "ascending" : "descending"}.`}
           />
         </Stack>
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         {analysisRow && (
           <Box sx={{ mb: 2 }}>
             <Typography sx={{ fontWeight: 800, mb: 1, textAlign: "left" }}>
@@ -3881,7 +3867,7 @@ function SubjectMarkStudentsReport({
                   <TableRow key={`${row.studentId}-${row.className}-${index}`} hover>
                     <TableCell>{index + 1}</TableCell>
                     <TableCell>{row.indexNo || row.studentId}</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.studentName)}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>
                       {formatNumber(row.mark, 0)}
                     </TableCell>
@@ -3931,14 +3917,14 @@ function LowMarkStudentsReport({
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
           createPdf={createPdf}
           extra="Low mark ranges: 0-9, 10-19, 20-29, 30-34."
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <ResponsiveTableWrapper minWidth={820} sx={borderedReportTableSx}>
           <Table size="small">
             <TableHead>
@@ -3956,7 +3942,7 @@ function LowMarkStudentsReport({
                 <TableRow key={`${row.studentId}-${row.rangeKey}-${index}`} hover>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell align="center">{row.rangeKey}</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{academicDisplay(row.studentName)}</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>{row.studentName}</TableCell>
                   <TableCell align="right">{formatNumber(row.mark, 0)}</TableCell>
                   <TableCell align="center">{row.grade}</TableCell>
                   <TableCell align="center">{row.division}</TableCell>
@@ -3999,7 +3985,7 @@ function AbsentStudentsReport({
     <Card id={reportId} className={activePrint ? "analysis-print-active" : ""}>
       <CardContent>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={groupedRows.length}
           onPrint={onPrint}
@@ -4010,7 +3996,7 @@ function AbsentStudentsReport({
               : "Absent list across all selected subjects."
           }
         />
-        <ReportHeader title={academicDisplay(title)} context={context} />
+        <ReportHeader title={title} context={context} />
         <ResponsiveTableWrapper minWidth={780} sx={absentReportTableSx}>
           <Table size="small">
             <colgroup>
@@ -4034,15 +4020,15 @@ function AbsentStudentsReport({
                 <TableRow key={`${row.studentId}-${row.className}-${index}`} hover>
                   <TableCell>{index + 1}</TableCell>
                   <TableCell>{row.indexNo || row.studentId}</TableCell>
-                  <TableCell className="absent-name-cell">{academicDisplay(row.studentName)}</TableCell>
-                  <TableCell align="center">{academicDisplay(row.className)}</TableCell>
+                  <TableCell className="absent-name-cell">{row.studentName}</TableCell>
+                  <TableCell align="center">{row.className}</TableCell>
                   <TableCell className="absent-subject-cell">
                     {row.subjectCount > 1 ? (
                       <Stack spacing={0.25}>
                         <Typography className="absent-count" variant="caption" sx={{ fontWeight: 800, color: "error.main" }}>
-                          {academicDisplay(row.subjectCount)} subjects absent
+                          {row.subjectCount} subjects absent
                         </Typography>
-                        <Typography className="absent-subject-list" variant="body2">{academicDisplay(row.subjectList)}</Typography>
+                        <Typography className="absent-subject-list" variant="body2">{row.subjectList}</Typography>
                       </Stack>
                     ) : (
                       row.subjectList
@@ -4143,7 +4129,7 @@ function A3GradingSheet({
     >
       <Stack spacing={1.5}>
         <ReportActions
-          title={academicDisplay(title)}
+          title={title}
           context={context}
           rowsCount={rows.length}
           onPrint={onPrint}
@@ -4155,7 +4141,7 @@ function A3GradingSheet({
             KILINOCHCHI CENTRAL COLLEGE
           </Typography>
           <Typography sx={{ fontFamily: "Times New Roman, serif", fontWeight: 700 }}>
-            A3 Grading Sheet - {academicDisplay(scopeLabel)}
+            A3 Grading Sheet - {scopeLabel}
           </Typography>
           <Box
             sx={{
@@ -4167,13 +4153,13 @@ function A3GradingSheet({
             }}
           >
             <Typography variant="body2" sx={{ textAlign: "left" }}>
-              Grade: {academicDisplay(className === ALL ? grade : className)}
+              Grade: {className === ALL ? grade : className}
             </Typography>
             <Typography variant="body2" sx={{ textAlign: "center" }}>
               Term: {term}
-              {academicDisplay(context?.assessmentName && context.assessmentName !== "Main Term Exam"
+              {context?.assessmentName && context.assessmentName !== "Main Term Exam"
                 ? ` | Exam: ${context.assessmentName}`
-                : "")}
+                : ""}
             </Typography>
             <Typography variant="body2" sx={{ textAlign: "right" }}>
               Year: {year}
@@ -4199,7 +4185,7 @@ function A3GradingSheet({
             <Chip
               key={band.key}
               size="small"
-              label={academicDisplay(`${band.min}-${band.max} ${band.description}: ${band.key}`)}
+              label={`${band.min}-${band.max} ${band.description}: ${band.key}`}
               variant="outlined"
             />
           ))}
@@ -4273,14 +4259,14 @@ function A3GradingSheet({
                       style={printCellStyle}
                       colSpan={group.subjects.length * 2}
                     >
-                      {academicDisplay(group.label || "")}
+                      {group.label || ""}
                     </th>
                   ))}
                 </tr>
                 <tr>
                   {subjects.map((subject) => (
                     <th key={`${subject.subjectKey}-subject`} style={printCellStyle} colSpan={2}>
-                      {academicDisplay(subject.shortLabel || getA3SubjectLabel(subject))}
+                      {subject.shortLabel || getA3SubjectLabel(subject)}
                     </th>
                   ))}
                 </tr>
@@ -4303,7 +4289,7 @@ function A3GradingSheet({
         )}
 
         <Typography variant="caption" color="text.secondary">
-          {academicDisplay(scopeLabel)} grading sheet generated from active student subject enrollments and saved marks.
+          {scopeLabel} grading sheet generated from active student subject enrollments and saved marks.
         </Typography>
       </Stack>
     </Paper>
@@ -4322,8 +4308,8 @@ function TableRowForPrint({ row, index, subjects }) {
     <tr>
       <td style={printCellStyle}>{index + 1}</td>
       <td style={printCellStyle}>{row.indexNo || row.studentId}</td>
-      <td style={{ ...printCellStyle, textAlign: "left", minWidth: 160 }}>{academicDisplay(row.studentName)}</td>
-      <td style={printCellStyle}>{academicDisplay(row.className)}</td>
+      <td style={{ ...printCellStyle, textAlign: "left", minWidth: 160 }}>{row.studentName}</td>
+      <td style={printCellStyle}>{row.className}</td>
       <td style={{ ...printCellStyle, fontWeight: 800 }}>{row.resultCode}</td>
       <td
         style={{

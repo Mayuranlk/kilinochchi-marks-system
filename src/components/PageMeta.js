@@ -7,8 +7,16 @@ const DEFAULT_DESCRIPTION =
   "Kilinochchi Central College marks management and live marks completion status system for teachers, sectional heads, and school administration.";
 
 const ROUTE_META = [
-  { match: /^\/(teacher\/)?sba-marks\/?$/, title: "SBA Marks Entry | Kilinochchi Marks System", description: "Enter final school-based assessment marks out of 20." },
-  { match: /^\/(teacher\/)?sba-register\/?$/, title: "SBA Class Register | Kilinochchi Marks System", description: "Print the A3 landscape school-based assessment class register." },
+  {
+    match: /^\/(sectional-head\/)?sba-class-completion-report\/?$/,
+    title: "SBA Class Completion Report | Kilinochchi Marks System",
+    description: "SBA marks completion by class and subject.",
+  },
+  {
+    match: /^\/(teacher\/)?sba-marks\/?$/,
+    title: "SBA Marks Entry | Kilinochchi Marks System",
+    description: "Enter school-based assessment marks for assigned classes and subjects.",
+  },
   {
     match: /^\/marks-status-live\/?$/,
     title: "Live Marks Status | Kilinochchi Central College",

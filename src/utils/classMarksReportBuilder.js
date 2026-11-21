@@ -25,6 +25,7 @@ import {
   isALGrade,
 } from "../constants";
 import { getRankingMedium, usesSeparateMediumRanking } from "./academicMediumUtils";
+import { studentWasEnrolledDuringTerm } from "./studentTermEligibility";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
@@ -370,11 +371,28 @@ export function buildClassMarksReportData({
   stream = "",
   termName,
   year,
+  academicTerm = null,
 }) {
   const reportContext = { grade, section, className, stream };
-  let classStudents = filterStudentsForClass(students, grade, section, className, stream);
-  const activeEnrollments = filterActiveEnrollments(enrollments).filter((item) => {
+  const eligibleStudents = students.filter((student) => studentWasEnrolledDuringTerm(student, academicTerm));
+  const studentsById = new Map(students.map((student) => [normalizeText(student.id), student]));
+  let classStudents = filterStudentsForClass(eligibleStudents, grade, section, className, stream);
+  const historicalSubjects = new Set();
+  marks.forEach((mark) => {
+    if (Number(mark.academicYear || mark.year || 0) !== Number(year) ||
+        normalizeLower(mark.termName || mark.term) !== normalizeLower(termName) ||
+        !matchesReportClass(mark, reportContext)) return;
+    const studentId = normalizeText(mark.studentId);
+    if (mark.subjectId) historicalSubjects.add(JSON.stringify([studentId, "id", normalizeLower(mark.subjectId)]));
+    if (mark.subjectName || mark.subject) historicalSubjects.add(JSON.stringify([studentId, "name", normalizeLower(mark.subjectName || mark.subject)]));
+  });
+  const activeEnrollments = enrollments.filter((item) => {
+    const studentId = normalizeText(item.studentId);
+    const historicalMark = (item.subjectId && historicalSubjects.has(JSON.stringify([studentId, "id", normalizeLower(item.subjectId)]))) ||
+      ((item.subjectName || item.subject) && historicalSubjects.has(JSON.stringify([studentId, "name", normalizeLower(item.subjectName || item.subject)])));
     return (
+      ((item.status || "").toLowerCase() !== "inactive" || historicalMark) &&
+      studentWasEnrolledDuringTerm(studentsById.get(normalizeText(item.studentId)), academicTerm) &&
       matchesReportClass(item, reportContext) &&
       Number(item.academicYear || item.year || 0) === Number(year)
     );
@@ -382,7 +400,7 @@ export function buildClassMarksReportData({
 
   if (isALGrade(grade)) {
     const enrolledStudentIds = new Set(activeEnrollments.map((item) => normalizeText(item.studentId)).filter(Boolean));
-    classStudents = students.filter((student) => enrolledStudentIds.has(normalizeText(student.id)));
+    classStudents = eligibleStudents.filter((student) => enrolledStudentIds.has(normalizeText(student.id)));
   }
 
   const schema = getReportSchemaByGrade(grade) || (isALGrade(grade) ? buildALReportSchema(activeEnrollments) : null);

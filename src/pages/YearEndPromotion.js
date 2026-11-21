@@ -1,6 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
-import { loadRowsForAcademicYear } from "../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
+import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   collection,
   getDocs,
@@ -143,15 +142,13 @@ export default function YearEndPromotion() {
 
   useEffect(() => {
     loadBaseData();
-    // loadBaseData is intentionally keyed by the selected source year.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromYear]);
+  }, []);
 
   const loadBaseData = async () => {
     try {
       const [classroomSnap, enrollmentSnap] = await Promise.all([
         getDocs(collection(db, "classrooms")),
-        loadRowsForAcademicYear("studentSubjectEnrollments", fromYear),
+        getDocs(collection(db, "studentSubjectEnrollments")),
       ]);
 
       const classrooms = classroomSnap.docs.map((d) => ({
@@ -159,7 +156,10 @@ export default function YearEndPromotion() {
         ...d.data(),
       }));
 
-      const enrollments = enrollmentSnap;
+      const enrollments = enrollmentSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
 
       setAllClassrooms(classrooms);
       setAllEnrollments(enrollments);
@@ -213,7 +213,7 @@ export default function YearEndPromotion() {
             !getStudentAcademicYear(student) ||
             getStudentAcademicYear(student) === String(fromYear);
 
-          return sameGrade && sameSection && sameYear && isStudentActive(student);
+          return sameGrade && sameSection && sameYear && isStudentActive(student) && studentWasEnrolledDuringTerm(student, findAcademicTerm([], fromYear, "All"));
         })
         .sort((a, b) => getStudentName(a).localeCompare(getStudentName(b)));
 
@@ -419,20 +419,20 @@ export default function YearEndPromotion() {
       <Stepper activeStep={step} sx={{ mb: 3 }} orientation={isMobile ? "vertical" : "horizontal"}>
         {["Select Class", "Review Students", "Done"].map((label) => (
           <Step key={label}>
-            <StepLabel>{academicDisplay(label)}</StepLabel>
+            <StepLabel>{label}</StepLabel>
           </Step>
         ))}
       </Stepper>
 
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
-          {academicDisplay(success)}
+          {success}
         </Alert>
       )}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {academicDisplay(error)}
+          {error}
         </Alert>
       )}
 
@@ -458,7 +458,7 @@ export default function YearEndPromotion() {
                   >
                     {availableYears.map((y) => (
                       <MenuItem key={y} value={y}>
-                        {academicDisplay(y)}
+                        {y}
                       </MenuItem>
                     ))}
                   </Select>
@@ -469,7 +469,7 @@ export default function YearEndPromotion() {
                 <FormControl fullWidth>
                   <InputLabel>To Year</InputLabel>
                   <Select value={toYear} label="To Year" disabled>
-                    <MenuItem value={toYear}>{academicDisplay(toYear)}</MenuItem>
+                    <MenuItem value={toYear}>{toYear}</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -484,7 +484,7 @@ export default function YearEndPromotion() {
                   >
                     {GRADES.map((g) => (
                       <MenuItem key={g} value={g}>
-                        Grade {academicDisplay(g)}
+                        Grade {g}
                       </MenuItem>
                     ))}
                   </Select>
@@ -501,7 +501,7 @@ export default function YearEndPromotion() {
                   >
                     {availableSections.map((s) => (
                       <MenuItem key={s} value={s}>
-                        {academicDisplay(s)}
+                        {s}
                       </MenuItem>
                     ))}
                   </Select>
@@ -559,10 +559,10 @@ export default function YearEndPromotion() {
                   Grade {grade}-{section} → Grade {transitionType === "graduate" ? "🎓" : nextGrade}-{section}
                 </Typography>
 
-                <Chip label={academicDisplay(`${promotingCount} Promoting`)} color="success" size="small" />
+                <Chip label={`${promotingCount} Promoting`} color="success" size="small" />
 
                 {detainedCount > 0 && (
-                  <Chip label={academicDisplay(`${detainedCount} Detained`)} color="error" size="small" />
+                  <Chip label={`${detainedCount} Detained`} color="error" size="small" />
                 )}
 
                 {transitionType === "critical" && (
@@ -606,7 +606,7 @@ export default function YearEndPromotion() {
                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                       <Box>
                         <Typography variant="subtitle2" fontWeight={700}>
-                          {academicDisplay(getStudentName(student))}
+                          {getStudentName(student)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Adm: {getStudentAdmissionNo(student) || "—"}
@@ -636,7 +636,7 @@ export default function YearEndPromotion() {
                         >
                           {STREAMS.map((stream) => (
                             <MenuItem key={stream} value={stream}>
-                              {academicDisplay(stream)}
+                              {stream}
                             </MenuItem>
                           ))}
                         </Select>
@@ -672,7 +672,7 @@ export default function YearEndPromotion() {
                     >
                       <TableCell>{idx + 1}</TableCell>
                       <TableCell>{getStudentAdmissionNo(student) || "—"}</TableCell>
-                      <TableCell fontWeight={600}>{academicDisplay(getStudentName(student))}</TableCell>
+                      <TableCell fontWeight={600}>{getStudentName(student)}</TableCell>
 
                       <TableCell>
                         {transitionType === "al" && studentStatus[student.id] === "promote" ? (
@@ -687,13 +687,13 @@ export default function YearEndPromotion() {
                             >
                               {STREAMS.map((stream) => (
                                 <MenuItem key={stream} value={stream}>
-                                  {academicDisplay(stream)}
+                                  {stream}
                                 </MenuItem>
                               ))}
                             </Select>
                           </FormControl>
                         ) : (
-                          <Chip label={academicDisplay(`Grade ${getStudentGrade(student)}`)} size="small" color="primary" />
+                          <Chip label={`Grade ${getStudentGrade(student)}`} size="small" color="primary" />
                         )}
                       </TableCell>
 
@@ -798,20 +798,20 @@ export default function YearEndPromotion() {
           <Box display="flex" flexDirection="column" gap={1}>
             <Chip
               icon={<ArrowForwardIcon />}
-              label={academicDisplay(`Grade ${grade}-${section} (${fromYear}) → Grade ${nextGrade || "🎓"}-${section} (${toYear})`)}
+              label={`Grade ${grade}-${section} (${fromYear}) → Grade ${nextGrade || "🎓"}-${section} (${toYear})`}
               color="primary"
             />
 
             <Chip
               icon={<CheckCircleIcon />}
-              label={academicDisplay(`${promotingCount} students will be promoted`)}
+              label={`${promotingCount} students will be promoted`}
               color="success"
             />
 
             {detainedCount > 0 && (
               <Chip
                 icon={<WarningIcon />}
-                label={academicDisplay(`${detainedCount} students will be detained`)}
+                label={`${detainedCount} students will be detained`}
                 color="error"
               />
             )}

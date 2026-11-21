@@ -204,14 +204,14 @@ export default function Layout() {
       items: [
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/marks" },
         { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/sba-marks" },
-        { label: "SBA Class Register", icon: <DescriptionRoundedIcon />, path: "/sba-register" },
-        { label: "SBA Blank Sheet", icon: <AssessmentRoundedIcon />, path: "/sba" },
+        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/sba" },
         { label: "Bulk Marks Upload", icon: <UploadFileRoundedIcon />, path: "/marks-upload", badge: "NEW" },
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "NEW" },
         { label: "Attendance Register", icon: <CalendarMonthRoundedIcon />, path: "/attendance-register", badge: "NEW" },
         { label: "Grade Result Sheet", icon: <AssessmentRoundedIcon />, path: "/grade-result-sheet", badge: "NEW" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "NEW" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "NEW" },
+        { label: "SBA Class Completion", icon: <FactCheckRoundedIcon />, path: "/sba-class-completion-report", badge: "NEW" },
         { label: "Text Book Request", icon: <MenuBookRoundedIcon />, path: "/text-book-request", badge: "NEW" },
         { label: "Live Marks Status", icon: <FactCheckRoundedIcon />, path: "/marks-status-live", badge: "PUBLIC" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "NEW" },
@@ -242,12 +242,14 @@ export default function Layout() {
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/teacher" },
       { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
       { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
+      { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" },
     ];
     if (canAccessAllReports) {
       items.push(
         { label: "Teacher Mark Sheets", icon: <DescriptionRoundedIcon />, path: "/teacher-mark-sheets", badge: "IT" },
         { label: "Class Marks Reports", icon: <AssessmentRoundedIcon />, path: "/class-marks-reports", badge: "IT" },
         { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/class-completion-report", badge: "IT" },
+        { label: "SBA Class Completion", icon: <FactCheckRoundedIcon />, path: "/sba-class-completion-report", badge: "IT" },
         { label: "Text Book Request", icon: <MenuBookRoundedIcon />, path: "/text-book-request", badge: "IT" },
         { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/subject-analysis", badge: "IT" }
       );
@@ -263,13 +265,15 @@ export default function Layout() {
       { label: "Dashboard", icon: <DashboardRoundedIcon />, path: "/sectional-head" },
       { label: "Class Reports", icon: <AssessmentRoundedIcon />, path: "/sectional-head/class-marks-reports" },
       { label: "Class Completion", icon: <FactCheckRoundedIcon />, path: "/sectional-head/class-completion-report" },
+      { label: "SBA Class Completion", icon: <FactCheckRoundedIcon />, path: "/sectional-head/sba-class-completion-report" },
       { label: "Subject Analysis", icon: <BarChartRoundedIcon />, path: "/sectional-head/subject-analysis" },
       { label: "Classwise Lists", icon: <FactCheckRoundedIcon />, path: "/sectional-head/classwise-list" },
     ];
     if (isTeacher) {
       items.push(
         { label: "Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/marks" },
-        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" }
+        { label: "SBA Marks Entry", icon: <GradingRoundedIcon />, path: "/teacher/sba-marks" },
+        { label: "SBA", icon: <AssessmentRoundedIcon />, path: "/teacher/sba" }
       );
     }
     if (isClassTeacher) {
@@ -373,7 +377,6 @@ export default function Layout() {
   }, [bottomNavItems, location.pathname]);
 
   const handleLogout = async () => {
-    if (!window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) return;
     setProfileAnchor(null);
     await logout();
     navigate("/login");
@@ -381,7 +384,6 @@ export default function Layout() {
 
   const handleNavigate = (path) => {
     if (!path) return;
-    if (!window.dispatchEvent(new Event("app:before-navigate", { cancelable: true }))) return;
     navigate(path);
     setMobileOpen(false);
     setSearchOpen(false);

@@ -1,5 +1,3 @@
-import { academicDisplay } from "../../utils/academicDisplay";
-import { loadRowsForAcademicYear } from "../../services/firestoreScopedReads";
 // src/pages/reports/ClassMarksReports.js
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -27,6 +25,7 @@ import { getCollectionRows } from "../../services/firestoreReadCache";
 import { useAuth } from "../../context/AuthContext";
 import { PageContainer } from "../../components/ui";
 import { buildClassMarksReportData } from "../../utils/classMarksReportBuilder";
+import { findAcademicTerm } from "../../utils/studentTermEligibility";
 import { flattenSchemaColumns, getOverallExclusionNote } from "../../utils/reportSchemas";
 import {
   createColorClassMarksPdfFile,
@@ -129,7 +128,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Grade - {academicDisplay(className)} Year - {year} Term - {academicDisplay(termName.replace("Term ", ""))}
+          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
         </Typography>
 
         {unassignedMediumCount > 0 && (
@@ -169,7 +168,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
 
                 {schema.groups.map((group) => (
                   <th key={group.key} style={headCellStyle} colSpan={group.columns.length}>
-                    {academicDisplay(group.label || "")}
+                    {group.label || ""}
                   </th>
                 ))}
 
@@ -190,7 +189,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
               <tr>
                 {flatColumns.map((column) => (
                   <th key={column.key} style={headCellStyle}>
-                    {academicDisplay(column.label)}
+                    {column.label}
                   </th>
                 ))}
               </tr>
@@ -203,7 +202,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                   <td style={bodyCellStyle}>{row.studentId}</td>
                   <td style={bodyCellStyle}>{row.studentIndexNo}</td>
                   <td style={nameCellStyle}>
-                    {academicDisplay(row.studentName)}
+                    {row.studentName}
                   </td>
                   {reportData.separateMediumRanking && (
                     <td style={bodyCellStyle}>{row.rankingMedium || "Unassigned"}</td>
@@ -234,9 +233,9 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                             : {}),
                         }}
                       >
-                        {academicDisplay(row.absencesByColumn[column.key]
+                        {row.absencesByColumn[column.key]
                           ? "AB"
-                          : row.marksByColumn[column.key] ?? "")}
+                          : row.marksByColumn[column.key] ?? ""}
                       </td>
                     );
                   })}
@@ -272,7 +271,7 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
                   fontWeight: 700,
                 }}
               >
-                {academicDisplay(band.label)}: {academicDisplay(band.colorName)}
+                {band.label}: {band.colorName}
               </Box>
             ))}
           </Stack>
@@ -299,12 +298,12 @@ function SchedulePreview({ reportData, colorSchedule = false }) {
         <Grid container spacing={2} sx={{ mt: 3 }}>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
-              {academicDisplay(reportData.classroom?.classTeacherName || "Class Teacher")}
+              {reportData.classroom?.classTeacherName || "Class Teacher"}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
-              {academicDisplay(reportData.classroom?.sectionHeadName || "Sectional Head")}
+              {reportData.classroom?.sectionHeadName || "Sectional Head"}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
@@ -358,7 +357,7 @@ function AnalysisPreview({ reportData }) {
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Grade - {academicDisplay(className)} Year - {year} Term - {academicDisplay(termName.replace("Term ", ""))}
+          Grade - {className} Year - {year} Term - {termName.replace("Term ", "")}
         </Typography>
 
         <Box sx={{ overflowX: "auto" }}>
@@ -375,7 +374,7 @@ function AnalysisPreview({ reportData }) {
                 <th style={headCellStyle}> </th>
                 {flatColumns.map((column) => (
                   <th key={column.key} style={headCellStyle}>
-                    {academicDisplay(column.label)}
+                    {column.label}
                   </th>
                 ))}
               </tr>
@@ -385,11 +384,11 @@ function AnalysisPreview({ reportData }) {
               {rows.map((row) => (
                 <tr key={row.label}>
                   <td style={{ ...labelCellStyle, fontWeight: 600 }}>
-                    {academicDisplay(row.label)}
+                    {row.label}
                   </td>
                   {flatColumns.map((column) => (
                     <td key={column.key} style={bodyCellStyle}>
-                      {academicDisplay(row.getValue(column.key))}
+                      {row.getValue(column.key)}
                     </td>
                   ))}
                 </tr>
@@ -410,7 +409,7 @@ function AnalysisPreview({ reportData }) {
               <Box component="ol" sx={{ pl: 3, mb: 0 }}>
                 {optimiStudents.map((student) => (
                   <Typography key={student.studentId} component="li" variant="body2" sx={{ mb: 0.5 }}>
-                    {academicDisplay(student.studentName)} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
+                    {student.studentName} ({student.studentIndexNo}) — Average: {formatNumber(student.average, 2)}
                   </Typography>
                 ))}
               </Box>
@@ -421,12 +420,12 @@ function AnalysisPreview({ reportData }) {
         <Grid container spacing={2} sx={{ mt: 3 }}>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2">
-              {academicDisplay(reportData.classroom?.classTeacherName || "Class Teacher")}
+              {reportData.classroom?.classTeacherName || "Class Teacher"}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
             <Typography variant="body2" align="center">
-              {academicDisplay(reportData.classroom?.sectionHeadName || "Sectional Head")}
+              {reportData.classroom?.sectionHeadName || "Sectional Head"}
             </Typography>
           </Grid>
           <Grid size={{ xs: 4 }}>
@@ -465,7 +464,7 @@ async function shareClassMarksPdf(reportData, colorSchedule = false) {
     console.warn("Class marks PDF share fallback triggered:", err);
   }
 
-  saveAs(blob, academicDisplay(fileName));
+  saveAs(blob, fileName);
   window.open(
     `https://wa.me/?text=${encodeURIComponent(
       `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
@@ -474,7 +473,7 @@ async function shareClassMarksPdf(reportData, colorSchedule = false) {
     "noopener,noreferrer"
   );
   window.alert(
-    academicDisplay("This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually.")
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
   );
 }
 
@@ -515,13 +514,14 @@ export default function ClassMarksReports() {
         section: selectedClassroom.section,
         stream: selectedClassroom.stream || "",
         termName: selectedTerm,
+        academicTerm: findAcademicTerm(terms, selectedYear, selectedTerm),
         year: selectedYear,
       });
     } catch (err) {
       console.error("Report build failed:", err);
       return null;
     }
-  }, [students, enrollments, marks, classrooms, selectedClassroom, selectedTerm, selectedYear]);
+  }, [students, enrollments, marks, classrooms, terms, selectedClassroom, selectedTerm, selectedYear]);
 
   const filteredClassrooms = useMemo(() => {
     const assignedGradeSet = new Set((assignedGrades || []).map(Number));
@@ -569,8 +569,8 @@ export default function ClassMarksReports() {
       const [studentsData, enrollmentsData, marksData, classroomsData, termsData] =
         await Promise.all([
           getCollectionRows(db, "students", { forceRefresh }),
-          loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
-          loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+          getCollectionRows(db, "marks", { forceRefresh }),
           getCollectionRows(db, "classrooms", { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
         ]);
@@ -620,21 +620,6 @@ export default function ClassMarksReports() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
-      loadRowsForAcademicYear("marks", selectedYear),
-    ]).then(([enrollmentRows, markRows]) => {
-      if (!cancelled) {
-        setEnrollments(enrollmentRows);
-        setMarks(markRows);
-      }
-    }).catch((loadError) => {
-      if (!cancelled) setError(loadError.message || "Failed to load report year data.");
-    });
-    return () => { cancelled = true; };
-  }, [selectedYear]);
   async function handleBulkExport() {
     try {
       setBulkLoading(true);
@@ -653,6 +638,7 @@ export default function ClassMarksReports() {
               section: classroom.section,
               stream: classroom.stream || "",
               termName: selectedTerm,
+              academicTerm: findAcademicTerm(terms, selectedYear, selectedTerm),
               year: selectedYear,
             });
           } catch (err) {
@@ -761,6 +747,7 @@ export default function ClassMarksReports() {
       subtitle="Grades 6-13 schedule and analysis, including A/L stream-wise reports."
     >
       <Stack spacing={3}>
+        {!loading && (!findAcademicTerm(terms, selectedYear, selectedTerm)?.startDate || !findAcademicTerm(terms, selectedYear, selectedTerm)?.endDate) && <Alert severity="warning">Set this term's start and end dates in Academic Terms to calculate admission and leaving eligibility accurately.</Alert>}
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
             <Grid container spacing={2}>
@@ -777,7 +764,7 @@ export default function ClassMarksReports() {
                   >
                     {availableYears.map((year) => (
                       <MenuItem key={year} value={year}>
-                        {academicDisplay(year)}
+                        {year}
                       </MenuItem>
                     ))}
                   </Select>
@@ -794,7 +781,7 @@ export default function ClassMarksReports() {
                   >
                     {filteredClassrooms.map((item) => (
                       <MenuItem key={item.id} value={item.id}>
-                        {academicDisplay(getClassroomDisplayName(item))}
+                        {getClassroomDisplayName(item)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -811,7 +798,7 @@ export default function ClassMarksReports() {
                   >
                     {terms.map((item) => (
                       <MenuItem key={item.id} value={item.term}>
-                        {academicDisplay(item.term)}
+                        {item.term}
                       </MenuItem>
                     ))}
                   </Select>
@@ -852,7 +839,7 @@ export default function ClassMarksReports() {
             >
               {selectedClassroom && (
                 <Alert severity="info" sx={{ flex: 1, minWidth: 260 }}>
-                  Grade {selectedClassroom.grade} | Class {academicDisplay(getClassroomDisplayName(selectedClassroom))} | Term {selectedTerm}
+                  Grade {selectedClassroom.grade} | Class {getClassroomDisplayName(selectedClassroom)} | Term {selectedTerm}
                 </Alert>
               )}
 
@@ -940,7 +927,7 @@ export default function ClassMarksReports() {
           </Box>
         )}
 
-        {!!error && <Alert severity="error">{academicDisplay(error)}</Alert>}
+        {!!error && <Alert severity="error">{error}</Alert>}
 
         {!loading && !error && selectedClassroom && !reportData && (
           <Alert severity="warning">

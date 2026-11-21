@@ -1,5 +1,5 @@
-import { academicDisplay, academicSearch } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Autocomplete,
@@ -41,24 +41,19 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import {
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
-import { useSbaTermGate } from "../utils/useSbaTermGate";
 import { useLocation } from "react-router-dom";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
   getCollectionRows,
-  invalidateCollectionRows,
+  updateCachedCollection,
 } from "../services/firestoreReadCache";
-import {
-  loadSbaRosterData,
-  loadSbaTeacherAssignments,
-} from "../services/sbaService";
-import { loadMarksForStudents } from "../services/marksEntryDataService";
 import {
   ActionBar,
   EmptyState,
@@ -80,28 +75,12 @@ import {
   matchesAcademicMedium,
 } from "../utils/academicMediumUtils";
 import {
-  getAcademicTermKey,
-  getAcademicTermLabel,
-  getCalendarSlotForTerm,
-  getTermCalendarNumber,
-  getTermCalendarYear,
-  getTermSequence,
-  getTermSystem,
-  termAppliesToClass,
-} from "../utils/alAcademicCycle";
-import {
   DEFAULT_MARKS_ENTRY_SETTINGS,
   getTeacherMarksEntryLockReason,
   isTeacherMarksEntryLocked,
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
 import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
-import {
-  addSystemStatsDeltaToBatch,
-  deleteWithSystemStats,
-  noteSystemStatsDeltaCommitted,
-  systemStatsAreInitialized,
-} from "../services/systemStatsService";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -180,13 +159,8 @@ const getClassIdentity = (item = {}) =>
 const getResolvedStream = (item = {}, fallback = {}) =>
   normalizeText(pick(item.stream, fallback.stream, ""));
 
-const getResolvedSection = (item = {}, fallback = {}) => {
-  const grade = parseGrade(pick(item.grade, fallback.grade, ""));
-  if (isALGrade(grade) && Object.prototype.hasOwnProperty.call(item, "section")) {
-    return normalizeSection(item.section || "");
-  }
-  return normalizeSection(pick(item.section, item.className, fallback.section, fallback.className, ""));
-};
+const getResolvedSection = (item = {}, fallback = {}) =>
+  normalizeSection(pick(item.section, item.className, fallback.section, fallback.className, ""));
 
 const getResolvedGrade = (item = {}, fallback = {}) =>
   parseGrade(pick(item.grade, fallback.grade, ""));
@@ -296,9 +270,14 @@ const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
   return itemGrade === targetGrade && itemSection === targetSection;
 };
 
-const buildTermKey = (term = {}) => getAcademicTermKey(term);
+const buildTermKey = (term = {}) =>
+  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
 
-const buildTermLabel = (term = {}) => getAcademicTermLabel(term);
+const buildTermLabel = (term) => {
+  const termName = pick(term.term, term.termName, term.name, "Term");
+  const year = pick(term.year, term.academicYear, "");
+  return year ? `${termName} - ${year}` : termName;
+};
 
 const LEGACY_PRACTICE_ASSESSMENT_PREFIX = "__LEGACY_PRACTICE_TERM__:";
 
@@ -330,6 +309,15 @@ const isActiveTerm = (term) => {
   const raw = pick(term.isActive, term.active, term.status);
   if (typeof raw === "boolean") return raw;
   return normalize(raw) === "active" || normalize(raw) === "true";
+};
+
+const isSameTeacher = (item, user) => {
+  const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
+  const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
+  return (
+    itemTeacherId === normalize(user.uid) ||
+    itemTeacherEmail === normalize(user.email)
+  );
 };
 
 const getStudentSortIndex = (row = {}) =>
@@ -383,7 +371,6 @@ export default function MarksEntry() {
   const { isAdmin, profile: authProfile } = useAuth();
   const location = useLocation();
   const markInputRefs = useRef({});
-  const retainedSaveRows = useRef(new Map());
   const appliedNavigationSelectionRef = useRef("");
 
   const [bootLoading, setBootLoading] = useState(true);
@@ -398,15 +385,11 @@ export default function MarksEntry() {
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [terms, setTerms] = useState([]);
   const [practiceExams, setPracticeExams] = useState([]);
+  const [marksDocs, setMarksDocs] = useState([]);
   const [allEnrollments, setAllEnrollments] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   const [adminStudents, setAdminStudents] = useState([]);
-  const [adminStudentsLoading, setAdminStudentsLoading] = useState(false);
   const [deleteStudent, setDeleteStudent] = useState(null);
-  const [adminStudentMarks, setAdminStudentMarks] = useState([]);
-  const [adminStudentMarksLoading, setAdminStudentMarksLoading] = useState(false);
-  const [scopeRefreshVersion, setScopeRefreshVersion] = useState(0);
-  const lastScopeRefreshVersion = useRef(0);
   const [entrySettings, setEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
   const [entrySettingsLoading, setEntrySettingsLoading] = useState(!isAdmin);
 
@@ -418,6 +401,13 @@ export default function MarksEntry() {
 
   const [studentRows, setStudentRows] = useState([]);
   const [drafts, setDrafts] = useState({});
+
+  const teacherEntryLocked =
+    !isAdmin &&
+    (entrySettingsLoading || isTeacherMarksEntryLocked(entrySettings));
+  const teacherEntryLockReason = entrySettingsLoading
+    ? "Checking marks entry access..."
+    : getTeacherMarksEntryLockReason(entrySettings);
 
   const urlParams = useMemo(
     () => new URLSearchParams(location.search),
@@ -475,6 +465,20 @@ export default function MarksEntry() {
     [terms, selectedTermKey]
   );
 
+  const termOptions = useMemo(() => {
+    const baseTermKeys = new Set(
+      terms
+        .filter((term) => !getLegacyPracticeTermInfo(term))
+        .map((term) => `${normalizeText(pick(term.term, term.termName, ""))}__${Number(pick(term.year, term.academicYear, 0))}`)
+    );
+
+    return terms.filter((term) => {
+      const legacyInfo = getLegacyPracticeTermInfo(term);
+      if (!legacyInfo) return true;
+      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
+    });
+  }, [terms]);
+
   const classOptions = useMemo(() => {
     const map = new Map();
 
@@ -492,11 +496,6 @@ export default function MarksEntry() {
           section: context.section,
           stream: normalizeText(context.stream),
           alClassName: pick(assignment.alClassName, ""),
-          batchYear: isALGrade(context.grade)
-            ? Number(pick(assignment.batchYear, assignment.academicYear, assignment.year, 0)) || 0
-            : 0,
-          intakeYear: Number(pick(assignment.intakeYear, 0)) || 0,
-          academicScopeKey: pick(assignment.academicScopeKey, ""),
         });
       }
     });
@@ -517,38 +516,6 @@ export default function MarksEntry() {
     [classOptions, selectedClass]
   );
 
-  const termOptions = useMemo(() => {
-    const baseTermKeys = new Set(
-      terms
-        .filter((term) => !getLegacyPracticeTermInfo(term))
-        .map((term) => `${normalizeText(pick(term.term, term.termName, ""))}__${Number(pick(term.year, term.academicYear, 0))}`)
-    );
-
-    return terms.filter((term) => {
-      if (selectedClassRow && !termAppliesToClass(term, selectedClassRow)) {
-        return false;
-      }
-      const legacyInfo = getLegacyPracticeTermInfo(term);
-      if (!legacyInfo) return true;
-      return !baseTermKeys.has(`${legacyInfo.baseTerm}__${legacyInfo.year}`);
-    });
-  }, [terms, selectedClassRow]);
-
-  useEffect(() => {
-    if (!selectedClassRow) return;
-    const applicableTerms = terms.filter((term) =>
-      termAppliesToClass(term, selectedClassRow)
-    );
-    const selectedIsApplicable = applicableTerms.some(
-      (term) => buildTermKey(term) === selectedTermKey
-    );
-    if (selectedIsApplicable) return;
-
-    const nextTerm =
-      applicableTerms.find(isActiveTerm) || applicableTerms[0] || null;
-    setSelectedTermKey(nextTerm ? buildTermKey(nextTerm) : "");
-  }, [selectedClassRow, selectedTermKey, terms]);
-
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
@@ -560,9 +527,6 @@ export default function MarksEntry() {
           fullClassName: selectedClassRow.fullClassName,
           className: selectedClassRow.className,
           alClassName: selectedClassRow.alClassName,
-          batchYear: selectedClassRow.batchYear,
-          intakeYear: selectedClassRow.intakeYear,
-          academicScopeKey: selectedClassRow.academicScopeKey,
         }
       : null;
 
@@ -677,9 +641,9 @@ export default function MarksEntry() {
     return studentRows.filter((row) => {
       return (
         !search ||
-        academicSearch(normalize(row.studentName), search) ||
-        academicSearch(normalize(row.indexNo), search) ||
-        academicSearch(normalize(row.admissionNo), search)
+        normalize(row.studentName).includes(search) ||
+        normalize(row.indexNo).includes(search) ||
+        normalize(row.admissionNo).includes(search)
       );
     });
   }, [studentRows, searchText]);
@@ -710,7 +674,7 @@ export default function MarksEntry() {
       pick(deleteStudent.emisStudentId, deleteStudent.emisId, deleteStudent.externalStudentId, "")
     );
 
-    return adminStudentMarks
+    return marksDocs
       .filter((mark) => {
         const markStudentId = String(pick(mark.studentId, ""));
         if (markStudentId) return markStudentId === studentId;
@@ -733,7 +697,7 @@ export default function MarksEntry() {
           { sensitivity: "base" }
         );
       });
-  }, [adminStudentMarks, deleteStudent]);
+  }, [deleteStudent, marksDocs]);
 
   const stats = useMemo(() => {
     const total = filteredRows.length;
@@ -789,17 +753,14 @@ export default function MarksEntry() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      if (forceRefresh) {
-        setScopeRefreshVersion((version) => version + 1);
-      }
-
-      const [allAssignments, allTerms, loadedPracticeExams] =
+      const [allAssignments, allTerms, loadedPracticeExams, allMarks, students, enrollments] =
         await Promise.all([
-          isAdmin
-            ? getCollectionRows(db, "teacherAssignments", { forceRefresh })
-            : loadSbaTeacherAssignments(currentUser, { forceRefresh }),
+          getCollectionRows(db, "teacherAssignments", { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
           getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
+          getCollectionRows(db, "marks", { forceRefresh }),
+          getCollectionRows(db, "students", { forceRefresh }),
+          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
         ]);
 
       const profile = authProfile || {
@@ -811,7 +772,12 @@ export default function MarksEntry() {
         };
 
       setTeacherProfile(profile);
-      setTeacherAssignments(allAssignments);
+
+      const scopedAssignments = isAdmin
+        ? allAssignments
+        : allAssignments.filter((item) => isSameTeacher(item, currentUser));
+
+      setTeacherAssignments(scopedAssignments);
 
       const sortedTerms = [...allTerms].sort((a, b) => {
         const yearDiff =
@@ -828,8 +794,8 @@ export default function MarksEntry() {
 
       setTerms(sortedTerms);
       setPracticeExams(loadedPracticeExams);
-      setAllStudents([]);
-      setAllEnrollments([]);
+      setAllStudents(students);
+      setAllEnrollments(enrollments);
 
       const activeTermDoc = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       const activeLegacyInfo = getLegacyPracticeTermInfo(activeTermDoc);
@@ -847,11 +813,26 @@ export default function MarksEntry() {
         setSelectedTermKey((previous) => previous || buildTermKey(defaultTerm));
       }
 
-      if (allAssignments.length > 0) {
+      setMarksDocs(allMarks);
+
+      if (isAdmin) {
+        setAdminStudents(
+          [...students]
+            .sort((a, b) =>
+              String(pick(a.name, a.fullName, "")).localeCompare(
+                String(pick(b.name, b.fullName, "")),
+                undefined,
+                { sensitivity: "base" }
+              )
+            )
+        );
+      }
+
+      if (scopedAssignments.length > 0) {
         const defaultClass =
-          getComparableALClassName(allAssignments[0]) ||
-          getClassIdentity(allAssignments[0]) ||
-          getClassFallback(allAssignments[0]);
+          getComparableALClassName(scopedAssignments[0]) ||
+          getClassIdentity(scopedAssignments[0]) ||
+          getClassFallback(scopedAssignments[0]);
         setSelectedClass((previous) => previous || defaultClass);
       }
     } catch (err) {
@@ -861,23 +842,6 @@ export default function MarksEntry() {
       setBootLoading(false);
     }
   }, [authProfile, isAdmin]);
-
-  const loadAdminStudents = useCallback(async () => {
-    if (!isAdmin || adminStudentsLoading) return;
-    setAdminStudentsLoading(true);
-    try {
-      const students = await getCollectionRows(db, "students");
-      setAdminStudents([...students].sort((a, b) =>
-        String(pick(a.name, a.fullName, "")).localeCompare(
-          String(pick(b.name, b.fullName, "")), undefined, { sensitivity: "base" }
-        )
-      ));
-    } catch (failure) {
-      setError(`Could not load students for mark deletion: ${failure.message}`);
-    } finally {
-      setAdminStudentsLoading(false);
-    }
-  }, [isAdmin, adminStudentsLoading]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -891,38 +855,12 @@ export default function MarksEntry() {
         return;
       }
 
+      const studentMap = new Map(
+        allStudents.map((student) => [String(student.id), student])
+      );
+
       const termName = pick(activeTerm.term, activeTerm.termName, "");
       const termYear = normalizeAcademicYear(pick(activeTerm.year, activeTerm.academicYear, ""));
-      const forceRefresh = scopeRefreshVersion !== lastScopeRefreshVersion.current;
-      lastScopeRefreshVersion.current = scopeRefreshVersion;
-      const scopeAssignment = {
-        ...selectedClassRow,
-        ...selectedSubject,
-        subjectId: selectedSubject.subjectId,
-        subjectName: selectedSubject.subjectName,
-        medium: selectedSubject.medium,
-        fullClassName: selectedClassRow?.fullClassName || selectedClass,
-      };
-      const {
-        students: scopedStudents,
-        enrollments: scopedEnrollments,
-      } = await loadSbaRosterData(
-        [selectedSubject.subjectId],
-        activeTerm,
-        scopeAssignment,
-        { forceRefresh }
-      );
-      const scopedMarks = await loadMarksForStudents(
-        scopedStudents.map((student) => student.id),
-        { academicYear: termYear, subjectId: selectedSubject.subjectId },
-        { forceRefresh }
-      );
-      setAllStudents(scopedStudents);
-      setAllEnrollments(scopedEnrollments);
-
-      const studentMap = new Map(
-        scopedStudents.map((student) => [String(student.id), student])
-      );
       const selectedLegacyTermName = getLegacyPracticeTermNameFromAssessmentId(selectedAssessmentId);
       const selectedPracticeExamId =
         selectedAssessmentId === "__TERM__" || selectedLegacyTermName ? "" : selectedAssessmentId;
@@ -948,7 +886,7 @@ export default function MarksEntry() {
           }
         : null;
 
-      const relevantEnrollments = scopedEnrollments.filter((enrollment) => {
+      const relevantEnrollments = allEnrollments.filter((enrollment) => {
         const student = studentMap.get(String(pick(enrollment.studentId, ""))) || {};
 
         const enrollmentContext = {
@@ -980,7 +918,7 @@ export default function MarksEntry() {
 
         const status = normalize(pick(enrollment.status, "active"));
 
-        return sameClass && sameSubject && sameMedium && sameYear && (!status || status === "active");
+        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameMedium && sameYear && (!status || status === "active");
       });
 
       const uniqueRelevantEnrollments = Array.from(
@@ -1032,7 +970,7 @@ export default function MarksEntry() {
           className: pick(enrollment.className, student.className, selectedClassRow?.className, ""),
         };
 
-        const existingMark = scopedMarks.find((mark) => {
+        const existingMark = marksDocs.find((mark) => {
           const sameStudent = String(pick(mark.studentId, "")) === studentId;
 
           const sameClass = targetClassContext
@@ -1143,11 +1081,7 @@ export default function MarksEntry() {
         };
       });
 
-      const rows = sortRowsInTeacherMarkSheetOrder(mappedRows).map((row) => {
-        const retained = retainedSaveRows.current.get(row.key);
-        return retained ? { ...row, mark: retained.mark, absent: retained.absent, isDirty: true } : row;
-      });
-      retainedSaveRows.current.clear();
+      const rows = sortRowsInTeacherMarkSheetOrder(mappedRows);
 
       const nextDrafts = {};
       rows.forEach((row) => {
@@ -1168,7 +1102,7 @@ export default function MarksEntry() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, scopeRefreshVersion, selectedClass, selectedSubject, selectedClassRow, selectedAssessmentId, selectedAssessment]);
+  }, [activeTerm, allEnrollments, allStudents, marksDocs, selectedClass, selectedSubject, selectedClassRow, selectedAssessmentId, selectedAssessment]);
 
   useEffect(() => {
     loadBase();
@@ -1202,37 +1136,6 @@ export default function MarksEntry() {
 
     return unsubscribe;
   }, [isAdmin]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAdminStudentMarks([]);
-
-    if (!isAdmin || !deleteStudent?.id) {
-      setAdminStudentMarksLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setAdminStudentMarksLoading(true);
-    loadMarksForStudents([deleteStudent.id])
-      .then((rows) => {
-        if (!cancelled) setAdminStudentMarks(rows);
-      })
-      .catch((loadError) => {
-        if (!cancelled) {
-          console.error(loadError);
-          setError(loadError.message || "Could not load this student's marks.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setAdminStudentMarksLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [deleteStudent?.id, isAdmin]);
 
   useEffect(() => {
     appliedNavigationSelectionRef.current = "";
@@ -1414,7 +1317,7 @@ export default function MarksEntry() {
     const subjectName = pick(mark.subjectName, mark.subject, "selected subject");
     const termName = pick(mark.term, mark.termName, "selected term");
     const confirmed = window.confirm(
-      academicDisplay(`Delete the ${subjectName} mark (${termName}) for ${studentLabel}? This cannot be undone.`)
+      `Delete the ${subjectName} mark (${termName}) for ${studentLabel}? This cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -1423,10 +1326,12 @@ export default function MarksEntry() {
       setError("");
       setSuccess("");
 
-      await deleteWithSystemStats(doc(db, "marks", mark.id), { marks: -1 });
+      await deleteDoc(doc(db, "marks", mark.id));
 
-      setAdminStudentMarks((previous) => previous.filter((item) => item.id !== mark.id));
-      invalidateCollectionRows("marks");
+      setMarksDocs((prev) => prev.filter((item) => item.id !== mark.id));
+      updateCachedCollection("marks", (previous) =>
+        previous.filter((item) => item.id !== mark.id)
+      );
       const loadedRow = studentRows.find((item) => item.existingDocId === mark.id);
       if (loadedRow) {
         setDrafts((prev) => ({
@@ -1477,11 +1382,7 @@ export default function MarksEntry() {
         return;
       }
 
-      await sbaGate.verifyBeforeSave(studentRows);
-      const maintainStats = await systemStatsAreInitialized();
-      const batches = [];
-      let batch;
-      let group;
+      const batch = writeBatch(db);
       const savedMarks = [];
       const currentUser = auth.currentUser;
       const teacherName = pick(
@@ -1492,9 +1393,6 @@ export default function MarksEntry() {
       );
 
       for (const row of dirtyRows) {
-        if (!group || group.marks.length === 8) {
-          batch = writeBatch(db); group = { batch, marks: [], newMarks: 0 }; batches.push(group);
-        }
         const markValue = asNumber(row.mark);
         const absent = Boolean(row.absent);
 
@@ -1521,22 +1419,8 @@ export default function MarksEntry() {
           subjectNumber: row.subjectNumber || "",
           term: row.term,
           termName: row.term,
-          academicTermId: activeTerm.id,
           academicYear: row.academicYear,
           year: row.academicYear,
-          batchYear: selectedClassRow?.batchYear || row.batchYear || 0,
-          intakeYear: selectedClassRow?.intakeYear || row.intakeYear || 0,
-          academicScopeKey:
-            activeTerm.academicScopeKey ||
-            selectedClassRow?.academicScopeKey ||
-            "",
-          termSystem: getTermSystem(activeTerm),
-          termSequence: getTermSequence(activeTerm),
-          calendarYear: getTermCalendarYear(activeTerm),
-          calendarTerm: getTermCalendarNumber(activeTerm),
-          calendarSlotKey: getCalendarSlotForTerm(activeTerm),
-          termScopeKey: activeTerm.termScopeKey || getAcademicTermKey(activeTerm),
-          phaseGrade: Number(activeTerm.phaseGrade) || 0,
           assessmentType: row.assessmentId ? "practice" : "term",
           assessmentId: row.assessmentId || "",
           assessmentName: row.assessmentName || "",
@@ -1555,40 +1439,32 @@ export default function MarksEntry() {
 
         if (row.existingDocId) {
           batch.set(doc(db, "marks", row.existingDocId), payload, { merge: true });
-          group.marks.push({ id: row.existingDocId, ...payload });
+          savedMarks.push({ id: row.existingDocId, ...payload });
         } else {
           const newRef = doc(collection(db, "marks"));
           batch.set(newRef, {
             ...payload,
             createdAt: serverTimestamp(),
           });
-          group.marks.push({ id: newRef.id, ...payload });
-          group.newMarks += 1;
+          savedMarks.push({ id: newRef.id, ...payload });
         }
       }
 
-      let saveFailure;
-      for (const item of batches) {
-        addSystemStatsDeltaToBatch(item.batch, { marks: item.newMarks }, { enabled: maintainStats });
-        try {
-          await item.batch.commit();
-          savedMarks.push(...item.marks);
-          if (maintainStats && item.newMarks) noteSystemStatsDeltaCommitted({ marks: item.newMarks });
-        } catch (failure) {
-          saveFailure = failure;
-          break;
-        }
-      }
+      await batch.commit();
       const savedByStudent = new Map(savedMarks.map((mark) => [String(mark.studentId), mark]));
-      if (saveFailure) retainedSaveRows.current = new Map(studentRows.filter((row) => row.isDirty && !savedByStudent.has(String(row.studentId))).map((row) => [row.key, row]));
-      invalidateCollectionRows("marks");
+      const mergeSavedMarks = (previous) => {
+        const byId = new Map(previous.map((mark) => [mark.id, mark]));
+        savedMarks.forEach((mark) => byId.set(mark.id, { ...byId.get(mark.id), ...mark }));
+        return Array.from(byId.values());
+      };
+      setMarksDocs(mergeSavedMarks);
+      updateCachedCollection("marks", mergeSavedMarks);
       setStudentRows((previous) =>
         previous.map((row) => {
           const saved = savedByStudent.get(String(row.studentId));
           return saved ? { ...row, existingDocId: saved.id, isDirty: false } : row;
         })
       );
-      if (saveFailure) throw new Error(`${savedMarks.length} marks saved; remaining edits are retained. ${saveFailure.message}`);
       setSuccess("Marks saved successfully.");
     } catch (err) {
       console.error(err);
@@ -1597,13 +1473,6 @@ export default function MarksEntry() {
       setSaving(false);
     }
   };
-
-  const sbaGate = useSbaTermGate({ isAdmin, settings: entrySettings, term: activeTerm,
-    classContext: selectedClassRow, subject: selectedSubject, assessmentId: selectedAssessmentId,
-    students: allStudents, enrollments: allEnrollments });
-  const teacherEntryLocked = !isAdmin && (entrySettingsLoading || isTeacherMarksEntryLocked(entrySettings) || sbaGate.locked);
-  const teacherEntryLockReason = entrySettingsLoading ? "Checking marks entry access..." :
-    getTeacherMarksEntryLockReason(entrySettings) || sbaGate.reason;
 
   const dirtyCount = studentRows.filter((row) => row.isDirty).length;
   const saveProgress =
@@ -1647,12 +1516,12 @@ export default function MarksEntry() {
       }
     >
       <Stack spacing={2.25}>
-        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
-        {success ? <Alert severity="success">{academicDisplay(success)}</Alert> : null}
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {success ? <Alert severity="success">{success}</Alert> : null}
+        {activeTerm && (!activeTerm.startDate || !activeTerm.endDate) && <Alert severity="warning">This term needs start and end dates before admission and leaving dates can be applied accurately.</Alert>}
         {!isAdmin && teacherEntryLocked ? (
           <Alert severity="warning" icon={<LockRoundedIcon />}>
             <strong>Marks Entry Disabled.</strong> {teacherEntryLockReason} You can still view saved marks and use the other teacher dashboard features.
-            {sbaGate.locked && <Button href="/teacher/sba-marks" sx={{ ml: 1 }}>Enter SBA marks</Button>}
           </Alert>
         ) : null}
 
@@ -1670,11 +1539,9 @@ export default function MarksEntry() {
 
               <Autocomplete
                 options={adminStudents}
-                loading={adminStudentsLoading}
-                onOpen={loadAdminStudents}
                 value={deleteStudent}
                 onChange={(_, value) => setDeleteStudent(value)}
-                getOptionLabel={(...args) => academicDisplay((getAdminStudentLabel)(...args))}
+                getOptionLabel={getAdminStudentLabel}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
                 renderInput={(params) => (
                   <TextField
@@ -1687,9 +1554,7 @@ export default function MarksEntry() {
               />
 
               {deleteStudent ? (
-                adminStudentMarksLoading ? (
-                  <Box textAlign="center" py={2}><CircularProgress size={24} /></Box>
-                ) : deleteStudentMarks.length > 0 ? (
+                deleteStudentMarks.length > 0 ? (
                   <ResponsiveTableWrapper minWidth={820}>
                     <Table size="small">
                       <TableHead>
@@ -1707,13 +1572,13 @@ export default function MarksEntry() {
                           <TableRow key={mark.id} hover>
                             <TableCell>{pick(mark.year, mark.academicYear, "-")}</TableCell>
                             <TableCell>
-                              {academicDisplay([
+                              {[
                                 pick(mark.term, mark.termName, ""),
                                 pick(mark.assessmentName, ""),
-                              ].filter(Boolean).join(" - ") || "-")}
+                              ].filter(Boolean).join(" - ") || "-"}
                             </TableCell>
-                            <TableCell>{academicDisplay(pick(mark.fullClassName, mark.className, "-"))}</TableCell>
-                            <TableCell>{academicDisplay(pick(mark.subjectName, mark.subject, "-"))}</TableCell>
+                            <TableCell>{pick(mark.fullClassName, mark.className, "-")}</TableCell>
+                            <TableCell>{pick(mark.subjectName, mark.subject, "-")}</TableCell>
                             <TableCell>{mark.absent ? "Absent" : pick(mark.mark, "-")}</TableCell>
                             <TableCell align="right">
                               <Button
@@ -1778,7 +1643,7 @@ export default function MarksEntry() {
                 >
                   {classOptions.map((option) => (
                     <MenuItem key={option.fullClassName} value={option.fullClassName}>
-                      {academicDisplay(option.displayClassName || option.fullClassName)}
+                      {option.displayClassName || option.fullClassName}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1796,8 +1661,8 @@ export default function MarksEntry() {
                 >
                   {subjectOptions.map((option) => (
                     <MenuItem key={option.key} value={option.key}>
-                      {academicDisplay(option.subjectName)}
-                      {academicDisplay(option.medium ? ` - ${option.medium} Medium` : "")}
+                      {option.subjectName}
+                      {option.medium ? ` - ${option.medium} Medium` : ""}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1817,7 +1682,7 @@ export default function MarksEntry() {
                     const key = buildTermKey(term);
                     return (
                       <MenuItem key={term.id} value={key}>
-                        {academicDisplay(buildTermLabel(term))}
+                        {buildTermLabel(term)}
                       </MenuItem>
                     );
                   })}
@@ -1836,7 +1701,7 @@ export default function MarksEntry() {
                 >
                   {assessmentOptions.map((option) => (
                     <MenuItem key={option.id} value={option.id}>
-                      {academicDisplay(option.name)}
+                      {option.name}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1868,10 +1733,10 @@ export default function MarksEntry() {
                 Quick Summary
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <StatusChip status="active" label={academicDisplay(`${stats.total} students`)} />
-                <StatusChip status="saved" label={academicDisplay(`${stats.saved} saved`)} />
-                <StatusChip status="draft" label={academicDisplay(`${stats.draftCount} unsaved`)} />
-                <StatusChip status="pending" label={academicDisplay(`${stats.absent} absent`)} />
+                <StatusChip status="active" label={`${stats.total} students`} />
+                <StatusChip status="saved" label={`${stats.saved} saved`} />
+                <StatusChip status="draft" label={`${stats.draftCount} unsaved`} />
+                <StatusChip status="pending" label={`${stats.absent} absent`} />
               </Stack>
             </Stack>
           </Paper>
@@ -1925,16 +1790,16 @@ export default function MarksEntry() {
                   Mark Entry Sheet
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {academicDisplay(selectedClass && selectedSubject && activeTerm
+                  {selectedClass && selectedSubject && activeTerm
                     ? `${selectedClassRow?.displayClassName || selectedClass} - ${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""} - ${buildTermLabel(activeTerm)}`
-                    : "Select class, subject, and term to begin.")}
+                    : "Select class, subject, and term to begin."}
                 </Typography>
               </Box>
 
               {selectedClass && selectedSubject && activeTerm ? (
                 <StatusChip
                   status={dirtyCount > 0 ? "draft" : "saved"}
-                  label={academicDisplay(dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved")}
+                  label={dirtyCount > 0 ? `${dirtyCount} unsaved` : "All saved"}
                 />
               ) : null}
             </Stack>
@@ -1956,32 +1821,32 @@ export default function MarksEntry() {
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     <Chip
                       icon={<SchoolRoundedIcon />}
-                      label={academicDisplay(selectedClassRow?.displayClassName || selectedClass)}
+                      label={selectedClassRow?.displayClassName || selectedClass}
                       color="primary"
                       variant="outlined"
                     />
                     {selectedClassRow?.stream ? (
                       <Chip
                         icon={<ClassRoundedIcon />}
-                        label={academicDisplay(selectedClassRow.stream)}
+                        label={selectedClassRow.stream}
                         color="secondary"
                         variant="outlined"
                       />
                     ) : null}
                     <Chip
                       icon={<AutoStoriesRoundedIcon />}
-                      label={academicDisplay(`${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""}`)}
+                      label={`${selectedSubject.subjectName}${selectedSubject.medium ? ` - ${selectedSubject.medium} Medium` : ""}`}
                       variant="outlined"
                     />
                     {selectedSubject.subjectNumber ? (
                       <Chip
-                        label={academicDisplay(`No. ${selectedSubject.subjectNumber}`)}
+                        label={`No. ${selectedSubject.subjectNumber}`}
                         variant="outlined"
                       />
                     ) : null}
                     <Chip
                       icon={<TimelineRoundedIcon />}
-                      label={academicDisplay(buildTermLabel(activeTerm))}
+                      label={buildTermLabel(activeTerm)}
                       variant="outlined"
                     />
                   </Stack>
@@ -2013,8 +1878,8 @@ export default function MarksEntry() {
                       <MobileListRow
                         key={row.key}
                         compact
-                        title={academicDisplay(`${index + 1}. Index ${getStudentEntryLabel(row, index)}`)}
-                        subtitle={academicDisplay(row.indexNo && row.admissionNo ? `Admission ${row.admissionNo}` : "")}
+                        title={`${index + 1}. Index ${getStudentEntryLabel(row, index)}`}
+                        subtitle={row.indexNo && row.admissionNo ? `Admission ${row.admissionNo}` : ""}
                         right={
                           row.isDirty ? (
                             <StatusChip status="draft" />
@@ -2027,10 +1892,10 @@ export default function MarksEntry() {
                         meta={
                           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                             {row.subjectNumber ? (
-                              <Chip size="small" variant="outlined" label={academicDisplay(`No. ${row.subjectNumber}`)} />
+                              <Chip size="small" variant="outlined" label={`No. ${row.subjectNumber}`} />
                             ) : null}
                             {row.stream ? (
-                              <Chip size="small" variant="outlined" label={academicDisplay(row.stream)} />
+                              <Chip size="small" variant="outlined" label={row.stream} />
                             ) : null}
                             {Boolean(drafts[row.key]?.absent ?? row.absent) ? (
                               <Chip size="small" color="error" variant="outlined" label="Absent" />
@@ -2114,10 +1979,10 @@ export default function MarksEntry() {
                             <TableCell>{index + 1}</TableCell>
                             <TableCell>
                               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                {academicDisplay(getStudentEntryLabel(row, index))}
+                                {getStudentEntryLabel(row, index)}
                               </Typography>
                             </TableCell>
-                            <TableCell>{academicDisplay(row.subjectNumber || "-")}</TableCell>
+                            <TableCell>{row.subjectNumber || "-"}</TableCell>
                             <TableCell>{row.stream || "-"}</TableCell>
                             <TableCell>
                               <TextField
@@ -2161,10 +2026,10 @@ export default function MarksEntry() {
 
                 <ActionBar sticky>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <StatusChip status="active" label={academicDisplay(`${filteredRows.length} rows`)} />
+                    <StatusChip status="active" label={`${filteredRows.length} rows`} />
                     <StatusChip
                       status={dirtyCount > 0 ? "draft" : "saved"}
-                      label={academicDisplay(`${dirtyCount} unsaved`)}
+                      label={`${dirtyCount} unsaved`}
                     />
                   </Stack>
 

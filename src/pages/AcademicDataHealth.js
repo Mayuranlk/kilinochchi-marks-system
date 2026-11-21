@@ -1,6 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
-import React, { useCallback, useMemo, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, MenuItem,
   Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography,
@@ -23,8 +22,7 @@ const SAFE_FIX_TYPES = new Set([
 
 export default function AcademicDataHealth() {
   const { profile } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [hasRun, setHasRun] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState({ students: [], subjects: [], enrollments: [], marks: [] });
   const [year, setYear] = useState(currentYear);
@@ -37,52 +35,26 @@ export default function AcademicDataHealth() {
     setLoading(true);
     setError("");
     try {
-      const yearValues = [year, Number(year)].filter(
-        (value, index, values) =>
-          Number.isFinite(Number(value)) &&
-          values.findIndex((item) => typeof item === typeof value && item === value) === index
-      );
-      const loadYearRows = async (collectionName) => {
-        const variants = ["academicYear", "year"].flatMap((field) =>
-          yearValues.map((value) => ({ field, value }))
-        );
-        const read = ({ field, value }) =>
-          getDocs(query(collection(db, collectionName), where(field, "==", value)));
-        const primary = await read(variants[0]);
-        const snapshots = primary.docs.length
-          ? [primary]
-          : await Promise.all(variants.slice(1).map(read));
-        return [
-          ...new Map(
-            snapshots
-              .flatMap((snapshot) =>
-                snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-              )
-              .map((item) => [item.id, item])
-          ).values(),
-        ];
-      };
-      const map = (snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
       const [students, subjects, enrollments, marks] = await Promise.all([
         getDocs(collection(db, "students")),
         getDocs(collection(db, "subjects")),
-        loadYearRows("studentSubjectEnrollments"),
-        loadYearRows("marks"),
+        getDocs(collection(db, "studentSubjectEnrollments")),
+        getDocs(collection(db, "marks")),
       ]);
+      const map = (snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
       setData({
-        students: map(students),
-        subjects: map(subjects),
-        enrollments,
-        marks,
+        students: map(students), subjects: map(subjects),
+        enrollments: map(enrollments), marks: map(marks),
       });
-      setHasRun(true);
     } catch (err) {
       console.error(err);
       setError(err.message || "Could not run academic data checks.");
     } finally {
       setLoading(false);
     }
-  }, [year]);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const years = useMemo(() => {
     const values = new Set([currentYear]);
@@ -148,15 +120,13 @@ export default function AcademicDataHealth() {
     <PageContainer title="Academic Data Health"
       subtitle="Find enrollment, subject, student and marks problems before they affect reports.">
       <Stack spacing={2.5}>
-        <Alert severity={!hasRun ? "info" : report.totals.errors ? "error" : report.totals.warnings ? "warning" : "success"}>
-          {!hasRun
-            ? "Choose an academic year and run the audit. Data is loaded only when requested."
-            : academicDisplay(report.issues.length
-              ? report.totals.errors + " critical and " + report.totals.warnings + " warning issues need review."
-              : "No academic data problems detected for " + year + ".")}
+        <Alert severity={report.totals.errors ? "error" : report.totals.warnings ? "warning" : "success"}>
+          {report.issues.length
+            ? `${report.totals.errors} critical and ${report.totals.warnings} warning issues need review.`
+            : `No academic data problems detected for ${year}.`}
         </Alert>
         {fixResult && <Alert severity={fixResult.errors ? "warning" : "success"} onClose={() => setFixResult(null)}>
-          Safe fixes completed: {academicDisplay(fixResult.subjectsCreated)} subjects created, {academicDisplay(fixResult.subjectsRepaired)} repaired,
+          Safe fixes completed: {fixResult.subjectsCreated} subjects created, {fixResult.subjectsRepaired} repaired,
           {" "}{fixResult.enrollmentsCreated} enrollments created, {fixResult.enrollmentsReactivated} reactivated,
           {" "}{fixResult.enrollmentsUpdated} updated. {fixResult.skipped} students need manual data review.
         </Alert>}
@@ -165,29 +135,26 @@ export default function AcademicDataHealth() {
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}
             sx={{ flexWrap: { sm: "wrap" }, rowGap: 2 }}>
             <TextField select label="Academic year" value={year} onChange={(e) => setYear(e.target.value)} sx={{ minWidth: 180 }}>
-              {years.map((value) => <MenuItem key={value} value={value}>{academicDisplay(value)}</MenuItem>)}
+              {years.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
             </TextField>
             <TextField select fullWidth label="Issue type" value={type} onChange={(e) => setType(e.target.value)}>
-              <MenuItem value="all">All issues ({academicDisplay(report.issues.length)})</MenuItem>
-              {issueTypes.map((value) => <MenuItem key={value} value={value}>{academicDisplay(value)} ({academicDisplay(report.byType[value])})</MenuItem>)}
+              <MenuItem value="all">All issues ({report.issues.length})</MenuItem>
+              {issueTypes.map((value) => <MenuItem key={value} value={value}>{value} ({report.byType[value]})</MenuItem>)}
             </TextField>
-            <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={load} disabled={loading}>{hasRun ? "Refresh audit" : "Run audit"}</Button>
-            <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!hasRun || !visibleIssues.length}>Export</Button>
+            <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
+            <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportCsv} disabled={!visibleIssues.length}>Export</Button>
             <Button color="success" variant="contained" startIcon={<AutoFixHighRoundedIcon />}
-              onClick={() => setFixDialogOpen(true)} disabled={!hasRun || loading || fixing}>
+              onClick={() => setFixDialogOpen(true)} disabled={loading || fixing}>
               Safe fixes
             </Button>
           </Stack>
         </CardContent></Card>
 
-        {loading ? <Box textAlign="center" py={8}><CircularProgress /></Box> : error ? <Alert severity="error">{academicDisplay(error)}</Alert> : !hasRun ? (
-          <EmptyState icon={<HealthAndSafetyRoundedIcon />}
-            title="Audit ready" description="Run the selected-year audit when you need a full data health check." />
-        ) : <>
+        {loading ? <Box textAlign="center" py={8}><CircularProgress /></Box> : error ? <Alert severity="error">{error}</Alert> : <>
           <Stack direction="row" spacing={1.5} sx={{ overflowX: "auto", pb: 1 }}>
             <Box minWidth={160}><StatCard title="Active students" value={report.totals.students} /></Box>
             <Box minWidth={160}><StatCard title="Active subjects" value={report.totals.subjects} /></Box>
-            <Box minWidth={160}><StatCard title={academicDisplay(`${year} enrollments`)} value={report.totals.enrollments} /></Box>
+            <Box minWidth={160}><StatCard title={`${year} enrollments`} value={report.totals.enrollments} /></Box>
             <Box minWidth={160}><StatCard title="Critical issues" value={report.totals.errors} color="error" /></Box>
           </Stack>
 
@@ -201,13 +168,13 @@ export default function AcademicDataHealth() {
                     <Box>
                       <Typography fontWeight={850}>{issue.type}</Typography>
                       {(issue.student || issue.className) && <Typography variant="body2" color="text.secondary">
-                        {academicDisplay([issue.student, issue.indexNo && `Index ${issue.indexNo}`, issue.className].filter(Boolean).join(" · "))}
+                        {[issue.student, issue.indexNo && `Index ${issue.indexNo}`, issue.className].filter(Boolean).join(" · ")}
                       </Typography>}
-                      <Typography mt={.75}>{academicDisplay(issue.detail)}</Typography>
+                      <Typography mt={.75}>{issue.detail}</Typography>
                     </Box>
                     <Stack direction="row" spacing={1}>
                       {SAFE_FIX_TYPES.has(issue.type) && <Chip size="small" color="success" variant="outlined" label="Safe fix available" />}
-                      <Chip size="small" color={issue.severity === "error" ? "error" : "warning"} label={academicDisplay(issue.severity)} />
+                      <Chip size="small" color={issue.severity === "error" ? "error" : "warning"} label={issue.severity} />
                     </Stack>
                   </Stack>
                 </CardContent>

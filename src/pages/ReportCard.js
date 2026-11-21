@@ -1,5 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import { useParams, useNavigate } from "react-router-dom";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import {
@@ -287,27 +287,32 @@ export default function ReportCard() {
   }, [allTerms, allMarks, allEnrollments, student]);
 
   const marksForYear = useMemo(() => {
-    if (!selectedYear) return allMarks;
-    return allMarks.filter((mark) => !getMarkYear(mark) || getMarkYear(mark) === selectedYear);
-  }, [allMarks, selectedYear]);
+    return allMarks.filter((mark) => (!selectedYear || !getMarkYear(mark) || getMarkYear(mark) === selectedYear) &&
+      studentWasEnrolledDuringTerm(student, findAcademicTerm(allTerms, getMarkYear(mark) || selectedYear, getMarkTerm(mark))));
+  }, [allMarks, allTerms, selectedYear, student]);
 
   const availableTerms = useMemo(() => {
     const termSet = new Set();
 
     allTerms
-      .filter((row) => !selectedYear || normalizeAcademicYear(row.year) === selectedYear)
+      .filter((row) => (!selectedYear || normalizeAcademicYear(row.year) === selectedYear) && studentWasEnrolledDuringTerm(student, row))
       .forEach((row) => {
         if (safeText(row.term)) termSet.add(safeText(row.term));
       });
 
     marksForYear.forEach((row) => {
-      if (getMarkTerm(row)) termSet.add(getMarkTerm(row));
+      if (getMarkTerm(row) && studentWasEnrolledDuringTerm(student, findAcademicTerm(allTerms, selectedYear, getMarkTerm(row)))) termSet.add(getMarkTerm(row));
     });
 
     return Array.from(termSet);
-  }, [allTerms, marksForYear, selectedYear]);
+  }, [allTerms, marksForYear, selectedYear, student]);
+
+  useEffect(() => {
+    if (term !== "All" && !availableTerms.includes(term)) setTerm("All");
+  }, [availableTerms, term]);
 
   const expectedSubjects = useMemo(() => {
+    if (term !== "All" && !studentWasEnrolledDuringTerm(student, findAcademicTerm(allTerms, selectedYear, term))) return [];
     const rows = allEnrollments
       .filter(isEnrollmentActive)
       .filter(
@@ -334,7 +339,7 @@ export default function ReportCard() {
     return Array.from(map.values()).sort((a, b) =>
       a.subjectName.localeCompare(b.subjectName)
     );
-  }, [allEnrollments, selectedYear]);
+  }, [allEnrollments, allTerms, selectedYear, student, term]);
 
   const expectedOrder = useMemo(() => {
     return expectedSubjects.map(
@@ -442,7 +447,7 @@ export default function ReportCard() {
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
-    printWindow.document.write(academicDisplay(`
+    printWindow.document.write(`
       <html>
         <head>
           <title>Report Card - ${safeText(student?.name || student?.fullName)}</title>
@@ -581,7 +586,7 @@ export default function ReportCard() {
         </head>
         <body>${content}</body>
       </html>
-    `));
+    `);
 
     printWindow.document.close();
     printWindow.focus();
@@ -603,7 +608,7 @@ export default function ReportCard() {
 
       return (
         <TableRow key={rowKey} hover>
-          <TableCell>{academicDisplay(getMarkSubject(mark))}</TableCell>
+          <TableCell>{getMarkSubject(mark)}</TableCell>
           <TableCell>
             <strong>{status === "absent" ? "Absent" : "Medical Absent"}</strong>
           </TableCell>
@@ -618,7 +623,7 @@ export default function ReportCard() {
                 fontSize: 13,
               }}
             >
-              {academicDisplay(label)}
+              {label}
             </span>
           </TableCell>
           <TableCell>{remarks}</TableCell>
@@ -630,8 +635,8 @@ export default function ReportCard() {
 
     return (
       <TableRow key={rowKey} hover>
-        <TableCell>{academicDisplay(getMarkSubject(mark))}</TableCell>
-        <TableCell>{academicDisplay(value)}</TableCell>
+        <TableCell>{getMarkSubject(mark)}</TableCell>
+        <TableCell>{value}</TableCell>
         <TableCell>
           <span
             style={{
@@ -643,7 +648,7 @@ export default function ReportCard() {
               fontSize: 13,
             }}
           >
-            {academicDisplay(gradeMeta.label)}
+            {gradeMeta.label}
           </span>
         </TableCell>
         <TableCell>{safeText(mark.remarks) || gradeMeta.desc}</TableCell>
@@ -668,10 +673,10 @@ export default function ReportCard() {
           sx={{ borderBottom: "1px solid #e4eaf4" }}
         >
           <Typography variant="body2" fontWeight={600}>
-            {academicDisplay(getMarkSubject(mark))}
+            {getMarkSubject(mark)}
           </Typography>
           <Chip
-            label={academicDisplay(label)}
+            label={label}
             size="small"
             sx={{
               bgcolor: status === "absent" ? "#ffebee" : "#f3e5f5",
@@ -696,14 +701,14 @@ export default function ReportCard() {
         sx={{ borderBottom: "1px solid #e4eaf4" }}
       >
         <Typography variant="body2" fontWeight={600}>
-          {academicDisplay(getMarkSubject(mark))}
+          {getMarkSubject(mark)}
         </Typography>
         <Box display="flex" alignItems="center" gap={1}>
           <Typography variant="body2" fontWeight={700}>
-            {academicDisplay(value)}/100
+            {value}/100
           </Typography>
           <Chip
-            label={academicDisplay(gradeMeta.label)}
+            label={gradeMeta.label}
             size="small"
             sx={{ bgcolor: gradeMeta.bg, color: gradeMeta.color, fontWeight: 700 }}
           />
@@ -736,7 +741,7 @@ export default function ReportCard() {
 
       {!!loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {academicDisplay(loadError)}
+          {loadError}
         </Alert>
       )}
 
@@ -766,7 +771,7 @@ export default function ReportCard() {
                 >
                   {availableYears.map((year) => (
                     <MenuItem key={year} value={year}>
-                      {academicDisplay(year)}
+                      {year}
                     </MenuItem>
                   ))}
                 </Select>
@@ -782,7 +787,7 @@ export default function ReportCard() {
                   <MenuItem value="All">All Terms</MenuItem>
                   {availableTerms.map((t) => (
                     <MenuItem key={t} value={t}>
-                      {academicDisplay(t)}
+                      {t}
                     </MenuItem>
                   ))}
                 </Select>
@@ -805,7 +810,7 @@ export default function ReportCard() {
             <Alert severity="warning" sx={{ mb: 2 }}>
               Marks not yet entered for{" "}
               {term === "All" ? `academic year ${selectedYear}` : `${term} ${selectedYear}`}:{" "}
-              <strong>{academicDisplay(missingSubjects.join(", "))}</strong>
+              <strong>{missingSubjects.join(", ")}</strong>
             </Alert>
           )}
 
@@ -859,7 +864,7 @@ export default function ReportCard() {
                 Academic Record
               </Typography>
               <Typography className="report-card-school-name" variant={isMobile ? "h6" : "h4"} fontWeight={800}>
-                {academicDisplay(SCHOOL_NAME)}
+                {SCHOOL_NAME}
               </Typography>
               <Typography className="report-card-title" variant="body1" sx={{ mt: 1, opacity: 0.92 }}>
                 Student Report Card
@@ -901,13 +906,13 @@ export default function ReportCard() {
                         color: "#6a7b97",
                       }}
                     >
-                      {academicDisplay(label)}
+                      {label}
                     </Typography>
                     <Typography
                       className="report-card-meta-value"
                       sx={{ fontSize: { xs: 15, sm: 16 }, fontWeight: 800 }}
                     >
-                      {academicDisplay(value)}
+                      {value}
                     </Typography>
                   </Box>
                 ))}
@@ -942,14 +947,14 @@ export default function ReportCard() {
                         fontWeight={800}
                         color="#163976"
                       >
-                        {academicDisplay(selectedTermLabel)} Results
+                        {selectedTermLabel} Results
                       </Typography>
                       <Typography variant="body2" sx={supportingTextSx}>
-                        Year {selectedYear || "-"} performance summary for {academicDisplay(studentDisplayName)}.
+                        Year {selectedYear || "-"} performance summary for {studentDisplayName}.
                       </Typography>
                     </Box>
                     <Box component="span" className="report-card-pill" sx={pillSx}>
-                      {selectedYear || "-"} | {academicDisplay(selectedTermLabel)}
+                      {selectedYear || "-"} | {selectedTermLabel}
                     </Box>
               </Box>
 
@@ -969,7 +974,7 @@ export default function ReportCard() {
                           <TableRow>
                             {["Subject", "Marks", "Grade", "Remarks"].map((heading) => (
                               <TableCell key={heading} sx={{ color: "white", fontWeight: 700 }}>
-                                {academicDisplay(heading)}
+                                {heading}
                               </TableCell>
                             ))}
                           </TableRow>
@@ -996,10 +1001,10 @@ export default function ReportCard() {
                     <Box mt={2} display="flex" justifyContent="flex-end">
                       <Box component="span" className="report-card-pill" sx={pillSx}>
                         Term Average{" "}
-                        {academicDisplay(calcAverageText(
+                        {calcAverageText(
                           filteredMarks,
                           term === "All" ? null : expectedSubjects.length
-                        ))}{" "}
+                        )}{" "}
                         / 100
                       </Box>
                     </Box>
@@ -1061,7 +1066,7 @@ export default function ReportCard() {
                                 <TableRow>
                                   {["Subject", "Marks", "Grade", "Remarks"].map((heading) => (
                                     <TableCell key={heading} sx={{ fontWeight: 700, color: "#163976" }}>
-                                      {academicDisplay(heading)}
+                                      {heading}
                                     </TableCell>
                                   ))}
                                 </TableRow>

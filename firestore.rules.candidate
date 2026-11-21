@@ -89,15 +89,6 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
-    match /systemStats/{statsId} {
-      allow read: if signedIn() && isAcademicStaff();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (statsId == 'overview' && role() == 'teacher' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marksCount', 'updatedAt']) &&
-        request.resource.data.marksCount is int &&
-        request.resource.data.marksCount >= resource.data.get('marksCount', 0) &&
-        request.resource.data.marksCount <= resource.data.get('marksCount', 0) + 8);
-    }
     match /studentFeeAccounts/{accountId} {
       allow read, create, update: if signedIn() && role() in ['admin', 'account'];
       allow delete: if isAdmin();

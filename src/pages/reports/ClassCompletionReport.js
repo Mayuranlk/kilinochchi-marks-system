@@ -1,6 +1,6 @@
-import { academicWorksheet, academicExport, academicDisplay } from "../../utils/academicDisplay";
-import { loadRowsForAcademicYear } from "../../services/firestoreScopedReads";
 import React, { useEffect, useMemo, useState } from "react";
+import { normalizeSbaCompletionMarks } from "../../utils/sbaCompletionData";
+import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../../utils/studentTermEligibility";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
@@ -255,7 +255,7 @@ export function buildClassSubjectCompletion({ classEnrollments, classMarks }) {
     .sort((a, b) => a.subjectName.localeCompare(b.subjectName, undefined, { sensitivity: "base" }));
 }
 
-export function buildClassCompletionRows({ classrooms, students, enrollments, marks, year, termName }) {
+export function buildClassCompletionRows({ classrooms, students, enrollments, marks, year, termName, academicTerm = null }) {
   const studentsById = new Map(students.map((student) => [normalizeText(student.id), student]));
 
   return classrooms.map((classroom) => {
@@ -265,12 +265,14 @@ export function buildClassCompletionRows({ classrooms, students, enrollments, ma
     const stream = classroom.stream || "";
     const reportContext = { grade, section, className, stream };
 
-    const classStudents = filterStudentsForClass(students, grade, section, className, stream);
+    const classStudents = filterStudentsForClass(students, grade, section, className, stream).filter((student) => studentWasEnrolledDuringTerm(student, academicTerm));
     const classEnrollments = enrollments.filter((enrollment) => {
       const enrollmentYear = Number(enrollment.academicYear || enrollment.year || 0);
       const sameYear = enrollmentYear === Number(year);
       const sameClass = matchesReportClass(enrollment, reportContext);
       if (!sameYear || !sameClass) return false;
+      const student = studentsById.get(normalizeText(enrollment.studentId));
+      if (student && !studentWasEnrolledDuringTerm(student, academicTerm)) return false;
 
       const active = isActiveStatus(enrollment.status);
       if (active) return true;
@@ -295,6 +297,7 @@ export function buildClassCompletionRows({ classrooms, students, enrollments, ma
       const markYear = Number(mark.academicYear || mark.year || 0);
 
       return (
+        studentWasEnrolledDuringTerm(studentsById.get(normalizeText(mark.studentId)), academicTerm) &&
         matchesReportClass(mark, reportContext) &&
         markTerm === termName &&
         markYear === Number(year)
@@ -376,9 +379,9 @@ export function buildClassCompletionRows({ classrooms, students, enrollments, ma
   });
 }
 
-function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
-  const worksheet = academicWorksheet(XLSX.utils.json_to_sheet(
-    academicExport(rows.map((row) => ({
+function exportRows(rows, { year, termName, summary, pendingSubjectRows, sba = false }) {
+  const worksheet = XLSX.utils.json_to_sheet(
+    rows.map((row) => ({
       Status: getStatusLabel(row.status),
       Grade: row.grade,
       Class: row.className,
@@ -398,13 +401,13 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
       "Pending Subjects": formatPendingSubjects(row),
       "Students Without Marks Names": row.missingMarksNames,
       "Missing Identity Names": row.missingIdentityNames,
-    })))
-  ));
+    }))
+  );
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Class Completion");
 
   if (summary) {
-    const summarySheet = academicWorksheet(XLSX.utils.json_to_sheet(academicExport([
+    const summarySheet = XLSX.utils.json_to_sheet([
       { Metric: "Year", Value: year },
       { Metric: "Term", Value: termName },
       { Metric: "Classes", Value: summary.total },
@@ -417,13 +420,13 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
       { Metric: "Completion Percentage", Value: formatPercent(summary.completionPercent) },
       { Metric: "Pending Subjects", Value: summary.pendingSubjects },
       { Metric: "Partial Subjects", Value: summary.partialSubjects },
-    ])));
+    ]);
     XLSX.utils.book_append_sheet(workbook, summarySheet, "Whole School Summary");
   }
 
   if (pendingSubjectRows?.length) {
-    const pendingSheet = academicWorksheet(XLSX.utils.json_to_sheet(
-      academicExport(pendingSubjectRows.map((row) => ({
+    const pendingSheet = XLSX.utils.json_to_sheet(
+      pendingSubjectRows.map((row) => ({
         Status: getStatusLabel(row.status),
         Grade: row.grade,
         Class: row.className,
@@ -433,8 +436,8 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
         "Enrolled Students": row.enrolledCount,
         "Marks Entered": row.enteredCount,
         "Missing Marks": row.missingCount,
-      })))
-    ));
+      }))
+    );
     XLSX.utils.book_append_sheet(workbook, pendingSheet, "Pending Subjects");
   }
 
@@ -443,11 +446,11 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows }) {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 
-  saveAs(blob, academicDisplay(`class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.xlsx`));
+  saveAs(blob, `${sba ? "sba_" : ""}class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.xlsx`);
 }
 
-function buildCompletionPdfFileName({ year, termName }) {
-  return `class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.pdf`;
+function buildCompletionPdfFileName({ year, termName, sba = false }) {
+  return `${sba ? "sba_" : ""}class_completion_report_${year}_${termName.replace(/\s+/g, "_")}.pdf`;
 }
 
 function getStatusPdfFillColor(status) {
@@ -456,30 +459,30 @@ function getStatusPdfFillColor(status) {
   return [255, 235, 238];
 }
 
-function createCompletionPdf(rows, { year, termName, summary }) {
+function createCompletionPdf(rows, { year, termName, summary, sba = false }) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
-  doc.text(academicDisplay("Kilinochchi Central College"), 148.5, 12, { align: "center" });
+  doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
   doc.setFontSize(11);
-  doc.text(academicDisplay("Class Completion Report"), 148.5, 19, { align: "center" });
+  doc.text(sba ? "SBA Class Completion Report" : "Class Completion Report", 148.5, 19, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text(academicDisplay(`Year: ${year}`), 10, 28);
-  doc.text(academicDisplay(`Term: ${termName}`), 55, 28);
-  doc.text(academicDisplay(`Classes: ${summary.total}`), 112, 28);
-  doc.text(academicDisplay(`Green: ${summary.done}`), 160, 28);
-  doc.text(academicDisplay(`Yellow: ${summary.partial}`), 205, 28);
-  doc.text(academicDisplay(`Red: ${summary.missing}`), 252, 28);
+  doc.text(`Year: ${year}`, 10, 28);
+  doc.text(`Term: ${termName}`, 55, 28);
+  doc.text(`Classes: ${summary.total}`, 112, 28);
+  doc.text(`Green: ${summary.done}`, 160, 28);
+  doc.text(`Yellow: ${summary.partial}`, 205, 28);
+  doc.text(`Red: ${summary.missing}`, 252, 28);
   doc.text(
-    academicDisplay(`Whole School Completion: ${formatPercent(summary.completionPercent)} | Missing Marks: ${summary.missingMarks}`),
+    `Whole School Completion: ${formatPercent(summary.completionPercent)} | Missing Marks: ${summary.missingMarks}`,
     10,
     33
   );
 
-  autoTable(doc, academicExport({
+  autoTable(doc, {
     startY: 39,
     head: [[
       "Status",
@@ -555,10 +558,10 @@ function createCompletionPdf(rows, { year, termName, summary }) {
       data.cell.styles.fillColor = getStatusPdfFillColor(row.status);
     },
     margin: { left: 8, right: 8 },
-  }));
+  });
 
   if (Array.isArray(summary.pendingSubjectRows) && summary.pendingSubjectRows.length) {
-    autoTable(doc, academicExport({
+    autoTable(doc, {
       startY: (doc.lastAutoTable?.finalY || 39) + 8,
       head: [["Class", "Subject", "Status", "Enrolled", "Entered", "Missing"]],
       body: summary.pendingSubjectRows.slice(0, 60).map((row) => [
@@ -598,26 +601,26 @@ function createCompletionPdf(rows, { year, termName, summary }) {
         if (data.pageNumber === 1) return;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
-        doc.text(academicDisplay("Pending Subjects"), 10, 10);
+        doc.text("Pending Subjects", 10, 10);
       },
-    }));
+    });
   }
 
   const finalY = doc.lastAutoTable?.finalY || 185;
   const signatureY = Math.min(finalY + 18, 194);
   doc.setFontSize(8.5);
-  doc.text(academicDisplay("Prepared By"), 28, signatureY);
-  doc.text(academicDisplay("Sectional Head"), 138, signatureY);
-  doc.text(academicDisplay("Principal"), 252, signatureY);
+  doc.text("Prepared By", 28, signatureY);
+  doc.text("Sectional Head", 138, signatureY);
+  doc.text("Principal", 252, signatureY);
   doc.setFontSize(7.5);
-  doc.text(academicDisplay(`Generated: ${new Date().toLocaleString()}`), 289, 203, { align: "right" });
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 289, 203, { align: "right" });
 
   return doc;
 }
 
 function downloadCompletionPdf(rows, context) {
   const doc = createCompletionPdf(rows, context);
-  doc.save(academicDisplay(buildCompletionPdfFileName(context)));
+  doc.save(buildCompletionPdfFileName(context));
 }
 
 async function shareCompletionPdf(rows, context) {
@@ -627,7 +630,7 @@ async function shareCompletionPdf(rows, context) {
   const file = new File([blob], fileName, { type: "application/pdf" });
   const text = [
     "Kilinochchi Central College",
-    "Class Completion Report",
+    context.sba ? "SBA Class Completion Report" : "Class Completion Report",
     `Term: ${context.termName} | Year: ${context.year}`,
     `Classes: ${context.summary.total}`,
     `Green: ${context.summary.done} | Yellow: ${context.summary.partial} | Red: ${context.summary.missing}`,
@@ -636,7 +639,7 @@ async function shareCompletionPdf(rows, context) {
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
       await navigator.share({
-        title: "Kilinochchi Central College - Class Completion Report",
+        title: `Kilinochchi Central College - ${context.sba ? "SBA " : ""}Class Completion Report`,
         text,
         files: [file],
       });
@@ -647,7 +650,7 @@ async function shareCompletionPdf(rows, context) {
     console.warn("Class completion PDF share fallback triggered:", err);
   }
 
-  saveAs(blob, academicDisplay(fileName));
+  saveAs(blob, fileName);
   window.open(
     `https://wa.me/?text=${encodeURIComponent(
       `${text}\n\nThe PDF has been downloaded. Please attach ${fileName} in WhatsApp.`
@@ -656,7 +659,7 @@ async function shareCompletionPdf(rows, context) {
     "noopener,noreferrer"
   );
   window.alert(
-    academicDisplay("This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually.")
+    "This browser cannot attach a generated PDF directly to WhatsApp. The PDF has been downloaded; please attach it in WhatsApp manually."
   );
 }
 
@@ -676,17 +679,17 @@ function SummaryTile({ label, value, color }) {
     >
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-          {academicDisplay(label)}
+          {label}
         </Typography>
         <Typography variant="h5" sx={{ mt: 0.75, fontWeight: 900, color: palette.dark }}>
-          {academicDisplay(value)}
+          {value}
         </Typography>
       </CardContent>
     </Card>
   );
 }
 
-export default function ClassCompletionReport() {
+export default function ClassCompletionReport({ sba = false }) {
   const { isSectionalHead, assignedGrades } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -703,7 +706,7 @@ export default function ClassCompletionReport() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sba]);
 
   async function loadData(forceRefresh = false) {
     try {
@@ -712,15 +715,15 @@ export default function ClassCompletionReport() {
 
       const [studentsData, enrollmentsData, marksData, classroomsData, termsData] = await Promise.all([
         getCollectionRows(db, "students", { forceRefresh }),
-        loadRowsForAcademicYear("studentSubjectEnrollments", CURRENT_YEAR, { forceRefresh }),
-        loadRowsForAcademicYear("marks", CURRENT_YEAR, { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, sba ? "sbaMarks" : "marks", { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
 
       setStudents(studentsData);
       setEnrollments(enrollmentsData);
-      setMarks(marksData);
+      setMarks(sba ? normalizeSbaCompletionMarks(marksData, termsData, enrollmentsData) : marksData);
       setClassrooms(classroomsData);
       setTerms(termsData);
 
@@ -734,21 +737,6 @@ export default function ClassCompletionReport() {
     }
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      loadRowsForAcademicYear("studentSubjectEnrollments", selectedYear),
-      loadRowsForAcademicYear("marks", selectedYear),
-    ]).then(([enrollmentRows, markRows]) => {
-      if (!cancelled) {
-        setEnrollments(enrollmentRows);
-        setMarks(markRows);
-      }
-    }).catch((loadError) => {
-      if (!cancelled) setError(loadError.message || "Failed to load report year data.");
-    });
-    return () => { cancelled = true; };
-  }, [selectedYear]);
   const availableYears = useMemo(() => {
     const years = new Set([
       ...classrooms.map((item) => Number(item.year || item.academicYear || 0)),
@@ -790,8 +778,9 @@ export default function ClassCompletionReport() {
         marks,
         year: selectedYear,
         termName: selectedTerm,
+        academicTerm: findAcademicTerm(terms, selectedYear, selectedTerm),
       }),
-    [enrollments, marks, reportClassrooms, selectedTerm, selectedYear, students]
+    [enrollments, marks, reportClassrooms, selectedTerm, selectedYear, students, terms]
   );
 
   useEffect(() => {
@@ -845,8 +834,9 @@ export default function ClassCompletionReport() {
       year: selectedYear,
       termName: selectedTerm,
       summary,
+      sba,
     }),
-    [selectedTerm, selectedYear, summary]
+    [selectedTerm, selectedYear, summary, sba]
   );
 
   async function handleSharePdf() {
@@ -861,11 +851,12 @@ export default function ClassCompletionReport() {
 
   return (
     <PageContainer
-      title="Class Completion Report"
-      subtitle="Check which classes uploaded students, entered marks, and completed Admission No plus Student ID details."
+      title={sba ? "SBA Class Completion Report" : "Class Completion Report"}
+      subtitle={sba ? "Check SBA marks completion for each class, subject and term." : "Check which classes uploaded students, entered marks, and completed Admission No plus Student ID details."}
     >
       <Stack spacing={3}>
-        {error ? <Alert severity="error">{academicDisplay(error)}</Alert> : null}
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {!loading && (!findAcademicTerm(terms, selectedYear, selectedTerm)?.startDate || !findAcademicTerm(terms, selectedYear, selectedTerm)?.endDate) && <Alert severity="warning">Set this term's start and end dates in Academic Terms to calculate admission and leaving eligibility accurately.</Alert>}
 
         <Card sx={{ borderRadius: 3 }}>
           <CardContent>
@@ -880,7 +871,7 @@ export default function ClassCompletionReport() {
                   >
                     {(availableYears.length ? availableYears : [CURRENT_YEAR]).map((year) => (
                       <MenuItem key={year} value={year}>
-                        {academicDisplay(year)}
+                        {year}
                       </MenuItem>
                     ))}
                   </Select>
@@ -897,7 +888,7 @@ export default function ClassCompletionReport() {
                   >
                     {(terms.length ? terms : [{ id: DEFAULT_TERM, term: DEFAULT_TERM }]).map((term) => (
                       <MenuItem key={term.id} value={term.term}>
-                        {academicDisplay(term.term)}
+                        {term.term}
                       </MenuItem>
                     ))}
                   </Select>
@@ -940,6 +931,7 @@ export default function ClassCompletionReport() {
                         termName: selectedTerm,
                         summary,
                         pendingSubjectRows: filteredPendingSubjectRows,
+                        sba,
                       })
                     }
                     disabled={loading || filteredRows.length === 0}
@@ -1005,7 +997,7 @@ export default function ClassCompletionReport() {
                     </Typography>
                   </Box>
                   <Chip
-                    label={academicDisplay(`${formatPercent(summary.completionPercent)} complete`)}
+                    label={`${formatPercent(summary.completionPercent)} complete`}
                     color={summary.missingMarks === 0 && summary.expectedMarks > 0 ? "success" : "warning"}
                     sx={{ alignSelf: { xs: "flex-start", md: "center" }, fontWeight: 900 }}
                   />
@@ -1064,7 +1056,7 @@ export default function ClassCompletionReport() {
                           <TableRow key={`${row.classId}-${row.subjectKey}`} hover>
                             <TableCell>
                               <Chip
-                                label={academicDisplay(getStatusLabel(row.status))}
+                                label={getStatusLabel(row.status)}
                                 color={getStatusColor(row.status)}
                                 size="small"
                                 sx={{ fontWeight: 800 }}
@@ -1072,7 +1064,7 @@ export default function ClassCompletionReport() {
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                                {academicDisplay(row.className)}
+                                {row.className}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 Grade {row.grade}
@@ -1080,11 +1072,11 @@ export default function ClassCompletionReport() {
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                                {academicDisplay(row.subjectName)}
+                                {row.subjectName}
                               </Typography>
                               {row.subjectNumber || row.subjectId ? (
                                 <Typography variant="caption" color="text.secondary">
-                                  {academicDisplay([row.subjectNumber, row.subjectId].filter(Boolean).join(" | "))}
+                                  {[row.subjectNumber, row.subjectId].filter(Boolean).join(" | ")}
                                 </Typography>
                               ) : null}
                             </TableCell>
@@ -1125,7 +1117,7 @@ export default function ClassCompletionReport() {
                       >
                         {rows.map((row) => (
                           <MenuItem key={row.id} value={row.id}>
-                            {academicDisplay(row.className)} - {academicDisplay(getStatusLabel(row.status))}
+                            {row.className} - {getStatusLabel(row.status)}
                           </MenuItem>
                         ))}
                       </Select>
@@ -1150,7 +1142,7 @@ export default function ClassCompletionReport() {
                           <TableRow key={subject.subjectKey} hover>
                             <TableCell>
                               <Chip
-                                label={academicDisplay(getStatusLabel(subject.status))}
+                                label={getStatusLabel(subject.status)}
                                 color={getStatusColor(subject.status)}
                                 size="small"
                                 sx={{ fontWeight: 800 }}
@@ -1158,17 +1150,17 @@ export default function ClassCompletionReport() {
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                                {academicDisplay(subject.subjectName)}
+                                {subject.subjectName}
                               </Typography>
                               {subject.subjectNumber || subject.subjectId ? (
                                 <Typography variant="caption" color="text.secondary">
-                                  {academicDisplay([subject.subjectNumber, subject.subjectId].filter(Boolean).join(" | "))}
+                                  {[subject.subjectNumber, subject.subjectId].filter(Boolean).join(" | ")}
                                 </Typography>
                               ) : null}
                             </TableCell>
-                            <TableCell align="right">{academicDisplay(subject.enrolledCount)}</TableCell>
-                            <TableCell align="right">{academicDisplay(subject.enteredCount)}</TableCell>
-                            <TableCell align="right">{academicDisplay(subject.missingCount)}</TableCell>
+                            <TableCell align="right">{subject.enrolledCount}</TableCell>
+                            <TableCell align="right">{subject.enteredCount}</TableCell>
+                            <TableCell align="right">{subject.missingCount}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1176,7 +1168,7 @@ export default function ClassCompletionReport() {
                   </ResponsiveTableWrapper>
                 ) : (
                   <Alert severity="warning">
-                    No enrolled subjects found for {academicDisplay(detailRow?.className || "this class")}.
+                    No enrolled subjects found for {detailRow?.className || "this class"}.
                   </Alert>
                 )}
               </CardContent>
@@ -1222,7 +1214,7 @@ export default function ClassCompletionReport() {
                         <TableRow key={row.id} hover>
                           <TableCell>
                             <Chip
-                              label={academicDisplay(getStatusLabel(row.status))}
+                              label={getStatusLabel(row.status)}
                               color={getStatusColor(row.status)}
                               size="small"
                               sx={{ fontWeight: 800 }}
@@ -1230,17 +1222,17 @@ export default function ClassCompletionReport() {
                           </TableCell>
                           <TableCell>
                             <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                              {academicDisplay(row.className)}
+                              {row.className}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Grade {row.grade}
                             </Typography>
                           </TableCell>
                           <TableCell align="right">{row.studentCount}</TableCell>
-                          <TableCell align="right">{academicDisplay(row.subjectCount)}</TableCell>
-                          <TableCell align="right">{academicDisplay(row.completedSubjectCount)}</TableCell>
-                          <TableCell align="right">{academicDisplay(row.partialSubjectCount)}</TableCell>
-                          <TableCell align="right">{academicDisplay(row.pendingSubjectCount)}</TableCell>
+                          <TableCell align="right">{row.subjectCount}</TableCell>
+                          <TableCell align="right">{row.completedSubjectCount}</TableCell>
+                          <TableCell align="right">{row.partialSubjectCount}</TableCell>
+                          <TableCell align="right">{row.pendingSubjectCount}</TableCell>
                           <TableCell align="right">{row.expectedMarkCount}</TableCell>
                           <TableCell align="right">{row.enteredMarkCount}</TableCell>
                           <TableCell align="right">{row.marksCount}</TableCell>
@@ -1249,7 +1241,7 @@ export default function ClassCompletionReport() {
                           <TableCell align="right">{row.missingStudentIdCount}</TableCell>
                           <TableCell sx={{ maxWidth: 320 }}>
                             <Typography variant="body2">
-                              {academicDisplay(formatPendingSubjects(row) || "None")}
+                              {formatPendingSubjects(row) || "None"}
                             </Typography>
                           </TableCell>
                           <TableCell sx={{ maxWidth: 360 }}>

@@ -1,5 +1,5 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Box,
@@ -26,13 +26,15 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { auth, db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadSbaAdminAssignments, loadSbaRosterData, loadSbaTeacherAssignments } from "../services/sbaService";
 import { EmptyState, PageContainer } from "../components/ui";
-import { normalizeText } from "../constants";
-import { pick, normalize, normalizeAcademicYear, hasValue, matchesSubjectIdentity, getClassIdentity, getComparableALClassName, getClassFallback, getDisplayClassName, getClassContext, matchesClassContext, buildEnrollmentDedupKey, buildTermKey, buildTermLabel, isActiveTerm, sortRowsInTeacherMarkSheetOrder } from "../utils/sbaContext";
 import {
-  termAppliesToClass,
-} from "../utils/alAcademicCycle";
+  buildALClassName,
+  buildALDisplayClassName,
+  isALGrade,
+  normalizeSection,
+  normalizeText,
+  parseGrade,
+} from "../constants";
 
 const ROWS_PER_PAGE = 40;
 
@@ -62,6 +64,242 @@ const pageCellStyle = {
   ...thTdBaseStyle,
   height: 28,
 };
+
+const pick = (...values) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
+const normalize = (value) => String(value || "").trim().toLowerCase();
+
+const normalizeAcademicYear = (value) => {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/\d{4}/);
+  return match ? match[0] : raw;
+};
+
+const hasValue = (value) =>
+  value !== undefined && value !== null && String(value).trim() !== "";
+
+const safeNormalizedEquals = (left, right) => {
+  if (!hasValue(left) || !hasValue(right)) return false;
+  return normalize(left) === normalize(right);
+};
+
+const buildSubjectIdentity = (item = {}, fallback = {}) => ({
+  subjectId: pick(item.subjectId, fallback.subjectId, ""),
+  subjectName: pick(
+    item.subjectName,
+    item.subject,
+    fallback.subjectName,
+    fallback.subject,
+    ""
+  ),
+  subjectNumber: pick(item.subjectNumber, fallback.subjectNumber, ""),
+});
+
+const matchesSubjectIdentity = (item = {}, target = {}, fallback = {}) => {
+  const itemSubject = buildSubjectIdentity(item, fallback);
+  const targetSubject = buildSubjectIdentity(target);
+
+  return (
+    safeNormalizedEquals(itemSubject.subjectId, targetSubject.subjectId) ||
+    safeNormalizedEquals(itemSubject.subjectName, targetSubject.subjectName) ||
+    safeNormalizedEquals(itemSubject.subjectNumber, targetSubject.subjectNumber)
+  );
+};
+
+const getClassIdentity = (item = {}) =>
+  pick(item.alClassName, item.fullClassName, item.className, "");
+
+const getResolvedStream = (item = {}, fallback = {}) =>
+  normalizeText(pick(item.stream, fallback.stream, ""));
+
+const getResolvedSection = (item = {}, fallback = {}) =>
+  normalizeSection(
+    pick(item.section, item.className, fallback.section, fallback.className, "")
+  );
+
+const getResolvedGrade = (item = {}, fallback = {}) =>
+  parseGrade(pick(item.grade, fallback.grade, ""));
+
+const getComparableALClassName = (item = {}, fallback = {}) => {
+  const explicit = getClassIdentity(item);
+  if (explicit) return explicit;
+
+  const grade = getResolvedGrade(item, fallback);
+  const section = getResolvedSection(item, fallback);
+  const stream = getResolvedStream(item, fallback);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return "";
+};
+
+const getClassFallback = (item = {}, fallback = {}) => {
+  const grade = getResolvedGrade(item, fallback);
+  const section = getResolvedSection(item, fallback);
+  const stream = getResolvedStream(item, fallback);
+
+  if (isALGrade(grade) && stream && section) {
+    return buildALClassName(grade, stream, section);
+  }
+
+  return pick(
+    item.className,
+    fallback.className,
+    `${pick(item.grade, fallback.grade, "")}${pick(
+      item.section,
+      fallback.section,
+      ""
+    )}`.trim()
+  );
+};
+
+const getDisplayClassName = (item = {}, fallback = {}) => {
+  const explicit = pick(
+    item.alClassName,
+    item.fullClassName,
+    fallback.alClassName,
+    fallback.fullClassName,
+    ""
+  );
+
+  if (explicit) {
+    const grade = getResolvedGrade(item, fallback);
+    const section = getResolvedSection(item, fallback);
+    const stream = getResolvedStream(item, fallback);
+
+    if (isALGrade(grade) && stream && section) {
+      return buildALDisplayClassName(grade, stream, section) || explicit;
+    }
+
+    return explicit;
+  }
+
+  return getClassFallback(item, fallback);
+};
+
+const getClassContext = (item = {}, fallback = {}) => ({
+  grade: getResolvedGrade(item, fallback),
+  section: getResolvedSection(item, fallback),
+  stream: getResolvedStream(item, fallback),
+  fullClassName:
+    getComparableALClassName(item, fallback) ||
+    getClassIdentity(item) ||
+    getClassFallback(item, fallback),
+  className: pick(item.className, fallback.className, ""),
+  alClassName: pick(item.alClassName, fallback.alClassName, ""),
+});
+
+const matchesClassContext = (item = {}, target = {}, fallback = {}) => {
+  const itemGrade = getResolvedGrade(item, fallback);
+  const itemSection = getResolvedSection(item, fallback);
+  const itemStream = normalize(getResolvedStream(item, fallback));
+
+  const targetGrade = parseGrade(target.grade);
+  const targetSection = normalizeSection(target.section);
+  const targetStream = normalize(target.stream);
+
+  const itemIdentity = normalize(
+    getComparableALClassName(item, fallback) ||
+      getClassIdentity(item) ||
+      getClassFallback(item, fallback)
+  );
+
+  const targetIdentity = normalize(
+    pick(target.fullClassName, target.alClassName, target.className, "")
+  );
+
+  if (isALGrade(targetGrade)) {
+    if (itemIdentity && targetIdentity && itemIdentity === targetIdentity) {
+      return true;
+    }
+
+    if (itemGrade !== targetGrade || itemSection !== targetSection) {
+      return false;
+    }
+
+    if (!targetStream) return true;
+    if (itemStream) return itemStream === targetStream;
+    return false;
+  }
+
+  if (itemIdentity && targetIdentity) {
+    return itemIdentity === targetIdentity;
+  }
+
+  return itemGrade === targetGrade && itemSection === targetSection;
+};
+
+const buildEnrollmentDedupKey = (item = {}, fallback = {}) => {
+  const classContext = getClassContext(item, fallback);
+  const subject = buildSubjectIdentity(item, fallback);
+  const academicYear = normalizeAcademicYear(
+    pick(item.academicYear, item.year, fallback.academicYear, fallback.year, "")
+  );
+
+  return [
+    String(pick(item.studentId, fallback.studentId, "")).trim(),
+    normalize(classContext.fullClassName || classContext.className || ""),
+    normalize(subject.subjectId),
+    normalize(subject.subjectName),
+    normalize(subject.subjectNumber),
+    normalize(academicYear),
+  ].join("__");
+};
+
+const buildTermKey = (term = {}) =>
+  `${pick(term.term, term.termName, "")}__${pick(term.year, term.academicYear, "")}`;
+
+const buildTermLabel = (term = {}) => {
+  const termName = pick(term.term, term.termName, term.name, "Term");
+  const year = pick(term.year, term.academicYear, "");
+  return year ? `${termName} - ${year}` : termName;
+};
+
+const isActiveTerm = (term = {}) => {
+  const raw = pick(term.isActive, term.active, term.status);
+  if (typeof raw === "boolean") return raw;
+  return normalize(raw) === "active" || normalize(raw) === "true";
+};
+
+const isSameTeacher = (item = {}, user) => {
+  const itemTeacherId = normalize(pick(item.teacherId, item.teacherUid, item.userId));
+  const itemTeacherEmail = normalize(pick(item.teacherEmail, item.email));
+
+  return (
+    itemTeacherId === normalize(user?.uid) ||
+    itemTeacherEmail === normalize(user?.email)
+  );
+};
+
+const getStudentSortIndex = (row = {}) =>
+  String(row.indexNo || row.admissionNo || "").trim();
+
+const sortRowsInTeacherMarkSheetOrder = (rows = []) =>
+  [...rows].sort((a, b) => {
+    const aIndex = getStudentSortIndex(a);
+    const bIndex = getStudentSortIndex(b);
+
+    if (aIndex && bIndex) {
+      const byIndex = aIndex.localeCompare(bIndex, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (byIndex !== 0) return byIndex;
+    } else if (aIndex && !bIndex) {
+      return -1;
+    } else if (!aIndex && bIndex) {
+      return 1;
+    }
+
+    return String(a.studentName || "").localeCompare(
+      String(b.studentName || ""),
+      undefined,
+      { sensitivity: "base" }
+    );
+  });
 
 const chunkArray = (items = [], size) => {
   const chunks = [];
@@ -100,7 +338,7 @@ function SBAFormPage({ page, meta }) {
             Assessment Marks
           </Typography>
           <Typography sx={{ mt: 0.5, fontSize: 12, color: "#334155" }}>
-            {academicDisplay(meta.classLabel)} | Subject: {academicDisplay(meta.subjectName)} | {academicDisplay(meta.termName)} |{" "}
+            {meta.classLabel} | Subject: {meta.subjectName} | {meta.termName} |{" "}
             {meta.academicYear}
           </Typography>
           <Typography sx={{ mt: 0.25, fontSize: 11, color: "#475569" }}>
@@ -144,7 +382,7 @@ function SBAFormPage({ page, meta }) {
                     fontWeight: 700,
                   }}
                 >
-                  {academicDisplay(value)}
+                  {value}
                 </th>
               ))}
               <th style={{ ...thTdBaseStyle, fontWeight: 400 }} />
@@ -154,7 +392,7 @@ function SBAFormPage({ page, meta }) {
             {page.rows.map((row) => (
               <tr key={row.key}>
                 <td style={{ ...pageCellStyle, textAlign: "center" }}>{row.no}</td>
-                <td style={pageCellStyle}>{academicDisplay(row.studentName)}</td>
+                <td style={pageCellStyle}>{row.studentName}</td>
                 {[1, 2, 3, 4, 5].map((value) => (
                   <td
                     key={`${row.key}-assessment-${value}`}
@@ -185,7 +423,7 @@ function SBAFormPage({ page, meta }) {
             {[1, 2, 3, 4, 5].map((value) => (
               <tr key={`criteria-${page.pageNumber}-${value}`}>
                 <td style={{ ...pageCellStyle, textAlign: "center", height: 34 }}>
-                  {academicDisplay(value)}
+                  {value}
                 </td>
                 <td style={{ ...pageCellStyle, height: 34 }} />
                 <td style={{ ...pageCellStyle, height: 34 }} />
@@ -213,7 +451,7 @@ function SBAFormPage({ page, meta }) {
                     mt: 3.5,
                   }}
                 >
-                  {academicDisplay(label)}
+                  {label}
                 </Typography>
               </Box>
             )
@@ -233,13 +471,13 @@ export default function SBAForm() {
   const isMobile = useMediaQuery((theme) => theme.breakpoints.down("md"));
 
   const [bootLoading, setBootLoading] = useState(true);
-  const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [loadingRows, setLoadingRows] = useState(false);
   const [error, setError] = useState("");
 
   const [teacherAssignments, setTeacherAssignments] = useState([]);
-  const [assignmentYear, setAssignmentYear] = useState("");
   const [terms, setTerms] = useState([]);
+  const [allEnrollments, setAllEnrollments] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjectKey, setSelectedSubjectKey] = useState("");
   const [selectedTermKey, setSelectedTermKey] = useState("");
@@ -267,9 +505,6 @@ export default function SBAForm() {
           section: context.section,
           stream: normalizeText(context.stream),
           alClassName: pick(assignment.alClassName, ""),
-          batchYear: context.batchYear || 0,
-          intakeYear: context.intakeYear || 0,
-          academicScopeKey: context.academicScopeKey || "",
         });
       }
     });
@@ -290,24 +525,6 @@ export default function SBAForm() {
     [classOptions, selectedClass]
   );
 
-  const termOptions = useMemo(
-    () =>
-      selectedClassRow
-        ? terms.filter((term) => termAppliesToClass(term, selectedClassRow))
-        : terms,
-    [selectedClassRow, terms]
-  );
-
-  useEffect(() => {
-    if (!selectedClassRow) return;
-    const selectedIsApplicable = termOptions.some(
-      (term) => buildTermKey(term) === selectedTermKey
-    );
-    if (selectedIsApplicable) return;
-    const nextTerm = termOptions.find(isActiveTerm) || termOptions[0] || null;
-    setSelectedTermKey(nextTerm ? buildTermKey(nextTerm) : "");
-  }, [selectedClassRow, selectedTermKey, termOptions]);
-
   const subjectOptions = useMemo(() => {
     const map = new Map();
 
@@ -319,9 +536,6 @@ export default function SBAForm() {
           fullClassName: selectedClassRow.fullClassName,
           className: selectedClassRow.className,
           alClassName: selectedClassRow.alClassName,
-          batchYear: selectedClassRow.batchYear,
-          intakeYear: selectedClassRow.intakeYear,
-          academicScopeKey: selectedClassRow.academicScopeKey,
         }
       : null;
 
@@ -425,7 +639,17 @@ export default function SBAForm() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User is not logged in.");
 
-      const allTerms = await getCollectionRows(db, "academicTerms", { forceRefresh });
+      const [allAssignments, allTerms, enrollments, students] = await Promise.all([
+        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
+        getCollectionRows(db, "academicTerms", { forceRefresh }),
+        getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+        getCollectionRows(db, "students", { forceRefresh }),
+      ]);
+
+      const scopedAssignments = isAdmin
+        ? allAssignments
+        : allAssignments.filter((item) => isSameTeacher(item, currentUser));
+
       const sortedTerms = [...allTerms].sort((a, b) => {
         const yearDiff =
           Number(pick(b.year, b.academicYear, 0)) -
@@ -439,29 +663,14 @@ export default function SBAForm() {
         );
       });
 
-      const defaultTerm = sortedTerms.find((term) => buildTermKey(term) === selectedTermKey) || sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
-      const activeContexts = sortedTerms.filter(isActiveTerm);
-      const adminContexts = activeContexts.length ? activeContexts : (defaultTerm ? [defaultTerm] : []);
-      const assignmentGroups = isAdmin
-        ? await Promise.all(
-            adminContexts.map((term) =>
-              loadSbaAdminAssignments(term, { forceRefresh })
-            )
-          )
-        : [await loadSbaTeacherAssignments(
-            { uid: currentUser.uid, email: currentUser.email },
-            { forceRefresh }
-          )];
-      const scopedAssignments = Array.from(
-        new Map(assignmentGroups.flat().map((assignment) => [assignment.id, assignment])).values()
-      );
-
       setTeacherAssignments(scopedAssignments);
-      setAssignmentYear(isAdmin ? "*" : "");
       setTerms(sortedTerms);
+      setAllEnrollments(enrollments);
+      setAllStudents(students);
 
+      const defaultTerm = sortedTerms.find(isActiveTerm) || sortedTerms[0] || null;
       if (defaultTerm) {
-        setSelectedTermKey(buildTermKey(defaultTerm));
+        setSelectedTermKey((prev) => prev || buildTermKey(defaultTerm));
       }
 
       if (scopedAssignments.length > 0) {
@@ -477,7 +686,7 @@ export default function SBAForm() {
     } finally {
       setBootLoading(false);
     }
-  }, [isAdmin, selectedTermKey]);
+  }, [isAdmin]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -489,26 +698,11 @@ export default function SBAForm() {
         return;
       }
 
+      const studentMap = new Map(allStudents.map((student) => [String(student.id), student]));
+
       const termYear = normalizeAcademicYear(
         pick(activeTerm.year, activeTerm.academicYear, "")
       );
-      const scopeAssignment = {
-        ...selectedClassRow,
-        ...selectedSubject,
-        subjectId: selectedSubject.subjectId,
-        subjectName: selectedSubject.subjectName,
-        fullClassName: selectedClassRow?.fullClassName || selectedClass,
-      };
-      const {
-        students: scopedStudents,
-        enrollments: scopedEnrollments,
-      } = await loadSbaRosterData(
-        [selectedSubject.subjectId],
-        activeTerm,
-        scopeAssignment
-      );
-
-      const studentMap = new Map(scopedStudents.map((student) => [String(student.id), student]));
 
       const targetClassContext = selectedClassRow
         ? {
@@ -521,7 +715,7 @@ export default function SBAForm() {
           }
         : null;
 
-      const relevantEnrollments = scopedEnrollments.filter((enrollment) => {
+      const relevantEnrollments = allEnrollments.filter((enrollment) => {
         const student = studentMap.get(String(pick(enrollment.studentId, ""))) || {};
 
         const enrollmentContext = {
@@ -548,7 +742,7 @@ export default function SBAForm() {
 
         const status = normalize(pick(enrollment.status, "active"));
 
-        return sameClass && sameSubject && sameYear && (!status || status === "active");
+        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameYear && (!status || status === "active");
       });
 
       const uniqueRelevantEnrollments = Array.from(
@@ -607,37 +801,11 @@ export default function SBAForm() {
     } finally {
       setLoadingRows(false);
     }
-  }, [activeTerm, selectedClass, selectedClassRow, selectedSubject]);
+  }, [activeTerm, allEnrollments, allStudents, selectedClass, selectedClassRow, selectedSubject]);
 
   useEffect(() => {
     loadBase();
-    // The selected term is intentionally handled by the scoped assignment effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
-
-  useEffect(() => {
-    const year = normalizeAcademicYear(pick(activeTerm?.year, activeTerm?.academicYear, ""));
-    if (
-      !isAdmin ||
-      !activeTerm ||
-      bootLoading ||
-      assignmentYear === "*" ||
-      assignmentYear === year
-    ) return undefined;
-    let cancelled = false;
-    setAssignmentLoading(true);
-    setError("");
-    loadSbaAdminAssignments(activeTerm)
-      .then((assignments) => {
-        if (!cancelled) {
-          setTeacherAssignments(assignments);
-          setAssignmentYear(year);
-        }
-      })
-      .catch((err) => { if (!cancelled) setError(err.message || "Failed to load SBA assignments."); })
-      .finally(() => { if (!cancelled) setAssignmentLoading(false); });
-    return () => { cancelled = true; };
-  }, [activeTerm, assignmentYear, bootLoading, isAdmin]);
+  }, [loadBase]);
 
   useEffect(() => {
     if (subjectOptions.length === 0) {
@@ -655,10 +823,9 @@ export default function SBAForm() {
   }, [selectedSubjectKey, subjectOptions]);
 
   useEffect(() => {
-    const activeYear = normalizeAcademicYear(pick(activeTerm?.year, activeTerm?.academicYear, ""));
-    if (bootLoading || assignmentLoading || (isAdmin && activeYear && assignmentYear !== activeYear)) return;
+    if (bootLoading) return;
     loadStudents();
-  }, [activeTerm, assignmentYear, bootLoading, assignmentLoading, isAdmin, loadStudents]);
+  }, [bootLoading, loadStudents]);
 
   const buildPrintableHtml = () => {
     const pagesHtml = printablePages
@@ -668,7 +835,7 @@ export default function SBAForm() {
             (row) => `
               <tr>
                 <td class="cell cell-center">${row.no}</td>
-                <td class="cell">${escapeHtml(academicDisplay(row.studentName))}</td>
+                <td class="cell">${escapeHtml(row.studentName)}</td>
                 <td class="cell cell-center"></td>
                 <td class="cell cell-center"></td>
                 <td class="cell cell-center"></td>
@@ -696,16 +863,16 @@ export default function SBAForm() {
           <section class="sheet-page">
             <div class="header">
               <div class="title">Assessment Marks</div>
-              <div class="meta">${escapeHtml(academicDisplay(printMeta.classLabel))} | Subject: ${escapeHtml(
-                academicDisplay(printMeta.subjectName)
-              )} | ${escapeHtml(academicDisplay(printMeta.termName))} | ${escapeHtml(
-                academicDisplay(printMeta.academicYear)
+              <div class="meta">${escapeHtml(printMeta.classLabel)} | Subject: ${escapeHtml(
+                printMeta.subjectName
+              )} | ${escapeHtml(printMeta.termName)} | ${escapeHtml(
+                printMeta.academicYear
               )}</div>
               <div class="meta subtle">Grade ${escapeHtml(
-                academicDisplay(printMeta.grade)
-              )} | Division ${escapeHtml(academicDisplay(printMeta.division))}${
+                printMeta.grade
+              )} | Division ${escapeHtml(printMeta.division)}${
                 printMeta.stream
-                  ? ` | Stream: ${escapeHtml(academicDisplay(printMeta.stream))}`
+                  ? ` | Stream: ${escapeHtml(printMeta.stream)}`
                   : ""
               }</div>
             </div>
@@ -767,8 +934,8 @@ export default function SBAForm() {
     return `
       <html>
         <head>
-          <title>Assessment Marks - ${escapeHtml(academicDisplay(printMeta.classLabel))} - ${escapeHtml(
-            academicDisplay(printMeta.subjectName)
+          <title>Assessment Marks - ${escapeHtml(printMeta.classLabel)} - ${escapeHtml(
+            printMeta.subjectName
           )}</title>
           <style>
             @page {
@@ -900,7 +1067,7 @@ export default function SBAForm() {
       return;
     }
 
-    printWindow.document.write(academicDisplay(buildPrintableHtml()));
+    printWindow.document.write(buildPrintableHtml());
     printWindow.document.close();
     printWindow.focus();
 
@@ -946,7 +1113,7 @@ export default function SBAForm() {
       <Stack spacing={2.5}>
         {error ? (
           <Alert severity="error" onClose={() => setError("")}>
-            {academicDisplay(error)}
+            {error}
           </Alert>
         ) : null}
 
@@ -979,9 +1146,9 @@ export default function SBAForm() {
                   value={selectedTermKey}
                   onChange={(event) => setSelectedTermKey(event.target.value)}
                 >
-                  {termOptions.map((term) => (
+                  {terms.map((term) => (
                     <MenuItem key={term.id} value={buildTermKey(term)}>
-                      {academicDisplay(buildTermLabel(term))}
+                      {buildTermLabel(term)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -999,7 +1166,7 @@ export default function SBAForm() {
                 >
                   {classOptions.map((option) => (
                     <MenuItem key={option.fullClassName} value={option.fullClassName}>
-                      {academicDisplay(option.displayClassName || option.fullClassName)}
+                      {option.displayClassName || option.fullClassName}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1021,7 +1188,7 @@ export default function SBAForm() {
                 >
                   {subjectOptions.map((option) => (
                     <MenuItem key={option.key} value={option.key}>
-                      {academicDisplay(option.subjectName)}
+                      {option.subjectName}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1051,42 +1218,42 @@ export default function SBAForm() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip
                     icon={<SchoolRoundedIcon />}
-                    label={academicDisplay(printMeta.classLabel)}
+                    label={printMeta.classLabel}
                     color="primary"
                     variant="outlined"
                   />
                   <Chip
                     icon={<AutoStoriesRoundedIcon />}
-                    label={academicDisplay(printMeta.subjectName)}
+                    label={printMeta.subjectName}
                     variant="outlined"
                   />
                   <Chip
                     icon={<TimelineRoundedIcon />}
-                    label={academicDisplay(buildTermLabel(activeTerm))}
+                    label={buildTermLabel(activeTerm)}
                     variant="outlined"
                   />
                   <Chip
                     icon={<ClassRoundedIcon />}
-                    label={academicDisplay(`Grade ${printMeta.grade || "-"} / Division ${printMeta.division || "-"}`)}
+                    label={`Grade ${printMeta.grade || "-"} / Division ${printMeta.division || "-"}`}
                     variant="outlined"
                   />
                   {printMeta.stream ? (
-                    <Chip label={academicDisplay(`Stream: ${printMeta.stream}`)} variant="outlined" />
+                    <Chip label={`Stream: ${printMeta.stream}`} variant="outlined" />
                   ) : null}
                 </Stack>
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip
                     icon={<AssignmentRoundedIcon />}
-                    label={academicDisplay(`${studentRows.length} students`)}
+                    label={`${studentRows.length} students`}
                     color="success"
                     variant="outlined"
                   />
                   <Chip
                     icon={<PrintRoundedIcon />}
-                    label={academicDisplay(`${printablePages.length} page${
+                    label={`${printablePages.length} page${
                       printablePages.length === 1 ? "" : "s"
-                    }`)}
+                    }`}
                     color="secondary"
                     variant="outlined"
                   />

@@ -17,7 +17,6 @@ const {
   orderBy,
   query,
   setDoc,
-  serverTimestamp,
   startAfter,
   updateDoc,
   where,
@@ -39,7 +38,6 @@ const COLLECTIONS = {
   enrollments: "studentSubjectEnrollments",
   marks: "marks",
   settings: "systemSettings",
-  stats: "systemStats",
   fees: "studentFeeAccounts",
   late: "lateArrivalRecords",
   elections: "elections",
@@ -65,80 +63,6 @@ const IDS = {
 };
 
 let testEnv;
-
-test("SBA enforces its own range, assignment, enrollment, deadline and deletion rules without modifying term marks", async () => {
-  const admin = dbFor(IDS.admin);
-  const teacher = dbFor(IDS.teacher);
-  const termId = "sba-term";
-  const studentId = "sba-student";
-  const subjectId = "sba-subject";
-  const id = `${termId}~${studentId}~${subjectId}`;
-  await Promise.all([
-    setDoc(doc(admin, "academicTerms", termId), { year: "2026", term: "Term 1" }),
-    setDoc(doc(admin, "students", studentId), { grade: 10, section: "A", medium: "Tamil", status: "Active" }),
-    setDoc(doc(admin, "teacherAssignments", "sba-assignment"), { teacherId: IDS.teacher, grade: 10, section: "A", subjectId, medium: "Tamil", status: "active" }),
-    setDoc(doc(admin, "studentSubjectEnrollments", "sba-enrollment"), { studentId, subjectId, academicYear: "2026", grade: 10, section: "A", medium: "Tamil", status: "active" }),
-    setDoc(doc(admin, "marks", "sba-isolation-term"), validMark(IDS.teacher, "sba-isolation", { mark: 85, marks: 85, score: 85 })),
-  ]);
-  const value = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2026", classKey: "10|A|", scopeKey: `${termId}|10|A|`, subjectId, studentId, assignmentId: "sba-assignment", enrollmentId: "sba-enrollment", mark: 20, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() };
-  const ref = doc(teacher, "sbaMarks", id);
-  await assertSucceeds(setDoc(ref, value));
-  await assertSucceeds(setDoc(ref, { ...value, mark: 0, revision: 2 }));
-  await assertSucceeds(setDoc(ref, { ...value, mark: null, absent: true, revision: 3 }));
-  await assertSucceeds(setDoc(ref, { ...value, mark: null, absent: false, revision: 4 }));
-  await assertFails(setDoc(ref, { ...value, mark: 21, revision: 5 }));
-  await assertFails(setDoc(doc(admin, "sbaMarks", id), { ...value, mark: 21, revision: 5 }));
-  await assertFails(setDoc(ref, { ...value, mark: -1, revision: 5 }));
-  await assertFails(setDoc(ref, { ...value, mark: 10, absent: true, revision: 5 }));
-  await assertFails(setDoc(ref, { ...value, revision: 4 }));
-  await assertFails(setDoc(doc(dbFor(IDS.it), "sbaMarks", id), { ...value, revision: 5, updatedBy: IDS.it }));
-  await assertFails(setDoc(ref, { ...value, enrollmentId: "not-enrolled", revision: 5 }));
-  await assertFails(setDoc(ref, { ...value, classKey: "10|B|", scopeKey: `${termId}|10|B|`, revision: 5 }));
-  await assertFails(setDoc(doc(teacher, "sbaMarks", "duplicate-id"), value));
-  await assertFails(deleteDoc(ref));
-  await assertFails(getDoc(doc(dbFor(IDS.account), "sbaMarks", id)));
-  await assertFails(getDoc(doc(unauthenticatedDb(), "sbaMarks", id)));
-  await setDoc(doc(admin, "systemSettings", "marksEntry"), { teacherEntryEnabled: false });
-  await assertSucceeds(setDoc(ref, { ...value, revision: 5 }));
-  await setDoc(doc(admin, "systemSettings", "sbaEntry"), { teacherEntryEnabled: false });
-  await assertFails(setDoc(ref, { ...value, revision: 6 }));
-  await setDoc(doc(admin, "systemSettings", "sbaEntry"), { teacherEntryEnabled: true, teacherEntryDeadlineAt: Timestamp.fromDate(new Date("2000-01-01")) });
-  await assertFails(setDoc(ref, { ...value, revision: 6 }));
-  await deleteDoc(doc(admin, "systemSettings", "sbaEntry"));
-  await updateDoc(doc(admin, "teacherAssignments", "sba-assignment"), { medium: "English" });
-  await assertFails(setDoc(ref, { ...value, revision: 6 }));
-  await assertSucceeds(deleteDoc(doc(admin, "sbaMarks", id)));
-  assert.equal((await getDoc(doc(admin, "marks", "sba-isolation-term"))).data().mark, 85);
-  await deleteDoc(doc(admin, "systemSettings", "marksEntry"));
-});
-
-test("SBA four-row teacher batches enforce revisions for teachers and admins", async () => {
-  const admin = dbFor(IDS.admin);
-  const teacher = dbFor(IDS.teacher);
-  const termId = "sba-batch-term";
-  const subjectId = "sba-batch-subject";
-  const assignmentId = "sba-batch-assignment";
-  await setDoc(doc(admin, "academicTerms", termId), { year: "2026", term: "Term 1" });
-  await setDoc(doc(admin, "teacherAssignments", assignmentId), { teacherId: IDS.teacher, grade: 10, section: "A", subjectId, medium: "Tamil", status: "active" });
-  const rows = Array.from({ length: 4 }, (_, i) => ({ studentId: `sba-batch-student-${i}`, enrollmentId: `sba-batch-enrollment-${i}` }));
-  for (const row of rows) {
-    await setDoc(doc(admin, "students", row.studentId), { grade: 10, section: "A", medium: "Tamil", status: "active" });
-    await setDoc(doc(admin, "studentSubjectEnrollments", row.enrollmentId), { studentId: row.studentId, subjectId, academicYear: "2026", grade: 10, section: "A", medium: "Tamil", status: "active" });
-  }
-  const create = writeBatch(teacher);
-  for (const row of rows) {
-    const id = `${termId}~${row.studentId}~${subjectId}`;
-    create.set(doc(teacher, "sbaMarks", id), { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2026", classKey: "10|A|", scopeKey: `${termId}|10|A|`, subjectId, ...row, assignmentId, mark: 15, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() });
-  }
-  await assertSucceeds(create.commit());
-  const update = writeBatch(teacher);
-  for (const row of rows) update.set(doc(teacher, "sbaMarks", `${termId}~${row.studentId}~${subjectId}`), { mark: 16, revision: 2, updatedBy: IDS.teacher, updatedAt: serverTimestamp() }, { merge: true });
-  await assertSucceeds(update.commit());
-  const id = `${termId}~${rows[0].studentId}~${subjectId}`;
-  await assertFails(setDoc(doc(teacher, "sbaMarks", id), { mark: 17, revision: 2, updatedBy: IDS.teacher, updatedAt: serverTimestamp() }, { merge: true }));
-  await assertFails(setDoc(doc(admin, "sbaMarks", id), { mark: 17, revision: 2, updatedBy: IDS.admin, updatedAt: serverTimestamp() }, { merge: true }));
-  await assertSucceeds(setDoc(doc(admin, "sbaMarks", id), { mark: 17, revision: 3, updatedBy: IDS.admin, updatedAt: serverTimestamp() }, { merge: true }));
-});
 
 function dbFor(uid) {
   return testEnv.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
@@ -185,6 +109,25 @@ function validLateArrival(uid, suffix = "base", overrides = {}) {
     ...overrides,
   };
 }
+
+test("SBA rules allow marks up to 20 and enforce the limit for teachers and admins", async () => {
+  const teacher = dbFor(IDS.teacher);
+  const admin = dbFor(IDS.admin);
+  const valid = { ...validMark(IDS.teacher, "sba", { mark: 20, marks: 20, score: 20 }), termId: "term-1" };
+  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", "sba-valid"), valid));
+  await assertFails(setDoc(doc(teacher, "sbaMarks", "sba-teacher-over"), { ...valid, mark: 21, marks: 21, score: 21 }));
+  await assertFails(setDoc(doc(admin, "sbaMarks", "sba-admin-over"), { ...valid, mark: 21, marks: 21, score: 21 }));
+  await assertFails(deleteDoc(doc(teacher, "sbaMarks", "sba-valid")));
+  await assertSucceeds(deleteDoc(doc(admin, "sbaMarks", "sba-valid")));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "sbaMarks", "legacy"), {
+      studentId: valid.studentId, subjectId: valid.subjectId, termId: "term-1",
+      revision: 1, mark: 10, absent: false,
+    });
+  });
+  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", "legacy"), valid, { merge: true }));
+  await assertFails(updateDoc(doc(teacher, "sbaMarks", "legacy"), { mark: 21, marks: 21, score: 21 }));
+});
 
 async function seedSyntheticData() {
   await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -370,45 +313,6 @@ test("teacher updates preserve mark identity and teacher delete remains denied",
   await assertSucceeds(setDoc(doc(dbFor(IDS.itFlag), COLLECTIONS.marks, "it-flag-write"), validMark(IDS.itFlag, "it-flag-write")));
 });
 
-test("system summary permits bounded teacher mark increments and reserves initialization and enrollment totals for admins", async () => {
-  const adminDb = dbFor(IDS.admin);
-  const teacherDb = dbFor(IDS.teacher);
-  const statsRef = doc(adminDb, COLLECTIONS.stats, "overview");
-  await setDoc(statsRef, {
-    initialized: true,
-    marksCount: 100,
-    studentSubjectEnrollmentsCount: 200,
-    updatedAt: serverTimestamp(),
-  });
-
-  await assertSucceeds(getDoc(doc(teacherDb, COLLECTIONS.stats, "overview")));
-  await assertSucceeds(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
-    marksCount: 108,
-    updatedAt: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
-    marksCount: 117,
-    updatedAt: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
-    marksCount: 107,
-    updatedAt: serverTimestamp(),
-  }));
-  await assertFails(updateDoc(doc(teacherDb, COLLECTIONS.stats, "overview"), {
-    studentSubjectEnrollmentsCount: 201,
-    updatedAt: serverTimestamp(),
-  }));
-  await assertFails(setDoc(doc(teacherDb, COLLECTIONS.stats, "teacher-created"), {
-    initialized: true,
-    marksCount: 1,
-    studentSubjectEnrollmentsCount: 0,
-    updatedAt: serverTimestamp(),
-  }));
-  await assertSucceeds(updateDoc(statsRef, {
-    studentSubjectEnrollmentsCount: 201,
-    updatedAt: serverTimestamp(),
-  }));
-});
 test("account fee workflow and prefect late-arrival workflow enforce their write boundaries", async () => {
   const accountDb = dbFor(IDS.account);
   const feeRef = doc(accountDb, COLLECTIONS.fees, "account-fee");
@@ -503,70 +407,4 @@ test("teacher and admin batches of 1, 20, 100, and 400 writes stay within Rules 
     }
     await assertSucceeds(adminBatch.commit());
   }
-});
-
-
-test("optional SBA prerequisite enforces matching saved SBA on term create/update; admin and practice remain available", async () => {
-  const admin = dbFor(IDS.admin), teacher = dbFor(IDS.teacher);
-  const settingsRef = doc(admin, "systemSettings", "marksEntry");
-  const termId = "gate-term";
-  const termMark = validMark(IDS.teacher, "gate", { academicTermId: termId, term: "Term 1", grade: 10, section: "A", assessmentType: "term" });
-  const markRef = doc(teacher, "marks", "gate-term-mark");
-  const sbaRef = doc(admin, "sbaMarks", `${termId}~${termMark.studentId}~${termMark.subjectId}`);
-  const sba = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2026", classKey: "10|A|", scopeKey: `${termId}|10|A|`, subjectId: termMark.subjectId, studentId: termMark.studentId, assignmentId: "gate-assignment", enrollmentId: "gate-enrollment", mark: 0, absent: false, revision: 1, updatedBy: IDS.admin, updatedAt: serverTimestamp() };
-  try {
-    await setDoc(doc(admin, "academicTerms", termId), { year: "2026", term: "Term 1" });
-    await setDoc(settingsRef, { requireSbaCompletion: false });
-    await assertSucceeds(setDoc(markRef, termMark));
-    await setDoc(settingsRef, { requireSbaCompletion: true });
-    await assertFails(setDoc(markRef, termMark));
-    await assertFails(setDoc(doc(teacher, "marks", "gate-new"), termMark));
-    await assertSucceeds(setDoc(doc(admin, "marks", "gate-admin"), termMark));
-    await assertSucceeds(setDoc(doc(teacher, "marks", "gate-practice"), { ...termMark, assessmentType: "practice", assessmentKey: "practice-1" }));
-    await setDoc(sbaRef, { ...sba, mark: null });
-    await assertFails(setDoc(markRef, termMark));
-    await setDoc(sbaRef, { ...sba, revision: 2 });
-    await assertSucceeds(setDoc(markRef, termMark));
-    await assertFails(setDoc(markRef, { ...termMark, academicTermId: "wrong-term" }));
-    await assertFails(setDoc(markRef, { ...termMark, section: "B" }));
-    await assertFails(setDoc(markRef, { ...termMark, term: "Term 2" }));
-    await setDoc(sbaRef, { ...sba, mark: null, absent: true, revision: 3 });
-    await assertSucceeds(setDoc(markRef, termMark));
-    await deleteDoc(sbaRef);
-    await assertFails(setDoc(markRef, termMark));
-    await setDoc(settingsRef, { requireSbaCompletion: false });
-    await assertSucceeds(setDoc(markRef, termMark));
-  } finally { await deleteDoc(settingsRef); }
-});
-
-test("A/L SBA permits matching batch and rejects a different batch", async () => {
-  const admin = dbFor(IDS.admin), teacher = dbFor(IDS.teacher);
-  const termId = "al-sba-term", subjectId = "al-sba-subject", studentId = "al-sba-student";
-  const id = `${termId}~${studentId}~${subjectId}`;
-  const cls = { grade: 12, section: "A", stream: "Commerce", batchYear: 2028 };
-  await Promise.all([
-    setDoc(doc(admin, "academicTerms", termId), { year: 2028, academicYear: "2028", term: "Term 1" }),
-    setDoc(doc(admin, "students", studentId), { ...cls, status: "active" }),
-    setDoc(doc(admin, "teacherAssignments", "al-sba-assignment"), { ...cls, teacherId: IDS.teacher, subjectId, academicYear: "2028", status: "active" }),
-    setDoc(doc(admin, "studentSubjectEnrollments", "al-sba-enrollment"), { ...cls, studentId, subjectId, academicYear: "2028", status: "active" }),
-  ]);
-  const value = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2028", academicYear: "2028", termSystem: "al", termSequence: 1, termScopeKey: "al:2028:T1", calendarYear: 2026, calendarTerm: 3, calendarSlotKey: "calendar:2026:T3", phaseGrade: 12, batchYear: 2028, intakeYear: 2026, academicScopeKey: "al:2028", classKey: "12|A|commerce|2028", scopeKey: `${termId}|12|A|commerce|2028`, subjectId, studentId, assignmentId: "al-sba-assignment", enrollmentId: "al-sba-enrollment", mark: 18, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() };
-  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), value));
-  await assertFails(setDoc(doc(teacher, "sbaMarks", id), { ...value, classKey: "12|A|commerce|2029", scopeKey: `${termId}|12|A|commerce|2029`, revision: 2 }));
-  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), { mark: 19, revision: 2, updatedAt: serverTimestamp() }, { merge: true }));
-});
-
-test("sectionless A/L SBA accepts its exact empty-section batch scope", async () => {
-  const admin = dbFor(IDS.admin), teacher = dbFor(IDS.teacher);
-  const termId = "al-empty-term", studentId = "al-empty-student", subjectId = "al-empty-subject";
-  const id = `${termId}~${studentId}~${subjectId}`;
-  const cls = { grade: 12, section: "", stream: "Commerce", batchYear: 2028 };
-  await Promise.all([
-    setDoc(doc(admin, "academicTerms", termId), { year: 2028, term: "Term 1" }),
-    setDoc(doc(admin, "students", studentId), { ...cls, status: "active" }),
-    setDoc(doc(admin, "teacherAssignments", "al-empty-assignment"), { ...cls, teacherId: IDS.teacher, subjectId, academicYear: "2028", status: "active" }),
-    setDoc(doc(admin, "studentSubjectEnrollments", "al-empty-enrollment"), { ...cls, studentId, subjectId, academicYear: "2028", status: "active" }),
-  ]);
-  const value = { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2028", classKey: "12||commerce|2028", scopeKey: `${termId}|12||commerce|2028`, subjectId, studentId, assignmentId: "al-empty-assignment", enrollmentId: "al-empty-enrollment", mark: 18, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() };
-  await assertSucceeds(setDoc(doc(teacher, "sbaMarks", id), value));
 });

@@ -1,4 +1,3 @@
-import { academicDisplay } from "../utils/academicDisplay";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -32,8 +31,6 @@ import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
-import { loadRowsForGrades } from "../services/firestoreScopedReads";
-import { loadMarksForStudents } from "../services/marksEntryDataService";
 import { useAuth } from "../context/AuthContext";
 import { SCHOOL_NAME, SCHOOL_SUBTITLE, buildALClassName, isALGrade } from "../constants";
 import { buildClassMarksReportData } from "../utils/classMarksReportBuilder";
@@ -289,7 +286,6 @@ function getOptimiStudents(studentRows = []) {
     return [
       "religion",
       "saivam",
-      "saivanery",
       "nrc",
       "rc",
       "islam",
@@ -369,10 +365,14 @@ export default function ClassReport() {
       setLoadError("");
 
       try {
-        const [allTerms, classroomRows] = await Promise.all([
-          getCollectionRows(db, "academicTerms"),
-          getCollectionRows(db, "classrooms"),
-        ]);
+        const [allTerms, studentRows, markRows, classroomRows, enrollmentRows] =
+          await Promise.all([
+            getCollectionRows(db, "academicTerms"),
+            getCollectionRows(db, "students"),
+            getCollectionRows(db, "marks"),
+            getCollectionRows(db, "classrooms"),
+            getCollectionRows(db, "studentSubjectEnrollments"),
+          ]);
 
         const sortedTerms = [...allTerms].sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
         const active = allTerms.find((term) => term.isActive === true) || null;
@@ -395,11 +395,6 @@ export default function ClassReport() {
         }
 
         const className = matchedClassroom.className;
-        const grade = parseGrade(matchedClassroom.grade);
-        const [studentRows, enrollmentRows] = await Promise.all([
-          loadRowsForGrades("students", [grade]),
-          loadRowsForGrades("studentSubjectEnrollments", [grade]),
-        ]);
 
         const allStudents = studentRows.filter(isStudentActive);
 
@@ -411,9 +406,6 @@ export default function ClassReport() {
           .filter(isEnrollmentActive)
           .filter((enrollment) => getEnrollmentClassName(enrollment) === className);
 
-        const markRows = await loadMarksForStudents(
-          classStudents.map((student) => student.id)
-        );
         const classMarks = markRows
           .filter((mark) => getMarkClassName(mark) === className);
 
@@ -458,6 +450,7 @@ export default function ClassReport() {
         className: classTeacherClass.className,
         section: classTeacherClass.section,
         termName: currentTermName,
+        academicTerm: currentTerm,
         year: currentTermYear,
       });
     } catch (err) {
@@ -795,7 +788,7 @@ export default function ClassReport() {
 
     if (!win) return;
 
-    win.document.write(academicDisplay(`
+    win.document.write(`
       <html>
         <head>
           <title>Class Report - ${classTeacherClass.className}</title>
@@ -812,7 +805,7 @@ export default function ClassReport() {
         </head>
         <body>${content}</body>
       </html>
-    `));
+    `);
 
     win.document.close();
     win.focus();
@@ -851,7 +844,7 @@ export default function ClassReport() {
 
       {!!loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {academicDisplay(loadError)}
+          {loadError}
         </Alert>
       )}
 
@@ -881,12 +874,12 @@ export default function ClassReport() {
               onChange={(e) => setSelectedTerm(e.target.value)}
             >
               <MenuItem value="active">
-                {academicDisplay(activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term")}
+                {activeTerm ? `Active: ${activeTerm.term} ${activeTerm.year}` : "Active Term"}
               </MenuItem>
 
               {terms.map((term) => (
                 <MenuItem key={term.id} value={term.id}>
-                  {academicDisplay(term.term)} {academicDisplay(term.year)}
+                  {term.term} {term.year}
                 </MenuItem>
               ))}
             </Select>
@@ -944,10 +937,10 @@ export default function ClassReport() {
         <Box ref={printRef}>
           <Box textAlign="center" mb={2} className="header">
             <Typography variant="h6" fontWeight={700} color="primary.main">
-              {academicDisplay(SCHOOL_NAME)}
+              {SCHOOL_NAME}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {academicDisplay(SCHOOL_SUBTITLE)}
+              {SCHOOL_SUBTITLE}
             </Typography>
             <Typography variant="body2" fontWeight={600} mt={0.5}>
               Class Performance Report — Grade {classTeacherClass.grade}-{classTeacherClass.section}
@@ -1018,7 +1011,7 @@ export default function ClassReport() {
                         textAlign: "center",
                       }}
                     >
-                      {academicDisplay(shortSubject(subjectInfo.subjectName))}
+                      {shortSubject(subjectInfo.subjectName)}
                     </TableCell>
                   ))}
 
@@ -1081,7 +1074,7 @@ export default function ClassReport() {
                           zIndex: 1,
                         }}
                       >
-                        {academicDisplay(isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student))}
+                        {isMobile ? getStudentName(student).split(" ")[0] : getStudentName(student)}
                       </TableCell>
 
                       {usesSeparateMediumRanking(classTeacherClass.grade) && (
@@ -1147,7 +1140,7 @@ export default function ClassReport() {
                               fontSize: 13,
                             }}
                           >
-                            {academicDisplay(avgGradeInfo.label)}
+                            {avgGradeInfo.label}
                           </span>
                         ) : (
                           "—"
@@ -1195,7 +1188,7 @@ export default function ClassReport() {
                 <Card sx={{ bgcolor: card.color, boxShadow: 1 }}>
                   <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                     <Typography variant="caption" color="text.secondary">
-                      {card.icon} {academicDisplay(card.label)}
+                      {card.icon} {card.label}
                     </Typography>
                     <Typography variant="subtitle1" fontWeight={700} mt={0.3}>
                       {card.value}
@@ -1247,14 +1240,14 @@ export default function ClassReport() {
                   <TableRow key={subjectRow.subject} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight={600}>
-                        {academicDisplay(subjectRow.subject)}
+                        {subjectRow.subject}
                       </Typography>
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center" }}>
                       {subjectRow.count > 0 ? (
                         <Chip
-                          label={academicDisplay(subjectRow.count)}
+                          label={subjectRow.count}
                           size="small"
                           color={subjectRow.count === students.length ? "success" : "warning"}
                         />
@@ -1275,21 +1268,21 @@ export default function ClassReport() {
                             : "#c62828",
                       }}
                     >
-                      {academicDisplay(subjectRow.avg ?? "—")}
+                      {subjectRow.avg ?? "—"}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center", color: "#2e7d32", fontWeight: 600 }}>
-                      {academicDisplay(subjectRow.highest ?? "—")}
+                      {subjectRow.highest ?? "—"}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center", color: "#c62828", fontWeight: 600 }}>
-                      {academicDisplay(subjectRow.lowest ?? "—")}
+                      {subjectRow.lowest ?? "—"}
                     </TableCell>
 
                     <TableCell sx={{ textAlign: "center" }}>
                       {subjectRow.passRate !== null ? (
                         <Chip
-                          label={academicDisplay(`${subjectRow.passRate}%`)}
+                          label={`${subjectRow.passRate}%`}
                           size="small"
                           color={
                             subjectRow.passRate >= 80
@@ -1327,7 +1320,7 @@ export default function ClassReport() {
                               : "#c62828"
                           }
                         >
-                          {academicDisplay(subjectRow.gradesDist[gradeKey] || 0)}
+                          {subjectRow.gradesDist[gradeKey] || 0}
                         </Typography>
                       </TableCell>
                     ))}
@@ -1371,13 +1364,13 @@ export default function ClassReport() {
                   {optimiStudents.map((student) => (
                     <TableRow key={student.id} hover>
                       <TableCell sx={{ textAlign: "center" }}>{student.rank}</TableCell>
-                      <TableCell>{academicDisplay(getStudentName(student))}</TableCell>
+                      <TableCell>{getStudentName(student)}</TableCell>
                       <TableCell sx={{ textAlign: "center", fontWeight: 600 }}>
                         {student.average}
                       </TableCell>
                       <TableCell sx={{ textAlign: "center" }}>{student.tamil ?? "—"}</TableCell>
                       <TableCell sx={{ textAlign: "center" }}>{student.english ?? "—"}</TableCell>
-                      <TableCell sx={{ textAlign: "center" }}>{academicDisplay(student.religion ?? "—")}</TableCell>
+                      <TableCell sx={{ textAlign: "center" }}>{student.religion ?? "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1420,7 +1413,7 @@ export default function ClassReport() {
 
                       <Box>
                         <Typography variant="body2" fontWeight={700}>
-                          {academicDisplay(getStudentName(student))}
+                          {getStudentName(student)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Avg: {student.average ?? "—"} | Total: {student.total}

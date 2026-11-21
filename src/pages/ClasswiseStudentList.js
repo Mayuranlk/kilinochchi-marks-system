@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
 import {
   Alert,
   Box,
@@ -250,17 +251,18 @@ export default function ClasswiseStudentList() {
         const sameGrade = parseGrade(student.grade) === grade;
         const sameSection = normalizeSection(student.section || student.className) === section;
         const sameStream = !isALGrade(grade) || text(student.stream) === stream;
-        const isActive = normalizeStatus(student.status) === "active";
-        return sameGrade && sameSection && sameStream && isActive;
+        const eligibleStatus = normalizeStatus(student.status) === "active" || Boolean(student.leftDate || student.leavingDate);
+        return sameGrade && sameSection && sameStream && eligibleStatus && studentWasEnrolledDuringTerm(student, findAcademicTerm([], selectedYear, "All"));
       })
     );
-  }, [students, selectedClassroom]);
+  }, [students, selectedClassroom, selectedYear]);
 
   const classStudentCounts = useMemo(() => {
     const counts = new Map();
 
     students.forEach((student) => {
-      if (normalizeStatus(student.status) !== "active") return;
+      if (normalizeStatus(student.status) !== "active" && !(student.leftDate || student.leavingDate)) return;
+      if (!studentWasEnrolledDuringTerm(student, findAcademicTerm([], selectedYear, "All"))) return;
       const key = getClassMatchKeyFromStudent(student);
       const current = counts.get(key) || { total: 0, emisAvailable: 0 };
       current.total += 1;
@@ -269,7 +271,7 @@ export default function ClasswiseStudentList() {
     });
 
     return counts;
-  }, [students]);
+  }, [students, selectedYear]);
 
   const uploadStatusRows = useMemo(() => {
     return filteredClassrooms.map((classroom) => {

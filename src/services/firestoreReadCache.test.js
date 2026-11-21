@@ -3,8 +3,6 @@ import {
   clearFirestoreReadCache,
   getCollectionCount,
   getCollectionRows,
-  getScopedRows,
-  getReadDiagnostics,
   invalidateCollectionRows,
   updateCachedCollection,
 } from "./firestoreReadCache";
@@ -143,33 +141,13 @@ describe("firestoreReadCache", () => {
     expect(getCountFromServer).toHaveBeenCalledTimes(2);
   });
 
-  test("aggregation failure never scans a collection", async () => {
+  test("falls back to a compatible collection read when aggregation is denied", async () => {
     getCountFromServer.mockRejectedValue(new Error("permission-denied"));
-    await expect(getCollectionCount({}, "marks")).rejects.toThrow("permission-denied");
-    expect(getDocs).not.toHaveBeenCalled();
-  });
-  test("scoped queries deduplicate and honor refresh, writes and sign out", async () => {
-    const read = jest.fn(async () => snapshot([{ id: "a" }]));
-    await Promise.all([getScopedRows("students", ["a"], read), getScopedRows("students", ["a"], read)]);
-    await getScopedRows("students", ["a"], read);
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(getReadDiagnostics().at(-1).cached).toBe(true);
-    await getScopedRows("students", ["a"], read, { forceRefresh: true });
-    invalidateCollectionRows("students");
-    await getScopedRows("students", ["a"], read);
-    clearFirestoreReadCache();
-    await getScopedRows("students", ["a"], read);
-    expect(read).toHaveBeenCalledTimes(4);
-  });
-  test("invalidated in-flight scoped queries cannot restore stale rows", async () => {
-    let resolve;
-    const old = getScopedRows("students", ["a"], () => new Promise((done) => { resolve = done; }));
-    invalidateCollectionRows("students");
-    const read = jest.fn(async () => snapshot([{ id: "new" }]));
-    await getScopedRows("students", ["a"], read);
-    resolve(snapshot([{ id: "old" }]));
-    await old;
-    expect(await getScopedRows("students", ["a"], read)).toEqual([{ id: "new" }]);
-    expect(read).toHaveBeenCalledTimes(1);
+    getDocs.mockResolvedValue(snapshot([{ id: "s1" }, { id: "s2" }]));
+    const warning = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await getCollectionCount({}, "students")).toBe(2);
+    expect(getDocs).toHaveBeenCalledTimes(1);
+    warning.mockRestore();
   });
 });
