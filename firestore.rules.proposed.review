@@ -302,11 +302,12 @@ service cloud.firestore {
 
     match /sbaMarks/{markId} {
       allow read: if isAcademicReader();
-      allow create: if validSbaShape(request.resource.data, markId) && (isAdmin() ||
-        (isSubjectTeacher() && sbaOpen() && request.resource.data.revision == 1 && sbaAssigned(request.resource.data)));
-      allow update: if validSbaShape(request.resource.data, markId) && (isAdmin() ||
+      // Revision checks apply to admins too, so stale batched saves cannot overwrite newer marks.
+      allow create: if validSbaShape(request.resource.data, markId) && request.resource.data.revision == 1 &&
+        (isAdmin() || (isSubjectTeacher() && sbaOpen() && sbaAssigned(request.resource.data)));
+      allow update: if validSbaShape(request.resource.data, markId) &&
+        request.resource.data.revision == resource.data.revision + 1 && (isAdmin() ||
         (isSubjectTeacher() && sbaOpen() && sbaAssigned(request.resource.data) &&
-          request.resource.data.revision == resource.data.revision + 1 &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'mark', 'absent', 'revision', 'updatedBy', 'updatedAt', 'assignmentId', 'enrollmentId'
           ])));

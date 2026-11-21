@@ -61,7 +61,7 @@ test("opening entry never requests complete student or enrollment collections", 
   expect(getCollectionRows.mock.calls.map((call) => call[1])).toEqual(["academicTerms"]);
   expect(loadSbaTeacherAssignments).toHaveBeenCalledWith(expect.objectContaining({ uid: "teacher" }), { forceRefresh: false });
   expect(loadSbaRosterData).toHaveBeenCalledWith(["maths"], expect.objectContaining({ id: "t1" }), expect.objectContaining({ grade: 10 }), { forceRefresh: false });
-  expect(loadSbaRecords).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }), expect.any(Object), "maths");
+  expect(loadSbaRecords).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }), expect.any(Object), "maths", { forceRefresh: false });
 });
 
 test("teachers only receive SBA marks entry controls", async () => {

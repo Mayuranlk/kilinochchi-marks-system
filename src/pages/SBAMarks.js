@@ -195,7 +195,7 @@ export default function SBAMarks({ registerMode = false }) {
       });
       const savedIds = new Set(result.saved.map((record) => record.id));
       setDrafts((previous) => Object.fromEntries(Object.entries(previous).filter(([studentId]) => !savedIds.has(sbaRecordId(term.id, studentId, assignment.subjectId)))));
-      if (result.failed.length) setError(`${result.failed.length} SBA record(s) could not be saved. ${result.failed[0].message} Your remaining edits are retained; discard them and refresh to resolve a conflict.`);
+      if (result.failed.length) setError(`${result.failed.length} SBA record(s) could not be saved. ${result.failed[0].message} Your remaining edits are retained. If another session changed these marks, record your edits before refreshing.`);
       if (result.saved.length) setSuccess(`${result.saved.length} SBA record(s) ${removeRow ? "deleted" : "saved"}.`);
     } catch (failure) { setError(failure.message); }
     finally { setSaving(false); setDeleteRow(null); }

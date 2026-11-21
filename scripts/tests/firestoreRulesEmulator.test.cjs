@@ -112,6 +112,34 @@ test("SBA enforces its own range, assignment, enrollment, deadline and deletion 
   await deleteDoc(doc(admin, "systemSettings", "marksEntry"));
 });
 
+test("SBA four-row teacher batches enforce revisions for teachers and admins", async () => {
+  const admin = dbFor(IDS.admin);
+  const teacher = dbFor(IDS.teacher);
+  const termId = "sba-batch-term";
+  const subjectId = "sba-batch-subject";
+  const assignmentId = "sba-batch-assignment";
+  await setDoc(doc(admin, "academicTerms", termId), { year: "2026", term: "Term 1" });
+  await setDoc(doc(admin, "teacherAssignments", assignmentId), { teacherId: IDS.teacher, grade: 10, section: "A", subjectId, medium: "Tamil", status: "active" });
+  const rows = Array.from({ length: 4 }, (_, i) => ({ studentId: `sba-batch-student-${i}`, enrollmentId: `sba-batch-enrollment-${i}` }));
+  for (const row of rows) {
+    await setDoc(doc(admin, "students", row.studentId), { grade: 10, section: "A", medium: "Tamil", status: "active" });
+    await setDoc(doc(admin, "studentSubjectEnrollments", row.enrollmentId), { studentId: row.studentId, subjectId, academicYear: "2026", grade: 10, section: "A", medium: "Tamil", status: "active" });
+  }
+  const create = writeBatch(teacher);
+  for (const row of rows) {
+    const id = `${termId}~${row.studentId}~${subjectId}`;
+    create.set(doc(teacher, "sbaMarks", id), { schemaVersion: 1, assessmentType: "sba", maxMark: 20, termId, year: "2026", classKey: "10|A|", scopeKey: `${termId}|10|A|`, subjectId, ...row, assignmentId, mark: 15, absent: false, revision: 1, updatedBy: IDS.teacher, updatedAt: serverTimestamp() });
+  }
+  await assertSucceeds(create.commit());
+  const update = writeBatch(teacher);
+  for (const row of rows) update.set(doc(teacher, "sbaMarks", `${termId}~${row.studentId}~${subjectId}`), { mark: 16, revision: 2, updatedBy: IDS.teacher, updatedAt: serverTimestamp() }, { merge: true });
+  await assertSucceeds(update.commit());
+  const id = `${termId}~${rows[0].studentId}~${subjectId}`;
+  await assertFails(setDoc(doc(teacher, "sbaMarks", id), { mark: 17, revision: 2, updatedBy: IDS.teacher, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(setDoc(doc(admin, "sbaMarks", id), { mark: 17, revision: 2, updatedBy: IDS.admin, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(setDoc(doc(admin, "sbaMarks", id), { mark: 17, revision: 3, updatedBy: IDS.admin, updatedAt: serverTimestamp() }, { merge: true }));
+});
+
 function dbFor(uid) {
   return testEnv.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
 }
@@ -497,12 +525,12 @@ test("optional SBA prerequisite enforces matching saved SBA on term create/updat
     await assertSucceeds(setDoc(doc(teacher, "marks", "gate-practice"), { ...termMark, assessmentType: "practice", assessmentKey: "practice-1" }));
     await setDoc(sbaRef, { ...sba, mark: null });
     await assertFails(setDoc(markRef, termMark));
-    await setDoc(sbaRef, sba);
+    await setDoc(sbaRef, { ...sba, revision: 2 });
     await assertSucceeds(setDoc(markRef, termMark));
     await assertFails(setDoc(markRef, { ...termMark, academicTermId: "wrong-term" }));
     await assertFails(setDoc(markRef, { ...termMark, section: "B" }));
     await assertFails(setDoc(markRef, { ...termMark, term: "Term 2" }));
-    await setDoc(sbaRef, { ...sba, mark: null, absent: true });
+    await setDoc(sbaRef, { ...sba, mark: null, absent: true, revision: 3 });
     await assertSucceeds(setDoc(markRef, termMark));
     await deleteDoc(sbaRef);
     await assertFails(setDoc(markRef, termMark));

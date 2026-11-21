@@ -58,7 +58,7 @@ test("measure complete teacher SBA read path with unrelated legacy enrollments",
   await expect(page.getByText("2 SBA record(s) saved.", { exact: true })).toBeVisible();
   await sample("sba-save-two");
   expect(results.at(-1).returnedDocuments).toBe(openReads);
-  expect(batchGetDocuments - beforeSaveBatchGet).toBe(4);
+  expect(batchGetDocuments - beforeSaveBatchGet).toBe(0);
   await navigate("/teacher/sba-register");
   await expect(page).toHaveURL(/\/teacher\/sba-marks$/);
   await expect(first).toHaveValue("18");

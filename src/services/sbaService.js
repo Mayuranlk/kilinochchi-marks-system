@@ -1,4 +1,4 @@
-import { collection, doc, documentId, getDocs, getDocFromServer, limit, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, getDocFromServer, limit, query, serverTimestamp, setDoc, Timestamp, where, writeBatch } from "firebase/firestore";
 import { getScopedRows, invalidateCollectionRows } from "./firestoreReadCache";
 import { getClassContext, matchesClassContext } from "../utils/sbaContext";
 import { db } from "../firebase";
@@ -166,36 +166,26 @@ export async function saveSbaSettings(settings, uid) {
   return normalized;
 }
 
-export async function saveSbaChange({ term, assignment, row, value, previous, uid, isAdmin, remove = false, skipSettingsCheck = false }) {
+// Build writes from the loaded revision. Teacher security rules reject stale
+// revisions at commit time without a separate client transaction read.
+function prepareSbaWrite(batch, { term, assignment, row, value, previous, uid, isAdmin, remove = false }) {
   const id = sbaRecordId(term.id, row.studentId, assignment.subjectId);
   const ref = doc(db, SBA_COLLECTION, id);
   const parsed = parseSbaValue(value.mark, value.absent);
-  const saved = await runTransaction(db, async (transaction) => {
-    const current = await transaction.get(ref);
-    if (!isAdmin && !skipSettingsCheck) {
-      const settings = await transaction.get(settingsRef());
-      if (sbaEntryLocked(settings.data())) throw new Error("SBA entry is closed. Refresh to see the current controls.");
-    }
-    const actualRevision = current.exists() ? current.data().revision : null;
-    if (actualRevision !== (previous?.revision ?? null)) throw new Error(`${row.studentName}: SBA marks changed in another session. Refresh before editing again.`);
-    if (remove) {
-      if (!isAdmin) throw new Error("Only administrators can delete an SBA record.");
-      transaction.delete(ref);
-      return { id, deleted: true };
-    }
-    // Existing records can predate optional academic-cycle fields. Preserve
-    // their immutable identity and metadata so teacher edits remain compatible
-    // with the rules instead of silently rewriting historical scope.
-    if (current.exists()) {
-      const changes = {
-        ...parsed, revision: actualRevision + 1, updatedBy: uid,
-        updatedAt: serverTimestamp(), assignmentId: assignment.id,
-        enrollmentId: row.enrollmentId,
-      };
-      transaction.set(ref, changes, { merge: true });
-      return { ...current.data(), ...changes, id };
-    }
-    const payload = {
+  if (remove) {
+    if (!isAdmin) throw new Error("Only administrators can delete an SBA record.");
+    batch.delete(ref);
+    return { id, deleted: true };
+  }
+  if (previous) {
+    const changes = {
+      ...parsed, revision: (previous.revision || 0) + 1, updatedBy: uid,
+      updatedAt: serverTimestamp(), assignmentId: assignment.id, enrollmentId: row.enrollmentId,
+    };
+    batch.set(ref, changes, { merge: true });
+    return { ...previous, ...changes, id };
+  }
+  const payload = {
       schemaVersion: 1, assessmentType: "sba", maxMark: 20,
       termId: term.id,
       year: sbaYear(term),
@@ -214,17 +204,14 @@ export async function saveSbaChange({ term, assignment, row, value, previous, ui
       scopeKey: sbaScopeKey(term, assignment),
       subjectId: assignment.subjectId, studentId: row.studentId,
       assignmentId: assignment.id, enrollmentId: row.enrollmentId,
-      ...parsed, revision: (actualRevision || 0) + 1, updatedBy: uid, updatedAt: serverTimestamp(),
+      ...parsed, revision: 1, updatedBy: uid, updatedAt: serverTimestamp(),
     };
-    transaction.set(ref, payload);
-    return { ...payload, id };
-  });
-  invalidateCollectionRows(SBA_COLLECTION);
-  return saved;
+  batch.set(ref, payload);
+  return { ...payload, id };
 }
 
-// Small, bounded concurrency keeps Firestore rule document-access limits per
-// transaction low. Successful rows are returned even if another row conflicts.
+// Keep batches small because security rules read assignment and enrollment data.
+// Each committed batch is atomic; later failed batches retain their drafts.
 export async function saveSbaChanges(context, changes) {
   const saved = [], failed = [];
   if (!context.isAdmin && changes.length) {
@@ -235,13 +222,23 @@ export async function saveSbaChanges(context, changes) {
   }
   for (let index = 0; index < changes.length; index += 4) {
     const chunk = changes.slice(index, index + 4);
-    const results = await Promise.allSettled(chunk.map((change) =>
-      saveSbaChange({ ...context, ...change, skipSettingsCheck: !context.isAdmin })
-    ));
-    results.forEach((result, offset) => {
-      if (result.status === "fulfilled") saved.push(result.value);
-      else failed.push({ studentId: chunk[offset].row.studentId, message: result.reason.message });
-    });
+    const batch = writeBatch(db);
+    let records;
+    try {
+      records = chunk.map((change) => prepareSbaWrite(batch, { ...context, ...change }));
+      await batch.commit();
+      saved.push(...records);
+      invalidateCollectionRows(SBA_COLLECTION);
+    } catch (error) {
+      changes.slice(index).forEach((change) => failed.push({ studentId: change.row.studentId, message: error.message }));
+      break;
+    }
   }
   return { saved, failed };
+}
+
+export async function saveSbaChange(context) {
+  const { saved, failed } = await saveSbaChanges(context, [context]);
+  if (failed.length) throw new Error(failed[0].message);
+  return saved[0];
 }

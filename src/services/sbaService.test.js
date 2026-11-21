@@ -1,51 +1,53 @@
 ﻿import { clearFirestoreReadCache } from "./firestoreReadCache";
-import { doc, runTransaction, setDoc, getDocs, getDocFromServer } from "firebase/firestore";
+import { doc, writeBatch, setDoc, getDocs, getDocFromServer } from "firebase/firestore";
 import { saveSbaChange, saveSbaChanges, saveSbaSettings, loadSbaAdminAssignments, loadSbaRosterData, loadSbaRecords, loadSbaTeacherAssignments } from "./sbaService";
 
 jest.mock("../firebase", () => ({ db: {} }));
 jest.mock("firebase/firestore", () => ({
   doc: jest.fn((_db, collection, id) => ({ collection, id })),
   collection: (_db, name) => name, documentId: () => "__name__", getDocs: jest.fn(), getDocFromServer: jest.fn(), query: (...args) => args, where: (...args) => args, limit: (value) => ["limit", value],
-  runTransaction: jest.fn(), setDoc: jest.fn(), serverTimestamp: () => "server-time",
+  writeBatch: jest.fn(), setDoc: jest.fn(), serverTimestamp: () => "server-time",
   Timestamp: { fromDate: (date) => date.toISOString() },
 }));
 const context = { term: { id: "t1", year: "2026" }, assignment: { id: "a1", subjectId: "maths", grade: 10, section: "A" }, row: { studentId: "s1", enrollmentId: "e1", studentName: "Student One" }, value: { mark: 20, absent: false }, uid: "teacher", isAdmin: false };
-let transaction;
+let batch;
 beforeEach(() => {
   jest.clearAllMocks();
   clearFirestoreReadCache();
   doc.mockImplementation((_db, collection, id) => ({ collection, id }));
-  transaction = { get: jest.fn(async () => ({ exists: () => false, data: () => ({}) })), set: jest.fn(), delete: jest.fn() };
-  runTransaction.mockImplementation((_db, action) => action(transaction));
+  batch = { set: jest.fn(), delete: jest.fn(), commit: jest.fn().mockResolvedValue(undefined) };
+  writeBatch.mockReturnValue(batch);
+  getDocFromServer.mockResolvedValue({ data: () => ({}) });
 });
 test("SBA save and deletion can only address sbaMarks and sbaEntry, never marks", async () => {
   const result = await saveSbaChange(context);
   expect(result.mark).toBe(20);
   expect(result.revision).toBe(1);
-  expect(transaction.set.mock.calls[0][0]).toEqual({ collection: "sbaMarks", id: "t1~s1~maths" });
+  expect(batch.set.mock.calls[0][0]).toEqual({ collection: "sbaMarks", id: "t1~s1~maths" });
   await saveSbaChange({ ...context, remove: true, isAdmin: true });
-  expect(transaction.delete.mock.calls[0][0].collection).toBe("sbaMarks");
+  expect(batch.delete.mock.calls[0][0].collection).toBe("sbaMarks");
   expect(doc.mock.calls.every(([, collection, id]) => collection === "sbaMarks" || (collection === "systemSettings" && id === "sbaEntry"))).toBe(true);
 });
-test("conflicting concurrent updates fail without overwriting the saved SBA mark", async () => {
-  transaction.get.mockImplementation(async (ref) => ({ exists: () => ref.collection === "sbaMarks", data: () => ({ revision: 2 }) }));
-  await expect(saveSbaChange({ ...context, previous: { revision: 1 } })).rejects.toThrow("another session");
-  expect(transaction.set).not.toHaveBeenCalled();
+test("failed batches retain all affected drafts", async () => {
+  batch.commit.mockRejectedValueOnce(new Error("Quota exceeded"));
+  const result = await saveSbaChanges(context, [{ row: context.row, value: context.value }]);
+  expect(result.saved).toHaveLength(0);
+  expect(result.failed[0].message).toBe("Quota exceeded");
 });
 test("closed SBA entry and teacher deletes are rejected", async () => {
-  transaction.get.mockImplementation(async () => ({ exists: () => false, data: () => ({ teacherEntryEnabled: false }) }));
+  getDocFromServer.mockResolvedValueOnce({ data: () => ({ teacherEntryEnabled: false }) });
   await expect(saveSbaChange(context)).rejects.toThrow("closed");
-  transaction.get.mockImplementation(async () => ({ exists: () => false, data: () => ({}) }));
   await expect(saveSbaChange({ ...context, remove: true })).rejects.toThrow("Only administrators");
-  expect(transaction.delete).not.toHaveBeenCalled();
+  expect(batch.delete).not.toHaveBeenCalled();
 });
-test("partial saves return successes and retain failed rows for review", async () => {
-  const result = await saveSbaChanges(context, [{ row: context.row, value: context.value }, { row: { ...context.row, studentId: "s2" }, value: { mark: 21 } }]);
-  expect(result.saved).toHaveLength(1);
+test("saves use bounded batches without transaction reads and retain later failed rows", async () => {
+  const changes = Array.from({ length: 5 }, (_, i) => ({ row: { ...context.row, studentId: `s${i}` }, value: context.value }));
+  batch.commit.mockResolvedValueOnce().mockRejectedValueOnce(new Error("Quota exceeded"));
+  const result = await saveSbaChanges(context, changes);
+  expect(result.saved).toHaveLength(4);
   expect(result.failed).toHaveLength(1);
-  expect(result.failed[0].studentId).toBe("s2");
   expect(getDocFromServer).toHaveBeenCalledTimes(1);
-  expect(transaction.get).toHaveBeenCalledTimes(1);
+  expect(batch.commit).toHaveBeenCalledTimes(2);
 });
 test("SBA controls write only their own settings and store a Sri Lanka deadline", async () => {
   await saveSbaSettings({ teacherEntryEnabled: true, teacherEntryDeadline: "2026-11-03" }, "admin");
@@ -167,9 +169,8 @@ test("admin assignments include mixed year aliases and deduplicate overlaps", as
 
 test("editing a legacy SBA record preserves immutable academic fields", async () => {
   const existing = { revision: 2, termId: "t1", year: "2026", classKey: "10|A|", mark: 10 };
-  transaction.get.mockImplementation(async (ref) => ({ exists: () => ref.collection === "sbaMarks", data: () => ref.collection === "sbaMarks" ? existing : {} }));
-  const result = await saveSbaChange({ ...context, previous: { revision: 2 } });
-  const [, update, options] = transaction.set.mock.calls[0];
+  const result = await saveSbaChange({ ...context, previous: existing });
+  const [, update, options] = batch.set.mock.calls[0];
   expect(options).toEqual({ merge: true });
   expect(update).not.toHaveProperty("academicYear");
   expect(update).not.toHaveProperty("classKey");
