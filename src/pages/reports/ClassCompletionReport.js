@@ -173,6 +173,7 @@ function buildPendingSubjectRows(rows = []) {
         subjectName: subject.subjectName,
         subjectNumber: subject.subjectNumber,
         subjectId: subject.subjectId,
+        teacherNames: subject.teacherNames,
         status: subject.status,
         enrolledCount: subject.enrolledCount,
         enteredCount: subject.enteredCount,
@@ -255,7 +256,7 @@ export function buildClassSubjectCompletion({ classEnrollments, classMarks }) {
     .sort((a, b) => a.subjectName.localeCompare(b.subjectName, undefined, { sensitivity: "base" }));
 }
 
-export function buildClassCompletionRows({ classrooms, students, enrollments, marks, year, termName, academicTerm = null }) {
+export function buildClassCompletionRows({ classrooms, students, enrollments, marks, assignments = [], year, termName, academicTerm = null }) {
   const studentsById = new Map(students.map((student) => [normalizeText(student.id), student]));
 
   return classrooms.map((classroom) => {
@@ -313,7 +314,17 @@ export function buildClassCompletionRows({ classrooms, students, enrollments, ma
       .map((studentId) => studentsById.get(studentId))
       .filter(Boolean);
     const identityStudents = enrolledStudents.length ? enrolledStudents : classStudents;
-    const subjectSummaries = buildClassSubjectCompletion({ classEnrollments, classMarks });
+    const classAssignments = assignments.filter((assignment) => {
+      const assignmentYear = Number(assignment.academicYear || assignment.year || 0);
+      return (!assignmentYear || assignmentYear === Number(year)) &&
+        isActiveStatus(assignment.status) && matchesReportClass(assignment, reportContext);
+    });
+    const subjectSummaries = buildClassSubjectCompletion({ classEnrollments, classMarks }).map((subject) => ({
+      ...subject,
+      teacherNames: [...new Set(classAssignments.filter((assignment) => subjectsMatch(assignment, subject))
+        .map((assignment) => normalizeText(assignment.teacherName)).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b)),
+    }));
     const expectedMarkCount = subjectSummaries.reduce((sum, subject) => sum + subject.enrolledCount, 0);
     const enteredMarkCount = subjectSummaries.reduce((sum, subject) => sum + subject.enteredCount, 0);
     const missingMarkCount = Math.max(0, expectedMarkCount - enteredMarkCount);
@@ -421,7 +432,7 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows, sba = f
       { Metric: "Pending Subjects", Value: summary.pendingSubjects },
       { Metric: "Partial Subjects", Value: summary.partialSubjects },
     ]);
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "Whole School Summary");
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Completion Summary");
   }
 
   if (pendingSubjectRows?.length) {
@@ -431,6 +442,7 @@ function exportRows(rows, { year, termName, summary, pendingSubjectRows, sba = f
         Grade: row.grade,
         Class: row.className,
         Subject: row.subjectName,
+        Teacher: row.teacherNames?.join(", ") || "Not recorded",
         "Subject No": row.subjectNumber,
         "Subject ID": row.subjectId,
         "Enrolled Students": row.enrolledCount,
@@ -477,7 +489,7 @@ function createCompletionPdf(rows, { year, termName, summary, sba = false }) {
   doc.text(`Yellow: ${summary.partial}`, 205, 28);
   doc.text(`Red: ${summary.missing}`, 252, 28);
   doc.text(
-    `Whole School Completion: ${formatPercent(summary.completionPercent)} | Missing Marks: ${summary.missingMarks}`,
+    `Selected Classes Completion: ${formatPercent(summary.completionPercent)} | Missing Marks: ${summary.missingMarks}`,
     10,
     33
   );
@@ -563,10 +575,11 @@ function createCompletionPdf(rows, { year, termName, summary, sba = false }) {
   if (Array.isArray(summary.pendingSubjectRows) && summary.pendingSubjectRows.length) {
     autoTable(doc, {
       startY: (doc.lastAutoTable?.finalY || 39) + 8,
-      head: [["Class", "Subject", "Status", "Enrolled", "Entered", "Missing"]],
-      body: summary.pendingSubjectRows.slice(0, 60).map((row) => [
+      head: [["Class", "Subject", "Teacher", "Status", "Enrolled", "Entered", "Missing"]],
+      body: summary.pendingSubjectRows.map((row) => [
         row.className,
         row.subjectName,
+        row.teacherNames?.join(", ") || "Not recorded",
         getStatusLabel(row.status),
         row.enrolledCount,
         row.enteredCount,
@@ -590,11 +603,12 @@ function createCompletionPdf(rows, { year, termName, summary, sba = false }) {
       },
       columnStyles: {
         0: { cellWidth: 18, fontStyle: "bold" },
-        1: { cellWidth: 76 },
-        2: { cellWidth: 30, fontStyle: "bold" },
-        3: { cellWidth: 18, halign: "right" },
+        1: { cellWidth: 65 },
+        2: { cellWidth: 65 },
+        3: { cellWidth: 30, fontStyle: "bold" },
         4: { cellWidth: 18, halign: "right" },
         5: { cellWidth: 18, halign: "right" },
+        6: { cellWidth: 18, halign: "right" },
       },
       margin: { left: 8, right: 8 },
       didDrawPage: (data) => {
@@ -616,6 +630,42 @@ function createCompletionPdf(rows, { year, termName, summary, sba = false }) {
   doc.text(`Generated: ${new Date().toLocaleString()}`, 289, 203, { align: "right" });
 
   return doc;
+}
+
+function downloadPendingSubjectsPdf({ year, termName, summary, scopeName = "All_Grades", sba = false }) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress: true });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Kilinochchi Central College", 148.5, 12, { align: "center" });
+  doc.setFontSize(11);
+  doc.text(`${sba ? "SBA " : ""}Pending Subjects Report`, 148.5, 19, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Year: ${year}     Term: ${termName}     Classes: ${summary.total}`, 10, 27);
+
+  autoTable(doc, {
+    startY: 32,
+    head: [["Class", "Subject", "Teacher", "Status", "Enrolled", "Entered", "Missing"]],
+    body: summary.pendingSubjectRows.map((row) => [
+      row.className, row.subjectName, row.teacherNames?.join(", ") || "Not recorded",
+      getStatusLabel(row.status), row.enrolledCount, row.enteredCount, row.missingCount,
+    ]),
+    theme: "grid",
+    styles: { fontSize: 8, cellPadding: 1.5, valign: "middle", lineWidth: 0.1, lineColor: [80, 80, 80], textColor: 20, overflow: "linebreak" },
+    headStyles: { fillColor: [255, 248, 225], textColor: 20, fontStyle: "bold", halign: "center" },
+    columnStyles: {
+      0: { cellWidth: 20, fontStyle: "bold" },
+      1: { cellWidth: 65 },
+      2: { cellWidth: 65 },
+      3: { cellWidth: 48, fontStyle: "bold" },
+      4: { cellWidth: 26, halign: "right" },
+      5: { cellWidth: 26, halign: "right" },
+      6: { cellWidth: 26, halign: "right" },
+    },
+    margin: { left: 10, right: 10 },
+  });
+  const safeScope = scopeName.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "All_Grades";
+  doc.save(`${sba ? "sba_" : ""}pending_subjects_${safeScope}_${year}_${termName.replace(/\s+/g, "_")}.pdf`);
 }
 
 function downloadCompletionPdf(rows, context) {
@@ -698,6 +748,9 @@ export default function ClassCompletionReport({ sba = false }) {
   const [classrooms, setClassrooms] = useState([]);
   const [enrollments, setEnrollments] = useState([]);
   const [terms, setTerms] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [gradeFilter, setGradeFilter] = useState("all");
+  const [classFilter, setClassFilter] = useState("all");
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedTerm, setSelectedTerm] = useState(DEFAULT_TERM);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -713,12 +766,13 @@ export default function ClassCompletionReport({ sba = false }) {
       setLoading(true);
       setError("");
 
-      const [studentsData, enrollmentsData, marksData, classroomsData, termsData] = await Promise.all([
+      const [studentsData, enrollmentsData, marksData, classroomsData, termsData, assignmentsData] = await Promise.all([
         getCollectionRows(db, "students", { forceRefresh }),
         getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
         getCollectionRows(db, sba ? "sbaMarks" : "marks", { forceRefresh }),
         getCollectionRows(db, "classrooms", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
+        getCollectionRows(db, "teacherAssignments", { forceRefresh }),
       ]);
 
       setStudents(studentsData);
@@ -726,6 +780,7 @@ export default function ClassCompletionReport({ sba = false }) {
       setMarks(sba ? normalizeSbaCompletionMarks(marksData, termsData, enrollmentsData) : marksData);
       setClassrooms(classroomsData);
       setTerms(termsData);
+      setAssignments(assignmentsData);
 
       const activeTerm = termsData.find((item) => item.isActive) || termsData[0] || null;
       if (activeTerm?.term) setSelectedTerm(activeTerm.term);
@@ -769,10 +824,17 @@ export default function ClassCompletionReport({ sba = false }) {
       });
   }, [assignedGrades, classrooms, isSectionalHead, selectedYear]);
 
+  const gradeOptions = useMemo(() => [...new Set(reportClassrooms.map((room) => Number(room.grade)))], [reportClassrooms]);
+  const selectedGrade = gradeOptions.includes(Number(gradeFilter)) ? gradeFilter : "all";
+  const classOptions = useMemo(() => reportClassrooms.filter((room) => selectedGrade === "all" || Number(room.grade) === Number(selectedGrade)), [reportClassrooms, selectedGrade]);
+  const selectedClass = classOptions.some((room) => room.id === classFilter) ? classFilter : "all";
+  const scopedClassrooms = useMemo(() => classOptions.filter((room) => selectedClass === "all" || room.id === selectedClass), [classOptions, selectedClass]);
+
   const rows = useMemo(
     () =>
       buildClassCompletionRows({
-        classrooms: reportClassrooms,
+        classrooms: scopedClassrooms,
+        assignments,
         students,
         enrollments,
         marks,
@@ -780,7 +842,7 @@ export default function ClassCompletionReport({ sba = false }) {
         termName: selectedTerm,
         academicTerm: findAcademicTerm(terms, selectedYear, selectedTerm),
       }),
-    [enrollments, marks, reportClassrooms, selectedTerm, selectedYear, students, terms]
+    [assignments, enrollments, marks, scopedClassrooms, selectedTerm, selectedYear, students, terms]
   );
 
   useEffect(() => {
@@ -794,35 +856,25 @@ export default function ClassCompletionReport({ sba = false }) {
     return rows.filter((row) => row.status === statusFilter);
   }, [rows, statusFilter]);
 
-  const pendingSubjectRows = useMemo(() => buildPendingSubjectRows(rows), [rows]);
-
-  const filteredPendingSubjectRows = useMemo(() => {
-    if (statusFilter === "all") return pendingSubjectRows;
-    if (statusFilter === "done") return [];
-    return pendingSubjectRows.filter((row) => row.status === statusFilter);
-  }, [pendingSubjectRows, statusFilter]);
+  const filteredPendingSubjectRows = useMemo(() => buildPendingSubjectRows(filteredRows), [filteredRows]);
 
   const summary = useMemo(() => {
-    const expectedMarks = rows.reduce((sum, row) => sum + row.expectedMarkCount, 0);
-    const enteredMarks = rows.reduce((sum, row) => sum + row.enteredMarkCount, 0);
-    const missingMarks = rows.reduce((sum, row) => sum + row.missingMarksCount, 0);
-    const completionPercent = expectedMarks > 0 ? (enteredMarks / expectedMarks) * 100 : 0;
-
+    const expectedMarks = filteredRows.reduce((sum, row) => sum + row.expectedMarkCount, 0);
+    const enteredMarks = filteredRows.reduce((sum, row) => sum + row.enteredMarkCount, 0);
+    const missingMarks = filteredRows.reduce((sum, row) => sum + row.missingMarksCount, 0);
     return {
-      done: rows.filter((row) => row.status === "done").length,
-      partial: rows.filter((row) => row.status === "partial").length,
-      missing: rows.filter((row) => row.status === "missing").length,
-      total: rows.length,
-      expectedMarks,
-      enteredMarks,
-      missingMarks,
-      completionPercent,
-      completedSubjects: rows.reduce((sum, row) => sum + row.completedSubjectCount, 0),
-      partialSubjects: rows.reduce((sum, row) => sum + row.partialSubjectCount, 0),
-      pendingSubjects: rows.reduce((sum, row) => sum + row.pendingSubjectCount, 0),
-      pendingSubjectRows,
+      done: filteredRows.filter((row) => row.status === "done").length,
+      partial: filteredRows.filter((row) => row.status === "partial").length,
+      missing: filteredRows.filter((row) => row.status === "missing").length,
+      total: filteredRows.length,
+      expectedMarks, enteredMarks, missingMarks,
+      completionPercent: expectedMarks > 0 ? (enteredMarks / expectedMarks) * 100 : 0,
+      completedSubjects: filteredRows.reduce((sum, row) => sum + row.completedSubjectCount, 0),
+      partialSubjects: filteredRows.reduce((sum, row) => sum + row.partialSubjectCount, 0),
+      pendingSubjects: filteredRows.reduce((sum, row) => sum + row.pendingSubjectCount, 0),
+      pendingSubjectRows: filteredPendingSubjectRows,
     };
-  }, [pendingSubjectRows, rows]);
+  }, [filteredPendingSubjectRows, filteredRows]);
 
   const detailRow = useMemo(
     () => rows.find((row) => row.id === selectedDetailClassId) || rows[0] || null,
@@ -891,6 +943,25 @@ export default function ClassCompletionReport({ sba = false }) {
                         {term.term}
                       </MenuItem>
                     ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 4, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Grade</InputLabel>
+                  <Select value={selectedGrade} label="Grade" onChange={(event) => { setGradeFilter(event.target.value); setClassFilter("all"); }}>
+                    <MenuItem value="all">All grades</MenuItem>
+                    {gradeOptions.map((grade) => <MenuItem key={grade} value={grade}>Grade {grade}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Class / Division</InputLabel>
+                  <Select value={selectedClass} label="Class / Division" onChange={(event) => setClassFilter(event.target.value)}>
+                    <MenuItem value="all">All classes</MenuItem>
+                    {classOptions.map((room) => <MenuItem key={room.id} value={room.id}>{getClassroomDisplayName(room)}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
@@ -990,10 +1061,10 @@ export default function ClassCompletionReport({ sba = false }) {
                 <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between">
                   <Box>
                     <Typography variant="h6" fontWeight={800}>
-                      Whole School Completion Summary
+                      Completion Summary
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Total completion for all visible classes in {selectedYear} - {selectedTerm}.
+                      Total completion for selected classes in {selectedYear} - {selectedTerm}.
                     </Typography>
                   </Box>
                   <Chip
@@ -1033,10 +1104,25 @@ export default function ClassCompletionReport({ sba = false }) {
                       Classwise Pending Subjects
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Every subject that still needs marks, across the whole school view.
+                      Every subject that still needs marks in the selected classes. Teacher names use current assignments.
                     </Typography>
                   </Box>
                 </Stack>
+
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadRoundedIcon />}
+                  onClick={() => downloadPendingSubjectsPdf({
+                    ...pdfContext,
+                    scopeName: selectedClass !== "all"
+                      ? `Class_${getClassroomDisplayName(classOptions.find((room) => room.id === selectedClass))}`
+                      : selectedGrade !== "all" ? `Grade_${selectedGrade}` : "All_Grades",
+                  })}
+                  disabled={loading || filteredPendingSubjectRows.length === 0}
+                  sx={{ mb: 2 }}
+                >
+                  Download Pending Subjects PDF
+                </Button>
 
                 {filteredPendingSubjectRows.length ? (
                   <ResponsiveTableWrapper minWidth={860}>
@@ -1046,6 +1132,7 @@ export default function ClassCompletionReport({ sba = false }) {
                           <TableCell>Status</TableCell>
                           <TableCell>Class</TableCell>
                           <TableCell>Subject</TableCell>
+                          <TableCell>Teacher</TableCell>
                           <TableCell align="right">Enrolled Students</TableCell>
                           <TableCell align="right">Marks Entered</TableCell>
                           <TableCell align="right">Missing Marks</TableCell>
@@ -1080,6 +1167,7 @@ export default function ClassCompletionReport({ sba = false }) {
                                 </Typography>
                               ) : null}
                             </TableCell>
+                            <TableCell>{row.teacherNames?.join(", ") || "Not recorded"}</TableCell>
                             <TableCell align="right">{row.enrolledCount}</TableCell>
                             <TableCell align="right">{row.enteredCount}</TableCell>
                             <TableCell align="right">{row.missingCount}</TableCell>
@@ -1132,6 +1220,7 @@ export default function ClassCompletionReport({ sba = false }) {
                         <TableRow>
                           <TableCell>Status</TableCell>
                           <TableCell>Subject</TableCell>
+                          <TableCell>Teacher</TableCell>
                           <TableCell align="right">Enrolled Students</TableCell>
                           <TableCell align="right">Marks Entered</TableCell>
                           <TableCell align="right">Missing</TableCell>
@@ -1158,6 +1247,7 @@ export default function ClassCompletionReport({ sba = false }) {
                                 </Typography>
                               ) : null}
                             </TableCell>
+                            <TableCell>{subject.teacherNames?.join(", ") || "Not recorded"}</TableCell>
                             <TableCell align="right">{subject.enrolledCount}</TableCell>
                             <TableCell align="right">{subject.enteredCount}</TableCell>
                             <TableCell align="right">{subject.missingCount}</TableCell>

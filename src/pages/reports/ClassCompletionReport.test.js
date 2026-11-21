@@ -59,3 +59,23 @@ describe("ClassCompletionReport historical enrollment matching", () => {
     );
   });
 });
+
+
+test("matches teachers by class, subject and year and lists each teacher once", () => {
+  const rows = buildClassCompletionRows({
+    classrooms: [{ id: "c", grade: 10, section: "A", className: "10A" }],
+    students: [{ id: "s", grade: 10, section: "A", className: "10A" }],
+    enrollments: [{ studentId: "s", subjectId: "math", subjectName: "Maths", academicYear: 2026, grade: 10, section: "A", className: "10A" }],
+    marks: [], year: 2026, termName: "Term 1",
+    assignments: [
+      { teacherName: "Teacher A", subjectId: "math", grade: 10, section: "A" },
+      { teacherName: "Teacher A", subjectId: "math", grade: 10, section: "A" },
+      { teacherName: "Teacher B", subjectId: "math", grade: 10, section: "A", year: 2026 },
+      { teacherName: "Other class", subjectId: "math", grade: 10, section: "B" },
+      { teacherName: "Other subject", subjectId: "science", grade: 10, section: "A" },
+      { teacherName: "Other year", subjectId: "math", grade: 10, section: "A", year: 2025 },
+      { teacherName: "Inactive", subjectId: "math", grade: 10, section: "A", status: "inactive" },
+    ],
+  });
+  expect(rows[0].subjectSummaries[0].teacherNames).toEqual(["Teacher A", "Teacher B"]);
+});
