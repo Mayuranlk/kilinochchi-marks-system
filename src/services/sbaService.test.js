@@ -34,9 +34,13 @@ test("failed batches retain all affected drafts", async () => {
   expect(result.saved).toHaveLength(0);
   expect(result.failed[0].message).toBe("Quota exceeded");
 });
-test("closed SBA entry and teacher deletes are rejected", async () => {
-  getDocFromServer.mockResolvedValueOnce({ data: () => ({ teacherEntryEnabled: false }) });
-  await expect(saveSbaChange(context)).rejects.toThrow("closed");
+test("permission failures preserve drafts and explain possible causes", async () => {
+  batch.commit.mockRejectedValueOnce(Object.assign(new Error("Missing permissions"), { code: "permission-denied" }));
+  const result = await saveSbaChanges(context, [{ row: context.row, value: context.value }]);
+  expect(result.saved).toHaveLength(0);
+  expect(result.failed[0].message).toMatch(/entry may have closed.*another session/);
+});
+test("teacher deletes are rejected", async () => {
   await expect(saveSbaChange({ ...context, remove: true })).rejects.toThrow("Only administrators");
   expect(batch.delete).not.toHaveBeenCalled();
 });
@@ -46,7 +50,7 @@ test("saves use bounded batches without transaction reads and retain later faile
   const result = await saveSbaChanges(context, changes);
   expect(result.saved).toHaveLength(4);
   expect(result.failed).toHaveLength(1);
-  expect(getDocFromServer).toHaveBeenCalledTimes(1);
+  expect(getDocFromServer).not.toHaveBeenCalled();
   expect(batch.commit).toHaveBeenCalledTimes(2);
 });
 test("SBA controls write only their own settings and store a Sri Lanka deadline", async () => {

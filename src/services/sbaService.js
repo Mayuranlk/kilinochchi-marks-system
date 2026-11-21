@@ -2,7 +2,7 @@ import { collection, doc, documentId, getDocs, getDocFromServer, limit, query, s
 import { getScopedRows, invalidateCollectionRows } from "./firestoreReadCache";
 import { getClassContext, matchesClassContext } from "../utils/sbaContext";
 import { db } from "../firebase";
-import { parseSbaValue, sbaClassKey, sbaEntryLocked, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
+import { parseSbaValue, sbaClassKey, sbaRecordId, sbaScopeKey, sbaYear } from "../utils/sbaLogic";
 import { normalizeMarksEntrySettings } from "../utils/marksEntryAccess";
 import {
   getAcademicTermKey,
@@ -214,12 +214,8 @@ function prepareSbaWrite(batch, { term, assignment, row, value, previous, uid, i
 // Each committed batch is atomic; later failed batches retain their drafts.
 export async function saveSbaChanges(context, changes) {
   const saved = [], failed = [];
-  if (!context.isAdmin && changes.length) {
-    const settings = await getDocFromServer(settingsRef());
-    if (sbaEntryLocked(settings?.data?.() || {})) {
-      throw new Error("SBA entry is closed. Refresh to see the current controls.");
-    }
-  }
+  // The UI loads the entry controls, and Firestore rules check the current
+  // controls at commit time. Avoid a redundant client read on every save.
   for (let index = 0; index < changes.length; index += 4) {
     const chunk = changes.slice(index, index + 4);
     const batch = writeBatch(db);
@@ -230,7 +226,10 @@ export async function saveSbaChanges(context, changes) {
       saved.push(...records);
       invalidateCollectionRows(SBA_COLLECTION);
     } catch (error) {
-      changes.slice(index).forEach((change) => failed.push({ studentId: change.row.studentId, message: error.message }));
+      const message = error.code === "permission-denied"
+        ? "Save was denied. SBA entry may have closed, your assignment may have changed, or another session may have edited these marks. Record your edits before refreshing."
+        : error.message;
+      changes.slice(index).forEach((change) => failed.push({ studentId: change.row.studentId, message }));
       break;
     }
   }

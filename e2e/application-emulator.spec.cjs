@@ -103,6 +103,20 @@ test("admin can load every protected administration route under proposed Rules",
   for (const [path, title] of routes) await visit(page, monitor, path, title);
 });
 
+test("admin marks entry loads the full student list only for deletion search", async ({ page }) => {
+  await login(page, "admin");
+  await page.goto("/marks");
+  await expect(page.getByText("Delete Student Marks")).toBeVisible();
+  const fullStudentReads = () => page.evaluate(() =>
+    (window.getFirestoreReadDiagnostics?.() || []).filter((event) => event.query === "students: collection").length
+  );
+  await expect(page.getByRole("combobox", { name: "Type or select a student" })).toBeVisible();
+  expect(await fullStudentReads()).toBe(0);
+  await page.getByRole("combobox", { name: "Type or select a student" }).click();
+  await expect(page.getByRole("option", { name: /Synthetic Student One/i })).toBeVisible();
+  expect(await fullStudentReads()).toBe(1);
+});
+
 test("admin settings and secondary Auth staff creation workflows succeed locally", async ({ page }) => {
   const monitor = monitorSecurityFailures(page);
   await login(page, "admin");

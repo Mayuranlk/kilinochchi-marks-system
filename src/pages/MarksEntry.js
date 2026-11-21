@@ -401,6 +401,7 @@ export default function MarksEntry() {
   const [allEnrollments, setAllEnrollments] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   const [adminStudents, setAdminStudents] = useState([]);
+  const [adminStudentsLoading, setAdminStudentsLoading] = useState(false);
   const [deleteStudent, setDeleteStudent] = useState(null);
   const [adminStudentMarks, setAdminStudentMarks] = useState([]);
   const [adminStudentMarksLoading, setAdminStudentMarksLoading] = useState(false);
@@ -792,16 +793,13 @@ export default function MarksEntry() {
         setScopeRefreshVersion((version) => version + 1);
       }
 
-      const [allAssignments, allTerms, loadedPracticeExams, students] =
+      const [allAssignments, allTerms, loadedPracticeExams] =
         await Promise.all([
           isAdmin
             ? getCollectionRows(db, "teacherAssignments", { forceRefresh })
             : loadSbaTeacherAssignments(currentUser, { forceRefresh }),
           getCollectionRows(db, "academicTerms", { forceRefresh }),
           getCollectionRows(db, "practiceExams", { forceRefresh }).catch(() => []),
-          isAdmin
-            ? getCollectionRows(db, "students", { forceRefresh })
-            : Promise.resolve([]),
         ]);
 
       const profile = authProfile || {
@@ -849,18 +847,6 @@ export default function MarksEntry() {
         setSelectedTermKey((previous) => previous || buildTermKey(defaultTerm));
       }
 
-      setAdminStudents(
-        isAdmin
-          ? [...students].sort((a, b) =>
-              String(pick(a.name, a.fullName, "")).localeCompare(
-                String(pick(b.name, b.fullName, "")),
-                undefined,
-                { sensitivity: "base" }
-              )
-            )
-          : []
-      );
-
       if (allAssignments.length > 0) {
         const defaultClass =
           getComparableALClassName(allAssignments[0]) ||
@@ -875,6 +861,23 @@ export default function MarksEntry() {
       setBootLoading(false);
     }
   }, [authProfile, isAdmin]);
+
+  const loadAdminStudents = useCallback(async () => {
+    if (!isAdmin || adminStudentsLoading) return;
+    setAdminStudentsLoading(true);
+    try {
+      const students = await getCollectionRows(db, "students");
+      setAdminStudents([...students].sort((a, b) =>
+        String(pick(a.name, a.fullName, "")).localeCompare(
+          String(pick(b.name, b.fullName, "")), undefined, { sensitivity: "base" }
+        )
+      ));
+    } catch (failure) {
+      setError(`Could not load students for mark deletion: ${failure.message}`);
+    } finally {
+      setAdminStudentsLoading(false);
+    }
+  }, [isAdmin, adminStudentsLoading]);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -1667,6 +1670,8 @@ export default function MarksEntry() {
 
               <Autocomplete
                 options={adminStudents}
+                loading={adminStudentsLoading}
+                onOpen={loadAdminStudents}
                 value={deleteStudent}
                 onChange={(_, value) => setDeleteStudent(value)}
                 getOptionLabel={(...args) => academicDisplay((getAdminStudentLabel)(...args))}
