@@ -1419,6 +1419,7 @@ export default function MarksEntry() {
           subjectNumber: row.subjectNumber || "",
           term: row.term,
           termName: row.term,
+          academicTermId: activeTerm.id,
           academicYear: row.academicYear,
           year: row.academicYear,
           assessmentType: row.assessmentId ? "practice" : "term",
