@@ -389,7 +389,7 @@ function buildAnalysisBody(reportData) {
       values: flatColumns.map((col) => analysis[col.key]?.bands?.[band.key] ?? 0),
     })),
     {
-      label: "Students >= 40 marks",
+      label: "Students >40marks",
       values: flatColumns.map((col) => analysis[col.key]?.passCount ?? 0),
     },
     {
@@ -957,7 +957,7 @@ function makeAnalysisSheetRows(reportData) {
       band.key,
       ...flatColumns.map((col) => reportData.analysis[col.key]?.bands?.[band.key] ?? 0),
     ]),
-    ["Students >= 40 marks", ...flatColumns.map((col) => reportData.analysis[col.key]?.passCount ?? 0)],
+    ["Students >40marks", ...flatColumns.map((col) => reportData.analysis[col.key]?.passCount ?? 0)],
     [
       "Pass Percentage",
       ...flatColumns.map((col) =>

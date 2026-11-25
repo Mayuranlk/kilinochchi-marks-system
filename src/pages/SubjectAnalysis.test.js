@@ -1,6 +1,6 @@
 import { addToStats, createEmptyStats, finishStats } from "./SubjectAnalysis";
 
-test("subject analysis distinguishes pending and absent and counts marks of 40 as passing", () => {
+test("subject range uses 40 while other analysis retains grade-based passes", () => {
   const stats = createEmptyStats("Art");
   [
     { mark: 39, grade: 6 },
@@ -11,7 +11,8 @@ test("subject analysis distinguishes pending and absent and counts marks of 40 a
   ].forEach((record) => addToStats(stats, record));
   const result = finishStats(stats);
   expect(result).toMatchObject({
-    enrolled: 5, appeared: 3, absent: 1, pending: 1, passCount: 2,
+    enrolled: 5, appeared: 3, absent: 1, pending: 1, passCount: 3, passAtLeast40: 2,
   });
-  expect(result.passPercentage).toBeCloseTo(200 / 3);
+  expect(result.passPercentage).toBe(100);
+  expect(result.passPercentageAtLeast40).toBeCloseTo(200 / 3);
 });

@@ -260,7 +260,7 @@ export default function GradeResultSheet() {
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ["Subject", "Enrolled", "Sat", "Passed", "Failed", "Absent", "Pending", "Pass rate"],
       ...analytics.subjects.map((subject) => [subject.label, subject.enrolled, subject.sat, subject.passed, subject.failed, subject.absent, subject.pending, formatRate(subject.rate)]),
-      [], ["Pass = mark >= 40. Pass rate = passed / sat; absent and pending results excluded from sat."],
+      [], ["Pass rate = passed / sat; absent and pending results excluded from sat."],
       ["Categories 1-3", analytics.grouped, formatRate(analytics.groupedRate)],
       ["Verified A/L eligibility", analytics.verified, formatRate(analytics.verifiedRate)],
       ["4-8 A grades alone do not guarantee Tamil/Maths passes or six total passes."],

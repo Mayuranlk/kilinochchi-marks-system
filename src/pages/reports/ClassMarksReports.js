@@ -345,7 +345,7 @@ function AnalysisPreview({ reportData }) {
     { label: "71-80", getValue: (key) => analysis[key]?.bands?.["71-80"] ?? 0 },
     { label: "81-90", getValue: (key) => analysis[key]?.bands?.["81-90"] ?? 0 },
     { label: "91-100", getValue: (key) => analysis[key]?.bands?.["91-100"] ?? 0 },
-    { label: "Students >= 40 marks", getValue: (key) => analysis[key]?.passCount ?? 0 },
+    { label: "Students >40marks", getValue: (key) => analysis[key]?.passCount ?? 0 },
     { label: "Pass Percentage", getValue: (key) => formatNumber(analysis[key]?.passPercentage ?? 0) },
   ];
 

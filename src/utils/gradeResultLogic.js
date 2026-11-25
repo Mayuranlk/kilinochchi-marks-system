@@ -103,16 +103,12 @@ export function resultAnalytics(rows, columns) {
   const grouped = rows.filter((row) => ["excellent", "best", "eligible"].includes(row.category.id)).length;
   const verified = rows.filter((row) => row.eligibility.qualified).length;
   const subjects = columns.map((column) => {
-    const eligibleRows = rows.filter((row) => Object.prototype.hasOwnProperty.call(row.grades, column.key));
-    const absent = eligibleRows.filter((row) => row.grades[column.key] === "AB").length;
-    const marks = eligibleRows.filter((row) => row.grades[column.key] && row.grades[column.key] !== "AB")
-      .map((row) => row.marksByColumn?.[column.key])
-      .filter((mark) => mark !== null && mark !== undefined && mark !== "" && Number.isFinite(Number(mark)))
-      .map(Number);
-    const passed = marks.filter((mark) => mark >= 40).length;
-    const failed = marks.length - passed;
-    const pending = eligibleRows.length - marks.length - absent;
-    return { key: column.key, label: column.label, enrolled: eligibleRows.length, passed, failed, absent, pending, sat: marks.length, rate: percentage(passed, marks.length) };
+    const values = rows.filter((row) => Object.prototype.hasOwnProperty.call(row.grades, column.key)).map((row) => row.grades[column.key]);
+    const passed = values.filter((value) => PASS.includes(value)).length;
+    const failed = values.filter((value) => value === "W").length;
+    const absent = values.filter((value) => value === "AB").length;
+    const pending = values.length - passed - failed - absent;
+    return { key: column.key, label: column.label, enrolled: values.length, passed, failed, absent, pending, sat: passed + failed, rate: percentage(passed, passed + failed) };
   }).filter((subject) => subject.enrolled);
   const pending = rows.filter((row) => !row.eligibility.complete).length;
   const absent = rows.filter((row) => Object.values(row.grades).includes("AB")).length;

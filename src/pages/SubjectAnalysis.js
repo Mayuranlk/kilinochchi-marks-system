@@ -763,8 +763,8 @@ function createRangeStatsPdf({ title, context, rows }) {
 
     autoTable(doc, {
       startY: 36,
-      head: [["Total Students", "Appeared", "Absent", "Pending"]],
-      body: [[row.enrolled, row.appeared, row.absent, row.pending]],
+      head: [["Total Students", "Appeared", "Absent", "Pending", "Pass % (>= 40)"]],
+      body: [[row.enrolled, row.appeared, row.absent, row.pending, `${formatNumber(row.passPercentageAtLeast40)}%`]],
       theme: "grid",
       styles: {
         fontSize: 9,
@@ -819,10 +819,11 @@ function createRangeStatsPdf({ title, context, rows }) {
 
   autoTable(doc, {
     startY: 34,
-    head: [["Subject", "Appeared", ...RANGE_BANDS.map((band) => band.key)]],
+    head: [["Subject", "Appeared", "Pass % (>= 40)", ...RANGE_BANDS.map((band) => band.key)]],
     body: rows.map((row) => [
       row.subjectName,
       row.appeared,
+      `${formatNumber(row.passPercentageAtLeast40)}%`,
       ...RANGE_BANDS.map((band) => row.rangeCounts[band.key] || 0),
     ]),
     theme: "grid",
@@ -1540,7 +1541,7 @@ export function createEmptyStats(label, extra = {}) {
     appeared: 0,
     absent: 0,
     pending: 0,
-    passCount: 0,
+    passAtLeast40: 0,
     marksTotal: 0,
     highest: null,
     lowest: null,
@@ -1569,7 +1570,7 @@ export function addToStats(stats, record) {
   const summaryRange = getSummaryRangeKey(mark);
 
   stats.appeared += 1;
-  if (mark >= 40) stats.passCount += 1;
+  if (mark >= 40) stats.passAtLeast40 += 1;
   stats.marksTotal += mark;
   stats.gradeCounts[symbol] += 1;
   if (range) stats.rangeCounts[range] += 1;
@@ -1579,10 +1580,13 @@ export function addToStats(stats, record) {
 }
 
 export function finishStats(stats) {
+  const passCount = stats.gradeCounts.A + stats.gradeCounts.B + stats.gradeCounts.C + stats.gradeCounts.S;
   return {
     ...stats,
+    passCount,
     average: stats.appeared ? stats.marksTotal / stats.appeared : 0,
-    passPercentage: stats.appeared ? (stats.passCount / stats.appeared) * 100 : 0,
+    passPercentage: stats.appeared ? (passCount / stats.appeared) * 100 : 0,
+    passPercentageAtLeast40: stats.appeared ? (stats.passAtLeast40 / stats.appeared) * 100 : 0,
   };
 }
 
@@ -2708,7 +2712,7 @@ export default function SubjectAnalysis() {
                 <StatCard title="Average" value={formatNumber(selectedStats.average)} icon={<SubjectRoundedIcon />} color="warning" />
               </Grid>
               <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <StatCard title="Pass %" value={`${formatNumber(selectedStats.passPercentage)}%`} icon={<AnalyticsRoundedIcon />} color="info" />
+                <StatCard title={tab === "range" ? "Pass % (>= 40)" : "Pass %"} value={`${formatNumber(tab === "range" ? selectedStats.passPercentageAtLeast40 : selectedStats.passPercentage)}%`} icon={<AnalyticsRoundedIcon />} color="info" />
               </Grid>
             </Grid>
 
@@ -3257,7 +3261,7 @@ function SubjectStatsTable({
           </Table>
         </ResponsiveTableWrapper>
         <Typography variant="caption" color="text.secondary">
-          Enrolled = appeared + absent + pending. Pending means no matching mark or absence was found. Pass % counts marks of 40 or above among students who appeared.
+          Enrolled = appeared + absent + pending. Pending means no matching mark or absence was found.
         </Typography>
       </CardContent>
     </Card>
@@ -3302,6 +3306,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Absent</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Pending</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Pass % (&gt;= 40)</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -3310,6 +3315,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                     <TableCell align="right">{singleSubjectRow.appeared}</TableCell>
                     <TableCell align="right">{singleSubjectRow.absent}</TableCell>
                     <TableCell align="right">{singleSubjectRow.pending}</TableCell>
+                    <TableCell align="right">{formatNumber(singleSubjectRow.passPercentageAtLeast40)}%</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
@@ -3340,6 +3346,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                 <TableRow>
                   <TableCell sx={{ fontWeight: 800 }}>Subject</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800 }}>Pass % (&gt;= 40)</TableCell>
                   {RANGE_BANDS.map((band) => (
                     <TableCell key={band.key} align="right" sx={{ fontWeight: 800 }}>{band.key}</TableCell>
                   ))}
@@ -3350,6 +3357,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                   <TableRow key={row.subjectKey} hover>
                     <TableCell sx={{ fontWeight: 700 }}>{row.subjectName}</TableCell>
                     <TableCell align="right">{row.appeared}</TableCell>
+                    <TableCell align="right">{formatNumber(row.passPercentageAtLeast40)}%</TableCell>
                     {RANGE_BANDS.map((band) => (
                       <TableCell key={band.key} align="right">{row.rangeCounts[band.key]}</TableCell>
                     ))}

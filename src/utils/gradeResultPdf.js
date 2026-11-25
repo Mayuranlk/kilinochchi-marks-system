@@ -178,7 +178,7 @@ export function createGradeResultPdf({
     write("4-8 A grades do not guarantee core passes or six total passes. Verified eligibility checks all required conditions.", MARGIN, 177, 8, MUTED);
     write(`Pending / review: ${analytics.pending}. Categories include provisional results; missing marks are not treated as confirmed failures.`, MARGIN, 184, 8, MUTED);
     pdf.addPage(); frame("Subject pass rates");
-    heading("05", "Subject pass rates", "Pass = mark >= 40. Pass rate = passed / sat x 100. Absent and pending excluded. N/A = no recorded sitting.");
+    heading("05", "Subject pass rates", "Pass rate = passed / sat x 100. Absent and pending marks are excluded from sat. N/A = no recorded sitting.");
     autoTable(pdf, {
       ...tableBase, startY: 49,
       head: [["Subject", "Enrolled", "Sat", "Passed", "Failed", "Absent", "Pending", "Pass rate", "0-100%"]],

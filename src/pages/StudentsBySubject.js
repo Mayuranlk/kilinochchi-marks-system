@@ -683,8 +683,8 @@ export default function StudentsBySubject() {
       if (student.mark === null) return;
       markCount += 1;
       markTotal += student.mark || 0;
-      if ((student.mark ?? -1) >= 40) passed += 1;
-      if ((student.mark ?? 999) < 40) failed += 1;
+      if ((student.mark ?? -1) >= 35) passed += 1;
+      if ((student.mark ?? 999) < 35) failed += 1;
     });
 
     return {

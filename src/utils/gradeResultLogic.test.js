@@ -78,10 +78,10 @@ test("subject rates exclude absences, pending marks and students not enrolled", 
   expect(formatRate(analytics.subjects[0].rate)).toBe("66.7%");
   expect(formatRate(resultAnalytics([], []).verifiedRate)).toBe("N/A");
 });
-test("subject pass rates count 40 but not 39, even though both have an S grade", () => {
+test("grade result subject rates retain grade-based passes for 39 and 40", () => {
   const rows = [39, 40].map((mark) => ({ grades: { TAMIL: "S" }, marksByColumn: { TAMIL: mark }, category: { id: "support" }, eligibility: { qualified: false, complete: true } }));
   expect(resultAnalytics(rows, [{ key: "TAMIL", label: "Tamil" }]).subjects[0])
-    .toMatchObject({ enrolled: 2, passed: 1, failed: 1, sat: 2, rate: 50 });
+    .toMatchObject({ enrolled: 2, passed: 2, failed: 0, sat: 2, rate: 100 });
 });
 test("Best achievers with core failures are not counted as verified eligible", () => {
   const grades = { TAMIL: "W", MATHS: "W", s3: "A", s4: "A", s5: "A", s6: "A", s7: "S", s8: "S", s9: "W" };

@@ -134,7 +134,7 @@ export function calculateAnalysis(rows = [], schema) {
         }
       }
 
-      if (numericMark >= 40) {
+      if (numericMark > 40) {
         item.passCount += 1;
       }
     }
