@@ -13,7 +13,10 @@ const emulatorEnv = {
   REACT_APP_FIREBASE_EMULATOR_HOST: "127.0.0.1",
   REACT_APP_FIRESTORE_EMULATOR_PORT: "8085",
   REACT_APP_AUTH_EMULATOR_PORT: "9099",
-  REACT_APP_ENABLE_CANONICAL_SCOPED_READS: "false",
+  // Opt in only for the synthetic emulator build; production builds use their
+  // own explicit feature flags and never inherit this emulator switch.
+  REACT_APP_ENABLE_CANONICAL_SCOPED_READS: process.env.EMULATOR_TEST_SCOPED_DASHBOARD === "true" ? "true" : "false",
+  REACT_APP_TEACHER_DASHBOARD_STUDENT_MARKS_SCOPED: process.env.EMULATOR_TEST_SCOPED_DASHBOARD === "true" ? "true" : "false",
 };
 
 const result = spawnSync(process.execPath, [require.resolve("react-scripts/scripts/build.js")], {

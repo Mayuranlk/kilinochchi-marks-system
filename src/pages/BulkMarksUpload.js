@@ -56,6 +56,7 @@ import {
   StatusChip,
 } from "../components/ui";
 import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
+import { markStudentId } from "../utils/markStudentIdentity";
 import { buildMarksByStudentId } from "../utils/subjectAnalysisIndex";
 import {
   getCollectionRows,
@@ -1956,7 +1957,7 @@ export default function BulkMarksUpload() {
 
           const markValue = row.absent ? null : row.marks;
           const payload = {
-            studentId: row.studentId,
+            studentId: markStudentId(row.studentId),
             studentName: row.studentName,
             admissionNo: row.admissionNo || "",
             indexNo: row.indexNo || "",

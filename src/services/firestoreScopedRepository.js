@@ -44,15 +44,18 @@ export async function queryMarksByScope({ academicYearKey, termKey, classKey, as
   return rows(await getDocs(scopedQuery));
 }
 
-export async function queryEnrollmentsByScope({ academicYearKey, classKey, subjectKey, status = "active" }) {
+export async function queryEnrollmentsByScope({ academicYearKey, classKey, subjectKey, status }) {
   assertEnabled();
-  const scopedQuery = query(
-    collection(db, "studentSubjectEnrollments"),
+  // Inactive rows can contain subjectTermIds for previous terms. Callers
+  // calculating a term's membership must filter using that history rather
+  // than removing inactive rows from the query.
+  const constraints = [
     where("academicYearKey", "==", requireText(academicYearKey, "academicYearKey")),
     where("classKey", "==", requireText(classKey, "classKey")),
     where("subjectKey", "==", requireText(subjectKey, "subjectKey")),
-    where("status", "==", requireText(status, "status"))
-  );
+  ];
+  if (status !== undefined && status !== null) constraints.push(where("status", "==", requireText(status, "status")));
+  const scopedQuery = query(collection(db, "studentSubjectEnrollments"), ...constraints);
   return rows(await getDocs(scopedQuery));
 }
 
@@ -75,13 +78,29 @@ export async function queryStudentRosterPage({ academicYearKey, classKey, status
   };
 }
 
-export async function queryTeacherAssignmentsByScope({ teacherId, academicYearKey, status = "active" }) {
+export async function queryTeacherAssignmentsByScope({ teacherId, academicYearKey, status }) {
   assertEnabled();
-  const scopedQuery = query(
-    collection(db, "teacherAssignments"),
+  // Legacy assignments are year-independent, so do not silently exclude them.
+  // A caller may add explicit filters only for data known to have those fields.
+  const constraints = [
     where("teacherId", "==", requireText(teacherId, "teacherId")),
-    where("academicYearKey", "==", requireText(academicYearKey, "academicYearKey")),
-    where("status", "==", requireText(status, "status"))
-  );
+  ];
+  if (academicYearKey !== undefined && academicYearKey !== null) constraints.push(where("academicYearKey", "==", requireText(academicYearKey, "academicYearKey")));
+  if (status !== undefined && status !== null) constraints.push(where("status", "==", requireText(status, "status")));
+  const scopedQuery = query(collection(db, "teacherAssignments"), ...constraints);
   return rows(await getDocs(scopedQuery));
+}
+
+// Candidate dashboard path. Enable only after every mark's stored studentId
+// has been reconciled with the enrollment IDs used by the dashboard.
+export async function queryMarksByStudentIds(studentIds) {
+  assertEnabled();
+  if (!Array.isArray(studentIds)) throw new Error("studentIds must be an array.");
+  const ids = [...new Set(studentIds.map((id) => requireText(id, "studentId")))];
+  const requests = [];
+  for (let index = 0; index < ids.length; index += 30) {
+    requests.push(getDocs(query(collection(db, "marks"), where("studentId", "in", ids.slice(index, index + 30)))));
+  }
+  const snapshots = await Promise.all(requests);
+  return snapshots.flatMap(rows);
 }

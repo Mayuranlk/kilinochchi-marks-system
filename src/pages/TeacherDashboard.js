@@ -33,9 +33,10 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import TableViewRoundedIcon from "@mui/icons-material/TableViewRounded";
 import { useNavigate } from "react-router-dom";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, documentId, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
+import { canonicalScopedReadsEnabled, queryMarksByStudentIds } from "../services/firestoreScopedRepository";
 import {
   EmptyState,
   MobileListRow,
@@ -229,6 +230,24 @@ const matchesClassContext = (row = {}, target = {}, fallback = {}) => {
   return rowGrade === targetGrade && rowSection === targetSection;
 };
 
+export function dashboardStudentIds(enrollments, assignments, user, assignedClassroom) {
+  const activeAssignments = assignments.filter((assignment) => isActiveStatus(assignment.status));
+  const contexts = activeAssignments.filter((assignment) =>
+    normalize(assignment.teacherId) === normalize(user.uid) ||
+    normalize(assignment.teacherEmail) === normalize(user.email)
+  ).map((assignment) => getClassContext(assignment));
+  if (assignedClassroom) {
+    const classContext = getClassContext(assignedClassroom);
+    contexts.push(classContext);
+    activeAssignments.filter((assignment) => matchesClassContext(assignment, classContext))
+      .forEach((assignment) => contexts.push(getClassContext(assignment)));
+  }
+  return [...new Set(enrollments
+    .filter((row) => contexts.some((context) => matchesClassContext(row, context)))
+    .map((row) => String(pick(row.studentId, "")).trim())
+    .filter((id) => id && !id.includes("/")))];
+}
+
 const getSubjectIdentity = (row = {}) => {
   const subjectId = normalize(pick(row.subjectId, ""));
   const subjectNumber = normalize(pick(row.subjectNumber, ""));
@@ -341,7 +360,7 @@ const sectionCardSx = {
   backgroundColor: "background.paper",
 };
 
-const buildTeacherDashboardData = ({
+export const buildTeacherDashboardData = ({
   user,
   users,
   assignments,
@@ -640,6 +659,7 @@ export default function TeacherDashboard() {
   const [marks, setMarks] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [progressLoading, setProgressLoading] = useState(false);
+  const [progressReady, setProgressReady] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
@@ -649,6 +669,10 @@ export default function TeacherDashboard() {
 
   const marksEntryDisabled = isTeacherMarksEntryLocked(marksEntrySettings);
   const marksEntryDisabledReason = getTeacherMarksEntryLockReason(marksEntrySettings);
+  const scopedDashboardMarksEnabled = canonicalScopedReadsEnabled() &&
+    process.env.REACT_APP_TEACHER_DASHBOARD_STUDENT_MARKS_SCOPED === "true";
+  const progressPending = progressLoading || !progressReady;
+  const progressLabel = progressLoading ? "Syncing" : "Not loaded";
 
   const currentTerm = useMemo(
     () => terms.find((term) => buildTermKey(term) === selectedTermKey) || terms.find(isActiveTerm) || null,
@@ -669,7 +693,7 @@ export default function TeacherDashboard() {
     [subjectRows]
   );
 
-  const loadDashboard = async (silent = false, forceRefresh = false) => {
+  const loadDashboard = async (silent = false, forceRefresh = false, includeProgress = false) => {
     try {
       setError("");
       if (silent) setRefreshing(true);
@@ -723,25 +747,53 @@ export default function TeacherDashboard() {
       setAssignedClassroom(initialData.assignedClassroom);
       setLoading(false);
       setRefreshing(false);
+      setProgressReady(false);
+      dashboardSourceRef.current = null;
+      const hasTeachingAssignment = assignments.some((assignment) =>
+        isActiveStatus(assignment.status) &&
+        (normalize(assignment.teacherId) === normalize(user.uid) ||
+          normalize(assignment.teacherEmail) === normalize(user.email))
+      );
+      const needsProgressData = hasTeachingAssignment || !!initialData.assignedClassroom;
+      if (!needsProgressData) {
+        setProgressReady(true);
+        setProgressLoading(false);
+        return;
+      }
+      if (!includeProgress) {
+        setProgressLoading(false);
+        return;
+      }
       setProgressLoading(true);
 
       try {
         // No progress or class report can be displayed without an assignment.
         // Avoid downloading all school records for newly created or unassigned
         // teacher accounts. Assigned teachers still need compatibility reads.
-        const hasTeachingAssignment = assignments.some((assignment) =>
-          isActiveStatus(assignment.status) &&
-          (normalize(assignment.teacherId) === normalize(user.uid) ||
-            normalize(assignment.teacherEmail) === normalize(user.email))
-        );
-        const needsProgressData = hasTeachingAssignment || !!initialData.assignedClassroom;
-        const [loadedEnrollments, loadedMarks, loadedStudents] = needsProgressData
-          ? await Promise.all([
-              getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-              getCollectionRows(db, "marks", { forceRefresh }),
-              getCollectionRows(db, "students", { forceRefresh }),
-            ])
-          : [[], [], []];
+        const enrollmentRead = needsProgressData
+          ? getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh })
+          : Promise.resolve([]);
+        const fullMarksRead = needsProgressData && !scopedDashboardMarksEnabled
+          ? getCollectionRows(db, "marks", { forceRefresh })
+          : Promise.resolve([]);
+        const [loadedEnrollments, fullMarks] = await Promise.all([enrollmentRead, fullMarksRead]);
+
+        // Eligibility only depends on students appearing in the classes used by
+        // the progress calculations. Query by document ID so legacy records do
+        // not need canonical class fields. Exports load the full student list.
+        const studentIds = dashboardStudentIds(loadedEnrollments, assignments, user, initialData.assignedClassroom);
+        const marksRead = needsProgressData && scopedDashboardMarksEnabled
+          ? queryMarksByStudentIds(studentIds)
+          : Promise.resolve(fullMarks);
+        const batches = [];
+        for (let i = 0; i < studentIds.length; i += 30) batches.push(studentIds.slice(i, i + 30));
+        const [studentSnapshots, loadedMarks] = await Promise.all([
+          Promise.all(batches.map((ids) =>
+            getDocs(query(collection(db, "students"), where(documentId(), "in", ids)))
+          )),
+          marksRead,
+        ]);
+        const loadedStudents = studentSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 
         setEnrollments(loadedEnrollments);
         setMarks(loadedMarks);
@@ -761,6 +813,7 @@ export default function TeacherDashboard() {
         setSubjectRows(completedData.subjectRows);
         setClassTeacherData(completedData.classTeacherData);
         setAssignedClassroom(completedData.assignedClassroom);
+        setProgressReady(true);
       } catch (statsError) {
         console.error(statsError);
         setError(statsError.message || "Dashboard opened, but progress stats failed to load.");
@@ -808,14 +861,16 @@ export default function TeacherDashboard() {
   }, [selectedTermKey]);
 
   const ensureStudentsLoaded = useCallback(async () => {
-    if (students.length > 0) return students;
-
     const studentsData = await getCollectionRows(db, "students");
     setStudents(studentsData);
     return studentsData;
-  }, [students]);
+  }, []);
 
-  const buildAssignedClassReportData = useCallback((studentRows = students) => {
+  const ensureMarksForExport = useCallback(() => scopedDashboardMarksEnabled
+    ? getCollectionRows(db, "marks")
+    : Promise.resolve(marks), [marks, scopedDashboardMarksEnabled]);
+
+  const buildAssignedClassReportData = useCallback((studentRows = students, markRows = marks) => {
     if (!assignedClassroom || !currentTerm || !studentRows.length) return null;
 
     const termName = pick(currentTerm.term, currentTerm.termName, "");
@@ -825,7 +880,7 @@ export default function TeacherDashboard() {
       return buildClassMarksReportData({
         students: studentRows,
         enrollments,
-        marks,
+        marks: markRows,
         classrooms,
         grade: assignedClassroom.grade,
         className:
@@ -849,8 +904,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const studentRows = await ensureStudentsLoaded();
-      const reportData = buildAssignedClassReportData(studentRows);
+      const [studentRows, markRows] = await Promise.all([ensureStudentsLoaded(), ensureMarksForExport()]);
+      const reportData = buildAssignedClassReportData(studentRows, markRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksPdf(reportData);
     } catch (err) {
@@ -867,8 +922,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const studentRows = await ensureStudentsLoaded();
-      const reportData = buildAssignedClassReportData(studentRows);
+      const [studentRows, markRows] = await Promise.all([ensureStudentsLoaded(), ensureMarksForExport()]);
+      const reportData = buildAssignedClassReportData(studentRows, markRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksExcel(reportData);
     } catch (err) {
@@ -884,8 +939,8 @@ export default function TeacherDashboard() {
     setError("");
 
     try {
-      const studentRows = await ensureStudentsLoaded();
-      const reportData = buildAssignedClassReportData(studentRows);
+      const [studentRows, markRows] = await Promise.all([ensureStudentsLoaded(), ensureMarksForExport()]);
+      const reportData = buildAssignedClassReportData(studentRows, markRows);
       if (!reportData) throw new Error("Unable to build class report data.");
       exportClassMarksEmisExcel(reportData);
     } catch (err) {
@@ -942,7 +997,8 @@ export default function TeacherDashboard() {
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
-          onClick={() => loadDashboard(true, true)}
+          onClick={() => loadDashboard(true, true, progressReady)}
+          disabled={refreshing || progressLoading}
           fullWidth={isMobile}
         >
           Refresh
@@ -957,6 +1013,11 @@ export default function TeacherDashboard() {
               Marks Entry Disabled.
             </Typography>{" "}
             {marksEntryDisabledReason} You can continue using all other dashboard features.
+          </Alert>
+        ) : null}
+        {!progressReady && !progressLoading && (subjectRows.length > 0 || assignedClassroom) ? (
+          <Alert severity="info" action={<Button color="inherit" size="small" onClick={() => loadDashboard(true, false, true)}>Load progress</Button>}>
+            Load progress only when needed. It also enables class exports and may take time.
           </Alert>
         ) : null}
         {progressLoading ? (
@@ -1024,7 +1085,7 @@ export default function TeacherDashboard() {
                 {currentTerm ? <Chip label={buildTermLabel(currentTerm)} color="primary" /> : null}
                 <Chip label={`Subject Assignments: ${subjectRows.length}`} />
                 <Chip label={`Class Teacher Roles: ${classTeacherData ? 1 : 0}`} />
-                {progressLoading ? <Chip label="Stats syncing" color="info" variant="outlined" /> : null}
+                {progressPending ? <Chip label={progressLabel} color="info" variant="outlined" /> : null}
               </Stack>
             </Grid>
           </Grid>
@@ -1045,16 +1106,16 @@ export default function TeacherDashboard() {
                 <StatusChip
                   status="completed"
                   label={
-                    progressLoading
-                      ? "syncing"
+                    progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.completed} completed`
                   }
                 />
                 <StatusChip
                   status="pending"
                   label={
-                    progressLoading
-                      ? "syncing"
+                    progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.pending} pending`
                   }
                 />
@@ -1082,7 +1143,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Completed"
-                value={progressLoading ? "..." : subjectProgressSummary.completed}
+                value={progressPending ? "—" : subjectProgressSummary.completed}
                 icon={<CheckCircleRoundedIcon />}
                 color="success"
               />
@@ -1090,7 +1151,7 @@ export default function TeacherDashboard() {
             <Grid size={{ xs: 6, md: 3 }}>
               <StatCard
                 title="Pending"
-                value={progressLoading ? "..." : subjectProgressSummary.pending}
+                value={progressPending ? "—" : subjectProgressSummary.pending}
                 icon={<HourglassBottomRoundedIcon />}
                 color="warning"
               />
@@ -1126,8 +1187,8 @@ export default function TeacherDashboard() {
                   ) : null}
                   <Chip
                     label={
-                      progressLoading
-                        ? "Progress syncing"
+                      progressPending
+                        ? progressLabel
                         : `${classTeacherData.progress}% Completed`
                     }
                     color={classTeacherData.progress === 100 ? "success" : "warning"}
@@ -1148,7 +1209,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="secondary"
                   onClick={handleExportPdf}
-                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressLoading}
+                  disabled={!assignedClassroom || !currentTerm || exportingPdf || progressPending}
                   startIcon={<PictureAsPdfIcon />}
                 >
                   {exportingPdf ? "Exporting PDF..." : "Export PDF"}
@@ -1157,7 +1218,7 @@ export default function TeacherDashboard() {
                   variant="outlined"
                   color="info"
                   onClick={handleExportExcel}
-                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressLoading}
+                  disabled={!assignedClassroom || !currentTerm || exportingExcel || progressPending}
                   startIcon={<TableViewRoundedIcon />}
                 >
                   {exportingExcel ? "Exporting Excel..." : "Export Excel"}
@@ -1167,7 +1228,7 @@ export default function TeacherDashboard() {
                     variant="outlined"
                     color="success"
                     onClick={handleExportEmis}
-                    disabled={!assignedClassroom || !currentTerm || progressLoading}
+                    disabled={!assignedClassroom || !currentTerm || progressPending}
                     startIcon={<TableViewRoundedIcon />}
                   >
                     Export EMIS NP
@@ -1179,16 +1240,16 @@ export default function TeacherDashboard() {
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <StatusChip
                     status="active"
-                    label={progressLoading ? "syncing students" : `${classTeacherData.totalStudents} students`}
+                    label={progressPending ? progressLabel : `${classTeacherData.totalStudents} students`}
                   />
                   <StatusChip status="saved" label={`${classTeacherData.totalSubjects} subjects`} />
                   <StatusChip
                     status="completed"
-                    label={progressLoading ? "syncing" : `${classTeacherData.completed} completed`}
+                    label={progressPending ? progressLabel : `${classTeacherData.completed} completed`}
                   />
                   <StatusChip
                     status="pending"
-                    label={progressLoading ? "syncing" : `${classTeacherData.pending} pending`}
+                    label={progressPending ? progressLabel : `${classTeacherData.pending} pending`}
                   />
                 </Stack>
               ) : (
@@ -1196,7 +1257,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Students"
-                      value={progressLoading ? "..." : classTeacherData.totalStudents}
+                      value={progressPending ? "—" : classTeacherData.totalStudents}
                       icon={<GroupRoundedIcon />}
                       color="primary"
                       sx={{ boxShadow: "none" }}
@@ -1214,7 +1275,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Completed"
-                      value={progressLoading ? "..." : classTeacherData.completed}
+                      value={progressPending ? "—" : classTeacherData.completed}
                       icon={<CheckCircleRoundedIcon />}
                       color="success"
                       sx={{ boxShadow: "none" }}
@@ -1223,7 +1284,7 @@ export default function TeacherDashboard() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <StatCard
                       title="Pending"
-                      value={progressLoading ? "..." : classTeacherData.pending}
+                      value={progressPending ? "—" : classTeacherData.pending}
                       icon={<HourglassBottomRoundedIcon />}
                       color="error"
                       sx={{ boxShadow: "none" }}
@@ -1235,12 +1296,12 @@ export default function TeacherDashboard() {
               <Box>
                 <LinearProgress
                   variant={progressLoading ? "indeterminate" : "determinate"}
-                  value={progressLoading ? undefined : classTeacherData.progress}
+                  value={progressLoading ? undefined : progressReady ? classTeacherData.progress : 0}
                   sx={{ height: 8, borderRadius: 5 }}
                 />
                 <Typography variant="body2" color="text.secondary" mt={0.75}>
-                  {progressLoading
-                    ? "Calculating overall class completion"
+                  {progressPending
+                    ? progressLoading ? "Calculating overall class completion" : "Progress not loaded"
                     : `${classTeacherData.progress}% overall class completion`}
                 </Typography>
               </Box>
@@ -1257,7 +1318,7 @@ export default function TeacherDashboard() {
                         title={`${subject.subjectName}${subject.medium ? ` - ${subject.medium} Medium` : ""}`}
                         subtitle={
                           subject.progressLoading
-                            ? "Progress syncing"
+                            ? progressLabel
                             : `${subject.done}/${subject.total} students`
                         }
                         right={
@@ -1265,7 +1326,7 @@ export default function TeacherDashboard() {
                             status={subject.progressLoading ? "active" : subject.completed ? "completed" : "pending"}
                             label={
                               subject.progressLoading
-                                ? "Syncing"
+                                ? progressLabel
                                 : subject.completed
                                 ? "Completed"
                                 : "Pending"
@@ -1280,7 +1341,7 @@ export default function TeacherDashboard() {
                             <Chip
                               size="small"
                               variant="outlined"
-                              label={subject.progressLoading ? "Syncing" : `${subject.progress}%`}
+                              label={subject.progressLoading ? progressLabel : `${subject.progress}%`}
                             />
                             <Chip size="small" variant="outlined" label={subject.teacherName} />
                           </Stack>
@@ -1370,7 +1431,7 @@ export default function TeacherDashboard() {
                               </Stack>
                               <Typography variant="body2" color="text.secondary">
                                 {subject.progressLoading
-                                  ? "Progress syncing"
+                                  ? progressLabel
                                   : `${subject.done}/${subject.total} students`}
                               </Typography>
                             </Box>
@@ -1389,7 +1450,7 @@ export default function TeacherDashboard() {
                             useFlexGap
                           >
                             <Typography variant="body2" color="text.secondary">
-                              {subject.progressLoading ? "Syncing" : `${subject.progress}%`}
+                              {subject.progressLoading ? progressLabel : `${subject.progress}%`}
                             </Typography>
 
                             <Typography variant="body2" color="text.secondary">
@@ -1470,8 +1531,8 @@ export default function TeacherDashboard() {
                 <Chip
                   icon={<TimelineRoundedIcon />}
                   label={
-                    progressLoading
-                      ? "Stats syncing"
+                    progressPending
+                      ? progressLabel
                       : `${subjectProgressSummary.pending} Pending`
                   }
                   color="warning"
@@ -1491,8 +1552,8 @@ export default function TeacherDashboard() {
                       title={`${row.displayClassName} - ${row.subjectName}${row.medium ? ` - ${row.medium} Medium` : ""}`}
                       right={
                         <StatusChip
-                          status={row.pending > 0 || row.total === 0 ? "pending" : "completed"}
-                          label={row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
+                          status={row.progressLoading ? "active" : row.pending > 0 || row.total === 0 ? "pending" : "completed"}
+                          label={row.progressLoading ? progressLabel : row.pending > 0 || row.total === 0 ? "Pending" : "Completed"}
                         />
                       }
                       meta={
@@ -1512,19 +1573,19 @@ export default function TeacherDashboard() {
                         <Stack spacing={1}>
                           <Typography variant="body2" color="text.secondary">
                             {row.progressLoading
-                              ? "Progress syncing"
+                              ? progressLabel
                               : `${row.done}/${row.total} students completed`}
                           </Typography>
 
                           <LinearProgress
-                            variant={row.progressLoading ? "indeterminate" : "determinate"}
-                            value={row.progressLoading ? undefined : row.progress}
+                            variant={row.progressLoading && progressLoading ? "indeterminate" : "determinate"}
+                            value={row.progressLoading && progressLoading ? undefined : row.progress}
                             sx={{ height: 6, borderRadius: 5 }}
                           />
 
                           <Stack direction="row" justifyContent="space-between">
                             <Typography variant="body2">
-                              {row.progressLoading ? "Syncing" : `${row.progress}%`}
+                              {row.progressLoading ? progressLabel : `${row.progress}%`}
                             </Typography>
 
                             <Typography variant="body2">

@@ -82,6 +82,7 @@ import {
   normalizeMarksEntrySettings,
 } from "../utils/marksEntryAccess";
 import { buildCanonicalMarkFields } from "../utils/firestoreCanonical";
+import { markStudentId } from "../utils/markStudentIdentity";
 
 const pick = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -1402,7 +1403,7 @@ export default function MarksEntry() {
         }
 
         const payload = {
-          studentId: row.studentId,
+          studentId: markStudentId(row.studentId),
           studentName: row.studentName,
           admissionNo: row.admissionNo || "",
           indexNo: row.indexNo || "",

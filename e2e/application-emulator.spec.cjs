@@ -152,6 +152,29 @@ test("teacher can load assigned routes and save a canonical mark", async ({ page
   await expect(page).toHaveURL(/\/teacher$/);
 });
 
+test("teacher dashboard loads progress on request and exports the seeded marks", async ({ page }) => {
+  const monitor = monitorSecurityFailures(page);
+  await login(page, "teacher");
+  await visit(page, monitor, "/teacher", "Teacher Dashboard");
+  await expect(page.getByRole("button", { name: "Load progress" })).toBeVisible();
+  await expect(page.getByText("2/2 students completed", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Load progress" }).click();
+  await expect(page.getByText("2/2 students completed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Syncing marks progress in the background")).toHaveCount(0);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export Excel", exact: true }).click();
+  const download = await downloadPromise;
+  const workbook = require("xlsx").readFile(await download.path());
+  const contents = JSON.stringify(workbook.SheetNames.flatMap((name) =>
+    require("xlsx").utils.sheet_to_json(workbook.Sheets[name], { header: 1 })
+  ));
+  expect(contents).toContain("Synthetic Student One");
+  expect(contents).toContain("Synthetic Student Two");
+  expect(contents).toContain("74");
+  expect(contents).toContain("63");
+  monitor.assertClean("scoped teacher dashboard");
+});
+
 test("IT teacher can load actual report routes", async ({ page }) => {
   const monitor = monitorSecurityFailures(page);
   await login(page, "it");
