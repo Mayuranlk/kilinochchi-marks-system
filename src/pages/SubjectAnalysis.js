@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Box,
@@ -1631,9 +1632,12 @@ function buildRecords({ enrollments, studentsById, marks, termName, year, academ
     .filter((enrollment) => studentWasEnrolledDuringTerm(studentsById.get(clean(enrollment.studentId)), academicTerm))
     .filter((enrollment) => !getAcademicYear(enrollment) || Number(getAcademicYear(enrollment)) === Number(year))
     .filter(
-      (enrollment) =>
-        isActive(enrollment) ||
-        hasTermMark(marksByStudentId, enrollment, termName, year, assessmentId)
+      (enrollment) => {
+        const membership = subjectEnrollmentInTerm(enrollment, academicTerm, termName);
+        return membership === null
+          ? isActive(enrollment) || hasTermMark(marksByStudentId, enrollment, termName, year, assessmentId)
+          : membership;
+      }
     )
     .map((enrollment) => {
       const student = studentsById.get(clean(enrollment.studentId)) || {};

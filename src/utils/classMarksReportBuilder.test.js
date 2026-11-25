@@ -22,3 +22,10 @@ test("a recorded historical mark retains its inactive subject enrollment", () =>
   const report = buildClassMarksReportData({ ...context, enrollments: [enrollment] });
   expect(report.rows[0].enrollments).toEqual([enrollment]);
 });
+
+test("explicit subject terms preserve inactive historical enrollment and exclude a later subject", () => {
+  const oldSubject = { studentId: "s1", subjectName: "Mathematics", status: "inactive", academicYear: 2026, grade: 10, section: "A", className: "10A", subjectTermIds: ["term-2"] };
+  const newSubject = { studentId: "s1", subjectName: "Science", status: "active", academicYear: 2026, grade: 10, section: "A", className: "10A", subjectTermIds: ["term-3"] };
+  const report = buildClassMarksReportData({ ...context, termName: "Term 2", academicTerm: { id: "term-2" }, marks: [], enrollments: [oldSubject, newSubject] });
+  expect(report.rows[0].enrollments).toEqual([oldSubject]);
+});

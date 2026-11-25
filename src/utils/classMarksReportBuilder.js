@@ -26,6 +26,7 @@ import {
 } from "../constants";
 import { getRankingMedium, usesSeparateMediumRanking } from "./academicMediumUtils";
 import { studentWasEnrolledDuringTerm } from "./studentTermEligibility";
+import { subjectEnrollmentInTerm } from "./subjectTermMembership";
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeLower = (value) => normalizeText(value).toLowerCase();
@@ -390,8 +391,9 @@ export function buildClassMarksReportData({
     const studentId = normalizeText(item.studentId);
     const historicalMark = (item.subjectId && historicalSubjects.has(JSON.stringify([studentId, "id", normalizeLower(item.subjectId)]))) ||
       ((item.subjectName || item.subject) && historicalSubjects.has(JSON.stringify([studentId, "name", normalizeLower(item.subjectName || item.subject)])));
+    const termMembership = subjectEnrollmentInTerm(item, academicTerm, termName);
     return (
-      ((item.status || "").toLowerCase() !== "inactive" || historicalMark) &&
+      (termMembership === null ? (item.status || "").toLowerCase() !== "inactive" || historicalMark : termMembership) &&
       studentWasEnrolledDuringTerm(studentsById.get(normalizeText(item.studentId)), academicTerm) &&
       matchesReportClass(item, reportContext) &&
       Number(item.academicYear || item.year || 0) === Number(year)
