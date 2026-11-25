@@ -107,6 +107,19 @@ export function createTextBookRequestPdf(report) {
     rowPageBreak: "avoid",
   });
 
+  let signatureY = (doc.lastAutoTable?.finalY || startY) + 18;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  if (signatureY > pageHeight - 15) {
+    doc.addPage();
+    signatureY = 25;
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Prepared by", 14, signatureY);
+  doc.text("Sectional Head", pageWidth / 2, signatureY, { align: "center" });
+  doc.text("Principal", pageWidth - 14, signatureY, { align: "right" });
+
   const fileName = `Text_Book_Request_${report.academicYear}_${safePart(scopeLabel(report))}.pdf`;
   return { doc, fileName };
 }

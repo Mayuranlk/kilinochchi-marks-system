@@ -664,6 +664,17 @@ function addPdfFooter(doc) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
+  let signatureY = (doc.lastAutoTable?.finalY || 35) + 18;
+  if (signatureY > pageHeight - 20) {
+    doc.addPage();
+    signatureY = 25;
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Prepared by", 10, signatureY);
+  doc.text("Sectional Head", pageWidth / 2, signatureY, { align: "center" });
+  doc.text("Principal", pageWidth - 10, signatureY, { align: "right" });
+
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 10, pageHeight - 8, {
@@ -683,6 +694,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
       "Enrolled",
       "Appeared",
       "Absent",
+      "Pending",
       "Average",
       "Highest",
       "Pass %",
@@ -693,6 +705,7 @@ function createSubjectStatsPdf({ title, context, rows }) {
       row.enrolled,
       row.appeared,
       row.absent,
+      row.pending,
       formatNumber(row.average),
       formatNumber(row.highest, 0),
       `${formatNumber(row.passPercentage)}%`,
@@ -750,8 +763,8 @@ function createRangeStatsPdf({ title, context, rows }) {
 
     autoTable(doc, {
       startY: 36,
-      head: [["Total Students", "Appeared", "Absent"]],
-      body: [[row.enrolled, row.appeared, row.absent]],
+      head: [["Total Students", "Appeared", "Absent", "Pending"]],
+      body: [[row.enrolled, row.appeared, row.absent, row.pending]],
       theme: "grid",
       styles: {
         fontSize: 9,
@@ -1220,11 +1233,12 @@ function createSubjectMarkStudentsPdf({ title, context, rows, analysisRow, sortD
   if (analysisRow) {
     autoTable(doc, {
       startY: summaryStartY,
-      head: [["Enrolled", "Appeared", "Absent", "Average", "Highest", "Lowest", "Pass %"]],
+      head: [["Enrolled", "Appeared", "Absent", "Pending", "Average", "Highest", "Lowest", "Pass %"]],
       body: [[
         analysisRow.enrolled,
         analysisRow.appeared,
         analysisRow.absent,
+        analysisRow.pending,
         formatNumber(analysisRow.average),
         formatNumber(analysisRow.highest, 0),
         formatNumber(analysisRow.lowest, 0),
@@ -1518,13 +1532,15 @@ function subjectAppliesToGrade(subject, grade) {
   return true;
 }
 
-function createEmptyStats(label, extra = {}) {
+export function createEmptyStats(label, extra = {}) {
   return {
     label,
     ...extra,
     enrolled: 0,
     appeared: 0,
     absent: 0,
+    pending: 0,
+    passCount: 0,
     marksTotal: 0,
     highest: null,
     lowest: null,
@@ -1534,7 +1550,7 @@ function createEmptyStats(label, extra = {}) {
   };
 }
 
-function addToStats(stats, record) {
+export function addToStats(stats, record) {
   stats.enrolled += 1;
 
   if (record.absent) {
@@ -1542,7 +1558,10 @@ function addToStats(stats, record) {
     return;
   }
 
-  if (!hasEnteredMark(record.mark)) return;
+  if (!hasEnteredMark(record.mark)) {
+    stats.pending += 1;
+    return;
+  }
 
   const mark = Number(record.mark);
   const symbol = getGradeSymbol(mark, record.grade);
@@ -1550,6 +1569,7 @@ function addToStats(stats, record) {
   const summaryRange = getSummaryRangeKey(mark);
 
   stats.appeared += 1;
+  if (mark >= 40) stats.passCount += 1;
   stats.marksTotal += mark;
   stats.gradeCounts[symbol] += 1;
   if (range) stats.rangeCounts[range] += 1;
@@ -1558,13 +1578,11 @@ function addToStats(stats, record) {
   stats.lowest = stats.lowest === null ? mark : Math.min(stats.lowest, mark);
 }
 
-function finishStats(stats) {
-  const passCount = stats.gradeCounts.A + stats.gradeCounts.B + stats.gradeCounts.C + stats.gradeCounts.S;
+export function finishStats(stats) {
   return {
     ...stats,
-    passCount,
     average: stats.appeared ? stats.marksTotal / stats.appeared : 0,
-    passPercentage: stats.appeared ? (passCount / stats.appeared) * 100 : 0,
+    passPercentage: stats.appeared ? (stats.passCount / stats.appeared) * 100 : 0,
   };
 }
 
@@ -2573,6 +2591,14 @@ export default function SubjectAnalysis() {
             }
             .analysis-print-active table { page-break-inside: auto; }
             .analysis-print-active tr { page-break-inside: avoid; page-break-after: auto; }
+            .analysis-print-active::after {
+              content: "Prepared by                                        Sectional Head                                        Principal";
+              display: block;
+              white-space: pre-wrap;
+              margin: 18mm 4mm 5mm;
+              page-break-inside: avoid;
+              font-size: 10pt;
+            }
             .analysis-no-print { display: none !important; }
           }
         `}
@@ -3202,6 +3228,7 @@ function SubjectStatsTable({
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Enrolled</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Absent</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 800 }}>Pending</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Average</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Highest</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800 }}>Pass %</TableCell>
@@ -3217,6 +3244,7 @@ function SubjectStatsTable({
                   <TableCell align="right">{row.enrolled}</TableCell>
                   <TableCell align="right">{row.appeared}</TableCell>
                   <TableCell align="right">{row.absent}</TableCell>
+                  <TableCell align="right">{row.pending}</TableCell>
                   <TableCell align="right">{formatNumber(row.average)}</TableCell>
                   <TableCell align="right">{formatNumber(row.highest, 0)}</TableCell>
                   <TableCell align="right">{formatNumber(row.passPercentage)}%</TableCell>
@@ -3228,6 +3256,9 @@ function SubjectStatsTable({
             </TableBody>
           </Table>
         </ResponsiveTableWrapper>
+        <Typography variant="caption" color="text.secondary">
+          Enrolled = appeared + absent + pending. Pending means no matching mark or absence was found. Pass % counts marks of 40 or above among students who appeared.
+        </Typography>
       </CardContent>
     </Card>
   );
@@ -3270,6 +3301,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Total Students</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Absent</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Pending</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -3277,6 +3309,7 @@ function RangeStatsTable({ title, rows, reportId, activePrint, context, onPrint 
                     <TableCell align="right">{singleSubjectRow.enrolled}</TableCell>
                     <TableCell align="right">{singleSubjectRow.appeared}</TableCell>
                     <TableCell align="right">{singleSubjectRow.absent}</TableCell>
+                    <TableCell align="right">{singleSubjectRow.pending}</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
@@ -3801,6 +3834,7 @@ function SubjectMarkStudentsReport({
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Enrolled</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Appeared</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Absent</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800 }}>Pending</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Average</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Highest</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800 }}>Lowest</TableCell>
@@ -3812,6 +3846,7 @@ function SubjectMarkStudentsReport({
                     <TableCell align="right">{analysisRow.enrolled}</TableCell>
                     <TableCell align="right">{analysisRow.appeared}</TableCell>
                     <TableCell align="right">{analysisRow.absent}</TableCell>
+                    <TableCell align="right">{analysisRow.pending}</TableCell>
                     <TableCell align="right">{formatNumber(analysisRow.average)}</TableCell>
                     <TableCell align="right">{formatNumber(analysisRow.highest, 0)}</TableCell>
                     <TableCell align="right">{formatNumber(analysisRow.lowest, 0)}</TableCell>

@@ -112,13 +112,13 @@ export function calculateAnalysis(rows = [], schema) {
       const hasEligibleStudent =
         eligibleColumnKeys.has(column.key) ||
         row.absencesByColumn?.[column.key] === true ||
-        Number.isFinite(Number(mark));
+        (mark !== null && mark !== undefined && mark !== "" && Number.isFinite(Number(mark)));
 
       if (hasEligibleStudent) {
         item.total += 1;
       }
 
-      if (mark === null || mark === undefined || !Number.isFinite(Number(mark))) {
+      if (row.absencesByColumn?.[column.key] === true || mark === null || mark === undefined || mark === "" || !Number.isFinite(Number(mark))) {
         continue;
       }
 
@@ -134,7 +134,7 @@ export function calculateAnalysis(rows = [], schema) {
         }
       }
 
-      if (numericMark > 40) {
+      if (numericMark >= 40) {
         item.passCount += 1;
       }
     }

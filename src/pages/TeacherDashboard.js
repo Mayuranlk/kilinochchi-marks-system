@@ -641,7 +641,9 @@ export default function TeacherDashboard() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [marksEntrySettings, setMarksEntrySettings] = useState(DEFAULT_MARKS_ENTRY_SETTINGS);
-  const lastLoadedTermKey = useRef("");
+  const dashboardSourceRef = useRef(null);
+  const selectedTermKeyRef = useRef(selectedTermKey);
+  selectedTermKeyRef.current = selectedTermKey;
 
   const marksEntryDisabled = isTeacherMarksEntryLocked(marksEntrySettings);
   const marksEntryDisabledReason = getTeacherMarksEntryLockReason(marksEntrySettings);
@@ -702,7 +704,6 @@ export default function TeacherDashboard() {
       if (!selectedTermKey && defaultTerm) {
         setSelectedTermKey(effectiveTermKey);
       }
-      lastLoadedTermKey.current = effectiveTermKey;
 
       const initialData = buildTeacherDashboardData({
         user,
@@ -723,26 +724,35 @@ export default function TeacherDashboard() {
       setProgressLoading(true);
 
       try {
-        const [loadedEnrollments, loadedMarks, loadedStudents] = await Promise.all([
-          getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
-          getCollectionRows(db, "marks", { forceRefresh }),
-          getCollectionRows(db, "students", { forceRefresh }),
-        ]);
+        // No progress or class report can be displayed without an assignment.
+        // Avoid downloading all school records for newly created or unassigned
+        // teacher accounts. Assigned teachers still need compatibility reads.
+        const hasTeachingAssignment = assignments.some((assignment) =>
+          isActiveStatus(assignment.status) &&
+          (normalize(assignment.teacherId) === normalize(user.uid) ||
+            normalize(assignment.teacherEmail) === normalize(user.email))
+        );
+        const needsProgressData = hasTeachingAssignment || !!initialData.assignedClassroom;
+        const [loadedEnrollments, loadedMarks, loadedStudents] = needsProgressData
+          ? await Promise.all([
+              getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
+              getCollectionRows(db, "marks", { forceRefresh }),
+              getCollectionRows(db, "students", { forceRefresh }),
+            ])
+          : [[], [], []];
 
         setEnrollments(loadedEnrollments);
         setMarks(loadedMarks);
         setStudents(loadedStudents);
 
+        dashboardSourceRef.current = {
+          user, users, assignments, classrooms,
+          enrollments: loadedEnrollments, students: loadedStudents,
+          marks: loadedMarks, sortedTerms,
+        };
         const completedData = buildTeacherDashboardData({
-          user,
-          users,
-          assignments,
-          classrooms,
-          enrollments: loadedEnrollments,
-          students: loadedStudents,
-          marks: loadedMarks,
-          sortedTerms,
-          effectiveTermKey,
+          ...dashboardSourceRef.current,
+          effectiveTermKey: selectedTermKeyRef.current || effectiveTermKey,
           progressReady: true,
         });
 
@@ -784,11 +794,15 @@ export default function TeacherDashboard() {
   }, []);
 
   useEffect(() => {
-    if (selectedTermKey) {
-      if (selectedTermKey === lastLoadedTermKey.current) return;
-      loadDashboard(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!selectedTermKey || !dashboardSourceRef.current) return;
+    const data = buildTeacherDashboardData({
+      ...dashboardSourceRef.current,
+      effectiveTermKey: selectedTermKey,
+      progressReady: true,
+    });
+    setSubjectRows(data.subjectRows);
+    setClassTeacherData(data.classTeacherData);
+    setAssignedClassroom(data.assignedClassroom);
   }, [selectedTermKey]);
 
   const ensureStudentsLoaded = useCallback(async () => {

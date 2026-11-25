@@ -389,7 +389,7 @@ function buildAnalysisBody(reportData) {
       values: flatColumns.map((col) => analysis[col.key]?.bands?.[band.key] ?? 0),
     })),
     {
-      label: "Students >40marks",
+      label: "Students >= 40 marks",
       values: flatColumns.map((col) => analysis[col.key]?.passCount ?? 0),
     },
     {
@@ -426,8 +426,8 @@ function drawFooter(doc, reportData, options = {}) {
     ? getOverallExclusionNote(reportData.schema)
     : "";
 
-  const classTeacher = reportData.classroom?.classTeacherName || "Class Teacher";
-  const sectionalHead = reportData.classroom?.sectionHeadName || "Sectional Head";
+  const classTeacher = "Prepared by";
+  const sectionalHead = "Sectional Head";
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
@@ -957,7 +957,7 @@ function makeAnalysisSheetRows(reportData) {
       band.key,
       ...flatColumns.map((col) => reportData.analysis[col.key]?.bands?.[band.key] ?? 0),
     ]),
-    ["Students >40marks", ...flatColumns.map((col) => reportData.analysis[col.key]?.passCount ?? 0)],
+    ["Students >= 40 marks", ...flatColumns.map((col) => reportData.analysis[col.key]?.passCount ?? 0)],
     [
       "Pass Percentage",
       ...flatColumns.map((col) =>

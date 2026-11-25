@@ -13,7 +13,7 @@ export const SLIDE_TEXT = {
     class: "Class", sat: "Sat", passed: "Passed", absent: "Absent", pending: "Pending", rate: "Pass rate",
     verified: "Verified A/L eligibility", grouped: "Categories 1–3", complete: "No core-subject concern recorded.",
     note: "4–8 A grades do not guarantee core passes or six total passes. Verified eligibility checks every condition.",
-    legend: "A/B/C/S = pass; W = below pass; AB = absent; — = pending. Pass rate = passed ÷ sat. Absent and pending excluded from sat.",
+    legend: "Pass rate counts marks of 40 or above ÷ sat. AB = absent; — = pending. Absent and pending are excluded from sat. Grade-based eligibility uses the stated grade rules.",
     overviewLabels: ["Students", "9A results", "Verified eligible", "Not eligible", "Pending review", "Absent students"],
     categoryLabels: ["Excellent (9A)", "Best (4A–8A)", "A/L Eligible", "At Risk: Core Subject Failure", "At Risk: Below Threshold", "Needs Focused Support"],
     advice: [
@@ -37,7 +37,7 @@ export const SLIDE_TEXT = {
     class: "வகுப்பு", sat: "தோற்றியோர்", passed: "சித்தியடைந்தோர்", absent: "சமுகமளிக்காதோர்", pending: "நிலுவை", rate: "சித்தி வீதம்",
     verified: "உறுதிசெய்யப்பட்ட உயர்தரத் தகுதி", grouped: "பிரிவுகள் 1–3", complete: "பிரதான பாடங்களில் குறைபாடு பதிவாகவில்லை.",
     note: "4–8 A தரங்கள் மட்டும் தமிழ், கணிதம் மற்றும் ஆறு பாடச் சித்தியை உறுதிசெய்யாது. உயர்தரத் தகுதிக்கு அனைத்து நிபந்தனைகளும் சரிபார்க்கப்படுகின்றன.",
-    legend: "A/B/C/S = சித்தி; W = சித்தியில்லை; AB = சமுகமளிக்கவில்லை; — = நிலுவை. சித்தி வீதம் = சித்தியடைந்தோர் ÷ தோற்றியோர். சமுகமளிக்காதோர் மற்றும் நிலுவைப் பெறுபேறுகள் கணக்கில் சேராது.",
+    legend: "சித்தி வீதத்திற்கு 40 அல்லது அதற்கு மேற்பட்ட புள்ளிகள் சித்தியாகக் கணக்கிடப்படும். AB = சமுகமளிக்கவில்லை; — = நிலுவை. சமுகமளிக்காதோரும் நிலுவைப் பெறுபேறுகளும் வீதத்தில் சேராது.",
     overviewLabels: ["மாணவர்கள்", "9A பெறுபேறுகள்", "உயர்தரத் தகுதி", "தகுதி பெறாதோர்", "மீளாய்வு நிலுவை", "சமுகமளிக்காதோர்"],
     categoryLabels: ["அதிசிறப்பு (9A)", "மிகச் சிறப்பு (4A–8A)", "உயர்தரத்திற்குத் தகுதி", "கவனம் தேவை: பிரதான பாடச் சித்தியின்மை", "கவனம் தேவை: தேவையான சித்திகள் இல்லை", "தனிப்பட்ட ஆதரவு தேவை"],
     advice: [
