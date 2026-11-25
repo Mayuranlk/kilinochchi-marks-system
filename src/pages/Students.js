@@ -90,7 +90,7 @@ import {
   normalizeAcademicMedium,
   usesSeparateMediumRanking,
 } from "../utils/academicMediumUtils";
-import { regenerateSingleStudent } from "../services/enrollmentGenerator";
+import { regenerateSingleStudent, saveStudentSubjectTermChange } from "../services/enrollmentGenerator";
 import { normalizeStudentName } from "../utils/studentNameUtils";
 import { buildCanonicalStudentFields } from "../utils/firestoreCanonical";
 import { schoolDate } from "../utils/studentTermEligibility";
@@ -724,6 +724,10 @@ export default function Students() {
   const [students, setStudents] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [academicTerms, setAcademicTerms] = useState([]);
+  const [subjectChangeTerm, setSubjectChangeTerm] = useState("");
+  const [previousSubjectTerms, setPreviousSubjectTerms] = useState([]);
+  const [subjectHistoryConfirmed, setSubjectHistoryConfirmed] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -1026,10 +1030,11 @@ export default function Students() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [studentRows, classroomRows, subjectRows] = await Promise.all([
+      const [studentRows, classroomRows, subjectRows, termRows] = await Promise.all([
         getCollectionRows(db, "students"),
         getCollectionRows(db, "classrooms"),
         getCollectionRows(db, "subjects"),
+        getCollectionRows(db, "academicTerms"),
       ]);
 
       const loadedStudents = studentRows.map((raw) => {
@@ -1069,6 +1074,7 @@ export default function Students() {
       setStudents(sortStudentsClientSide(loadedStudents));
       setClassrooms(classroomRows);
       setSubjects(loadedSubjects);
+      setAcademicTerms(termRows);
     } catch (err) {
       setError("Failed to load data: " + err.message);
     } finally {
@@ -1472,7 +1478,22 @@ export default function Students() {
       let savedStudentId = editId;
       let enrollmentSyncResult = null;
 
-      if (editId) {
+      const original = editId ? students.find((student) => student.id === editId) : null;
+      const aestheticChanged = original && shouldShowAesthetic(original.grade) && shouldShowAesthetic(payload.grade) && normalizeLoose(original.aestheticChoice || original.aesthetic || "") !== normalizeLoose(payload.aestheticChoice || "");
+      if (aestheticChanged) {
+        if (!subjectChangeTerm || !subjectHistoryConfirmed) throw new Error("Select the effective term and confirm the previous subject terms.");
+        const ordered = academicTerms
+          .filter((term) => String(term.year || term.academicYear || "") === currentAcademicYear())
+          .sort((a, b) => schoolDate(a.startDate).localeCompare(schoolDate(b.startDate)));
+        if (ordered.length !== 3 || ordered.some((term) => !term.id || !schoolDate(term.startDate)) || new Set(ordered.map((term) => schoolDate(term.startDate))).size !== ordered.length) {
+          throw new Error("Set up all three academic terms with unique start dates before changing subjects.");
+        }
+        enrollmentSyncResult = await saveStudentSubjectTermChange({ academicYear: currentAcademicYear(), studentId: editId, studentPayload: payload, terms: ordered, termIds: ordered.map((term) => term.id), effectiveTermId: subjectChangeTerm, confirmedOldTermIds: previousSubjectTerms });
+      }
+
+      if (aestheticChanged) {
+        // The student and both enrollments were committed together above.
+      } else if (editId) {
         await updateDoc(doc(db, "students", editId), payload);
       } else {
         const createdRef = await addDoc(collection(db, "students"), {
@@ -1482,7 +1503,7 @@ export default function Students() {
         savedStudentId = createdRef.id;
       }
 
-      if (savedStudentId && payload.status !== "Left") {
+      if (!aestheticChanged && savedStudentId && payload.status !== "Left") {
         enrollmentSyncResult = await regenerateSingleStudent({
           academicYear: currentAcademicYear(),
           studentId: savedStudentId,
@@ -1514,6 +1535,9 @@ export default function Students() {
   };
 
   const handleEdit = useCallback((s) => {
+    setSubjectChangeTerm("");
+    setPreviousSubjectTerms([]);
+    setSubjectHistoryConfirmed(false);
     const choiceNumbers = Array.isArray(s.alSubjectChoiceNumbers) ? s.alSubjectChoiceNumbers : [];
     const choiceNames =
       Array.isArray(s.alSubjectChoices) && s.alSubjectChoices.length > 0
@@ -2971,6 +2995,34 @@ export default function Students() {
                                 </FormHelperText>
                               )}
                             </FormControl>
+                          </Grid>
+                        )}
+
+                        {editId && shouldShowAesthetic(form.grade) && shouldShowAesthetic(students.find((student) => student.id === editId)?.grade) && normalizeLoose(students.find((student) => student.id === editId)?.aestheticChoice || "") !== normalizeLoose(form.aestheticChoice || "") && (
+                          <Grid size={{ xs: 12 }}>
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                              Select when the new subject starts. Confirm the earlier terms in which the student took the previous subject; leave the list empty if none.
+                            </Alert>
+                            <FormControl fullWidth required sx={{ mb: 2 }}>
+                              <InputLabel>New subject effective from</InputLabel>
+                              <Select value={subjectChangeTerm} label="New subject effective from" onChange={(event) => { setSubjectChangeTerm(event.target.value); setPreviousSubjectTerms([]); setSubjectHistoryConfirmed(false); }}>
+                                {academicTerms.filter((term) => String(term.year || term.academicYear || "") === currentAcademicYear()).sort((a, b) => schoolDate(a.startDate).localeCompare(schoolDate(b.startDate))).map((term) => (
+                                  <MenuItem key={term.id} value={term.id}>{term.term || term.termName || term.id}</MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                            <FormControl fullWidth disabled={!subjectChangeTerm}>
+                              <InputLabel>Previous subject terms</InputLabel>
+                              <Select multiple value={previousSubjectTerms} label="Previous subject terms" onChange={(event) => { setPreviousSubjectTerms(event.target.value); setSubjectHistoryConfirmed(false); }} renderValue={(ids) => ids.map((id) => { const term = academicTerms.find((item) => item.id === id); return term?.term || term?.termName || id; }).join(", ")}>
+                                {academicTerms.filter((term) => String(term.year || term.academicYear || "") === currentAcademicYear() && schoolDate(term.startDate) && schoolDate(term.startDate) < schoolDate(academicTerms.find((item) => item.id === subjectChangeTerm)?.startDate)).map((term) => (
+                                  <MenuItem key={term.id} value={term.id}><Checkbox checked={previousSubjectTerms.includes(term.id)} /><ListItemText primary={term.term || term.termName || term.id} /></MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                            <Box component="label" sx={{ display: "flex", alignItems: "center", mt: 1 }}>
+                              <Checkbox checked={subjectHistoryConfirmed} onChange={(event) => setSubjectHistoryConfirmed(event.target.checked)} disabled={!subjectChangeTerm} />
+                              <Typography variant="body2">I confirm the previous subject terms shown above are complete.</Typography>
+                            </Box>
                           </Grid>
                         )}
 

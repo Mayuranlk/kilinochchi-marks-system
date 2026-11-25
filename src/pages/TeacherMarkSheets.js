@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import { useAuth } from "../context/AuthContext";
@@ -292,7 +293,7 @@ export default function TeacherMarkSheets() {
         getCollectionRows(db, "studentSubjectEnrollments", { forceRefresh }),
         getCollectionRows(db, "academicTerms", { forceRefresh }),
       ]);
-      const loadedEnrollments = enrollmentRows.filter((row) => isEnrollmentActive(row));
+      const loadedEnrollments = enrollmentRows.filter((row) => isEnrollmentActive(row) || Array.isArray(row.subjectTermIds));
 
       const activeTerm = loadedTerms.find((t) => t.isActive === true) || null;
 
@@ -347,7 +348,8 @@ export default function TeacherMarkSheets() {
   const filteredEnrollmentsByYear = useMemo(() => {
     return enrollments.filter((e) => {
       const year = getEnrollmentAcademicYear(e);
-      return (!selectedYear || !year || year === selectedYear) && studentWasEnrolledDuringTerm(studentMap.get(normalizeText(e.studentId)), findAcademicTerm(terms, selectedYear, selectedTerm));
+      const academicTerm = findAcademicTerm(terms, selectedYear, selectedTerm);
+      return (!selectedYear || !year || year === selectedYear) && studentWasEnrolledDuringTerm(studentMap.get(normalizeText(e.studentId)), academicTerm) && (subjectEnrollmentInTerm(e, academicTerm, selectedTerm) ?? isEnrollmentActive(e));
     });
   }, [enrollments, selectedYear, selectedTerm, terms, studentMap]);
 

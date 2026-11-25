@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Autocomplete,
@@ -918,7 +919,7 @@ export default function MarksEntry() {
 
         const status = normalize(pick(enrollment.status, "active"));
 
-        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameMedium && sameYear && (!status || status === "active");
+        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameMedium && sameYear && (subjectEnrollmentInTerm(enrollment, activeTerm) ?? (!status || status === "active"));
       });
 
       const uniqueRelevantEnrollments = Array.from(

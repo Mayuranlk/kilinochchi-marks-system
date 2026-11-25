@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { findAcademicTerm, schoolDate, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Accordion,
   AccordionDetails,
@@ -324,6 +325,8 @@ export function buildLiveRows({ classrooms, students, enrollments, marks, assign
 
         const student = studentsById.get(normalizeText(enrollment.studentId));
         if (student && !eligibleForTerm(student)) return false;
+        const termMembership = subjectEnrollmentInTerm(enrollment, academicTerm, termName);
+        if (termMembership !== null) return termMembership;
         if (!isActiveStatus(enrollment.status)) {
           return hasMatchingTermMark({ enrollment, marksByStudentId, termName, year });
         }

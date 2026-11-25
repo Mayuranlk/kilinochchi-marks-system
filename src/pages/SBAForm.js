@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Box,
@@ -742,7 +743,7 @@ export default function SBAForm() {
 
         const status = normalize(pick(enrollment.status, "active"));
 
-        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameYear && (!status || status === "active");
+        return studentWasEnrolledDuringTerm(student, activeTerm) && sameClass && sameSubject && sameYear && (subjectEnrollmentInTerm(enrollment, activeTerm) ?? (!status || status === "active"));
       });
 
       const uniqueRelevantEnrollments = Array.from(

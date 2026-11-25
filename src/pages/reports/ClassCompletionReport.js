@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { normalizeSbaCompletionMarks } from "../../utils/sbaCompletionData";
 import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../../utils/subjectTermMembership";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
@@ -275,6 +276,8 @@ export function buildClassCompletionRows({ classrooms, students, enrollments, ma
       const student = studentsById.get(normalizeText(enrollment.studentId));
       if (student && !studentWasEnrolledDuringTerm(student, academicTerm)) return false;
 
+      const termMembership = subjectEnrollmentInTerm(enrollment, academicTerm, termName);
+      if (termMembership !== null) return termMembership;
       const active = isActiveStatus(enrollment.status);
       if (active) return true;
 

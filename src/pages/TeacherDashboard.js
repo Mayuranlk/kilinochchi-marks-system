@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Box,
@@ -290,7 +291,7 @@ const isCompletedForSubject = (
     const sameYear =
       normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) === targetYear;
     const sameMedium = matchesAcademicMedium(enrollment, subjectRow.medium);
-    const activeEnrollment = isActiveStatus(enrollment.status);
+    const activeEnrollment = subjectEnrollmentInTerm(enrollment, targetTerm) ?? isActiveStatus(enrollment.status);
 
     return activeEnrollment && sameClass && sameSubject && sameMedium && sameYear;
   });
@@ -372,6 +373,7 @@ const buildTeacherDashboardData = ({
     sortedTerms.find((term) => buildTermKey(term) === effectiveTermKey) || defaultTerm;
 
   const targetTerm = {
+    id: chosenTerm?.id,
     term: pick(chosenTerm?.term, chosenTerm?.termName, ""),
     year: String(pick(chosenTerm?.year, chosenTerm?.academicYear, "")),
   };
@@ -483,7 +485,7 @@ const buildTeacherDashboardData = ({
     const classStudentsRaw = progressReady
       ? eligibleEnrollments.filter(
           (enrollment) =>
-            isActiveStatus(enrollment.status) &&
+            (subjectEnrollmentInTerm(enrollment, chosenTerm) ?? isActiveStatus(enrollment.status)) &&
             matchesClassContext(enrollment, classContext) &&
             normalizeAcademicYear(pick(enrollment.academicYear, enrollment.year, "")) ===
               normalizeAcademicYear(targetTerm.year)

@@ -1,5 +1,7 @@
 const fs = require("node:fs");
 const { test, expect } = require("@playwright/test");
+const { getApps, initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
 
 const PASSWORD = process.env.STAGING_TEST_PASSWORD || "EmulatorOnly!123";
 const EXPECTED_PROJECT_ID = process.env.EXPECTED_FIREBASE_PROJECT_ID || "demo-kilinochchi-rules";
@@ -19,6 +21,7 @@ test.beforeEach(async ({ context }) => {
   // second guard so no authenticated role can cross a suite boundary.
   await context.clearCookies();
 });
+
 
 function monitorSecurityFailures(page) {
   const failures = [];
@@ -264,4 +267,44 @@ test("admin completes backup download, validation, upload, and restore through t
   await page.getByRole("button", { name: "Restore This Backup" }).click();
   await expect(page.getByText(/documents were restored/)).toBeVisible();
   monitor.assertClean("admin backup and restore UI flow");
+});
+
+test("admin changes an aesthetic subject from term 3 while preserving term 2", async ({ page }) => {
+  if (process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8085" || process.env.GCLOUD_PROJECT !== "demo-kilinochchi-rules") throw new Error("Synthetic test requires the Firestore emulator.");
+  const app = getApps()[0] || initializeApp({ projectId: "demo-kilinochchi-rules" });
+  const db = getFirestore(app);
+  const year = String(new Date().getFullYear());
+  const batch = db.batch();
+  const set = (collection, id, data) => batch.set(db.collection(collection).doc(id), data);
+  set("students", "term-change-student", { name: "Synthetic Term Change", fullName: "Synthetic Term Change", admissionNo: "54321", grade: 6, section: "A", className: "A", status: "Active", medium: "Tamil", religion: "Hinduism", aesthetic: "Art", aestheticChoice: "Art" });
+  set("classrooms", "term-change-class", { grade: 6, section: "A", className: "A", year });
+  set("subjects", "term-change-art", { name: "Art", category: "aesthetic", grade: 6, status: "active" });
+  set("subjects", "term-change-music", { name: "Music", category: "aesthetic", grade: 6, status: "active" });
+  for (let n = 1; n <= 3; n += 1) set("academicTerms", `term-change-${n}`, { term: `Term ${n}`, year: Number(year), startDate: `${year}-${String(1 + (n - 1) * 4).padStart(2, "0")}-01` });
+  set("studentSubjectEnrollments", "term-change-art-enrollment", { studentId: "term-change-student", subjectId: "term-change-art", subjectName: "Art", grade: 6, section: "A", className: "6A", academicYear: year, status: "active" });
+  await batch.commit();
+  // Other synthetic terms for the current year would make the term list ambiguous.
+  const existingTerms = await db.collection("academicTerms").where("year", "==", Number(year)).get();
+  for (const term of existingTerms.docs) if (!term.id.startsWith("term-change-")) await term.ref.delete();
+  await login(page, "admin");
+  await page.goto("/students");
+  const row = page.getByRole("row").filter({ hasText: "Synthetic Term Change" });
+  await expect(row).toBeVisible();
+  await row.locator("button").first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("combobox").filter({ hasText: "Art" }).click();
+  await page.getByRole("option", { name: "Music", exact: true }).click();
+  await dialog.locator("label").filter({ hasText: "New subject effective from" }).locator("..").getByRole("combobox").click();
+  await page.getByRole("option", { name: "Term 3", exact: true }).click();
+  await dialog.locator("label.MuiInputLabel-root").filter({ hasText: "Previous subject terms" }).locator("..").getByRole("combobox").click();
+  await page.getByRole("option", { name: "Term 1", exact: false }).click();
+  await page.getByRole("option", { name: "Term 2", exact: false }).click();
+  await page.keyboard.press("Escape");
+  await dialog.getByText("I confirm the previous subject terms shown above are complete.").click();
+  await dialog.getByRole("button", { name: "Update Student" }).click();
+  await expect(dialog).toHaveCount(0);
+  const oldEnrollment = await db.collection("studentSubjectEnrollments").doc("term-change-art-enrollment").get();
+  const newEnrollment = await db.collection("studentSubjectEnrollments").doc(`${year}_term-change-student_term-change-music`).get();
+  expect(oldEnrollment.data().subjectTermIds).toEqual(["term-change-1", "term-change-2"]);
+  expect(newEnrollment.data().subjectTermIds).toEqual(["term-change-3"]);
 });

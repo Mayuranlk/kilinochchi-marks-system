@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   where,
   writeBatch,
@@ -16,6 +17,7 @@ import {
   getALCompulsorySubjectsForStream,
 } from "../constants";
 import { normalizeStudentName } from "../utils/studentNameUtils";
+import { planSubjectTermChange } from "../utils/subjectTermMembership";
 
 const STUDENTS_COLLECTION = "students";
 const SUBJECTS_COLLECTION = "subjects";
@@ -981,6 +983,72 @@ export async function generateMissingEnrollments({ academicYear }) {
 /* -------------------------------------------------------------------------- */
 /* Regenerate one student                                                      */
 /* -------------------------------------------------------------------------- */
+
+export async function saveStudentSubjectTermChange({ academicYear, studentId, studentPayload, terms, termIds, effectiveTermId, confirmedOldTermIds }) {
+  const year = normalizeAcademicYear(academicYear);
+  const [students, subjects, enrollments] = await Promise.all([
+    fetchStudents(), fetchSubjects(), fetchEnrollmentsByStudent(year, studentId),
+  ]);
+  const original = students.find((student) => student.id === studentId);
+  if (!original) throw new Error("Student not found.");
+  const index = buildSubjectIndex(subjects);
+  const before = buildDesiredSubjects(original, index);
+  const afterStudent = { ...original, ...studentPayload, id: studentId };
+  const after = buildDesiredSubjects(afterStudent, index);
+  if (before.issues.length || after.issues.length) throw new Error("Subject choices could not be resolved; check the student and subject setup.");
+  const oldKeys = new Set(before.subjects.map(subjectKey));
+  const newKeys = new Set(after.subjects.map(subjectKey));
+  const removed = before.subjects.filter((subject) => !newKeys.has(subjectKey(subject)));
+  const added = after.subjects.filter((subject) => !oldKeys.has(subjectKey(subject)));
+  if (removed.length !== 1 || added.length !== 1) throw new Error("Change one subject at a time, without changing grade or other subject choices.");
+  const oldRows = enrollments.filter((row) => existingEnrollmentKey(row) === subjectKey(removed[0]));
+  const newRows = enrollments.filter((row) => existingEnrollmentKey(row) === subjectKey(added[0]));
+  if (oldRows.length !== 1 || newRows.length > 1) throw new Error("Subject enrollment is missing or duplicated; review enrollments before saving.");
+  const oldRow = oldRows[0];
+  const newRow = newRows[0];
+  if (newRow && !Array.isArray(newRow.subjectTermIds)) throw new Error("The new subject has older enrollment history that must be reviewed before changing back.");
+  if (Array.isArray(oldRow.subjectTermIds)) {
+    const effectiveIndex = termIds.indexOf(effectiveTermId);
+    const previousTerms = new Set(termIds.slice(0, effectiveIndex));
+    const savedPrevious = oldRow.subjectTermIds.filter((id) => previousTerms.has(id)).sort();
+    const confirmedPrevious = confirmedOldTermIds.filter((id) => previousTerms.has(id)).sort();
+    if (JSON.stringify(savedPrevious) !== JSON.stringify(confirmedPrevious)) throw new Error("The selected previous terms do not match saved history. Review the history before continuing.");
+  }
+  const history = planSubjectTermChange({ termIds, effectiveTermId, oldTermIds: confirmedOldTermIds, newTermIds: newRow?.subjectTermIds || [] });
+  const markSnapshot = await getDocs(query(collection(db, "marks"), where("studentId", "==", studentId)));
+  for (const mark of mapDocs(markSnapshot)) {
+    const matches = (subject) => (mark.subjectId && String(mark.subjectId) === String(getSubjectId(subject))) || (mark.subjectName && normalizeLoose(mark.subjectName) === normalizeLoose(getSubjectName(subject)));
+    const oldMatch = matches(removed[0]);
+    const newMatch = matches(added[0]);
+    if (!oldMatch && !newMatch) continue;
+    const markYear = normalizeAcademicYear(mark.academicYear || mark.year);
+    if (markYear && markYear !== year) continue;
+    const markTermId = String(mark.academicTermId || mark.termId || "");
+    const markTermName = normalizeLoose(mark.term || mark.termName || "");
+    const matchingTerm = (terms || []).find((term) => (markTermId && String(term.id) === markTermId) || (markTermName && normalizeLoose(term.term || term.termName || "") === markTermName));
+    if (!markYear || !matchingTerm || !(oldMatch ? history.oldTermIds : history.newTermIds).includes(matchingTerm.id)) {
+      throw new Error("Existing marks conflict with the selected subject terms or cannot be matched. Review the student's marks and term history before saving.");
+    }
+  }
+  const studentRef = doc(db, STUDENTS_COLLECTION, studentId);
+  const oldRef = doc(db, ENROLLMENTS_COLLECTION, oldRow.id);
+  const newRef = doc(db, ENROLLMENTS_COLLECTION, newRow?.id || uniqueEnrollmentId(studentId, getSubjectId(added[0]), year));
+  const payload = enrollmentPayload(afterStudent, added[0], year);
+  await runTransaction(db, async (transaction) => {
+    const [studentSnap, oldSnap, newSnap] = await Promise.all([transaction.get(studentRef), transaction.get(oldRef), transaction.get(newRef)]);
+    if (!studentSnap.exists() || !oldSnap.exists()) throw new Error("The student or enrollment changed; reload and try again.");
+    const current = studentSnap.data();
+    if (Object.keys(studentPayload).some((key) => JSON.stringify(current[key]) !== JSON.stringify(original[key]))) throw new Error("The student record changed; reload and try again.");
+    if (Boolean(newRow) !== newSnap.exists()) throw new Error("The new enrollment changed; reload and try again.");
+    if (["subjectTermIds", "status", "subjectId", "academicYear"].some((key) => JSON.stringify(oldSnap.data()[key]) !== JSON.stringify(oldRow[key]))) throw new Error("The subject history changed; reload and try again.");
+    if (newRow && JSON.stringify(newSnap.data().subjectTermIds) !== JSON.stringify(newRow.subjectTermIds)) throw new Error("The subject history changed; reload and try again.");
+    transaction.update(studentRef, studentPayload);
+    transaction.set(oldRef, { status: "inactive", subjectTermIds: history.oldTermIds, updatedAt: serverTimestamp() }, { merge: true });
+    transaction.set(newRef, { ...payload, subjectTermIds: history.newTermIds }, { merge: true });
+  });
+  invalidateCollectionRows(STUDENTS_COLLECTION, ENROLLMENTS_COLLECTION);
+  return { created: newRow ? 0 : 1, reactivated: newRow ? 1 : 0, updated: 0, deactivated: 1 };
+}
 
 export async function regenerateSingleStudent({ academicYear, studentId }) {
   const normalizedYear = normalizeAcademicYear(academicYear);

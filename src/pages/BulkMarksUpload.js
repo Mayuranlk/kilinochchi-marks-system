@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Box,
@@ -1455,7 +1456,7 @@ export default function BulkMarksUpload() {
         .filter((student) => isActiveStatus(student?.status || "active"));
 
       const enrollments = enrollmentRows
-        .filter((enrollment) => isActiveStatus(enrollment?.status || "active"));
+        .filter((enrollment) => isActiveStatus(enrollment?.status || "active") || Array.isArray(enrollment.subjectTermIds));
 
       setAllStudents(students);
       setAllEnrollments(enrollments);
@@ -1479,7 +1480,7 @@ export default function BulkMarksUpload() {
   }, [allStudents]);
   const termEnrollments = useMemo(() => {
     const term = findAcademicTerm(allTerms, selectedYear, selectedTerm);
-    return allEnrollments.filter((enrollment) => studentWasEnrolledDuringTerm(studentsById.get(normalizeText(enrollment.studentId)), term));
+    return allEnrollments.filter((enrollment) => studentWasEnrolledDuringTerm(studentsById.get(normalizeText(enrollment.studentId)), term) && (subjectEnrollmentInTerm(enrollment, term, selectedTerm) ?? isActiveStatus(enrollment?.status || "active")));
   }, [allEnrollments, allTerms, selectedYear, selectedTerm, studentsById]);
 
   const studentsByUploadId = useMemo(() => {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { findAcademicTerm, studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import { db } from "../firebase";
 import { getCollectionRows } from "../services/firestoreReadCache";
 import { GRADES, RELIGIONS } from "../constants";
@@ -372,7 +373,7 @@ export default function StudentsBySubject() {
         .filter((student) => isActiveStatus(student?.status || "active") || Boolean(student.leftDate || student.leavingDate));
 
       const enrollmentsData = enrollmentRows
-        .filter((enrollment) => isEnrollmentActive(enrollment));
+        .filter((enrollment) => isEnrollmentActive(enrollment) || Array.isArray(enrollment.subjectTermIds));
 
 
       setAllStudents(studentsData);
@@ -497,7 +498,7 @@ export default function StudentsBySubject() {
           getEnrollmentAcademicYear(enrollment) === selectedYear;
 
         const student = studentsById.get(normalizeText(enrollment.studentId));
-        return sameGrade && sameSubject && sameSubjectNumber && sameYear && studentWasEnrolledDuringTerm(student, academicTerm);
+        return sameGrade && sameSubject && sameSubjectNumber && sameYear && studentWasEnrolledDuringTerm(student, academicTerm) && (subjectEnrollmentInTerm(enrollment, academicTerm, selectedTerm) ?? isEnrollmentActive(enrollment));
       });
 
       const eligibleStudentIds = [

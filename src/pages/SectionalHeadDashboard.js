@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { studentWasEnrolledDuringTerm } from "../utils/studentTermEligibility";
+import { subjectEnrollmentInTerm } from "../utils/subjectTermMembership";
 import {
   Alert,
   Box,
@@ -131,7 +132,7 @@ export default function SectionalHeadDashboard() {
       enrollments.filter(
         (enrollment) =>
           gradeSet.has(parseGrade(enrollment.grade || enrollment.className)) &&
-          normalizeStatus(enrollment.status) !== "inactive" &&
+          (subjectEnrollmentInTerm(enrollment, activeTerm) ?? (normalizeStatus(enrollment.status) !== "inactive")) &&
           studentWasEnrolledDuringTerm(studentsById.get(String(enrollment.studentId)), activeTerm) &&
           (!getYear(enrollment) || getYear(enrollment) === activeYear)
       ),
