@@ -42,6 +42,7 @@ import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import { auth, db } from "../firebase";
 import { getCollectionCount, getCollectionRows } from "../services/firestoreReadCache";
+import { TeacherMaintenanceControl } from "../components/TeacherMaintenance";
 import {
   EmptyState,
   LoadingState,
@@ -393,6 +394,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <PageContainer maxWidth="lg" sx={{ pb: { xs: 10, md: 3 } }}>
+        <TeacherMaintenanceControl />
         <LoadingState cards={4} rows={6} />
       </PageContainer>
     );
@@ -425,6 +427,7 @@ export default function Dashboard() {
       sx={{ pb: { xs: 10, md: 3 } }}
     >
       <Stack spacing={{ xs: 1.5, md: 2 }}>
+        <TeacherMaintenanceControl />
         {loadError ? <Alert severity="error">{loadError}</Alert> : null}
 
         <Card
